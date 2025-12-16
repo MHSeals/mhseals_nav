@@ -18,13 +18,13 @@ class BoatController(Node):
         self.cmd_vel.twist.angular.z = 0.0
         self.cmd_vel_publisher.publish(self.cmd_vel)
         
-        self.run()
+        self.timer = self.create_timer(0.1, self.run)
 
-    def set_forward_velocity(self, velocity: float):
+    def set_x_velocity(self, velocity: float):
         self.cmd_vel.twist.linear.x = velocity
         self.cmd_vel_publisher.publish(self.cmd_vel)
 
-    def set_backward_velocity(self, velocity: float):
+    def set_y_velocity(self, velocity: float):
         self.cmd_vel.twist.linear.y = velocity
         self.cmd_vel_publisher.publish(self.cmd_vel)
 
@@ -33,7 +33,7 @@ class BoatController(Node):
         self.cmd_vel_publisher.publish(self.cmd_vel)
         
     def run(self):
-        self.set_forward_velocity(10.0)
+        self.set_x_velocity(-5.0)
 
 def main(args=None):
     rclpy.init(args=args)
