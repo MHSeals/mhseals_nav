@@ -1,0 +1,3 @@
+Instantiated with filepath=None->None, scale=[0.0009999991161748767, 0.0010000000474974513, 0.0007927248952910304], mesh=<bpy_struct, Mesh("BoatHull") at 0x7f5eed6a9408>, meshname=BoatHull, material=None, mesh_orientation=None
+->trying export of <bpy_struct, Mesh("BoatHull") at 0x7f5eed6a9408> to /home/lunarz/phobos-models/omni_boat/meshes/stl/BoatHull.stl
+->wrote stl to /home/lunarz/phobos-models/omni_boat/meshes/stl/BoatHull.stl from bpy_types.Mesh

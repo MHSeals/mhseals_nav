@@ -1,0 +1,361 @@
+<robot name="omni_boat" version="1.0">
+  <joint name="gps_link_joint" type="fixed">
+    <origin rpy="-0.00000 0.00000 0.00000" xyz="0.00000 0.12529 0.23439"/>
+    <parent link="base_link"/>
+    <child link="gps_link"/>
+  </joint>
+  <joint name="imu_link_joint" type="fixed">
+    <origin rpy="-0.00000 0.00000 0.00000" xyz="0.00000 -0.00000 -0.00000"/>
+    <parent link="base_link"/>
+    <child link="imu_link"/>
+  </joint>
+  <joint name="rear_right_thruster_link_joint" type="fixed">
+    <origin rpy="-1.57080 -0.00000 -2.35619" xyz="0.00002 -0.27970 -0.20016"/>
+    <parent link="right_hull_link"/>
+    <child link="rear_right_thruster_link"/>
+  </joint>
+  <joint name="rear_right_propeller_link_joint" type="continuous">
+    <limit effort="0.00000" velocity="0.00000"/>
+    <origin rpy="-0.00000 0.00000 -0.00000" xyz="-0.00000 -0.00000 -0.00299"/>
+    <parent link="rear_right_thruster_link"/>
+    <child link="rear_right_propeller_link"/>
+    <axis xyz="0.00000 0.00000 1.00000"/>
+  </joint>
+  <joint name="sensor_rail_link_joint" type="fixed">
+    <origin rpy="-0.00000 0.00000 0.00000" xyz="0.00000 0.37825 -0.09151"/>
+    <parent link="base_link"/>
+    <child link="sensor_rail_link"/>
+  </joint>
+  <joint name="camera_link_joint" type="fixed">
+    <origin rpy="0.00000 0.00000 0.00000" xyz="0.00000 0.00000 -0.02610"/>
+    <parent link="sensor_rail_link"/>
+    <child link="camera_link"/>
+  </joint>
+  <joint name="lidar_link_joint" type="fixed">
+    <origin rpy="0.00000 0.00000 0.00000" xyz="0.00000 0.00000 0.01075"/>
+    <parent link="sensor_rail_link"/>
+    <child link="lidar_link"/>
+  </joint>
+  <joint name="left_hull_link_joint" type="fixed">
+    <origin rpy="-0.00000 0.00000 0.00000" xyz="-0.33137 -0.00008 -0.20009"/>
+    <parent link="base_link"/>
+    <child link="left_hull_link"/>
+  </joint>
+  <joint name="front_left_thruster_link_joint" type="fixed">
+    <origin rpy="-1.57080 -0.00000 0.78540" xyz="-0.00031 0.27985 -0.20016"/>
+    <parent link="left_hull_link"/>
+    <child link="front_left_thruster_link"/>
+  </joint>
+  <joint name="front_left_propeller_link_joint" type="continuous">
+    <limit effort="0.00000" velocity="0.00000"/>
+    <origin rpy="-0.00000 -0.00000 -0.00000" xyz="-0.00000 0.00000 -0.00299"/>
+    <parent link="front_left_thruster_link"/>
+    <child link="front_left_propeller_link"/>
+    <axis xyz="0.00000 0.00000 1.00000"/>
+  </joint>
+  <joint name="rear_left_thruster_link_joint" type="fixed">
+    <origin rpy="-1.57080 0.00000 2.35619" xyz="-0.00031 -0.27970 -0.20016"/>
+    <parent link="left_hull_link"/>
+    <child link="rear_left_thruster_link"/>
+  </joint>
+  <joint name="rear_left_propeller_link_joint" type="continuous">
+    <limit effort="0.00000" velocity="0.00000"/>
+    <origin rpy="-0.00000 0.00000 0.00000" xyz="-0.00000 0.00000 -0.00299"/>
+    <parent link="rear_left_thruster_link"/>
+    <child link="rear_left_propeller_link"/>
+    <axis xyz="0.00000 0.00000 1.00000"/>
+  </joint>
+  <joint name="right_hull_link_joint" type="fixed">
+    <origin rpy="-0.00000 0.00000 0.00000" xyz="0.33137 -0.00008 -0.20009"/>
+    <parent link="base_link"/>
+    <child link="right_hull_link"/>
+  </joint>
+  <joint name="front_right_thruster_link_joint" type="fixed">
+    <origin rpy="-1.57080 0.00000 -0.78540" xyz="0.00002 0.27985 -0.20016"/>
+    <parent link="right_hull_link"/>
+    <child link="front_right_thruster_link"/>
+  </joint>
+  <joint name="front_right_propeller_link_joint" type="continuous">
+    <limit effort="0.00000" velocity="0.00000"/>
+    <origin rpy="-0.00000 0.00000 0.00000" xyz="-0.00000 0.00000 -0.00299"/>
+    <parent link="front_right_thruster_link"/>
+    <child link="front_right_propeller_link"/>
+    <axis xyz="0.00000 0.00000 1.00000"/>
+  </joint>
+  <link name="base_link">
+    <collision name="electrical_box_collision">
+      <origin rpy="-0.00000 0.00000 0.00000" xyz="0.00000 0.00000 0.02680"/>
+      <geometry>
+        <box size="0.42126 0.36402 0.21093"/>
+      </geometry>
+    </collision>
+    <collision name="electrical_box_mount_collision">
+      <origin rpy="-0.00000 0.00000 0.00000" xyz="0.00025 0.00008 -0.09151"/>
+      <geometry>
+        <box size="0.43525 0.45570 0.02168"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <inertia ixx="0.08480" ixy="0.00000" ixz="0.00000" iyy="0.09020" iyz="0.00000" izz="0.14480"/>
+      <origin rpy="0.00000 0.00000 0.00000" xyz="0.00000 0.00000 0.00000"/>
+      <mass value="4.00000"/>
+    </inertial>
+    <visual name="electrical_box">
+      <material name="ElectricalBox"/>
+      <origin rpy="1.57080 0.00000 0.00000" xyz="0.00000 -0.00000 -0.07877"/>
+      <geometry>
+        <mesh filename="../meshes/stl/IP65.stl" scale="0.00191 0.00190 0.00243"/>
+      </geometry>
+    </visual>
+    <visual name="electrical_box_mount">
+      <material name="Aluminum"/>
+      <origin rpy="-0.00000 0.00000 0.00000" xyz="0.00000 0.00008 -0.08989"/>
+      <geometry>
+        <mesh filename="../meshes/stl/ElectricalMountFrame.stl" scale="0.00100 0.00100 0.00100"/>
+      </geometry>
+    </visual>
+  </link>
+  <link name="gps_link">
+    <sensor name="gps_sensor" type="GPS">
+      <parent link="gps_link"/>
+    </sensor>
+    <visual name="gps">
+      <material name="Material"/>
+      <origin rpy="0.00000 0.00000 -3.14159" xyz="0.00000 0.00000 0.00000"/>
+      <geometry>
+        <mesh filename="../meshes/stl/Here3 .stl" scale="0.00100 0.00100 0.00100"/>
+      </geometry>
+    </visual>
+  </link>
+  <link name="front_right_propeller_link">
+    <visual name="front_right_propeller">
+      <material name="Propeller"/>
+      <origin rpy="0.00000 -0.00000 0.00000" xyz="-0.00000 0.00057 0.00000"/>
+      <geometry>
+        <mesh filename="../meshes/stl/T200Propeller.stl" scale="0.00100 0.00100 0.00100"/>
+      </geometry>
+    </visual>
+  </link>
+  <link name="rear_right_thruster_link">
+    <inertial>
+      <inertia ixx="0.00073" ixy="0.00000" ixz="0.00000" iyy="0.00073" iyz="-0.00000" izz="0.00056"/>
+      <origin rpy="0.00000 0.00000 0.00000" xyz="-0.00000 -0.00000 0.00000"/>
+      <mass value="0.42700"/>
+    </inertial>
+    <visual name="rear_right_thruster">
+      <material name="Thruster"/>
+      <origin rpy="-0.00000 0.00000 -0.00000" xyz="-0.00000 -0.00000 -0.00000"/>
+      <geometry>
+        <mesh filename="../meshes/stl/T200Thruster.003.stl" scale="0.00100 0.00100 0.00100"/>
+      </geometry>
+    </visual>
+  </link>
+  <link name="rear_right_propeller_link">
+    <visual name="rear_right_propeller">
+      <material name="Propeller"/>
+      <origin rpy="-0.00000 0.00000 -0.00000" xyz="-0.00000 0.00057 0.00000"/>
+      <geometry>
+        <mesh filename="../meshes/stl/T200Propeller.003.stl" scale="0.00100 0.00100 0.00100"/>
+      </geometry>
+    </visual>
+  </link>
+  <link name="sensor_rail_link">
+    <collision name="sensor_rail_collision">
+      <origin rpy="0.00000 0.00000 0.00000" xyz="0.00000 0.00000 0.00000"/>
+      <geometry>
+        <box size="0.43927 0.02150 0.02150"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <inertia ixx="0.00006" ixy="0.00000" ixz="0.00000" iyy="0.01292" iyz="0.00000" izz="0.01292"/>
+      <origin rpy="0.00000 0.00000 0.00000" xyz="0.00000 0.00000 0.00000"/>
+      <mass value="0.80000"/>
+    </inertial>
+    <visual name="sensor_rail">
+      <material name="Aluminum"/>
+      <origin rpy="0.00000 0.00000 0.00000" xyz="0.00000 0.00000 0.00000"/>
+      <geometry>
+        <box size="0.43927 0.02150 0.02150"/>
+      </geometry>
+    </visual>
+  </link>
+  <link name="camera_link">
+    <sensor name="camera_sensor" type="camera">
+      <origin rpy="-1.57080 0.00000 0.00000" xyz="0.00000 0.00000 -0.00000"/>
+      <parent link="camera_link"/>
+      <camera>
+        <image>
+          <width>1920</width>
+          <height>1080</height>
+          <hfov>1.57080</hfov>
+        </image>
+      </camera>
+    </sensor>
+    <visual name="camera">
+      <material name="Camera"/>
+      <origin rpy="0.00000 0.00000 -3.14159" xyz="0.00000 0.00000 0.00000"/>
+      <geometry>
+        <mesh filename="../meshes/stl/ZED2i.stl" scale="0.00100 0.00100 0.00100"/>
+      </geometry>
+    </visual>
+  </link>
+  <link name="lidar_link">
+    <sensor name="lidar_sensor" rate="20" type="lidar">
+      <parent link="lidar_link"/>
+      <ray>
+        <scan>
+          <horizontal>
+            <min_angle>0</min_angle>
+            <max_angle>6.28319</max_angle>
+            <resolution>0.10000</resolution>
+          </horizontal>
+          <vertical>
+            <samples>16</samples>
+            <min_angle>-0.26180</min_angle>
+            <max_angle>0.26180</max_angle>
+            <resolution>0.03272</resolution>
+          </vertical>
+        </scan>
+        <range>
+          <max>100.00000</max>
+        </range>
+      </ray>
+    </sensor>
+    <visual name="lidar">
+      <material name="Lidar"/>
+      <origin rpy="1.57080 0.00000 -1.57080" xyz="0.00003 -0.00061 0.03534"/>
+      <geometry>
+        <mesh filename="../meshes/stl/VelodyneVLP16.stl" scale="0.00100 0.00100 0.00100"/>
+      </geometry>
+    </visual>
+  </link>
+  <link name="imu_link">
+    <sensor name="imu_sensor" type="imu">
+      <parent link="imu_link"/>
+    </sensor>
+  </link>
+  <link name="left_hull_link">
+    <collision name="left_hull_collision">
+      <origin rpy="0.00000 0.00000 0.00000" xyz="0.00000 0.00000 0.00000"/>
+      <geometry>
+        <mesh filename="../meshes/stl/BoatHull.001.stl" scale="0.00100 0.00100 0.00079"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <inertia ixx="0.76460" ixy="0.00000" ixz="0.00000" iyy="0.08760" iyz="0.00000" izz="0.74320"/>
+      <origin rpy="0.00000 0.00000 0.00000" xyz="0.00000 0.00000 0.00000"/>
+      <mass value="7.50000"/>
+    </inertial>
+    <visual name="left_hull">
+      <material name="WaterproofedHull"/>
+      <origin rpy="0.00000 0.00000 0.00000" xyz="-0.00031 0.00000 0.00000"/>
+      <geometry>
+        <mesh filename="../meshes/stl/OmniHull.stl" scale="0.00100 0.00100 0.00100"/>
+      </geometry>
+    </visual>
+  </link>
+  <link name="front_left_thruster_link">
+    <inertial>
+      <inertia ixx="0.00073" ixy="-0.00000" ixz="-0.00000" iyy="0.00073" iyz="-0.00000" izz="0.00056"/>
+      <origin rpy="0.00000 0.00000 0.00000" xyz="-0.00000 -0.00000 0.00000"/>
+      <mass value="0.42700"/>
+    </inertial>
+    <visual name="front_left_thruster">
+      <material name="Thruster"/>
+      <origin rpy="0.00000 0.00000 -0.00000" xyz="0.00000 0.00000 0.00000"/>
+      <geometry>
+        <mesh filename="../meshes/stl/T200Thruster.stl" scale="0.00100 0.00100 0.00100"/>
+      </geometry>
+    </visual>
+  </link>
+  <link name="front_left_propeller_link">
+    <visual name="front_left_propeller">
+      <material name="Propeller"/>
+      <origin rpy="0.00000 0.00000 -0.00000" xyz="-0.00000 0.00057 0.00000"/>
+      <geometry>
+        <mesh filename="../meshes/stl/T200Propeller.001.stl" scale="0.00100 0.00100 0.00100"/>
+      </geometry>
+    </visual>
+  </link>
+  <link name="rear_left_thruster_link">
+    <inertial>
+      <inertia ixx="0.00073" ixy="0.00000" ixz="0.00000" iyy="0.00073" iyz="0.00000" izz="0.00056"/>
+      <origin rpy="0.00000 0.00000 0.00000" xyz="-0.00000 0.00000 0.00000"/>
+      <mass value="0.42700"/>
+    </inertial>
+    <visual name="rear_left_thruster">
+      <material name="Thruster"/>
+      <origin rpy="0.00000 -0.00000 0.00000" xyz="0.00000 0.00000 0.00000"/>
+      <geometry>
+        <mesh filename="../meshes/stl/T200Thruster.002.stl" scale="0.00100 0.00100 0.00100"/>
+      </geometry>
+    </visual>
+  </link>
+  <link name="rear_left_propeller_link">
+    <visual name="rear_left_propeller">
+      <material name="Propeller"/>
+      <origin rpy="0.00000 -0.00000 0.00000" xyz="0.00000 0.00057 0.00000"/>
+      <geometry>
+        <mesh filename="../meshes/stl/T200Propeller.002.stl" scale="0.00100 0.00100 0.00100"/>
+      </geometry>
+    </visual>
+  </link>
+  <link name="right_hull_link">
+    <collision name="right_hull_collision">
+      <origin rpy="0.00000 0.00000 0.00000" xyz="0.00000 0.00000 0.00000"/>
+      <geometry>
+        <mesh filename="../meshes/stl/BoatHull.stl" scale="0.00100 0.00100 0.00079"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <inertia ixx="0.76460" ixy="0.00000" ixz="0.00000" iyy="0.08760" iyz="0.00000" izz="0.74320"/>
+      <origin rpy="0.00000 0.00000 0.00000" xyz="0.00000 0.00000 0.00000"/>
+      <mass value="7.50000"/>
+    </inertial>
+    <visual name="right_hull">
+      <material name="WaterproofedHull"/>
+      <origin rpy="0.00000 0.00000 0.00000" xyz="0.00002 0.00000 0.00000"/>
+      <geometry>
+        <mesh filename="../meshes/stl/OmniHull.001.stl" scale="0.00100 0.00100 0.00100"/>
+      </geometry>
+    </visual>
+  </link>
+  <link name="front_right_thruster_link">
+    <inertial>
+      <inertia ixx="0.00073" ixy="0.00000" ixz="0.00000" iyy="0.00073" iyz="-0.00000" izz="0.00056"/>
+      <origin rpy="0.00000 0.00000 0.00000" xyz="0.00000 -0.00000 0.00000"/>
+      <mass value="0.42700"/>
+    </inertial>
+    <visual name="front_right_thruster">
+      <material name="Thruster"/>
+      <origin rpy="0.00000 -0.00000 0.00000" xyz="-0.00000 0.00000 0.00000"/>
+      <geometry>
+        <mesh filename="../meshes/stl/T200Thruster.001.stl" scale="0.00100 0.00100 0.00100"/>
+      </geometry>
+    </visual>
+  </link>
+  <material name="Aluminum">
+    <color rgba="0.64314 0.64314 0.64314 1.00000"/>
+  </material>
+  <material name="Camera">
+    <color rgba="0.14902 0.14902 0.14902 1.00000"/>
+  </material>
+  <material name="ElectricalBox">
+    <color rgba="0.18824 0.18824 0.18824 1.00000"/>
+  </material>
+  <material name="Lidar">
+    <color rgba="0.01176 0.22353 1.00000 1.00000"/>
+  </material>
+  <material name="Material">
+    <color rgba="0.01961 0.01961 0.01961 1.00000"/>
+  </material>
+  <material name="Propeller">
+    <color rgba="0.07451 0.17255 0.80000 1.00000"/>
+  </material>
+  <material name="Thruster">
+    <color rgba="0.00392 0.00392 0.00392 1.00000"/>
+  </material>
+  <material name="WaterproofedHull">
+    <color rgba="0.06667 0.06667 0.06667 1.00000"/>
+  </material>
+</robot>

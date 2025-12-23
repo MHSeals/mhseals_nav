@@ -1,0 +1,32 @@
+rtabmap:
+  ros__parameters:
+    # Sensors
+    subscribe_depth: true
+    subscribe_rgb: true
+    subscribe_rgbd: false
+    subscribe_stereo: false
+    subscribe_scan: false
+    
+    # Frames
+    frame_id: "base_link"
+    map_frame_id: "map"
+    odom_frame_id: "odom"
+    
+    # Odometry
+    odom_sensor_sync: true
+    wait_for_transform_duration: 0.2
+    approx_sync: true
+    publish_tf: false
+
+    sync_queue_size: 50
+    topic_queue_size: 50
+
+    # 2D map parameters
+    Grid/2D_map: "true"
+    Grid/FromDepth: "true"
+    Grid/MaxGroundHeight: "0.5"
+    Grid/MinGroundHeight: "-0.5"
+    Grid/MaxObstacleHeight: "2.0"
+    Grid/CellSize: "0.05"
+    Grid/PreVoxelFiltering: "false"
+    Grid/3D: "false"

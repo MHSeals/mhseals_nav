@@ -1,0 +1,3 @@
+Instantiated with filepath=None->None, scale=[0.0010000000474974513, 0.0010000000474974513, 0.0010000000474974513], mesh=<bpy_struct, Mesh("ElectricalMountFrame") at 0x7f5efceeb220>, meshname=ElectricalMountFrame, material=None, mesh_orientation=None
+->trying export of <bpy_struct, Mesh("ElectricalMountFrame") at 0x7f5efceeb220> to /home/lunarz/phobos-models/omni_boat/meshes/stl/ElectricalMountFrame.stl
+->wrote stl to /home/lunarz/phobos-models/omni_boat/meshes/stl/ElectricalMountFrame.stl from bpy_types.Mesh
