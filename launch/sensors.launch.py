@@ -18,7 +18,6 @@ def generate_launch_description():
     velodyne_port = LaunchConfiguration('velodyne_port')
 
     zed_camera_name = LaunchConfiguration('zed_camera_name')
-
     zed_config_file = LaunchConfiguration('zed_config_file')
     virtual_config_file = LaunchConfiguration('virtual_config_file')
     common_mono_file = LaunchConfiguration('common_mono_file')
@@ -26,6 +25,9 @@ def generate_launch_description():
     custom_object_detection_file = LaunchConfiguration('custom_object_detection_file')
     object_detection_file = LaunchConfiguration('object_detection_file')
     ffmpeg_file = LaunchConfiguration('ffmpeg_file')
+
+    ros_ip = LaunchConfiguration('ros_ip')
+    ros_port = LaunchConfiguration('ros_port')
 
     use_sim_time_arg = DeclareLaunchArgument(
         'use_sim_time',
@@ -102,6 +104,18 @@ def generate_launch_description():
         ])
     )
 
+    ros_ip_arg = DeclareLaunchArgument(
+        'ros_ip',
+        default_value='192.168.1.167',
+        description='IP address of the Unity ROS TCP Endpoint'
+    )
+
+    ros_port_arg = DeclareLaunchArgument(
+        'ros_port',
+        default_value='10000',
+        description='Port of the Unity ROS TCP Endpoint'
+    )
+
     # TODO: Add topic remappings for rtabmap
     zed_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -156,8 +170,8 @@ def generate_launch_description():
         executable='default_server_endpoint',
         output='screen',
         parameters=[{
-            'ROS_IP': '192.168.1.167',
-            'ROS_TCP_PORT': 10000
+            'ROS_IP': ros_ip,
+            'ROS_TCP_PORT': ros_port
         }],
         condition=IfCondition(use_sim_time)
     )
@@ -174,6 +188,8 @@ def generate_launch_description():
         custom_object_detection_arg,
         object_detection_arg,
         ffmpeg_arg,
+        ros_ip_arg,
+        ros_port_arg,
         zed_launch,
         velodyne_driver,
         velodyne_pointcloud,

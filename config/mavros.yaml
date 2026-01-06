@@ -1,6 +1,5 @@
 mavros:
   ros__parameters:
-    fcu_url: "tcp://127.0.0.1:5762"
     target_system_id: 1
     target_component_id: 1
 

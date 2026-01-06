@@ -1,6 +1,3 @@
-import os
-from ament_index_python.packages import get_package_share_directory
-
 from launch import LaunchDescription
 from launch_ros.actions import Node
 from launch.actions import IncludeLaunchDescription, DeclareLaunchArgument
@@ -11,10 +8,12 @@ from launch_ros.substitutions import FindPackageShare
 def generate_launch_description():
     use_sim_time = LaunchConfiguration('use_sim_time')
     rtabmap_params = LaunchConfiguration('rtabmap_params')
+    nav2_params = LaunchConfiguration('nav2_params')
 
     use_sim_time_arg = DeclareLaunchArgument(
         'use_sim_time',
-        default_value='true'
+        default_value='true',
+        description='Use simulation time'
     )
 
     rtabmap_params_arg = DeclareLaunchArgument(
@@ -23,7 +22,18 @@ def generate_launch_description():
             FindPackageShare('mhseals_nav'),
             'config',
             'rtabmap.yaml'
-        ])
+        ]),
+        description='Path to RTAB-Map parameters file'
+    )
+
+    nav2_params_arg = DeclareLaunchArgument(
+        'nav2_params',
+        default_value=PathJoinSubstitution([
+            FindPackageShare('mhseals_nav'),
+            'config',
+            'nav2_params.yaml'
+        ]),
+        description='Path to Nav2 parameters file'
     )
 
     nav2_bringup_launch = IncludeLaunchDescription(
@@ -36,11 +46,7 @@ def generate_launch_description():
         ]),
         launch_arguments={
             'use_sim_time': use_sim_time,
-            'params_file': PathJoinSubstitution([
-                FindPackageShare('mhseals_nav'),
-                'config',
-                'nav2_params.yaml'
-            ])
+            'params_file': nav2_params
         }.items()
     )
 
@@ -64,10 +70,10 @@ def generate_launch_description():
         ]
     )
 
-
     return LaunchDescription([
         use_sim_time_arg,
         rtabmap_params_arg,
+        nav2_params_arg,
         nav2_bringup_launch,
         twist_converter,
         rtabmap_slam
