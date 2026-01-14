@@ -3,20 +3,29 @@ from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
+import xacro
+import os
 
 def load_urdf(context):
     urdf_path = LaunchConfiguration('urdf_file').perform(context)
-    
-    with open(urdf_path, 'r') as infp:
-        robot_description = infp.read()
-    
+    _, ext = os.path.splitext(urdf_path.lower())
+
+    if ext == '.xacro':
+        doc = xacro.process_file(urdf_path)
+        robot_description = doc.toxml() # type: ignore 
+    elif ext == '.urdf':
+        with open(urdf_path, 'r') as infp:
+            robot_description = infp.read()
+    else:
+        raise RuntimeError(f"Unsupported robot description file type: {ext}")
+
     return [Node(
         package='robot_state_publisher',
         executable='robot_state_publisher',
         output='screen',
         parameters=[{
             'robot_description': robot_description,
-            'use_sim_time': LaunchConfiguration('use_sim_time')
+            'use_sim_time': bool(LaunchConfiguration('use_sim_time').perform(context))
         }]
     )]
 
@@ -73,7 +82,7 @@ def generate_launch_description():
 
     urdf_arg = DeclareLaunchArgument(
         'urdf_file',
-        default_value=PathJoinSubstitution([mhseals_nav_dir, 'description', 'omni_boat.urdf']),
+        default_value=PathJoinSubstitution([mhseals_nav_dir, 'description', 'omni_boat', 'omni_boat.xacro']),
         description='Path to robot URDF file'
     )
 

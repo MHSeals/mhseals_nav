@@ -60,7 +60,7 @@ def generate_launch_description():
     )
     urdf_arg = DeclareLaunchArgument(
         'urdf_file',
-        default_value=PathJoinSubstitution([FindPackageShare('mhseals_nav'), 'description', 'omni_boat.urdf']),
+        default_value=PathJoinSubstitution([FindPackageShare('mhseals_nav'), 'description', 'omni_boat', 'omni_boat.xacro']),
         description='Path to robot URDF file'
     )
     rtabmap_params_arg = DeclareLaunchArgument(
@@ -203,6 +203,8 @@ def generate_launch_description():
         ffmpeg_file_arg,
         velodyne_ip_arg,
         velodyne_port_arg,
+        ros_ip_arg,
+        ros_port_arg,
 
         sensors_launch,
         delayed_odom_launch,

@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<ros2_control name="omni_control" type="system">
+  <hardware>
+    <plugin>mhseals_hardware/MavrosActuator</plugin>
+  </hardware>
+
+  <joint name="front_left_thruster_joint">
+    <command_interface name="effort"/>
+  </joint>
+
+  <joint name="rear_left_thruster_joint">
+    <command_interface name="effort"/>
+  </joint>
+
+  <joint name="front_right_thruster_joint">
+    <command_interface name="effort"/>
+  </joint>
+
+  <joint name="rear_right_thruster_joint">
+    <command_interface name="effort"/>
+  </joint>
+</ros2_control>
