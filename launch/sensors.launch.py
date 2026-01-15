@@ -178,8 +178,8 @@ def generate_launch_description():
 
     return LaunchDescription([
         use_sim_time_arg,
-        velodyne_ip_arg,
-        velodyne_port_arg,
+        # velodyne_ip_arg,
+        # velodyne_port_arg,
         zed_camera_name_arg,
         zed_config_arg,
         virtual_config_arg,
@@ -191,7 +191,7 @@ def generate_launch_description():
         ros_ip_arg,
         ros_port_arg,
         zed_launch,
-        velodyne_driver,
-        velodyne_pointcloud,
+        # velodyne_driver,
+        # velodyne_pointcloud,
         ros_tcp_endpoint
     ])
