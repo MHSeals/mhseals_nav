@@ -34,6 +34,10 @@
       <parent link="${parent}"/>
       <child link="${name}_thruster_link"/>
       <origin xyz="${xyz}" rpy="${rpy}"/>
+
+      <ros2_control>
+        <param name="thruster">true</param>
+      </ros2_control>
     </joint>
 
     <!-- Propeller -->

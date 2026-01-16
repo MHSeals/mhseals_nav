@@ -67,16 +67,7 @@
   </joint>
 
   <!-- ================= SENSORS ================= -->
-  <link name="gps_link">
-    <visual>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <material name="Material"/>
-      <geometry>
-        <mesh filename="${mesh_root}/Here3.stl"
-              scale="0.001 0.001 0.001"/>
-      </geometry>
-    </visual>
-  </link>
+  <link name="gps_link"/>
   <joint name="gps_link_joint" type="fixed">
     <parent link="base_link"/>
     <child link="gps_link"/>
@@ -125,11 +116,18 @@
 
   <!-- ================= HULLS ================= -->
   <link name="left_hull_link">
+    <collision>
+      <origin xyz="-0.00031 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="${mesh_root}/HullCollision.stl"
+              scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
     <visual>
       <material name="WaterproofedHull"/>
       <origin xyz="-0.00031 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="${mesh_root}/OmniHull.stl"
+        <mesh filename="${mesh_root}/HullVisual.stl"
               scale="0.001 0.001 0.001"/>
       </geometry>
     </visual>
@@ -139,13 +137,20 @@
     <child link="left_hull_link"/>
     <origin xyz="-0.00008 0.33137 -0.20009" rpy="0 0 -1.57080"/>
   </joint>
-
+  
   <link name="right_hull_link">
+    <collision>
+      <origin xyz="0.00002 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="${mesh_root}/HullCollision.stl"
+              scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
     <visual>
       <material name="WaterproofedHull"/>
       <origin xyz="0.00002 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="${mesh_root}/OmniHull.001.stl"
+        <mesh filename="${mesh_root}/HullVisual.stl"
               scale="0.001 0.001 0.001"/>
       </geometry>
     </visual>
@@ -170,24 +175,24 @@
     parent="left_hull_link"
     xyz="-0.00031 -0.27970 -0.20016"
     rpy="-1.57080 0 -2.35619"
-    thruster_mesh="${mesh_root}/T200Thruster.001.stl"
-    prop_mesh="${mesh_root}/T200Propeller.001.stl"/>
+    thruster_mesh="${mesh_root}/T200Thruster.stl"
+    prop_mesh="${mesh_root}/T200Propeller.stl"/>
 
   <xacro:t200_thruster
     name="front_right"
     parent="right_hull_link"
     xyz="0.00002 0.27985 -0.20016"
     rpy="-1.57080 0 0.78540"
-    thruster_mesh="${mesh_root}/T200Thruster.002.stl"
-    prop_mesh="${mesh_root}/T200Propeller.002.stl"/>
+    thruster_mesh="${mesh_root}/T200Thruster.stl"
+    prop_mesh="${mesh_root}/T200Propeller.stl"/>
 
   <xacro:t200_thruster
     name="rear_right"
     parent="right_hull_link"
     xyz="0.00002 -0.27970 -0.20016"
     rpy="-1.57080 0 2.35619"
-    thruster_mesh="${mesh_root}/T200Thruster.003.stl"
-    prop_mesh="${mesh_root}/T200Propeller.003.stl"/>
+    thruster_mesh="${mesh_root}/T200Thruster.stl"
+    prop_mesh="${mesh_root}/T200Propeller.stl"/>
 
   <!-- ================= MATERIALS ================= -->
   <material name="Aluminum"><color rgba="0.64 0.64 0.64 1"/></material>

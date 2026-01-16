@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <ros2_control name="omni_control" type="system">
   <hardware>
-    <plugin>mhseals_hardware/MavrosActuator</plugin>
+    <plugin>mhseals_control/MavrosActuator</plugin>
   </hardware>
 
   <joint name="front_left_thruster_joint">

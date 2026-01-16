@@ -8,6 +8,7 @@ def generate_launch_description():
     # Launch configuration arguments
     use_sim_time = LaunchConfiguration('use_sim_time')
     fcu_url = LaunchConfiguration('fcu_url')
+    gcs_url = LaunchConfiguration('gcs_url')
     mavros_params_file = LaunchConfiguration('mavros_params_file')
     ekf_config_file = LaunchConfiguration('ekf_config_file')
     dlio_yaml_file = LaunchConfiguration('dlio_yaml_file')
@@ -36,7 +37,10 @@ def generate_launch_description():
         'use_sim_time', default_value='true', description='Use simulation time'
     )
     fcu_url_arg = DeclareLaunchArgument(
-        'fcu_url', default_value='tcp://127.0.0.1:5762', description='MAVLink connection URL'
+        'fcu_url', default_value='tcp://127.0.0.1:5762', description='Flight control unit connection URL'
+    )
+    gcs_url_arg = DeclareLaunchArgument(
+        'gcs_url', default_value='udp://127.0.0.1:14550', description='Ground control station connection URL'
     )
     mavros_params_arg = DeclareLaunchArgument(
         'mavros_params_file',
@@ -151,6 +155,7 @@ def generate_launch_description():
         launch_arguments={
             'use_sim_time': use_sim_time,
             'fcu_url': fcu_url,
+            'gcs_url': gcs_url,
             'mavros_params_file': mavros_params_file,
             'rtabmap_params': rtabmap_params_file,
             'ekf_config_file': ekf_config_file,
@@ -185,6 +190,7 @@ def generate_launch_description():
     return LaunchDescription([
         use_sim_time_arg,
         fcu_url_arg,
+        gcs_url_arg,
         mavros_params_arg,
         ekf_config_arg,
         dlio_yaml_arg,

@@ -1,9 +1,9 @@
 mavros:
   ros__parameters:
-    target_system_id: 1
-    target_component_id: 1
-
-    frame_id: base_link
+    system_id: 255
+    component_id: 240
+    
+    frame_id: map
     child_frame_id: base_link
 
     odom:

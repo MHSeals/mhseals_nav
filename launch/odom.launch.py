@@ -34,6 +34,7 @@ def generate_launch_description():
 
     use_sim_time = LaunchConfiguration('use_sim_time')
     fcu_url = LaunchConfiguration('fcu_url')
+    gcs_url = LaunchConfiguration('gcs_url')
     mavros_params_file = LaunchConfiguration('mavros_params_file')
     rtabmap_params_file = LaunchConfiguration('rtabmap_params_file')
     ekf_config_file = LaunchConfiguration('ekf_config_file')
@@ -47,7 +48,12 @@ def generate_launch_description():
 
     fcu_url_arg = DeclareLaunchArgument(
         'fcu_url', default_value='tcp://127.0.0.1:5762',
-        description='MAVLink connection URL'
+        description='Flight control unit connection URL'
+    )
+
+    gcs_url_arg = DeclareLaunchArgument(
+        'gcs_url', default_value='udp://127.0.0.1:14550',
+        description='Ground control service connection URL'
     )
 
     mavros_params_arg = DeclareLaunchArgument(
@@ -146,7 +152,7 @@ def generate_launch_description():
         package='mavros',
         executable='mavros_node',
         output='screen',
-        parameters=[mavros_params_file, {'use_sim_time': use_sim_time, 'fcu_url': fcu_url}]
+        parameters=[mavros_params_file, {'use_sim_time': use_sim_time, 'fcu_url': fcu_url, 'gcs_url': gcs_url}]
     )
     
     robot_state_publisher_node = OpaqueFunction(function=load_urdf)
@@ -154,6 +160,7 @@ def generate_launch_description():
     return LaunchDescription([
         use_sim_time_arg,
         fcu_url_arg,
+        gcs_url_arg,
         mavros_params_arg,
         rtabmap_params_arg,
         ekf_config_arg,
