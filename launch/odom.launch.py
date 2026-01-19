@@ -1,8 +1,10 @@
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
+from launch.conditions import UnlessCondition
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
+
 import xacro
 import os
 
@@ -12,7 +14,7 @@ def load_urdf(context):
 
     if ext == '.xacro':
         doc = xacro.process_file(urdf_path)
-        robot_description = doc.toxml() # type: ignore 
+        robot_description = doc.toxml() # type: ignore
     elif ext == '.urdf':
         with open(urdf_path, 'r') as infp:
             robot_description = infp.read()
@@ -25,79 +27,40 @@ def load_urdf(context):
         output='screen',
         parameters=[{
             'robot_description': robot_description,
-            'use_sim_time': bool(LaunchConfiguration('use_sim_time').perform(context))
-        }]
+            'use_sim_time': LaunchConfiguration('sim')
+        }],
+        condition=UnlessCondition(PythonExpression(["'true' == '", LaunchConfiguration('sim'), "'"]))
     )]
 
 def generate_launch_description():
     mhseals_nav_dir = FindPackageShare('mhseals_nav')
 
-    use_sim_time = LaunchConfiguration('use_sim_time')
-    fcu_url = LaunchConfiguration('fcu_url')
-    gcs_url = LaunchConfiguration('gcs_url')
-    mavros_params_file = LaunchConfiguration('mavros_params_file')
-    rtabmap_params_file = LaunchConfiguration('rtabmap_params_file')
-    ekf_config_file = LaunchConfiguration('ekf_config_file')
-    dlio_yaml_file = LaunchConfiguration('dlio_yaml_file')
-    dlio_params_file = LaunchConfiguration('dlio_params_file')
+    launch_args = [
+        ('sim', 'true', 'Run in simulation mode'),
+        ('use_sim_time', 'true', 'Use simulation clock if true'),
+        ('fcu_url', 'tcp://127.0.0.1:5762', 'Flight control unit connection URL'),
+        ('gcs_url', 'udp://127.0.0.1:14550', 'Ground control service connection URL'),
+        ('mavros_params_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'mavros.yaml']), 'Path to MAVROS params'),
+        ('rtabmap_params_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'rtabmap.yaml']), 'Path to RTABMap params'),
+        ('ekf_config_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'ekf.yaml']), 'Path to EKF config'),
+        ('dlio_yaml_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'dlio.yaml']), 'Path to DLIO main YAML'),
+        ('dlio_params_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'dlio_params.yaml']), 'Path to DLIO params'),
+        ('urdf_file', PathJoinSubstitution([mhseals_nav_dir, 'description', 'omni_boat', 'omni_boat.xacro']), 'Path to robot URDF/XACRO')
+    ]
 
-    use_sim_time_arg = DeclareLaunchArgument(
-        'use_sim_time', default_value='true',
-        description='Use simulation clock if true'
-    )
+    launch_configurations = {}
+    declare_arguments = []
+    for name, default_value, description in launch_args:
+        launch_configurations[name] = LaunchConfiguration(name)
+        declare_arguments.append(
+            DeclareLaunchArgument(name, default_value=default_value, description=description)
+        )
 
-    fcu_url_arg = DeclareLaunchArgument(
-        'fcu_url', default_value='tcp://127.0.0.1:5762',
-        description='Flight control unit connection URL'
-    )
-
-    gcs_url_arg = DeclareLaunchArgument(
-        'gcs_url', default_value='udp://127.0.0.1:14550',
-        description='Ground control service connection URL'
-    )
-
-    mavros_params_arg = DeclareLaunchArgument(
-        'mavros_params_file',
-        default_value=PathJoinSubstitution([mhseals_nav_dir, 'config', 'mavros.yaml']),
-        description='Path to MAVROS parameters file'
-    )
-
-    rtabmap_params_arg = DeclareLaunchArgument(
-        'rtabmap_params_file',
-        default_value=PathJoinSubstitution([mhseals_nav_dir, 'config', 'rtabmap.yaml']),
-        description='Path to RTAB-Map parameters file'
-    )
-
-    ekf_config_arg = DeclareLaunchArgument(
-        'ekf_config_file',
-        default_value=PathJoinSubstitution([mhseals_nav_dir, 'config', 'ekf.yaml']),
-        description='Path to EKF configuration file'
-    )
-
-    dlio_yaml_arg = DeclareLaunchArgument(
-        'dlio_yaml_file',
-        default_value=PathJoinSubstitution([mhseals_nav_dir, 'config', 'dlio.yaml']),
-        description='Path to DLIO main YAML'
-    )
-
-    dlio_params_arg = DeclareLaunchArgument(
-        'dlio_params_file',
-        default_value=PathJoinSubstitution([mhseals_nav_dir, 'config', 'dlio_params.yaml']),
-        description='Path to DLIO parameters YAML'
-    )
-
-    urdf_arg = DeclareLaunchArgument(
-        'urdf_file',
-        default_value=PathJoinSubstitution([mhseals_nav_dir, 'description', 'omni_boat', 'omni_boat.xacro']),
-        description='Path to robot URDF file'
-    )
-
-    # Nodes
     dlio_odom_node = Node(
         package='direct_lidar_inertial_odometry',
         executable='dlio_odom_node',
         output='screen',
-        parameters=[dlio_yaml_file, dlio_params_file],
+        parameters=[launch_configurations['dlio_yaml_file'], launch_configurations['dlio_params_file']],
         remappings=[
             ('pointcloud', '/points'),
             ('imu', '/imu/data'),
@@ -107,15 +70,15 @@ def generate_launch_description():
             ('kf_pose', 'dlio/odom_node/keyframes'),
             ('kf_cloud', 'dlio/odom_node/pointcloud/keyframe'),
             ('deskewed', 'dlio/odom_node/pointcloud/deskewed'),
-        ]
+        ],
     )
 
     dlio_map_node = Node(
         package='direct_lidar_inertial_odometry',
         executable='dlio_map_node',
         output='screen',
-        parameters=[dlio_yaml_file, dlio_params_file],
-        remappings=[('keyframes', 'dlio/odom_node/pointcloud/keyframe')]
+        parameters=[launch_configurations['dlio_yaml_file'], launch_configurations['dlio_params_file']],
+        remappings=[('keyframes', 'dlio/odom_node/pointcloud/keyframe')],
     )
 
     rtabmap_odom_node = Node(
@@ -123,12 +86,12 @@ def generate_launch_description():
         executable='rgbd_odometry',
         name='rgbd_odometry',
         output='screen',
-        parameters=[rtabmap_params_file, {'use_sim_time': use_sim_time}],
+        parameters=[launch_configurations['rtabmap_params_file'], {'use_sim_time': launch_configurations['sim']}],
         remappings=[
             ('rgb/image', '/camera/image_raw'),
             ('depth/image', '/camera/depth/image_rect_raw'),
             ('rgb/camera_info', '/camera/camera_info')
-        ]
+        ],
     )
 
     imu_filter_node = Node(
@@ -136,8 +99,8 @@ def generate_launch_description():
         executable="imu_filter_madgwick_node",
         name="imu_filter_madgwick",
         output="screen",
-        parameters=[{"use_mag": False, "use_sim_time": use_sim_time}],
-        remappings=[("imu/data_raw", "/mavros/imu/data")]
+        parameters=[{"use_mag": False, "use_sim_time": launch_configurations['sim']}],
+        remappings=[("imu/data_raw", "/mavros/imu/data")],
     )
 
     ekf_node = Node(
@@ -145,33 +108,29 @@ def generate_launch_description():
         executable="ekf_node",
         name="ekf_localization",
         output="screen",
-        parameters=[ekf_config_file, {'use_sim_time': use_sim_time}]
+        parameters=[launch_configurations['ekf_config_file'], {'use_sim_time': launch_configurations['sim']}],
     )
 
     mavros_node = Node(
         package='mavros',
         executable='mavros_node',
         output='screen',
-        parameters=[mavros_params_file, {'use_sim_time': use_sim_time, 'fcu_url': fcu_url, 'gcs_url': gcs_url}]
+        parameters=[launch_configurations['mavros_params_file'],
+                    {'use_sim_time': launch_configurations['sim'],
+                     'fcu_url': launch_configurations['fcu_url'],
+                     'gcs_url': launch_configurations['gcs_url']}],
     )
-    
+
     robot_state_publisher_node = OpaqueFunction(function=load_urdf)
 
-    return LaunchDescription([
-        use_sim_time_arg,
-        fcu_url_arg,
-        gcs_url_arg,
-        mavros_params_arg,
-        rtabmap_params_arg,
-        ekf_config_arg,
-        dlio_yaml_arg,
-        dlio_params_arg,
-        urdf_arg,
-        # dlio_odom_node,
-        # dlio_map_node,
-        rtabmap_odom_node,
-        imu_filter_node,
-        ekf_node,
-        mavros_node,
-        robot_state_publisher_node
-    ])
+    return LaunchDescription(
+        declare_arguments + [
+            # dlio_odom_node,
+            # dlio_map_node,
+            rtabmap_odom_node,
+            imu_filter_node,
+            ekf_node,
+            mavros_node,
+            robot_state_publisher_node
+        ]
+    )

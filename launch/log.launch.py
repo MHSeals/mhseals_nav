@@ -2,49 +2,38 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, ExecuteProcess
 from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch.conditions import IfCondition
-
 from datetime import datetime
 
 def generate_launch_description():
-    bag_filename = LaunchConfiguration('bag_filename')
-    mode = LaunchConfiguration('mode')
+    launch_args = [
+        ('bag_filename', 'bags/' + datetime.now().strftime("%Y-%m-%d_%H-%M-%S"), 'Name of rosbag file'),
+        ('mode', 'log', 'Log or play')
+    ]
 
-    bag_filename_arg = DeclareLaunchArgument(
-        'bag_filename',
-        default_value='bags/' + datetime.now().strftime("%Y-%m-%d_%H-%M-%S"),
-        description='Name of rosbag file'
-    )
+    launch_configurations = {}
+    declare_arguments = []
+    for name, default_value, description in launch_args:
+        launch_configurations[name] = LaunchConfiguration(name)
+        declare_arguments.append(
+            DeclareLaunchArgument(name, default_value=default_value, description=description)
+        )
 
-    mode_arg = DeclareLaunchArgument(
-        'mode',
-        default_value="log",
-        description='Log or play'
-    )
-    
+    # Processes
     bag_log_process = ExecuteProcess(
-        cmd=['ros2', 'bag', 'record', '-a', '-o', bag_filename],
+        cmd=['ros2', 'bag', 'record', '-a', '-o', launch_configurations['bag_filename']],
         output='screen',
         emulate_tty=True,
         condition=IfCondition(
-            PythonExpression([
-                "'", mode, "' == 'log'"
-            ])
+            PythonExpression([f"'{launch_configurations['mode']}' == 'log'"])
         )
     )
 
     bag_play_process = ExecuteProcess(
-        cmd=['ros2', 'bag', 'play', bag_filename],
+        cmd=['ros2', 'bag', 'play', launch_configurations['bag_filename']],
         output='screen',
         condition=IfCondition(
-            PythonExpression([
-                "'", mode, "' == 'play'"
-            ])
+            PythonExpression([f"'{launch_configurations['mode']}' == 'play'"])
         )
     )
 
-    return LaunchDescription([
-        bag_filename_arg,
-        mode_arg,
-        bag_log_process,
-        bag_play_process
-    ])
+    return LaunchDescription(declare_arguments + [bag_log_process, bag_play_process])
