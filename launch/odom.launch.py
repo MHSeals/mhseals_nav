@@ -29,7 +29,6 @@ def load_urdf(context):
             'robot_description': robot_description,
             'use_sim_time': LaunchConfiguration('sim')
         }],
-        condition=UnlessCondition(PythonExpression(["'true' == '", LaunchConfiguration('sim'), "'"]))
     )]
 
 def generate_launch_description():
@@ -37,7 +36,6 @@ def generate_launch_description():
 
     launch_args = [
         ('sim', 'true', 'Run in simulation mode'),
-        ('use_sim_time', 'true', 'Use simulation clock if true'),
         ('fcu_url', 'tcp://127.0.0.1:5762', 'Flight control unit connection URL'),
         ('gcs_url', 'udp://127.0.0.1:14550', 'Ground control service connection URL'),
         ('mavros_params_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'mavros.yaml']), 'Path to MAVROS params'),
