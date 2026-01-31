@@ -3,8 +3,10 @@
 /**:
   ros__parameters:
       object_detection:
+          od_enabled: true # Enable Object Detection at startup
+          detection_model: CUSTOM_YOLOLIKE_BOX_OBJECTS
           custom_onnx_input_size: 512 # Resolution used with the YOLO-like ONNX file. For example, 512 means a input tensor '1x3x512x512' 
-          
+          custom_onnx_file: '/home/roboboat/roboboat_ws/src/mhseals_nav/config/best.onnx'
           custom_class_count: 24 # Number of classes in the custom ONNX file. For example, 80 for YOLOv8 trained on COCO dataset
 
           # TODO: Add one instance of each class to the list below
@@ -16,7 +18,7 @@
             label: 'black_buoy'
             model_class_id: 0 # Class ID of the object in the custom ONNX file (it is not required that this value matches the value in the 'class_XXX' identifier)
             enabled: true # Enable/disable the detection of this class
-            confidence_threshold: 0.0 # Minimum value of the detection confidence of an object [0,99]
+            confidence_threshold: 20.0 # Minimum value of the detection confidence of an object [0,99]
             is_grounded: true # Provide hypothesis about the object movements (degrees of freedom or DoF) to improve the object tracking
             is_static: false # Provide hypothesis about the object staticity to improve the object tracking
             tracking_timeout: -1.0 # Maximum tracking time threshold (in seconds) before dropping the tracked object when unseen for this amount of time
@@ -36,7 +38,7 @@
             label: 'black_circle'
             model_class_id: 1
             enabled: true
-            confidence_threshold: 0.0
+            confidence_threshold: 20.0
             is_grounded: true
             is_static: false
             tracking_timeout: -1.0
@@ -56,7 +58,7 @@
             label: 'black_cross'
             model_class_id: 2
             enabled: true
-            confidence_threshold: 0.0
+            confidence_threshold: 20.0
             is_grounded: true
             is_static: false
             tracking_timeout: -1.0
@@ -76,7 +78,7 @@
             label: 'black_triangle'
             model_class_id: 3
             enabled: true
-            confidence_threshold: 0.0
+            confidence_threshold: 20.0
             is_grounded: true
             is_static: false
             tracking_timeout: -1.0
@@ -96,7 +98,7 @@
             label: 'blue_buoy'
             model_class_id: 4
             enabled: true
-            confidence_threshold: 0.0
+            confidence_threshold: 20.0
             is_grounded: true
             is_static: false
             tracking_timeout: -1.0
@@ -116,7 +118,7 @@
             label: 'blue_circle'
             model_class_id: 5
             enabled: true
-            confidence_threshold: 0.0
+            confidence_threshold: 20.0
             is_grounded: true
             is_static: false
             tracking_timeout: -1.0
@@ -136,7 +138,7 @@
             label: 'blue_cross'
             model_class_id: 6
             enabled: true
-            confidence_threshold: 0.0
+            confidence_threshold: 20.0
             is_grounded: true
             is_static: false
             tracking_timeout: -1.0
@@ -156,7 +158,7 @@
             label: 'blue_racquet_ball'
             model_class_id: 7
             enabled: true
-            confidence_threshold: 0.0
+            confidence_threshold: 20.0
             is_grounded: true
             is_static: false
             tracking_timeout: -1.0
@@ -176,7 +178,7 @@
             label: 'blue_triangle'
             model_class_id: 8
             enabled: true
-            confidence_threshold: 0.0
+            confidence_threshold: 20.0
             is_grounded: true
             is_static: false
             tracking_timeout: -1.0
@@ -196,7 +198,7 @@
             label: 'dock'
             model_class_id: 9
             enabled: true
-            confidence_threshold: 0.0
+            confidence_threshold: 20.0
             is_grounded: true
             is_static: false
             tracking_timeout: -1.0
@@ -213,10 +215,10 @@
             max_allowed_acceleration: 100000.0
 
           class_010:
-            label: 'green_buoy'
+            label: 'duck_image'
             model_class_id: 10
             enabled: true
-            confidence_threshold: 0.0
+            confidence_threshold: 20.0
             is_grounded: true
             is_static: false
             tracking_timeout: -1.0
@@ -233,10 +235,10 @@
             max_allowed_acceleration: 100000.0
 
           class_011:
-            label: 'green_circle'
+            label: 'green_buoy'
             model_class_id: 11
             enabled: true
-            confidence_threshold: 0.0
+            confidence_threshold: 20.0
             is_grounded: true
             is_static: false
             tracking_timeout: -1.0
@@ -256,7 +258,7 @@
             label: 'green_cross'
             model_class_id: 12
             enabled: true
-            confidence_threshold: 0.0
+            confidence_threshold: 20.0
             is_grounded: true
             is_static: false
             tracking_timeout: -1.0
@@ -276,7 +278,7 @@
             label: 'green_pole_buoy'
             model_class_id: 13
             enabled: true
-            confidence_threshold: 0.0
+            confidence_threshold: 20.0
             is_grounded: true
             is_static: false
             tracking_timeout: -1.0
@@ -296,7 +298,7 @@
             label: 'green_triangle'
             model_class_id: 14
             enabled: true
-            confidence_threshold: 0.0
+            confidence_threshold: 20.0
             is_grounded: true
             is_static: false
             tracking_timeout: -1.0
@@ -313,10 +315,10 @@
             max_allowed_acceleration: 100000.0
 
           class_015:
-            label: 'red_buoy'
+            label: 'misc_buoy'
             model_class_id: 15
             enabled: true
-            confidence_threshold: 0.0
+            confidence_threshold: 20.0
             is_grounded: true
             is_static: false
             tracking_timeout: -1.0
@@ -333,10 +335,10 @@
             max_allowed_acceleration: 100000.0
 
           class_016:
-            label: 'red_circle'
+            label: 'red_buoy'
             model_class_id: 16
             enabled: true
-            confidence_threshold: 0.0
+            confidence_threshold: 20.0
             is_grounded: true
             is_static: false
             tracking_timeout: -1.0
@@ -353,10 +355,10 @@
             max_allowed_acceleration: 100000.0
 
           class_017:
-            label: 'red_cross'
+            label: 'red_circle'
             model_class_id: 17
             enabled: true
-            confidence_threshold: 0.0
+            confidence_threshold: 20.0
             is_grounded: true
             is_static: false
             tracking_timeout: -1.0
@@ -373,10 +375,10 @@
             max_allowed_acceleration: 100000.0
 
           class_018:
-            label: 'red_pole_buoy'
+            label: 'red_cross'
             model_class_id: 18
             enabled: true
-            confidence_threshold: 0.0
+            confidence_threshold: 20.0
             is_grounded: true
             is_static: false
             tracking_timeout: -1.0
@@ -393,10 +395,10 @@
             max_allowed_acceleration: 100000.0
 
           class_019:
-            label: 'red_racquet_ball'
+            label: 'red_pole_buoy'
             model_class_id: 19
             enabled: true
-            confidence_threshold: 0.0
+            confidence_threshold: 20.0
             is_grounded: true
             is_static: false
             tracking_timeout: -1.0
@@ -413,10 +415,10 @@
             max_allowed_acceleration: 100000.0
 
           class_020:
-            label: 'red_square'
+            label: 'red_racquet_ball'
             model_class_id: 20
             enabled: true
-            confidence_threshold: 0.0
+            confidence_threshold: 20.0
             is_grounded: true
             is_static: false
             tracking_timeout: -1.0
@@ -433,10 +435,10 @@
             max_allowed_acceleration: 100000.0
 
           class_021:
-            label: 'yellow_buoy'
+            label: 'red_square'
             model_class_id: 21
             enabled: true
-            confidence_threshold: 0.0
+            confidence_threshold: 20.0
             is_grounded: true
             is_static: false
             tracking_timeout: -1.0
@@ -453,10 +455,10 @@
             max_allowed_acceleration: 100000.0
 
           class_022:
-            label: 'yellow_racquet_ball'
+            label: 'rubber_duck'
             model_class_id: 22
             enabled: true
-            confidence_threshold: 0.0
+            confidence_threshold: 20.0
             is_grounded: true
             is_static: false
             tracking_timeout: -1.0
@@ -476,7 +478,28 @@
             label: 'yellow_buoy'
             model_class_id: 23
             enabled: true
-            confidence_threshold: 0.0
+            confidence_threshold: 20.0
+            is_grounded: true
+            is_static: false
+            tracking_timeout: -1.0
+            tracking_max_dist: -1.0
+            max_box_width_normalized: -1.0
+            min_box_width_normalized: -1.0
+            max_box_height_normalized: -1.0
+            min_box_height_normalized: -1.0
+            max_box_width_meters: -1.0
+            min_box_width_meters: -1.0
+            max_box_height_meters: -1.0
+            min_box_height_meters: -1.0
+            object_acceleration_preset: 'DEFAULT'
+            max_allowed_acceleration: 100000.0
+
+
+          class_023:
+            label: 'yellow_racquet_ball'
+            model_class_id: 23
+            enabled: true
+            confidence_threshold: 20.0
             is_grounded: true
             is_static: false
             tracking_timeout: -1.0

@@ -19,14 +19,6 @@
         <box size="0.43525 0.45570 0.02168"/>
       </geometry>
     </collision>
-    <inertial>
-      <mass value="4.0"/>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <inertia
-        ixx="0.08480" ixy="0" ixz="0"
-        iyy="0.09020" iyz="0"
-        izz="0.14480"/>
-    </inertial>
     <visual>
       <material name="ElectricalBox"/>
       <origin xyz="0 0 -0.07877" rpy="1.57080 0 -1.57080"/>

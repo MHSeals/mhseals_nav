@@ -48,9 +48,9 @@ setup(
     tests_require=["pytest"],
     entry_points={
         "console_scripts": [
-            "bag = mhseals_nav.utils.bag:main",
             "test = mhseals_nav.test:main",
-            "twist_converter = mhseals_nav.twist_converter:main"
+            "twist_converter = mhseals_nav.twist_converter:main",
+            "lidar_flattener = mhseals_nav.lidar_flattener:main"
         ],
     },
 )

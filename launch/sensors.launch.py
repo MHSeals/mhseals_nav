@@ -55,7 +55,7 @@ def generate_launch_description():
             'common_config_path': launch_configurations['common_stereo_config_file'],
             'zed_id_path': launch_configurations['zed_config_file'],
             'ffmpeg_config_path': launch_configurations['ffmpeg_config_file'],
-            'object_detection_config_path': launch_configurations['object_detection_config_file'],
+            # 'object_detection_config_path': launch_configurations['object_detection_config_file'],
             'custom_object_detection_config_path': launch_configurations['custom_object_detection_config_file'],
             'custom_onnx_file': launch_configurations['custom_object_detection_model_file'],
         }.items(),
