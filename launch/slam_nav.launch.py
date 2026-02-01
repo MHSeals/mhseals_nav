@@ -6,9 +6,12 @@ from launch.substitutions import PathJoinSubstitution, LaunchConfiguration
 from launch_ros.substitutions import FindPackageShare
 
 def generate_launch_description():
+    mhseals_nav_dir = FindPackageShare('mhseals_nav')
+
     launch_args = [
         ('sim', 'true', 'Use simulation time'),
-        ('nav2_params_file', PathJoinSubstitution([FindPackageShare('mhseals_nav'), 'config', 'nav2_params.yaml']), 'Path to Nav2 parameters file')
+        ('nav2_params_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'nav2_params.yaml']), 'Path to Nav2 parameters file'),
+        ('rtabmap_params_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'rtabmap.yaml']), 'Path to RTABMap params')
     ]
 
     launch_configurations = {}
@@ -38,6 +41,19 @@ def generate_launch_description():
         ]
     )
 
+    rtabmap_slam_node = Node(
+        package='rtabmap_slam',
+        executable='rtabmap',
+        name='rtabmap',
+        output='screen',
+        parameters=[launch_configurations['rtabmap_params_file'], {'use_sim_time': launch_configurations['sim']}],
+        remappings=[
+            ("/rgb/image", "/camera/image_raw"),
+            ("/depth/image", "/camera/depth/image_rect_raw"),
+            ("/rgb/camera_info", "/camera/camera_info"),
+        ]
+    )
+
     twist_converter_node = Node(
         package='mhseals_nav',
         executable='twist_converter',
@@ -47,5 +63,6 @@ def generate_launch_description():
 
     return LaunchDescription(declare_arguments + [
         nav2_bringup_launch,
+        rtabmap_slam_node,
         twist_converter_node
     ])

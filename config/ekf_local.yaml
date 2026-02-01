@@ -12,10 +12,24 @@ ekf_localization:
     base_link_frame: base_link
     world_frame: odom
 
-    # === MAVROS Local ===
-    odom0: /mavros/local_position/odom
+    # === MAVROS IMU ===
+    imu0: /imu/filtered
+    imu0_queue_size: 10
+    imu0_differential: false
+    imu0_relative: false
+    imu0_remove_gravitational_acceleration: true
+    
+    imu0_config: [
+      false, false, false,   # position
+      false, false, false,   # orientation (disable if VIO provides it)
+      true,  true,  true,    # angular velocity (gyro)
+      true,  true,  true     # linear acceleration
+    ]
+
+    # === DLIO ===
+    odom0: /dlio/odom
     odom0_differential: false
-    odom0_relative: true
+    odom0_relative: false
     odom0_queue_size: 10
     odom0_config: [
       true,  true,  false,   # x, y, z
@@ -25,15 +39,15 @@ ekf_localization:
       false, false, false    # ax, ay, az
     ]
 
-    # === DLIO ===
-    odom1: /dlio/odom
-    odom1_differential: false
-    odom1_relative: true
-    odom1_queue_size: 10
-    odom1_config: [
-      true,  true,  false,   # x, y, z
-      false, false,  true,   # roll, pitch, yaw
-      true,  true,  false,   # vx, vy, vz
-      false, false,  true,   # vroll, vpitch, vyaw
-      false, false, false    # ax, ay, az
-    ]
+    # # === ZED Odom VIO ===
+    # odom1: /zed/zed_node/odom
+    # odom1_differential: false
+    # odom1_relative: false
+    # odom1_queue_size: 10
+    # odom1_config: [
+    #   true,  true,  false,   # x, y, z
+    #   false, false,  true,   # roll, pitch, yaw
+    #   true,  true,  false,   # vx, vy, vz
+    #   false, false,  true,   # vroll, vpitch, vyaw
+    #   false, false, false    # ax, ay, az
+    # ]

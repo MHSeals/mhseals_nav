@@ -4,6 +4,7 @@ from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 from launch.actions import ExecuteProcess, TimerAction
+from launch.conditions import IfCondition, UnlessCondition
 
 import xacro
 import os
@@ -41,12 +42,15 @@ def generate_launch_description():
         ('fcu_url', 'tcp://127.0.0.1:5762', 'Flight control unit connection URL'),
         ('gcs_url', 'udp://@127.0.0.1:14550', 'Ground control service connection URL'),
         ('mavros_params_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'mavros.yaml']), 'Path to MAVROS params'),
+        ('mavros_odom_rate', '100', 'Rate at which mavros publishes odom data'),
         ('mavros_imu_rate', '100', 'Rate at which mavros publishes imu data'),
         ('mavros_gps_rate', '15', 'Rate at which mavros publishes gps data'),
         ('rtabmap_params_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'rtabmap.yaml']), 'Path to RTABMap params'),
         ('navsat_transform_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'navsat_transform.yaml']), 'Path to navsat_transform params'),
         ('ekf_local_config_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'ekf_local.yaml']), 'Path to local EKF config'),
         ('ekf_global_config_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'ekf_global.yaml']), 'Path to global EKF config'),
+        ('ekf_sim_local_config_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'ekf_sim_local.yaml']), 'Path to simulation EKF config'),
+        ('ekf_sim_global_config_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'ekf_sim_global.yaml']), 'Path to simulation EKF config'),
         ('dlio_yaml_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'dlio.yaml']), 'Path to DLIO main YAML'),
         ('dlio_params_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'dlio_params.yaml']), 'Path to DLIO params'),
         ('urdf_file', PathJoinSubstitution([mhseals_nav_dir, 'description', 'omni_boat', 'omni_boat.xacro']), 'Path to robot URDF/XACRO')
@@ -100,19 +104,6 @@ def generate_launch_description():
         ],
     )
 
-    rtabmap_slam_node = Node(
-        package='rtabmap_slam',
-        executable='rtabmap',
-        name='rtabmap',
-        output='screen',
-        parameters=[launch_configurations['rtabmap_params_file'], {'use_sim_time': launch_configurations['sim']}],
-        remappings=[
-            ("/rgb/image", "/camera/image_raw"),
-            ("/depth/image", "/camera/depth/image_rect_raw"),
-            ("/rgb/camera_info", "/camera/camera_info"),
-        ]
-    )
-
     imu_filter_node = Node(
         package="imu_filter_madgwick",
         executable="imu_filter_madgwick_node",
@@ -128,17 +119,37 @@ def generate_launch_description():
     ekf_local_node = Node(
         package="robot_localization",
         executable="ekf_node",
-        name="ekf_localization",
+        name="ekf_local_localization",
         output="screen",
         parameters=[launch_configurations['ekf_local_config_file'], {'use_sim_time': launch_configurations['sim']}],
+        condition=UnlessCondition(launch_configurations['sim'])
     )
 
     ekf_global_node = Node(
         package="robot_localization",
         executable="ekf_node",
-        name="ekf_localization",
+        name="ekf_global_localization",
         output="screen",
         parameters=[launch_configurations['ekf_global_config_file'], {'use_sim_time': launch_configurations['sim']}],
+        condition=UnlessCondition(launch_configurations['sim'])
+    )
+
+    ekf_sim_global_node = Node(
+        package="robot_localization",
+        executable="ekf_node",
+        name="ekf_sim_global_localization",
+        output="screen",
+        parameters=[launch_configurations['ekf_sim_global_config_file'], {'use_sim_time': launch_configurations['sim']}],
+        condition=IfCondition(launch_configurations['sim'])
+    )
+
+    ekf_sim_local_node = Node(
+        package="robot_localization",
+        executable="ekf_node",
+        name="ekf_sim_local_localization",
+        output="screen",
+        parameters=[launch_configurations['ekf_sim_local_config_file'], {'use_sim_time': launch_configurations['sim']}],
+        condition=IfCondition(launch_configurations['sim'])
     )
 
     mavros_node = Node(
@@ -156,16 +167,16 @@ def generate_launch_description():
         actions=[
             OpaqueFunction(
                 function=lambda context: [
-                    # # Local position / odometry
-                    # ExecuteProcess(
-                    #     cmd=[
-                    #         'ros2', 'service', 'call',
-                    #         '/mavros/set_message_interval',
-                    #         'mavros_msgs/srv/MessageInterval',
-                    #         f'{{message_id: 32, message_rate: {LaunchConfiguration("mavros_message_rate").perform(context)}}}'
-                    #     ],
-                    #     output='screen'
-                    # ),
+                    # Local position / odometry
+                    ExecuteProcess(
+                        cmd=[
+                            'ros2', 'service', 'call',
+                            '/mavros/set_message_interval',
+                            'mavros_msgs/srv/MessageInterval',
+                            f'{{message_id: 32, message_rate: {LaunchConfiguration("mavros_odom_rate").perform(context)}}}'
+                        ],
+                        output='screen'
+                    ),
                     # High-rate IMU
                     ExecuteProcess(
                         cmd=[
@@ -198,10 +209,11 @@ def generate_launch_description():
             # dlio_map_node,
             dlio_odom_node,
             rtabmap_odom_node,
-            rtabmap_slam_node,
             imu_filter_node,
-            ekf_local_node,
-            ekf_global_node,
+            # ekf_local_node,
+            # ekf_global_node,
+            # ekf_sim_global_node,
+            # ekf_sim_local_node,
             mavros_node,
             set_mavros_message_rate,
             robot_state_publisher_node

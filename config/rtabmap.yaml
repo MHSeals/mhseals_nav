@@ -1,7 +1,7 @@
 rtabmap:
   ros__parameters:
     # Sensors
-    subscribe_depth: false # Should be enabled when using actual zed
+    subscribe_depth: true
     subscribe_rgb: true
     subscribe_rgbd: false
     subscribe_stereo: false
@@ -25,9 +25,9 @@ rtabmap:
     Grid/2D_map: "true"
     Grid/Sensor: "false"
     Grid/FromDepth: "false"
-    Grid/MaxGroundHeight: "0.5"
-    Grid/MinGroundHeight: "-0.5"
-    Grid/MaxObstacleHeight: "2.0"
+    Grid/MaxGroundHeight: "1.0"
+    Grid/MinGroundHeight: "-1.0"
+    Grid/MaxObstacleHeight: "3.0"
     Grid/CellSize: "0.05"
     Grid/PreVoxelFiltering: "false"
     Grid/3D: "false"
