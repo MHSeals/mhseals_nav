@@ -46,13 +46,10 @@ def generate_launch_description():
         ('mavros_imu_rate', '100', 'Rate at which mavros publishes imu data'),
         ('mavros_gps_rate', '15', 'Rate at which mavros publishes gps data'),
         ('rtabmap_params_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'rtabmap.yaml']), 'Path to RTABMap params'),
-        ('navsat_transform_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'navsat_transform.yaml']), 'Path to navsat_transform params'),
+        ('navsat_transform_config_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'navsat_transform.yaml']), 'Path to navsat_transform params'),
         ('ekf_local_config_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'ekf_local.yaml']), 'Path to local EKF config'),
         ('ekf_global_config_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'ekf_global.yaml']), 'Path to global EKF config'),
-        ('ekf_sim_local_config_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'ekf_sim_local.yaml']), 'Path to simulation EKF config'),
-        ('ekf_sim_global_config_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'ekf_sim_global.yaml']), 'Path to simulation EKF config'),
-        ('dlio_yaml_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'dlio.yaml']), 'Path to DLIO main YAML'),
-        ('dlio_params_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'dlio_params.yaml']), 'Path to DLIO params'),
+        ('dlio_params_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'dlio.yaml']), 'Path to DLIO params'),
         ('urdf_file', PathJoinSubstitution([mhseals_nav_dir, 'description', 'omni_boat', 'omni_boat.xacro']), 'Path to robot URDF/XACRO')
     ]
 
@@ -68,7 +65,7 @@ def generate_launch_description():
         package='direct_lidar_inertial_odometry',
         executable='dlio_odom_node',
         output='screen',
-        parameters=[launch_configurations['dlio_yaml_file'], launch_configurations['dlio_params_file'], {'use_sim_time': launch_configurations['sim']}],
+        parameters=[launch_configurations['dlio_params_file'], {'use_sim_time': launch_configurations['sim']}],
         remappings=[
             ('pointcloud', '/points'),
             ('imu', '/imu/filtered'),
@@ -87,7 +84,7 @@ def generate_launch_description():
         package='direct_lidar_inertial_odometry',
         executable='dlio_map_node',
         output='screen',
-        parameters=[launch_configurations['dlio_yaml_file'], launch_configurations['dlio_params_file'], {'use_sim_time': launch_configurations['sim']}],
+        parameters=[launch_configurations['dlio_params_file'], {'use_sim_time': launch_configurations['sim']}],
         remappings=[('keyframes', '/dlio/pointcloud/keyframe')],
     )
 
@@ -109,49 +106,85 @@ def generate_launch_description():
         executable="imu_filter_madgwick_node",
         name="imu_filter_madgwick",
         output="screen",
-        parameters=[{"use_mag": False, "use_sim_time": launch_configurations['sim']}],
+        parameters=[{"use_mag": False, "publish_tf": False, "use_sim_time": launch_configurations['sim']}],
         remappings=[
             ("imu/data_raw", "/mavros/imu/data"),
             ("imu/data", "/imu/filtered")   
         ],
     )
 
+    navsat_fix_adapter_node = Node(
+        package="mhseals_nav",
+        executable="navsat_fix_adapter",
+        condition=IfCondition(launch_configurations['sim'])
+    )
+
+    navsat_transform_sim_node = Node(
+        package='robot_localization',
+        executable='navsat_transform_node',
+        name='navsat_transform',
+        parameters=[
+            launch_configurations['navsat_transform_config_file'],
+            {'use_sim_time': launch_configurations['sim']}
+        ],
+        remappings=[
+            ('imu/data', '/imu/filtered'),
+            ('gps/fix', '/gps/fix'),
+            ('odometry/filtered', '/odom/local'),
+            ('odometry/gps', '/gps/odom')
+        ],
+        condition=IfCondition(launch_configurations['sim'])
+    )
+
+    navsat_transform_real_node = Node(
+        package='robot_localization',
+        executable='navsat_transform_node',
+        name='navsat_transform',
+        parameters=[
+            launch_configurations['navsat_transform_config_file'],
+            {'use_sim_time': launch_configurations['sim']}
+        ],
+        remappings=[
+            ('imu/data', '/imu/filtered'),
+            ('gps/fix', '/mavros/global_position/global'),
+            ('odometry/filtered', '/odom/local'),
+            ('odometry/gps', '/gps/odom')
+        ],
+        condition=UnlessCondition(launch_configurations['sim'])
+    )
+    
     ekf_local_node = Node(
         package="robot_localization",
         executable="ekf_node",
-        name="ekf_local_localization",
+        name="ekf_local",
         output="screen",
         parameters=[launch_configurations['ekf_local_config_file'], {'use_sim_time': launch_configurations['sim']}],
-        condition=UnlessCondition(launch_configurations['sim'])
+        remappings=[
+            ('odometry/filtered', '/odom/local')
+        ]
     )
 
     ekf_global_node = Node(
         package="robot_localization",
         executable="ekf_node",
-        name="ekf_global_localization",
+        name="ekf_global",
         output="screen",
         parameters=[launch_configurations['ekf_global_config_file'], {'use_sim_time': launch_configurations['sim']}],
-        condition=UnlessCondition(launch_configurations['sim'])
+        remappings=[
+            ('odometry/filtered', '/odom/global')
+        ]
     )
 
-    ekf_sim_global_node = Node(
-        package="robot_localization",
-        executable="ekf_node",
-        name="ekf_sim_global_localization",
-        output="screen",
-        parameters=[launch_configurations['ekf_sim_global_config_file'], {'use_sim_time': launch_configurations['sim']}],
-        condition=IfCondition(launch_configurations['sim'])
+    ekf_local_node_delayed = TimerAction(
+        period=6.0,
+        actions=[ekf_local_node]
     )
-
-    ekf_sim_local_node = Node(
-        package="robot_localization",
-        executable="ekf_node",
-        name="ekf_sim_local_localization",
-        output="screen",
-        parameters=[launch_configurations['ekf_sim_local_config_file'], {'use_sim_time': launch_configurations['sim']}],
-        condition=IfCondition(launch_configurations['sim'])
+    
+    ekf_global_node_delayed = TimerAction(
+        period=6.0,
+        actions=[ekf_global_node]
     )
-
+    
     mavros_node = Node(
         package='mavros',
         executable='mavros_node',
@@ -207,14 +240,15 @@ def generate_launch_description():
     return LaunchDescription(
         declare_arguments + [
             # dlio_map_node,
-            dlio_odom_node,
+            # dlio_odom_node,
+            mavros_node,
             rtabmap_odom_node,
             imu_filter_node,
-            # ekf_local_node,
-            # ekf_global_node,
-            # ekf_sim_global_node,
-            # ekf_sim_local_node,
-            mavros_node,
+            navsat_transform_sim_node,
+            navsat_transform_real_node,
+            navsat_fix_adapter_node,
+            ekf_local_node_delayed,
+            ekf_global_node_delayed,
             set_mavros_message_rate,
             robot_state_publisher_node
         ]

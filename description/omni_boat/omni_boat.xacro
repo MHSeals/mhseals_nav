@@ -37,27 +37,6 @@
     </visual>
   </link>
 
-  <!-- ================= SENSOR RAIL ================= -->
-  <link name="sensor_rail_link">
-    <visual>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <material name="Aluminum"/>
-      <geometry>
-        <box size="0.43927 0.02150 0.02150"/>
-      </geometry>
-    </visual>
-    <inertial>
-      <mass value="0.8"/>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <inertia ixx="0.00006" ixy="0" ixz="0" iyy="0.01292" iyz="0" izz="0.01292"/>
-    </inertial>
-  </link>
-  <joint name="sensor_rail_link_joint" type="fixed">
-    <parent link="base_link"/>
-    <child link="sensor_rail_link"/>
-    <origin xyz="0.37825 0 -0.09151" rpy="0 0 -1.57080"/>
-  </joint>
-
   <!-- ================= SENSORS ================= -->
   <link name="gps_link"/>
   <joint name="gps_link_joint" type="fixed">
@@ -84,16 +63,15 @@
     </visual>
   </link>
   <joint name="camera_link_joint" type="fixed">
-    <parent link="sensor_rail_link"/>
+    <parent link="base_link"/>
     <child link="camera_link"/>
-    <origin xyz="0 0 -0.02610" rpy="0 0 0"/>
+    <origin xyz="0.287 0 -0.061" rpy="0 0 1.57080"/>
   </joint>
 
   <link name="lidar_link">
     <visual>
       <material name="Lidar"/>
-      <origin xyz="0.00003 -0.00061 0.03534"
-              rpy="1.57080 0 -1.57080"/>
+      <origin xyz="0 0 0" rpy="1.57080 0 1.57080"/>
       <geometry>
         <mesh filename="${mesh_root}/VelodyneVLP16.stl"
               scale="0.001 0.001 0.001"/>
@@ -101,9 +79,9 @@
     </visual>
   </link>
   <joint name="lidar_link_joint" type="fixed">
-    <parent link="sensor_rail_link"/>
+    <parent link="base_link"/>
     <child link="lidar_link"/>
-    <origin xyz="0 0 0.01075" rpy="0 0 0"/>
+    <origin xyz="0 0 0.1682" rpy="0 0 -1.57080"/>
   </joint>
 
   <!-- ================= HULLS ================= -->

@@ -33,3 +33,22 @@ rtabmap:
     Grid/3D: "false"
     Mem/SaveDepth16Format: "true"
     Mem/DepthCompressionFormat: ".rvl"
+
+rgbd_odometry:
+  ros__parameters:
+    frame_id: base_link
+    odom_frame_id: odom
+    publish_tf: false
+    publish_null_when_lost: false
+    guess_frame_id: ""
+    wait_for_transform: 0.3
+    
+    # Visual odometry parameters
+    Odom/Strategy: "0"  # Frame-to-Map = 0, Frame-to-Frame = 1
+    Odom/ResetCountdown: "1"
+    Odom/MinInliers: "15"  # Lower from default 20 if features are sparse
+    OdomF2M/MaxSize: "2000"
+    Vis/MinInliers: "15"
+    Vis/InlierDistance: "0.1"
+    Vis/MaxDepth: "10.0"
+    Vis/CorNNDR: "0.8"

@@ -1,4 +1,4 @@
-mavros:
+/**:
   ros__parameters:
     system_id: 255
     component_id: 240
@@ -20,3 +20,6 @@ mavros:
 
     imu:
       frame_id: imu_link
+      
+    gps:
+      frame_id: gps_link

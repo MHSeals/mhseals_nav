@@ -1,8 +1,8 @@
-ekf_global:
+/**:
   ros__parameters:
     frequency: 30.0
     sensor_timeout: 0.5
-    two_d_mode: true
+    two_d_mode: false
 
     publish_tf: true
     publish_acceleration: false
@@ -13,33 +13,32 @@ ekf_global:
     base_link_frame: base_link
     world_frame: map
 
-    # === MAVROS GPS ===
-    gps0: /mavros/global_position/fix
-    gps0_config: [true, true, false, false, false, false]
-    gps0_differential: false
+    # === Local Odom Reference ===
+    odom0: /odom/local
+    odom0_config: [true,  true,  true,   # x, y, z
+                   true,  true,  true,   # roll, pitch, yaw
+                   true,  true,  true,   # vx, vy, vz
+                   false, false, false,  # vroll, vpitch, vyaw
+                   false, false, false]  # ax, ay, az
+    odom0_differential: false
+    
+    odom1: /gps/odom
+    odom1_config: [true,  true,  false,  # x, y, z (no GPS altitude)
+                   false, false, false,  # roll, pitch, yaw
+                   false, false, false,  # velocities
+                   false, false, false,  # angular velocities
+                   false, false, false]  # accelerations
+    odom1_differential: false
 
     # === RTAB-MAP Camera + LiDAR Loop Closure ===
-    odom0: /rtabmap/odom
-    odom0_differential: false
-    odom0_relative: false
-    odom0_queue_size: 10
-    odom0_config: [
+    odom2: /rtabmap/odom
+    odom2_differential: false
+    odom2_relative: false
+    odom2_queue_size: 10
+    odom2_config: [
       true,  true,  false,   # x, y, z
       false, false,  true,   # roll, pitch, yaw
       false, false, false,   # vx, vy, vz
       false, false,  true,   # vroll, vpitch, vyaw
       false, false, false    # ax, ay, az
     ]
-    
-    # # === MAVROS Odom ===
-    # odom1: /mavros/local_position/odom
-    # odom1_differential: false
-    # odom1_relative: false
-    # odom1_queue_size: 10
-    # odom1_config: [
-    #   true,  true,  false,   # x, y, z
-    #   false, false,  true,   # roll, pitch, yaw
-    #   false, false, false,   # vx, vy, vz
-    #   false, false,  true,   # vroll, vpitch, vyaw
-    #   false, false, false    # ax, ay, az
-    # ]
