@@ -39,7 +39,7 @@ def generate_launch_description():
     launch_args = [
         ('sim', 'true', 'Run in simulation mode'),
         ('robot_state_publish_frequency', '100.0', 'Rate at which robot state is published'),
-        ('fcu_url', 'tcp://127.0.0.1:5762', 'Flight control unit connection URL'),
+        ('fcu_url', 'serial:///dev/ttyACM0:115200', 'Flight control unit connection URL'),
         ('gcs_url', 'udp://@127.0.0.1:14550', 'Ground control service connection URL'),
         ('mavros_params_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'mavros.yaml']), 'Path to MAVROS params'),
         ('mavros_odom_rate', '100', 'Rate at which mavros publishes odom data'),

@@ -28,6 +28,7 @@ def generate_launch_description():
 
         # Sensors
         ('zed_camera_name', 'zed2i', 'ZED camera model'),
+        ('camera_name', 'zed', 'ZED camera link name'),
         ('zed_config_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'zed2i.yaml']), 'Path to ZED config'),
         ('virtual_config', PathJoinSubstitution([mhseals_nav_dir, 'config', 'virtual.yaml']), 'Virtual sensor config'),
         ('common_stereo_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'common_stereo.yaml']), 'Common stereo config'),

@@ -20,9 +20,10 @@ def generate_launch_description():
 
     launch_args = [
         ('sim', 'true', 'Run in simulation mode'),
-        ('velodyne_ip', '192.168.1.201', 'IP address of the Velodyne LiDAR'),
+        ('velodyne_ip', '192.168.0.201', 'IP address of the Velodyne LiDAR'),
         ('velodyne_port', '2368', 'UDP port for Velodyne LiDAR packets'),
         ('zed_camera_name', 'zed2i', 'ZED camera model'),
+        ('camera_name', '', 'ZED camera link name'),
         ('ros_ip', '192.168.1.167', 'IP address of the Unity ROS TCP Endpoint'),
         ('ros_port', '10000', 'Port of the Unity ROS TCP Endpoint'),
         ('sensors_ignore', '', 'Comma-separated list of sensors to ignore, e.g. "camera,lidar"'),
@@ -51,7 +52,7 @@ def generate_launch_description():
         ),
         launch_arguments={
             'camera_model': launch_configurations['zed_camera_name'],
-            'camera_name': 'zed',
+            'camera_name': launch_configurations['camera_name'],
             'common_config_path': launch_configurations['common_stereo_config_file'],
             'zed_id_path': launch_configurations['zed_config_file'],
             'ffmpeg_config_path': launch_configurations['ffmpeg_config_file'],
