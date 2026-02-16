@@ -1,0 +1,65 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:macro name="t200_thruster"
+               params="
+                 name
+                 parent
+                 xyz
+                 rpy
+                 thruster_mesh
+                 prop_mesh
+               ">
+
+    <!-- Thruster body -->
+    <link name="${name}_thruster_link">
+      <inertial>
+        <mass value="0.42700"/>
+        <origin xyz="0 0 0"/>
+        <inertia
+          ixx="0.00073" ixy="0" ixz="0"
+          iyy="0.00073" iyz="0"
+          izz="0.00056"/>
+      </inertial>
+
+      <visual>
+        <material name="Thruster"/>
+        <geometry>
+          <mesh filename="${thruster_mesh}" scale="0.001 0.001 0.001"/>
+        </geometry>
+      </visual>
+    </link>
+
+    <joint name="${name}_thruster_link_joint" type="fixed">
+      <parent link="${parent}"/>
+      <child link="${name}_thruster_link"/>
+      <origin xyz="${xyz}" rpy="${rpy}"/>
+
+      <ros2_control>
+        <param name="thruster">true</param>
+      </ros2_control>
+    </joint>
+
+    <!-- Propeller -->
+    <link name="${name}_propeller_link">
+      <visual>
+        <material name="Propeller"/>
+        <origin xyz="0 0.00057 0"/>
+        <geometry>
+          <mesh filename="${prop_mesh}" scale="0.001 0.001 0.001"/>
+        </geometry>
+      </visual>
+    </link>
+
+    <joint name="${name}_propeller_link_joint" type="fixed">
+      <parent link="${name}_thruster_link"/>
+      <child link="${name}_propeller_link"/>
+      <origin xyz="0 0 -0.00299"/>
+    </joint>
+
+  </xacro:macro>
+
+  <material name="Thruster"><color rgba="0.0039 0.0039 0.0039 1"/></material>
+  <material name="Propeller"><color rgba="0.0745 0.1725 0.8 1"/></material>
+
+</robot>
