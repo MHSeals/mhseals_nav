@@ -1,64 +1,54 @@
 <?xml version="1.0"?>
 <robot name="blastoise" xmlns:xacro="http://www.ros.org/wiki/xacro">
 
-  <!-- ================= INCLUDES ================= -->
   <xacro:include filename="$(find mhseals_nav)/description/blastoise/t200_thruster.xacro"/>
   <xacro:property name="mesh_root" value="package://mhseals_nav/description/blastoise/meshes"/>
 
   <!-- ================= BASE ================= -->
   <link name="base_link">
-
-    <!-- Collisions -->
-    <collision>
+    <collision name="cross_bar_collision">
       <origin xyz="0 0 -0.01909" rpy="0 0 0"/>
-      <geometry>
-        <box size="0.43826 0.63446 0.02435"/>
-      </geometry>
+      <geometry><box size="0.43826 0.63446 0.02435"/></geometry>
     </collision>
 
-    <collision>
+    <collision name="ee_box_collision">
       <origin xyz="0 0 0.06988" rpy="0 0 0"/>
-      <geometry>
-        <box size="0.43980 0.50929 0.17333"/>
-      </geometry>
+      <geometry><box size="0.43980 0.50929 0.17333"/></geometry>
     </collision>
 
-    <collision>
+    <collision name="head_collision">
       <origin xyz="0 -0.36901 0.00696" rpy="0 0 0"/>
-      <geometry>
-        <box size="0.18120 0.18120 0.18120"/>
-      </geometry>
+      <geometry><box size="0.18120 0.18120 0.18120"/></geometry>
     </collision>
 
-    <!-- Visuals -->
+    <inertial>
+      <mass value="3.0"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <inertia ixx="0.001" ixy="0" ixz="0"
+               iyy="0.001" iyz="0"
+               izz="0.001"/>
+    </inertial>
+
     <visual>
-      <material name="MountHardware"/>
       <origin xyz="0.24219 -0.33878 0.08816" rpy="1.57080 0 0"/>
-      <geometry>
-        <mesh filename="${mesh_root}/bullet.stl"/>
-      </geometry>
+      <geometry><mesh filename="${mesh_root}/bullet.stl"/></geometry>
+      <material name="Material.016"/>
     </visual>
 
     <visual>
-      <material name="AluminumFrame"/>
       <origin xyz="0.00423 -0.13753 0.00871" rpy="1.57080 0 0"/>
-      <geometry>
-        <mesh filename="${mesh_root}/cross_bar.stl"/>
-      </geometry>
+      <geometry><mesh filename="${mesh_root}/cross_bar.stl"/></geometry>
+      <material name="Material.020"/>
     </visual>
 
     <visual>
-      <material name="ElectricalBox"/>
       <origin xyz="-0.00358 -0.00221 0.07948" rpy="1.57080 0 0"/>
-      <geometry>
-        <mesh filename="${mesh_root}/ee_box.stl"/>
-      </geometry>
+      <geometry><mesh filename="${mesh_root}/ee_box.stl"/></geometry>
+      <material name="Material.008"/>
     </visual>
-
   </link>
 
   <!-- ================= HULLS ================= -->
-
   <link name="left_hull_link">
     <collision>
       <origin xyz="0 0 -0.07237" rpy="0 0 0"/>
@@ -68,12 +58,18 @@
       </geometry>
     </collision>
 
+    <inertial>
+      <mass value="7.0"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <inertia ixx="0.001" ixy="0" ixz="0"
+               iyy="0.001" iyz="0"
+               izz="0.001"/>
+    </inertial>
+
     <visual>
-      <material name="CarbonFiberHull"/>
       <origin xyz="0.00008 -0.04829 -0.16312" rpy="1.57080 0 0"/>
-      <geometry>
-        <mesh filename="${mesh_root}/left_hull.stl"/>
-      </geometry>
+      <geometry><mesh filename="${mesh_root}/left_hull.stl"/></geometry>
+      <material name="Material.006"/>
     </visual>
   </link>
 
@@ -92,12 +88,18 @@
       </geometry>
     </collision>
 
+    <inertial>
+      <mass value="7.0"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <inertia ixx="0.001" ixy="0" ixz="0"
+               iyy="0.001" iyz="0"
+               izz="0.001"/>
+    </inertial>
+
     <visual>
-      <material name="CarbonFiberHull"/>
       <origin xyz="0.00005 -0.04914 -0.16498" rpy="1.57080 0 0"/>
-      <geometry>
-        <mesh filename="${mesh_root}/right_hull.stl"/>
-      </geometry>
+      <geometry><mesh filename="${mesh_root}/right_hull.stl"/></geometry>
+      <material name="Material.006"/>
     </visual>
   </link>
 
@@ -107,104 +109,127 @@
     <origin xyz="0.33020 0 -0.07800" rpy="0 0 0"/>
   </joint>
 
-  <!-- ================= THRUSTERS ================= -->
+  <!-- ================= SENSOR MOUNT ================= -->
+  <link name="sensor_mount_link">
+    <collision>
+      <origin xyz="0 0 0.15839" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.07246" length="0.34194"/>
+      </geometry>
+    </collision>
 
-  <xacro:t200_thruster
-    name="front_left"
+    <inertial>
+      <mass value="0.3"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <inertia ixx="0.001" ixy="0" ixz="0"
+               iyy="0.001" iyz="0"
+               izz="0.001"/>
+    </inertial>
+  </link>
+
+  <joint name="sensor_mount_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="sensor_mount_link"/>
+    <origin xyz="0 0.27711 -0.01260" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ================= SENSORS ================= -->
+  <link name="front_camera_link">
+    <visual>
+      <origin xyz="0.00056 0 0" rpy="1.57080 0 0"/>
+      <geometry><mesh filename="${mesh_root}/front_camera.stl"/></geometry>
+      <material name="Material.005"/>
+    </visual>
+  </link>
+
+  <joint name="front_camera_joint" type="fixed">
+    <parent link="sensor_mount_link"/>
+    <child link="front_camera_link"/>
+    <origin xyz="0 0.04990 0.13779" rpy="0 0 0"/>
+  </joint>
+
+  <link name="lidar_link">
+    <visual>
+      <origin xyz="0.00019 -0.01946 -0.01764" rpy="1.57080 0 0"/>
+      <geometry><mesh filename="${mesh_root}/lidar.stl"/></geometry>
+      <material name="Material.003"/>
+    </visual>
+  </link>
+
+  <joint name="lidar_joint" type="fixed">
+    <parent link="sensor_mount_link"/>
+    <child link="lidar_link"/>
+    <origin xyz="0 0.01270 0.29035" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ================= THRUSTERS ================= -->
+  <xacro:t200_thruster name="front_left"
     parent="left_hull_link"
     xyz="-0.01287 0.26637 -0.28232"
     rpy="1.57080 0 2.35619"
     thruster_mesh="${mesh_root}/front_left_thruster.stl"
     prop_mesh="${mesh_root}/front_left_propeller.stl"/>
 
-  <xacro:t200_thruster
-    name="rear_left"
+  <xacro:t200_thruster name="rear_left"
     parent="left_hull_link"
     xyz="-0.01277 -0.26625 -0.28232"
     rpy="1.57080 0 0.78540"
     thruster_mesh="${mesh_root}/rear_left_thruster.stl"
     prop_mesh="${mesh_root}/rear_left_propeller.stl"/>
 
-  <xacro:t200_thruster
-    name="front_right"
+  <xacro:t200_thruster name="front_right"
     parent="right_hull_link"
     xyz="0.01287 0.26636 -0.28432"
     rpy="1.57080 0 -2.35619"
     thruster_mesh="${mesh_root}/front_right_thruster.stl"
     prop_mesh="${mesh_root}/front_right_propeller.stl"/>
 
-  <xacro:t200_thruster
-    name="rear_right"
+  <xacro:t200_thruster name="rear_right"
     parent="right_hull_link"
     xyz="0.01282 -0.26630 -0.28432"
     rpy="1.57080 0 -0.78540"
     thruster_mesh="${mesh_root}/rear_right_thruster.stl"
     prop_mesh="${mesh_root}/rear_right_propeller.stl"/>
 
-  <!-- ================= SENSORS ================= -->
-
-  <link name="camera_link">
-    <visual>
-      <material name="Camera"/>
-      <geometry>
-        <mesh filename="${mesh_root}/front_camera.stl"/>
-      </geometry>
-    </visual>
-  </link>
-
-  <joint name="camera_joint" type="fixed">
-    <parent link="base_link"/>
-    <child link="camera_link"/>
-    <origin xyz="0 0.04990 0.13779" rpy="0 0 0"/>
-  </joint>
-
-  <link name="lidar_link">
-    <visual>
-      <material name="Lidar"/>
-      <geometry>
-        <mesh filename="${mesh_root}/lidar.stl"/>
-      </geometry>
-    </visual>
-  </link>
-
-  <joint name="lidar_joint" type="fixed">
-    <parent link="base_link"/>
-    <child link="lidar_link"/>
-    <origin xyz="0 0.01270 0.29035" rpy="0 0 0"/>
-  </joint>
-
   <!-- ================= MATERIALS ================= -->
-
-  <material name="CarbonFiberHull">
-    <color rgba="0.06667 0.06667 0.06667 1"/>
+  
+  <material name="Material.003">
+    <color rgba="0.14902 0.14902 0.14902 1.0"/>
   </material>
-
-  <material name="T200Thruster">
-    <color rgba="0.05 0.05 0.05 1"/>
+  
+  <material name="Material.005">
+    <color rgba="0.00784 0.00784 0.00784 1.0"/>
   </material>
-
-  <material name="T200Propeller">
-    <color rgba="0.0 0.2 0.8 1"/>
+  
+  <material name="Material.006">
+    <color rgba="0.01569 0.01569 0.01569 1.0"/>
   </material>
-
-  <material name="Camera">
-    <color rgba="0.14902 0.14902 0.14902 1"/>
+  
+  <material name="Material.008">
+    <color rgba="0.45882 0.45882 0.45882 1.0"/>
   </material>
-
-  <material name="Lidar">
-    <color rgba="0.01176 0.22353 1.0 1"/>
+  
+  <material name="Material.010">
+    <color rgba="0.03922 0.03922 0.03922 1.0"/>
   </material>
-
-  <material name="ElectricalBox">
-    <color rgba="0.45882 0.45882 0.45882 1"/>
+  
+  <material name="Material.011">
+    <color rgba="0.05098 0.05098 0.05098 1.0"/>
   </material>
-
-  <material name="AluminumFrame">
-    <color rgba="0.64 0.64 0.64 1"/>
+  
+  <material name="Material.012">
+    <color rgba="0.00000 0.20000 0.80000 1.0"/>
   </material>
-
-  <material name="MountHardware">
-    <color rgba="0.04314 0.04314 0.04314 1"/>
+  
+  <material name="Material.016">
+    <color rgba="0.04314 0.04314 0.04314 1.0"/>
   </material>
-
+  
+  <material name="Material.018">
+    <color rgba="0.17647 0.17647 0.17647 1.0"/>
+  </material>
+  
+  <material name="Material.020">
+    <color rgba="0.20784 0.20784 0.20784 1.0"/>
+  </material>
 </robot>
