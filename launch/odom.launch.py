@@ -33,13 +33,38 @@ def load_urdf(context):
         }],
     )]
 
+def create_mavros_node(context):
+    sim = LaunchConfiguration('sim').perform(context).lower() == 'true'
+    fcu_url_override = LaunchConfiguration('fcu_url').perform(context)
+
+    if fcu_url_override != '':
+        fcu_url = fcu_url_override
+    elif sim:
+        fcu_url = 'tcp://127.0.0.1:5762'
+    else:
+        fcu_url = 'serial:///dev/ttyACM0:57600'
+
+    return [Node(
+        package='mavros',
+        executable='mavros_node',
+        output='screen',
+        parameters=[
+            LaunchConfiguration('mavros_params_file'),
+            {
+                'use_sim_time': sim,
+                'fcu_url': fcu_url,
+                'gcs_url': LaunchConfiguration('gcs_url')
+            }
+        ],
+    )]
+
 def generate_launch_description():
     mhseals_nav_dir = FindPackageShare('mhseals_nav')
 
     launch_args = [
         ('sim', 'true', 'Run in simulation mode'),
         ('robot_state_publish_frequency', '100.0', 'Rate at which robot state is published'),
-        ('fcu_url', 'serial:///dev/ttyACM0:115200', 'Flight control unit connection URL'),
+        ('fcu_url', '', 'Flight control unit connection URL'),
         ('gcs_url', 'udp://@127.0.0.1:14550', 'Ground control service connection URL'),
         ('mavros_params_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'mavros.yaml']), 'Path to MAVROS params'),
         ('mavros_odom_rate', '100', 'Rate at which mavros publishes odom data'),
@@ -161,15 +186,7 @@ def generate_launch_description():
         actions=[ekf_global_node]
     )
     
-    mavros_node = Node(
-        package='mavros',
-        executable='mavros_node',
-        output='screen',
-        parameters=[launch_configurations['mavros_params_file'],
-                    {'use_sim_time': launch_configurations['sim'],
-                     'fcu_url': launch_configurations['fcu_url'],
-                     'gcs_url': launch_configurations['gcs_url']}],
-    )
+    mavros_node = OpaqueFunction(function=create_mavros_node)
 
     set_mavros_message_rate = TimerAction(
         period=5.0,
