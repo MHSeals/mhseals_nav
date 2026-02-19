@@ -49,8 +49,7 @@ setup(
     entry_points={
         "console_scripts": [
             "twist_converter = mhseals_nav.twist_converter:main",
-            "lidar_flattener = mhseals_nav.lidar_flattener:main",
-            "navsat_fix_adapter = mhseals_nav.navsat_fix_adapter:main"
+            "lidar_flattener = mhseals_nav.lidar_flattener:main"
         ],
     },
 )

@@ -99,25 +99,25 @@ controller_server:
     FollowPath:
       plugin: "nav2_mppi_controller::MPPIController"
     
-      time_steps: 56
+      time_steps: 40
       model_dt: 0.1
-      batch_size: 2000
+      batch_size: 1000
       iterations: 1
     
       vx_std: 0.4
       wz_std: 0.3
-      vx_max: 4.0
-      vx_min: 0.5
-      wz_max: 2.0
-      ax_max: 1.5
-      az_max: 3.0
-      ax_min: -1.5
-      az_min: -6.0
+      vx_max: 2.0
+      vx_min: 0.2
+      wz_max: 1.5
+      ax_max: 1.0
+      az_max: 2.0
+      ax_min: -1.0
+      az_min: -3.0
     
       temperature: 0.3
-      gamma: 0.015
+      gamma: 0.02
     
-      motion_model: "DiffDrive"
+      motion_model: "DiffDrive:"
     
       critics:
         - GoalCritic
@@ -127,11 +127,11 @@ controller_server:
         - PreferForwardCritic
         - VelocityDeadbandCritic
     
-      PathFollowCritic.weight: 6.0
-      ObstaclesCritic.weight: 2.5
-      GoalCritic.weight: 10.0
-      PathAlignCritic.weight: 5.0
-      PreferForwardCritic.weight: 5.0
+      PathFollowCritic.weight: 7.0
+      ObstaclesCritic.weight: 3.0
+      GoalCritic.weight: 8.0
+      PathAlignCritic.weight: 6.0
+      PreferForwardCritic.weight: 4.0
 
 local_costmap:
   local_costmap:

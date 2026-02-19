@@ -113,30 +113,7 @@ def generate_launch_description():
         ],
     )
 
-    navsat_fix_adapter_node = Node(
-        package="mhseals_nav",
-        executable="navsat_fix_adapter",
-        condition=IfCondition(launch_configurations['sim'])
-    )
-
-    navsat_transform_sim_node = Node(
-        package='robot_localization',
-        executable='navsat_transform_node',
-        name='navsat_transform',
-        parameters=[
-            launch_configurations['navsat_transform_config_file'],
-            {'use_sim_time': launch_configurations['sim']}
-        ],
-        remappings=[
-            ('imu/data', '/imu/filtered'),
-            ('gps/fix', '/gps/fix'),
-            ('odometry/filtered', '/odom/local'),
-            ('odometry/gps', '/gps/odom')
-        ],
-        condition=IfCondition(launch_configurations['sim'])
-    )
-
-    navsat_transform_real_node = Node(
+    navsat_transform_node = Node(
         package='robot_localization',
         executable='navsat_transform_node',
         name='navsat_transform',
@@ -149,8 +126,7 @@ def generate_launch_description():
             ('gps/fix', '/mavros/global_position/global'),
             ('odometry/filtered', '/odom/local'),
             ('odometry/gps', '/gps/odom')
-        ],
-        condition=UnlessCondition(launch_configurations['sim'])
+        ]
     )
     
     ekf_local_node = Node(
@@ -244,9 +220,7 @@ def generate_launch_description():
             mavros_node,
             rtabmap_odom_node,
             imu_filter_node,
-            navsat_transform_sim_node,
-            navsat_transform_real_node,
-            navsat_fix_adapter_node,
+            navsat_transform_node,
             ekf_local_node_delayed,
             ekf_global_node_delayed,
             set_mavros_message_rate,
