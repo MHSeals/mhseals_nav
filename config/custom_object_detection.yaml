@@ -7,7 +7,7 @@
           detection_model: CUSTOM_YOLOLIKE_BOX_OBJECTS
           custom_onnx_input_size: 512 # Resolution used with the YOLO-like ONNX file. For example, 512 means a input tensor '1x3x512x512' 
           custom_onnx_file: '/home/roboboat/roboboat_ws/src/mhseals_nav/config/best.onnx'
-          custom_class_count: 24 # Number of classes in the custom ONNX file. For example, 80 for YOLOv8 trained on COCO dataset
+          custom_class_count: 28 # Number of classes in the custom ONNX file. For example, 80 for YOLOv8 trained on COCO dataset
 
           # TODO: Add one instance of each class to the list below
           # Note: create a class_XXX identifier for each class in the custom ONNX file.
@@ -75,7 +75,7 @@
             max_allowed_acceleration: 100000.0
 
           class_003:
-            label: 'black_triangle'
+            label: 'black_target_boat'
             model_class_id: 3
             enabled: true
             confidence_threshold: 20.0
@@ -95,7 +95,7 @@
             max_allowed_acceleration: 100000.0
 
           class_004:
-            label: 'blue_buoy'
+            label: 'black_triangle'
             model_class_id: 4
             enabled: true
             confidence_threshold: 20.0
@@ -115,7 +115,7 @@
             max_allowed_acceleration: 100000.0
 
           class_005:
-            label: 'blue_circle'
+            label: 'blue_buoy'
             model_class_id: 5
             enabled: true
             confidence_threshold: 20.0
@@ -135,7 +135,7 @@
             max_allowed_acceleration: 100000.0
 
           class_006:
-            label: 'blue_cross'
+            label: 'blue_circle'
             model_class_id: 6
             enabled: true
             confidence_threshold: 20.0
@@ -155,7 +155,7 @@
             max_allowed_acceleration: 100000.0
 
           class_007:
-            label: 'blue_racquet_ball'
+            label: 'blue_cross'
             model_class_id: 7
             enabled: true
             confidence_threshold: 20.0
@@ -175,7 +175,7 @@
             max_allowed_acceleration: 100000.0
 
           class_008:
-            label: 'blue_triangle'
+            label: 'blue_racquet_ball'
             model_class_id: 8
             enabled: true
             confidence_threshold: 20.0
@@ -195,7 +195,7 @@
             max_allowed_acceleration: 100000.0
 
           class_009:
-            label: 'dock'
+            label: 'blue_triangle'
             model_class_id: 9
             enabled: true
             confidence_threshold: 20.0
@@ -215,7 +215,7 @@
             max_allowed_acceleration: 100000.0
 
           class_010:
-            label: 'duck_image'
+            label: 'dock'
             model_class_id: 10
             enabled: true
             confidence_threshold: 20.0
@@ -255,7 +255,7 @@
             max_allowed_acceleration: 100000.0
 
           class_012:
-            label: 'green_cross'
+            label: 'green_circle'
             model_class_id: 12
             enabled: true
             confidence_threshold: 20.0
@@ -275,7 +275,7 @@
             max_allowed_acceleration: 100000.0
 
           class_013:
-            label: 'green_pole_buoy'
+            label: 'green_cross'
             model_class_id: 13
             enabled: true
             confidence_threshold: 20.0
@@ -295,7 +295,7 @@
             max_allowed_acceleration: 100000.0
 
           class_014:
-            label: 'green_triangle'
+            label: 'green_light_buoy'
             model_class_id: 14
             enabled: true
             confidence_threshold: 20.0
@@ -315,7 +315,7 @@
             max_allowed_acceleration: 100000.0
 
           class_015:
-            label: 'misc_buoy'
+            label: 'green_pole_buoy'
             model_class_id: 15
             enabled: true
             confidence_threshold: 20.0
@@ -335,7 +335,7 @@
             max_allowed_acceleration: 100000.0
 
           class_016:
-            label: 'red_buoy'
+            label: 'green_triangle'
             model_class_id: 16
             enabled: true
             confidence_threshold: 20.0
@@ -355,7 +355,7 @@
             max_allowed_acceleration: 100000.0
 
           class_017:
-            label: 'red_circle'
+            label: 'red_buoy'
             model_class_id: 17
             enabled: true
             confidence_threshold: 20.0
@@ -375,7 +375,7 @@
             max_allowed_acceleration: 100000.0
 
           class_018:
-            label: 'red_cross'
+            label: 'red_circle'
             model_class_id: 18
             enabled: true
             confidence_threshold: 20.0
@@ -395,7 +395,7 @@
             max_allowed_acceleration: 100000.0
 
           class_019:
-            label: 'red_pole_buoy'
+            label: 'red_cross'
             model_class_id: 19
             enabled: true
             confidence_threshold: 20.0
@@ -415,7 +415,7 @@
             max_allowed_acceleration: 100000.0
 
           class_020:
-            label: 'red_racquet_ball'
+            label: 'red_light_buoy'
             model_class_id: 20
             enabled: true
             confidence_threshold: 20.0
@@ -435,7 +435,7 @@
             max_allowed_acceleration: 100000.0
 
           class_021:
-            label: 'red_square'
+            label: 'red_pole_buoy'
             model_class_id: 21
             enabled: true
             confidence_threshold: 20.0
@@ -455,7 +455,7 @@
             max_allowed_acceleration: 100000.0
 
           class_022:
-            label: 'rubber_duck'
+            label: 'red_racquet_ball'
             model_class_id: 22
             enabled: true
             confidence_threshold: 20.0
@@ -475,7 +475,7 @@
             max_allowed_acceleration: 100000.0
 
           class_023:
-            label: 'yellow_buoy'
+            label: 'red_square'
             model_class_id: 23
             enabled: true
             confidence_threshold: 20.0
@@ -494,10 +494,69 @@
             object_acceleration_preset: 'DEFAULT'
             max_allowed_acceleration: 100000.0
 
+          class_024:
+            label: 'red_triangle'
+            model_class_id: 24
+            enabled: true
+            confidence_threshold: 20.0
+            is_grounded: true
+            is_static: false
+            tracking_timeout: -1.0
+            tracking_max_dist: -1.0
+            max_box_width_normalized: -1.0
+            min_box_width_normalized: -1.0
+            max_box_height_normalized: -1.0
+            min_box_height_normalized: -1.0
+            max_box_width_meters: -1.0
+            min_box_width_meters: -1.0
+            max_box_height_meters: -1.0
+            min_box_height_meters: -1.0
+            object_acceleration_preset: 'DEFAULT'
+            max_allowed_acceleration: 100000.0
 
-          class_023:
+          class_025:
+            label: 'yellow_buoy'
+            model_class_id: 25
+            enabled: true
+            confidence_threshold: 20.0
+            is_grounded: true
+            is_static: false
+            tracking_timeout: -1.0
+            tracking_max_dist: -1.0
+            max_box_width_normalized: -1.0
+            min_box_width_normalized: -1.0
+            max_box_height_normalized: -1.0
+            min_box_height_normalized: -1.0
+            max_box_width_meters: -1.0
+            min_box_width_meters: -1.0
+            max_box_height_meters: -1.0
+            min_box_height_meters: -1.0
+            object_acceleration_preset: 'DEFAULT'
+            max_allowed_acceleration: 100000.0
+
+          class_026:
             label: 'yellow_racquet_ball'
-            model_class_id: 23
+            model_class_id: 26
+            enabled: true
+            confidence_threshold: 20.0
+            is_grounded: true
+            is_static: false
+            tracking_timeout: -1.0
+            tracking_max_dist: -1.0
+            max_box_width_normalized: -1.0
+            min_box_width_normalized: -1.0
+            max_box_height_normalized: -1.0
+            min_box_height_normalized: -1.0
+            max_box_width_meters: -1.0
+            min_box_width_meters: -1.0
+            max_box_height_meters: -1.0
+            min_box_height_meters: -1.0
+            object_acceleration_preset: 'DEFAULT'
+            max_allowed_acceleration: 100000.0
+
+          class_027:
+            label: 'yellow_target_boat'
+            model_class_id: 27
             enabled: true
             confidence_threshold: 20.0
             is_grounded: true
