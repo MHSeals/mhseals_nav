@@ -1,7 +1,7 @@
 rtabmap:
   ros__parameters:
     # Sensors
-    subscribe_depth: true
+    subscribe_depth: false
     subscribe_rgb: true
     subscribe_rgbd: false
     subscribe_stereo: false

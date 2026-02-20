@@ -117,7 +117,7 @@ controller_server:
       temperature: 0.3
       gamma: 0.02
     
-      motion_model: "DiffDrive:"
+      motion_model: "DiffDrive"
     
       critics:
         - GoalCritic
