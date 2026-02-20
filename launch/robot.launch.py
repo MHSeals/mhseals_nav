@@ -28,7 +28,7 @@ def generate_launch_description():
 
         # Sensors
         ('zed_camera_name', 'zed2i', 'ZED camera model'),
-        ('camera_name', 'zed', 'ZED camera link name'),
+        ('camera_name', 'front', 'ZED camera link name'),
         ('zed_config_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'zed2i.yaml']), 'Path to ZED config'),
         ('virtual_config', PathJoinSubstitution([mhseals_nav_dir, 'config', 'virtual.yaml']), 'Virtual sensor config'),
         ('common_stereo_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'common_stereo.yaml']), 'Common stereo config'),
@@ -38,8 +38,8 @@ def generate_launch_description():
         ('ffmpeg_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'ffmpeg.yaml']), 'FFMPEG config'),
         ('velodyne_ip', '192.168.1.201', 'Velodyne LiDAR IP address'),
         ('velodyne_port', '2368', 'Velodyne UDP port'),
-        ('ros_ip', '192.168.1.167', 'ROS TCP Endpoint IP'),
-        ('ros_port', '10000', 'ROS TCP Endpoint port'),
+        ('ros_ip', '127.0.0.1', 'ROS TCP Endpoint IP'),
+        ('ros_port', '6767', 'ROS TCP Endpoint port'),
         ('sensors_ignore', '', 'Comma-separated list of sensors to ignore, e.g. "camera,lidar"')
     ]
 

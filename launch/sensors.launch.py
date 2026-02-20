@@ -23,9 +23,9 @@ def generate_launch_description():
         ('velodyne_ip', '192.168.0.201', 'IP address of the Velodyne LiDAR'),
         ('velodyne_port', '2368', 'UDP port for Velodyne LiDAR packets'),
         ('zed_camera_name', 'zed2i', 'ZED camera model'),
-        ('camera_name', '', 'ZED camera link name'),
-        ('ros_ip', '192.168.1.167', 'IP address of the Unity ROS TCP Endpoint'),
-        ('ros_port', '10000', 'Port of the Unity ROS TCP Endpoint'),
+        ('camera_name', 'front', 'ZED camera link name'),
+        ('ros_ip', '127.0.0.1', 'IP address of the Unity ROS TCP Endpoint'),
+        ('ros_port', '6767', 'Port of the Unity ROS TCP Endpoint'),
         ('sensors_ignore', '', 'Comma-separated list of sensors to ignore, e.g. "camera,lidar"'),
 
         ('zed_config_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'zed2i.yaml']), 'ZED camera YAML config'),
