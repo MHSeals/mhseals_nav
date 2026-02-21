@@ -13,16 +13,16 @@
     world_frame: odom
 
     # === MAVROS Odom ===
-    odom0: /mavros/local_position/odom
+    odom0: /odom/mavros
     odom0_differential: false
     odom0_relative: false
     odom0_queue_size: 10
     odom0_config: [
-      true,  true,  true,   # x, y, z
-      true, true,  true,   # roll, pitch, yaw
-      true,  true,  true,   # vx, vy, vz
-      true, true,  true,   # vroll, vpitch, vyaw
-      true, true, true     # ax, ay, az
+      true,  true,  false,   # x, y, z
+      false, false,  true,   # roll, pitch, yaw
+      true,  true,  false,   # vx, vy, vz
+      false, false,  true,   # vroll, vpitch, vyaw
+      false, false, false    # ax, ay, az
     ]
 
     # # === MAVROS IMU ===
@@ -40,7 +40,7 @@
     # ]
 
     # # === DLIO ===
-    # odom0: /dlio/odom
+    # odom0: /odom/dlio
     # odom0_differential: false
     # odom0_relative: false
     # odom0_queue_size: 10
@@ -53,7 +53,7 @@
     # ]
 
     # # === ZED Odom VIO ===
-    # odom1: /zed/zed_node/odom
+    # odom1: /front_camera/odom
     # odom1_differential: false
     # odom1_relative: false
     # odom1_queue_size: 10

@@ -22,7 +22,7 @@
                    false, false, false]  # ax, ay, az
     odom0_differential: false
     
-    odom1: /gps/odom
+    odom1: /odom/gps
     odom1_config: [true,  true,  false,  # x, y, z (no GPS altitude)
                    false, false, false,  # roll, pitch, yaw
                    false, false, false,  # velocities
@@ -31,7 +31,7 @@
     odom1_differential: false
 
     # === RTAB-MAP Camera + LiDAR Loop Closure ===
-    odom2: /rtabmap/odom
+    odom2: /odom/rtabmap
     odom2_differential: false
     odom2_relative: false
     odom2_queue_size: 10

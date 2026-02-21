@@ -14,7 +14,7 @@ rtabmap:
     
     # Odometry
     odom_sensor_sync: false
-    wait_for_transform: 0.2
+    wait_for_transform: 0.3
     approx_sync: true
     publish_tf: false
 
@@ -48,7 +48,7 @@ rgbd_odometry:
     publish_tf: false
     publish_null_when_lost: false
     guess_frame_id: ""
-    wait_for_transform: 0.2
+    wait_for_transform: 0.3
     
     # Visual odometry parameters
     Odom/Strategy: "0"  # Frame-to-Map = 0, Frame-to-Frame = 1

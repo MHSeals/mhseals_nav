@@ -35,6 +35,12 @@ def create_relays(context):
             executable='relay',
             arguments=[f'/{camera_name}/zed_node/camera_info', f'/{camera_name}_camera/camera_info'],
             output='screen'
+        ),
+        Node(
+            package='topic_tools',
+            executable='relay',
+            arguments=[f'/{camera_name}/zed_node/odom', f'/{camera_name}_camera/odom'],
+            output='screen'
         )
     ]
 

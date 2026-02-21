@@ -56,6 +56,28 @@ def create_mavros_node(context):
                 'gcs_url': LaunchConfiguration('gcs_url')
             }
         ],
+        remappings=[
+            ('/mavros/local_position/odom', '/odom/mavros'),
+            ('/mavros/imu/data', '/imu/raw')
+        ]
+    )]
+
+def create_rtabmap_odom_node(context):
+    sim = bool(LaunchConfiguration('sim').perform(context))
+    rtabmap_params_file = LaunchConfiguration('rtabmap_params_file').perform(context)
+    camera_name = LaunchConfiguration('camera_name').perform(context)
+
+    return [Node(
+        package='rtabmap_odom',
+        executable='rgbd_odometry',
+        name='rgbd_odometry',
+        output='screen',
+        parameters=[rtabmap_params_file, {'use_sim_time': sim}],
+        remappings=[
+            ("/rgb/image",f"/{camera_name}_camera/rgb/image"),
+            ("/depth/image", f"/{camera_name}_camera/depth/image"),
+            ("/rgb/camera_info", f"/{camera_name}_camera/camera_info")
+        ]
     )]
 
 def generate_launch_description():
@@ -75,7 +97,8 @@ def generate_launch_description():
         ('ekf_local_config_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'ekf_local.yaml']), 'Path to local EKF config'),
         ('ekf_global_config_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'ekf_global.yaml']), 'Path to global EKF config'),
         ('dlio_params_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'dlio.yaml']), 'Path to DLIO params'),
-        ('urdf_file', PathJoinSubstitution([mhseals_nav_dir, 'description', 'blastoise', 'blastoise.xacro']), 'Path to robot URDF/XACRO')
+        ('urdf_file', PathJoinSubstitution([mhseals_nav_dir, 'description', 'blastoise', 'blastoise.xacro']), 'Path to robot URDF/XACRO'),
+        ('camera_name', 'front', 'Name of camera')
     ]
 
     launch_configurations = {}
@@ -94,12 +117,12 @@ def generate_launch_description():
         remappings=[
             ('pointcloud', '/points'),
             ('imu', '/imu/filtered'),
-            ('odom', '/odom/lidar'),
-            ('pose', '/lidar/pose'),
-            ('path', '/lidar/path'),
-            ('kf_pose', '/lidar/keyframes/pose'),
-            ('kf_cloud', '/lidar/keyframes/cloud'),
-            ('deskewed', '/lidar/deskewed')
+            ('odom', '/odom/dlio'),
+            ('pose', '/dlio/pose'),
+            ('path', '/dlio/path'),
+            ('kf_pose', '/dlio/keyframes/pose'),
+            ('kf_cloud', '/dlio/keyframes/cloud'),
+            ('deskewed', '/dlio/deskewed')
         ],
     )
 
@@ -111,13 +134,7 @@ def generate_launch_description():
         remappings=[('keyframes', '/dlio/pointcloud/keyframe')],
     )
 
-    rtabmap_odom_node = Node(
-        package='rtabmap_odom',
-        executable='rgbd_odometry',
-        name='rgbd_odometry',
-        output='screen',
-        parameters=[launch_configurations['rtabmap_params_file'], {'use_sim_time': launch_configurations['sim']}],
-    )
+    rtabmap_odom_node = OpaqueFunction(function=create_rtabmap_odom_node)
 
     imu_filter_node = Node(
         package="imu_filter_madgwick",
@@ -126,7 +143,7 @@ def generate_launch_description():
         output="screen",
         parameters=[{"use_mag": False, "publish_tf": False, "use_sim_time": launch_configurations['sim']}],
         remappings=[
-            ("imu/data_raw", "/imu/data_raw"),
+            ("imu/data_raw", "/imu/raw"),
             ("imu/data", "/imu/filtered")
         ],
     )
@@ -226,7 +243,7 @@ def generate_launch_description():
     return LaunchDescription(
         declare_arguments + [
             # dlio_map_node,
-            dlio_odom_node,
+            # dlio_odom_node,
             mavros_node,
             rtabmap_odom_node,
             imu_filter_node,

@@ -63,15 +63,23 @@ def generate_launch_description():
 
     rtabmap_slam_node = OpaqueFunction(function=create_rtabmap_slam_node)
 
-    twist_converter_node = Node(
+    thruster_allocation = Node(
         package='mhseals_nav',
-        executable='twist_converter',
-        name='twist_converter',
+        executable='thruster_allocation',
+        name='thruster_allocation',
         output='screen'
     )
 
+    # twist_converter_node = Node(
+    #     package='mhseals_nav',
+    #     executable='twist_converter',
+    #     name='twist_converter',
+    #     output='screen'
+    # )
+
     return LaunchDescription(declare_arguments + [
+        thruster_allocation, 
         nav2_bringup_launch,
         rtabmap_slam_node,
-        twist_converter_node
+        # twist_converter_node
     ])

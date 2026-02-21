@@ -50,7 +50,8 @@ setup(
         "console_scripts": [
             "twist_converter = mhseals_nav.twist_converter:main",
             "lidar_flattener = mhseals_nav.lidar_flattener:main",
-            "object_tracker = mhseals_nav.object_tracker:main"
+            "object_tracker = mhseals_nav.object_tracker:main",
+            "thruster_allocation = mhseals_nav.thruster_allocation:main"
         ],
     },
 )

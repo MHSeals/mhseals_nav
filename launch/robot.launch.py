@@ -70,7 +70,8 @@ def generate_launch_description():
             'ekf_config_file': launch_configurations['ekf_config_file'],
             'dlio_yaml_file': launch_configurations['dlio_yaml_file'],
             'dlio_params_file': launch_configurations['dlio_params_file'],
-            'urdf_file': launch_configurations['urdf_file']
+            'urdf_file': launch_configurations['urdf_file'],
+            'camera_name': launch_configurations['camera_name']
         }.items()
     )
 
