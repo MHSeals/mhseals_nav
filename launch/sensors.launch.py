@@ -21,7 +21,7 @@ def create_relays(context):
         Node(
             package='topic_tools',
             executable='relay',
-            arguments=[f'/{camera_name}/zed_node/rgb/color/image', f'/{camera_name}_camera/rgb/image'],
+            arguments=[f'/{camera_name}/zed_node/rgb/color/rect/image', f'/{camera_name}_camera/rgb/image'],
             output='screen'
         ),
         Node(
@@ -33,7 +33,7 @@ def create_relays(context):
         Node(
             package='topic_tools',
             executable='relay',
-            arguments=[f'/{camera_name}/zed_node/camera_info', f'/{camera_name}_camera/camera_info'],
+            arguments=[f'/{camera_name}/zed_node/rgb/color/rect/camera_info', f'/{camera_name}_camera/camera_info'],
             output='screen'
         ),
         Node(
