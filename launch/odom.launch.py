@@ -240,6 +240,14 @@ def generate_launch_description():
 
     robot_state_publisher_node = OpaqueFunction(function=load_urdf)
 
+    object_tracker_node = Node(
+        package='mhseals_nav',
+        executable='object_tracker',
+        name='object_tracker',
+        parameters=[{'use_sim_time': launch_configurations['sim']}],
+        output='screen'
+    )
+
     return LaunchDescription(
         declare_arguments + [
             # dlio_map_node,
@@ -251,6 +259,7 @@ def generate_launch_description():
             ekf_local_node_delayed,
             ekf_global_node_delayed,
             set_mavros_message_rate,
-            robot_state_publisher_node
+            robot_state_publisher_node,
+            object_tracker_node
         ]
     )

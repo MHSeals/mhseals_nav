@@ -95,7 +95,7 @@ def generate_launch_description():
     relays = OpaqueFunction(function=create_relays)
 
     # Velodyne driver (skip if "lidar" is in sensors_ignore)
-    velodyne_driver = Node(
+    velodyne_driver_node = Node(
         package='velodyne_driver',
         executable='velodyne_driver_node',
         name='velodyne_driver',
@@ -109,7 +109,7 @@ def generate_launch_description():
         condition=sensor_ignore('lidar')
     )
 
-    velodyne_pointcloud = Node(
+    velodyne_pointcloud_node = Node(
         package='velodyne_pointcloud',
         executable='velodyne_transform_node',
         name='velodyne_transform',
@@ -134,7 +134,7 @@ def generate_launch_description():
         condition=IfCondition(launch_configurations['sim'])
     )
 
-    zed_detection_converter = Node(
+    zed_detection_converter_node = Node(
         package='mhseals_nav',
         executable='zed_detection_converter',
         name='zed_detection_converter',
@@ -144,10 +144,10 @@ def generate_launch_description():
 
     nodes = [ zed_launch, 
               relays, 
-              velodyne_driver, 
-              velodyne_pointcloud, 
+              velodyne_driver_node, 
+              velodyne_pointcloud_node, 
               ros_tcp_endpoint,
-              zed_detection_converter
+              zed_detection_converter_node
     ]
 
     return LaunchDescription(declare_arguments + nodes)
