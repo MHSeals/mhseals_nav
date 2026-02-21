@@ -63,10 +63,11 @@ def generate_launch_description():
 
     rtabmap_slam_node = OpaqueFunction(function=create_rtabmap_slam_node)
 
-    thruster_allocation = Node(
+    thruster_allocation_node = Node(
         package='mhseals_nav',
         executable='thruster_allocation',
         name='thruster_allocation',
+        parameters=[{'use_sim_time': launch_configurations['sim']}],
         output='screen'
     )
 
@@ -74,12 +75,22 @@ def generate_launch_description():
         package='mhseals_nav',
         executable='twist_converter',
         name='twist_converter',
+        parameters=[{'use_sim_time': launch_configurations['sim']}],
+        output='screen'
+    )
+
+    object_tracker_node = Node(
+        package='mhseals_nav',
+        executable='object_tracker',
+        name='object_tracker',
+        parameters=[{'use_sim_time': launch_configurations['sim']}],
         output='screen'
     )
 
     return LaunchDescription(declare_arguments + [
-        # thruster_allocation, 
+        # thruster_allocation_node, 
         nav2_bringup_launch,
         rtabmap_slam_node,
-        twist_converter_node
+        twist_converter_node,
+        object_tracker_node
     ])
