@@ -94,14 +94,12 @@ def generate_launch_description():
         remappings=[
             ('pointcloud', '/points'),
             ('imu', '/imu/filtered'),
-
-            ('odom', '/dlio/odom'),
-            ('pose', '/dlio/pose'),
-            ('path', '/dlio/path'),
-
-            ('kf_pose', '/dlio/keyframes'),
-            ('kf_cloud', '/dlio/pointcloud/keyframe'),
-            ('deskewed', '/dlio/pointcloud/deskewed'),
+            ('odom', '/odom/lidar'),
+            ('pose', '/lidar/pose'),
+            ('path', '/lidar/path'),
+            ('kf_pose', '/lidar/keyframes/pose'),
+            ('kf_cloud', '/lidar/keyframes/cloud'),
+            ('deskewed', '/lidar/deskewed')
         ],
     )
 
@@ -119,11 +117,6 @@ def generate_launch_description():
         name='rgbd_odometry',
         output='screen',
         parameters=[launch_configurations['rtabmap_params_file'], {'use_sim_time': launch_configurations['sim']}],
-        remappings=[
-            ('rgb/image', '/camera/image_raw'),
-            ('depth/image', '/camera/depth/image_rect_raw'),
-            ('rgb/camera_info', '/camera/camera_info')
-        ],
     )
 
     imu_filter_node = Node(
@@ -133,8 +126,8 @@ def generate_launch_description():
         output="screen",
         parameters=[{"use_mag": False, "publish_tf": False, "use_sim_time": launch_configurations['sim']}],
         remappings=[
-            ("imu/data_raw", "/mavros/imu/data"),
-            ("imu/data", "/imu/filtered")   
+            ("imu/data_raw", "/imu/data_raw"),
+            ("imu/data", "/imu/filtered")
         ],
     )
 
@@ -148,9 +141,9 @@ def generate_launch_description():
         ],
         remappings=[
             ('imu/data', '/imu/filtered'),
-            ('gps/fix', '/mavros/global_position/global'),
+            ('gps/fix', '/gps/fix'),
             ('odometry/filtered', '/odom/local'),
-            ('odometry/gps', '/gps/odom')
+            ('odometry/gps', '/odom/gps')
         ]
     )
     
@@ -233,7 +226,7 @@ def generate_launch_description():
     return LaunchDescription(
         declare_arguments + [
             # dlio_map_node,
-            # dlio_odom_node,
+            dlio_odom_node,
             mavros_node,
             rtabmap_odom_node,
             imu_filter_node,

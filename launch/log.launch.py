@@ -24,15 +24,16 @@ def generate_launch_description():
         output='screen',
         emulate_tty=True,
         condition=IfCondition(
-            PythonExpression([f"'{launch_configurations['mode']}' == 'log'"])
+            PythonExpression([launch_configurations['mode'], " == 'log'"])
         )
     )
-
+    
     bag_play_process = ExecuteProcess(
         cmd=['ros2', 'bag', 'play', launch_configurations['bag_filename']],
         output='screen',
+        emulate_tty=True,
         condition=IfCondition(
-            PythonExpression([f"'{launch_configurations['mode']}' == 'play'"])
+            PythonExpression([launch_configurations['mode'], " == 'play'"])
         )
     )
 

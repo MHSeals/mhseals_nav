@@ -1,7 +1,7 @@
 rtabmap:
   ros__parameters:
     # Sensors
-    subscribe_depth: false
+    subscribe_depth: true
     subscribe_rgb: true
     subscribe_rgbd: false
     subscribe_stereo: false
@@ -14,7 +14,7 @@ rtabmap:
     
     # Odometry
     odom_sensor_sync: false
-    wait_for_transform: 0.3
+    wait_for_transform: 0.2
     approx_sync: true
     publish_tf: false
 
@@ -25,12 +25,19 @@ rtabmap:
     Grid/2D_map: "true"
     Grid/Sensor: "false"
     Grid/FromDepth: "false"
-    Grid/MaxGroundHeight: "1.0"
-    Grid/MinGroundHeight: "-1.0"
-    Grid/MaxObstacleHeight: "3.0"
+    Grid/MaxGroundHeight: "0.6"
+    Grid/MinGroundHeight: "-0.6"
+    Grid/MaxObstacleHeight: "1.2"
+    Grid/RangeMin: "0.7"
+    Grid/RangeMax: "15.0"
+    Grid/ClusterRadius: "0.1"
+    Grid/MinClusterSize: "5"
     Grid/CellSize: "0.05"
-    Grid/PreVoxelFiltering: "false"
+    Grid/RayTracing: "true"
+    Grid/PreVoxelFiltering: "true"
     Grid/3D: "false"
+    Grid/NoiseFilteringRadius: "0.2"
+    Grid/NoiseFilteringMinNeighbors: "3"
     Mem/SaveDepth16Format: "true"
     Mem/DepthCompressionFormat: ".rvl"
 
@@ -41,11 +48,14 @@ rgbd_odometry:
     publish_tf: false
     publish_null_when_lost: false
     guess_frame_id: ""
-    wait_for_transform: 0.3
+    wait_for_transform: 0.2
     
     # Visual odometry parameters
     Odom/Strategy: "0"  # Frame-to-Map = 0, Frame-to-Frame = 1
     Odom/ResetCountdown: "1"
+    Odom/MaxRotation: "0.1"
+    Odom/MaxTranslation: "0.2"
+    Odom/ResetCountdown: "0"
     Odom/MinInliers: "15"  # Lower from default 20 if features are sparse
     OdomF2M/MaxSize: "2000"
     Vis/MinInliers: "15"

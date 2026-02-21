@@ -82,6 +82,7 @@ def generate_launch_description():
         ]),
         launch_arguments={
             'sim': launch_configurations['sim'],
+            'camera': launch_configurations['camera_name'],
             'rtabmap_params': launch_configurations['rtabmap_params_file'],
             'nav2_params': launch_configurations['nav2_params_file']
         }.items()
