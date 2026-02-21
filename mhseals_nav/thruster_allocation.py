@@ -63,7 +63,7 @@ class ThrusterHardware(Node):
         future = self.param_set_client.call_async(request)
         rclpy.spin_until_future_complete(self, future)
 
-        if future.result() and future.result().success: # type: ignore
+        if future.result() and future.result().success:
             return True
         return False
 
@@ -76,7 +76,7 @@ class ThrusterHardware(Node):
         self.get_logger().info("Setting thrusters to RC passthrough...")
 
         for cfg in self.thruster_configs.values():
-            success = self.set_param(cfg['param_name'], 1)
+            success = self.set_param(cfg['param_name'], cfg['default_value'])
             if not success:
                 self.get_logger().error(f"Failed setting {cfg['param_name']}")
                 return False
@@ -162,10 +162,10 @@ def main(args=None):
     rclpy.init(args=args)
 
     thrusters = {
-        'thruster_front_left':  {'param_name': 'SERVO1_FUNCTION', 'default_value': 36, 'channel': 1},
-        'thruster_front_right': {'param_name': 'SERVO2_FUNCTION', 'default_value': 35, 'channel': 2},
-        'thruster_back_left':   {'param_name': 'SERVO3_FUNCTION', 'default_value': 34, 'channel': 3},
-        'thruster_back_right':  {'param_name': 'SERVO4_FUNCTION', 'default_value': 33, 'channel': 4},
+        'thruster_front_left':  {'param_name': 'SERVO1_FUNCTION', 'default_value': 51, 'channel': 1},
+        'thruster_front_right': {'param_name': 'SERVO2_FUNCTION', 'default_value': 52, 'channel': 2},
+        'thruster_back_left':   {'param_name': 'SERVO3_FUNCTION', 'default_value': 53, 'channel': 3},
+        'thruster_back_right':  {'param_name': 'SERVO4_FUNCTION', 'default_value': 54, 'channel': 4},
     }
 
     node = ThrusterHardware(thrusters)

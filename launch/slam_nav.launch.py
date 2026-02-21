@@ -70,16 +70,16 @@ def generate_launch_description():
         output='screen'
     )
 
-    # twist_converter_node = Node(
-    #     package='mhseals_nav',
-    #     executable='twist_converter',
-    #     name='twist_converter',
-    #     output='screen'
-    # )
+    twist_converter_node = Node(
+        package='mhseals_nav',
+        executable='twist_converter',
+        name='twist_converter',
+        output='screen'
+    )
 
     return LaunchDescription(declare_arguments + [
-        thruster_allocation, 
+        # thruster_allocation, 
         nav2_bringup_launch,
         rtabmap_slam_node,
-        # twist_converter_node
+        twist_converter_node
     ])
