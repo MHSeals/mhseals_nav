@@ -63,7 +63,7 @@ class ThrusterHardware(Node):
         future = self.param_set_client.call_async(request)
         rclpy.spin_until_future_complete(self, future)
 
-        if future.result() and future.result().success:
+        if future.result() and future.result().success: # type: ignore
             return True
         return False
 
