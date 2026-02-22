@@ -2,8 +2,8 @@
 
 import rclpy
 from rclpy.node import Node
-from rclpy.time import Time
 from rclpy.duration import Duration
+from rclpy.time import Time
 from vision_msgs.msg import Detection3DArray
 from geometry_msgs.msg import PoseStamped
 from visualization_msgs.msg import Marker, MarkerArray

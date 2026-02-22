@@ -6,10 +6,10 @@ from zed_msgs.msg import ObjectsStamped
 from vision_msgs.msg import Detection3DArray, Detection3D, ObjectHypothesisWithPose
 from geometry_msgs.msg import Pose
 
-class ZedDetectionConverter(Node):
+class ZedDetectionsConverter(Node):
 
     def __init__(self):
-        super().__init__('zed_detection_converter')
+        super().__init__('zed_detections_converter')
 
         self.sub = self.create_subscription(
             ObjectsStamped,
@@ -54,7 +54,7 @@ class ZedDetectionConverter(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    node = ZedDetectionConverter()
+    node = ZedDetectionsConverter()
     rclpy.spin(node)
     node.destroy_node()
     rclpy.shutdown()

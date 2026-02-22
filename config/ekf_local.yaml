@@ -2,10 +2,11 @@
   ros__parameters:
     frequency: 100.0
     sensor_timeout: 0.5
-    two_d_mode: false
+    two_d_mode: true
     publish_tf: true
     publish_acceleration: false
     print_diagnostics: true
+    transform_time_offset: 0.3
 
     map_frame: map
     odom_frame: odom

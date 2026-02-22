@@ -134,7 +134,7 @@ def generate_launch_description():
         condition=IfCondition(launch_configurations['sim'])
     )
 
-    zed_detection_converter_node = Node(
+    zed_detections_converter_node = Node(
         package='mhseals_nav',
         executable='zed_detection_converter',
         name='zed_detection_converter',
@@ -142,12 +142,13 @@ def generate_launch_description():
         output='screen'
     )
 
-    nodes = [ zed_launch, 
-              relays, 
-              velodyne_driver_node, 
-              velodyne_pointcloud_node, 
-              ros_tcp_endpoint,
-              zed_detection_converter_node
+    nodes = [ 
+        zed_launch, 
+        relays, 
+        velodyne_driver_node, 
+        velodyne_pointcloud_node, 
+        ros_tcp_endpoint,
+        zed_detections_converter_node
     ]
 
     return LaunchDescription(declare_arguments + nodes)

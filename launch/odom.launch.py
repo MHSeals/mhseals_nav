@@ -247,6 +247,14 @@ def generate_launch_description():
         parameters=[{'use_sim_time': launch_configurations['sim']}],
         output='screen'
     )
+    
+    tf_repeater_node = Node(
+        package='mhseals_nav',
+        executable='tf_repeater',
+        name='tf_repeater',
+        parameters=[{'use_sim_time': launch_configurations['sim']}],
+        output='screen'
+    )
 
     return LaunchDescription(
         declare_arguments + [

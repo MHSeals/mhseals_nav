@@ -2,7 +2,8 @@
   ros__parameters:
     frequency: 30.0
     sensor_timeout: 0.5
-    two_d_mode: false
+    two_d_mode: true
+    transform_time_offset: 0.3
 
     publish_tf: true
     publish_acceleration: false
@@ -15,30 +16,34 @@
 
     # === Local Odom Reference ===
     odom0: /odom/local
-    odom0_config: [true,  true,  true,   # x, y, z
-                   true,  true,  true,   # roll, pitch, yaw
-                   true,  true,  true,   # vx, vy, vz
-                   false, false, false,  # vroll, vpitch, vyaw
-                   false, false, false]  # ax, ay, az
-    odom0_differential: false
-    
-    odom1: /odom/gps
-    odom1_config: [true,  true,  false,  # x, y, z (no GPS altitude)
-                   false, false, false,  # roll, pitch, yaw
-                   false, false, false,  # velocities
-                   false, false, false,  # angular velocities
-                   false, false, false]  # accelerations
-    odom1_differential: false
-
-    # === RTAB-MAP Camera + LiDAR Loop Closure ===
-    odom2: /odom/rtabmap
-    odom2_differential: false
-    odom2_relative: false
-    odom2_queue_size: 10
-    odom2_config: [
+    odom0_config: [
       true,  true,  false,   # x, y, z
       false, false,  true,   # roll, pitch, yaw
-      false, false, false,   # vx, vy, vz
+      true,  true,  false,   # vx, vy, vz
       false, false,  true,   # vroll, vpitch, vyaw
       false, false, false    # ax, ay, az
     ]
+    odom0_differential: false
+    
+    odom1: /odom/gps
+    odom1_config: [
+      true,  true,  false,   # x, y, z
+      false, false,  true,   # roll, pitch, yaw
+      true,  true,  false,   # vx, vy, vz
+      false, false,  true,   # vroll, vpitch, vyaw
+      false, false, false    # ax, ay, az
+    ]
+    odom1_differential: false
+
+    # === RTAB-MAP Camera + LiDAR Loop Closure ===
+    # odom2: /odom/rtabmap
+    # odom2_differential: false
+    # odom2_relative: false
+    # odom2_queue_size: 10
+    # odom2_config: [
+    #   true,  true,  false,   # x, y, z
+    #   false, false,  true,   # roll, pitch, yaw
+    #   false, false, false,   # vx, vy, vz
+    #   false, false,  true,   # vroll, vpitch, vyaw
+    #   false, false, false    # ax, ay, az
+    # ]
