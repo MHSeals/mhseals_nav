@@ -136,8 +136,8 @@ def generate_launch_description():
 
     zed_detections_converter_node = Node(
         package='mhseals_nav',
-        executable='zed_detection_converter',
-        name='zed_detection_converter',
+        executable='zed_detections_converter',
+        name='zed_detections_converter',
         parameters=[{'use_sim_time': launch_configurations['sim']}],
         output='screen'
     )
