@@ -20,6 +20,8 @@ def package_files(directory):
 data_files = [
     ('share/ament_index/resource_index/packages', ['resource/' + package_name]),
     ('share/' + package_name, ['package.xml']),
+    (os.path.join('share', package_name, 'behavior_trees'), 
+     glob(os.path.join('mhseals_nav', 'behavior_trees', '*'))),
     (os.path.join('share', package_name, 'launch'),
      glob(os.path.join('launch', '*launch.[pxy][yma]*'))),
     (os.path.join('share', package_name, 'rviz'),

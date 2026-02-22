@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<root BTCPP_format="4">
+  <BehaviorTree ID="MainTree">
+    <RecoveryNode number_of_retries="6" name="NavigateRecovery">
+      <PipelineSequence name="NavigateWithReplanning">
+        <RateController hz="1.0">
+          <Sequence>
+            <RemovePassedGoals radius="1.5" input_goals="{goals}" output_goals="{remaining_goals}"/>
+            <ComputePathThroughPoses goals="{remaining_goals}" path="{path}" planner_id="GridBased"/>
+          </Sequence>
+        </RateController>
+        
+        <FollowPath path="{path}" controller_id="FollowPath"/>
+      </PipelineSequence>
+
+      <ReactiveFallback name="RecoveryActions">
+        <Condition ID="IsStuck"/>
+        <Sequence name="StuckRecovery">
+          <BackUp backup_dist="2.0" backup_speed="1.0"/>
+          <Spin spin_dist="1.57"/> </Sequence>
+        <Wait wait_duration="5.0"/>
+      </ReactiveFallback>
+    </RecoveryNode>
+  </BehaviorTree>
+</root>
