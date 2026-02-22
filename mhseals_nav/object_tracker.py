@@ -6,23 +6,39 @@ from rclpy.duration import Duration
 from rclpy.time import Time
 from vision_msgs.msg import Detection3DArray
 from geometry_msgs.msg import PoseStamped
+from nav_msgs.msg import Odometry
 from visualization_msgs.msg import Marker, MarkerArray
 import tf2_ros
 import tf2_geometry_msgs
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 import hashlib
-
+from typing import List, Optional
 
 class PersistentObject:
-    def __init__(self, position, obj_id, label):
+    def __init__(self, position: List[float], obj_id: int, label: str, stamp: float):
         self.id = obj_id
         self.position = np.array(position, dtype=np.float32)
         self.label = label
-        self.last_seen = 0.0
+        self.last_seen = stamp
         self.observation_count = 1
 
-    def update(self, new_position, stamp):
+    def update(self, new_position: List[float], stamp: float):
+        alpha = 0.5
+        self.position = alpha * np.array(new_position) + (1 - alpha) * self.position
+        self.last_seen = stamp
+        self.observation_count += 1
+
+
+class CandidateObject:
+    def __init__(self, position: List[float], stamp: float, label: str):
+        self.position = np.array(position, dtype=np.float32)
+        self.label = label
+        self.first_seen = stamp
+        self.last_seen = stamp
+        self.observation_count = 1
+
+    def update(self, new_position: List[float], stamp: float):
         alpha = 0.5
         self.position = alpha * np.array(new_position) + (1 - alpha) * self.position
         self.last_seen = stamp
@@ -34,11 +50,19 @@ class ObjectTracker(Node):
     def __init__(self):
         super().__init__('object_tracker')
 
-        self.subscription = self.create_subscription(
+        self.detection_sub = self.create_subscription(
             Detection3DArray,
             '/detections',
-            self.callback,
-            10)
+            self.detections_callback,
+            10
+        )
+
+        self.odom_sub = self.create_subscription(
+            Odometry,
+            '/odom/local',
+            self.odom_callback,
+            10
+        )
 
         self.marker_pub = self.create_publisher(
             MarkerArray,
@@ -48,19 +72,31 @@ class ObjectTracker(Node):
 
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
+        self.delay_detection_iterations = 0
 
         self.objects = []
-        self.next_id = 0
-        self.association_distance = 1.0
+        self.candidates = []
 
-    def color_from_label(self, label):
+        self.next_id = 0
+        self.association_distance = 3.0
+
+        self.confirmation_time = 2.0
+        self.confirmation_count = 10
+
+        self.current_yaw_rate = 0.0
+        self.yaw_rate_threshold = 0.1
+
+    def odom_callback(self, msg: Odometry):
+        self.current_yaw_rate = float(msg.twist.twist.angular.z)
+
+    def color_from_label(self, label: str):
         h = hashlib.md5(label.encode()).hexdigest()
         r = int(h[0:2], 16) / 255.0
         g = int(h[2:4], 16) / 255.0
         b = int(h[4:6], 16) / 255.0
         return r, g, b
 
-    def transform_to_map(self, det, frame_id, stamp):
+    def transform_to_map(self, det, frame_id: str, stamp):
         pose = PoseStamped()
         pose.header.frame_id = frame_id
         pose.header.stamp = stamp
@@ -71,23 +107,30 @@ class ObjectTracker(Node):
                 'map',
                 frame_id,
                 Time(),
-                timeout=Duration(seconds=1)
+                timeout=Duration(nanoseconds=int(3e8))
             )
 
             map_pose = tf2_geometry_msgs.do_transform_pose(pose.pose, transform)
 
             return [
-                map_pose.position.x,
-                map_pose.position.y,
-                map_pose.position.z
+                float(map_pose.position.x),
+                float(map_pose.position.y),
+                float(map_pose.position.z)
             ]
-
         except Exception:
             return None
 
-    def callback(self, msg):
+    def detections_callback(self, msg: Detection3DArray):
+        if abs(self.current_yaw_rate) > self.yaw_rate_threshold:
+            self.delay_detection_iterations = 2
+            return
+        
+        if self.delay_detection_iterations > 0:
+            self.delay_detection_iterations -= 1
+            max(self.delay_detection_iterations, 0)
 
         stamp = msg.header.stamp
+        current_time = stamp.sec + stamp.nanosec * 1e-9
         frame_id = msg.header.frame_id
 
         detections_map = []
@@ -97,50 +140,54 @@ class ObjectTracker(Node):
             if pos is not None:
                 label = "unknown"
                 if len(det.results) > 0:
-                    label = det.results[0].hypothesis.class_id
+                    label = str(det.results[0].hypothesis.class_id)
                 detections_map.append((pos, label))
 
         if len(detections_map) == 0:
             return
 
-        if len(self.objects) == 0:
-            for pos, label in detections_map:
-                self.create_object(pos, stamp, label)
-            self.publish_markers()
-            self.get_logger().info(f"Currently tracking {len(self.objects)} objects")
-            return
+        if len(self.objects) > 0:
+            cost_matrix = np.zeros((len(self.objects), len(detections_map)))
 
-        cost_matrix = np.zeros((len(self.objects), len(detections_map)))
+            for i, obj in enumerate(self.objects):
+                for j, (det_pos, _) in enumerate(detections_map):
+                    cost_matrix[i, j] = np.linalg.norm(obj.position - det_pos)
 
-        for i, obj in enumerate(self.objects):
-            for j, (det_pos, _) in enumerate(detections_map):
-                cost_matrix[i, j] = np.linalg.norm(obj.position - det_pos)
+            row_ind, col_ind = linear_sum_assignment(cost_matrix)
 
-        row_ind, col_ind = linear_sum_assignment(cost_matrix)
+            assigned_detections = set()
 
-        assigned_objects = set()
-        assigned_detections = set()
-
-        for obj_idx, det_idx in zip(row_ind, col_ind):
-            det_pos, _ = detections_map[det_idx]
-            if cost_matrix[obj_idx, det_idx] < self.association_distance:
-                self.objects[obj_idx].update(
-                    det_pos,
-                    stamp.sec + stamp.nanosec * 1e-9
-                )
-                assigned_objects.add(obj_idx)
-                assigned_detections.add(det_idx)
+            for obj_idx, det_idx in zip(row_ind, col_ind):
+                if cost_matrix[obj_idx, det_idx] < self.association_distance:
+                    det_pos, _ = detections_map[det_idx]
+                    self.objects[obj_idx].update(det_pos, current_time)
+                    assigned_detections.add(det_idx)
+        else:
+            assigned_detections = set()
 
         for j, (det_pos, label) in enumerate(detections_map):
             if j not in assigned_detections:
-                self.create_object(det_pos, stamp, label)
+                self.handle_candidate(det_pos, current_time, label)
 
         self.publish_markers()
-        self.get_logger().info(f"Currently tracking {len(self.objects)} objects")
 
-    def create_object(self, position, stamp, label):
-        obj = PersistentObject(position, self.next_id, label)
-        obj.last_seen = stamp.sec + stamp.nanosec * 1e-9
+    def handle_candidate(self, position: List[float], stamp: float, label: str):
+        for candidate in self.candidates:
+            if np.linalg.norm(candidate.position - position) < self.association_distance:
+                candidate.update(position, stamp)
+                duration = candidate.last_seen - candidate.first_seen
+
+                if duration >= self.confirmation_time: 
+                    if candidate.observation_count >= self.confirmation_count:
+                        self.create_object(candidate.position.tolist(), stamp, candidate.label)
+                    else:
+                        self.candidates.remove(candidate)
+                return
+
+        self.candidates.append(CandidateObject(position, stamp, label))
+
+    def create_object(self, position: List[float], stamp: float, label: str):
+        obj = PersistentObject(position, self.next_id, label, stamp)
         self.objects.append(obj)
         self.next_id += 1
 
@@ -188,13 +235,13 @@ class ObjectTracker(Node):
             text.color.a = 1.0
             text.text = obj.label
 
-            marker_array.markers.append(sphere)  # type: ignore
-            marker_array.markers.append(text)  # type: ignore
+            marker_array.markers.append(sphere) # type: ignore
+            marker_array.markers.append(text) # type: ignore
 
         self.marker_pub.publish(marker_array)
 
 
-def main(args=None):
+def main(args: Optional[List[str]] = None):
     rclpy.init(args=args)
     node = ObjectTracker()
     rclpy.spin(node)
