@@ -63,7 +63,7 @@ def generate_launch_description():
         ('common_mono_config_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'common_mono.yaml']), 'Common mono camera config'),
         ('common_stereo_config_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'common_stereo.yaml']), 'Common stereo camera config'),
         ('custom_object_detection_config_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'custom_object_detection.yaml']), 'Custom object detection config'),
-        ('custom_object_detection_model_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'best.onnx']), 'Custom object detection model'),
+        ('custom_object_detection_model_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'epoch60.onnx']), 'Custom object detection model'),
         ('object_detection_config_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'object_detection.yaml']), 'Object detection YAML config'),
         ('ffmpeg_config_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'ffmpeg.yaml']), 'FFMPEG video config')
     ]
