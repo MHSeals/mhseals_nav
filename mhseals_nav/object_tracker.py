@@ -103,13 +103,10 @@ class ObjectTracker(Node):
         pose.pose = det.bbox.center
 
         try:
-            # Use the detection's own timestamp so the transform is interpolated
-            # to the exact moment the detection was captured, preventing ghost
-            # points during turns caused by TF being ahead of sensor data.
             transform = self.tf_buffer.lookup_transform(
                 'map',
                 frame_id,
-                stamp,  # was Time() — see comment above
+                Time(),
                 timeout=Duration(nanoseconds=int(3e8))
             )
 
@@ -127,9 +124,10 @@ class ObjectTracker(Node):
         if abs(self.current_yaw_rate) > self.yaw_rate_threshold:
             self.delay_detection_iterations = 2
             return
-
+        
         if self.delay_detection_iterations > 0:
             self.delay_detection_iterations -= 1
+            max(self.delay_detection_iterations, 0)
 
         stamp = msg.header.stamp
         current_time = stamp.sec + stamp.nanosec * 1e-9
@@ -179,7 +177,7 @@ class ObjectTracker(Node):
                 candidate.update(position, stamp)
                 duration = candidate.last_seen - candidate.first_seen
 
-                if duration >= self.confirmation_time:
+                if duration >= self.confirmation_time: 
                     if candidate.observation_count >= self.confirmation_count:
                         self.create_object(candidate.position.tolist(), stamp, candidate.label)
                     else:
@@ -237,8 +235,8 @@ class ObjectTracker(Node):
             text.color.a = 1.0
             text.text = obj.label
 
-            marker_array.markers.append(sphere)  # type: ignore
-            marker_array.markers.append(text)  # type: ignore
+            marker_array.markers.append(sphere) # type: ignore
+            marker_array.markers.append(text) # type: ignore
 
         self.marker_pub.publish(marker_array)
 
