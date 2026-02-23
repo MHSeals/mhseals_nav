@@ -1,18 +1,14 @@
 /**:
   ros__parameters:
-    system_id: 255
-    component_id: 240
-    
-    frame_id: map
-    child_frame_id: base_link
-
-    odom:
-      publish_tf: false
-      publish_tf2: false
+    system_id: 42
+    component_id: 67 
 
     local_position:
+      frame_id: odom
       tf:
-        send: false
+        send: true
+        frame_id: odom
+        child_frame_id: base_link
 
     global_position:
       tf:

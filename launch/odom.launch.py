@@ -58,7 +58,8 @@ def create_mavros_node(context):
         ],
         remappings=[
             ('/mavros/local_position/odom', '/odom/mavros'),
-            ('/mavros/imu/data', '/imu/raw')
+            ('/mavros/imu/data', '/imu/raw'),
+            ('/mavros/global_position/global', '/gps/fix')
         ]
     )]
 
@@ -159,7 +160,7 @@ def generate_launch_description():
         remappings=[
             ('imu/data', '/imu/filtered'),
             ('gps/fix', '/gps/fix'),
-            ('odometry/filtered', '/odom/local'),
+            ('odometry/filtered', '/odom/mavros'),
             ('odometry/gps', '/odom/gps')
         ]
     )
@@ -256,8 +257,8 @@ def generate_launch_description():
             # rtabmap_odom_node,
             imu_filter_node,
             navsat_transform_node,
-            ekf_local_node_delayed,
-            ekf_global_node_delayed,
+            # ekf_local_node_delayed,
+            # ekf_global_node_delayed,
             set_mavros_message_rate,
             robot_state_publisher_node,
             object_tracker_node
