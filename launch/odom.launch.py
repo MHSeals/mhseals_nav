@@ -4,15 +4,14 @@ from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 from launch.actions import ExecuteProcess, TimerAction
-from launch.conditions import IfCondition, UnlessCondition
-
 import xacro
 import os
 
+
 def load_urdf(context):
+    sim = LaunchConfiguration('sim').perform(context).lower() == 'true'
     urdf_path = LaunchConfiguration('urdf_file').perform(context)
     _, ext = os.path.splitext(urdf_path.lower())
-
     if ext == '.xacro':
         doc = xacro.process_file(urdf_path)
         robot_description = doc.toxml() # type: ignore
@@ -28,7 +27,7 @@ def load_urdf(context):
         output='screen',
         parameters=[{
             'robot_description': robot_description,
-            'use_sim_time': LaunchConfiguration('sim'),
+            'use_sim_time': sim,
             'publish_frequency': float(LaunchConfiguration('robot_state_publish_frequency').perform(context))
         }],
     )]
@@ -36,7 +35,6 @@ def load_urdf(context):
 def create_mavros_node(context):
     sim = LaunchConfiguration('sim').perform(context).lower() == 'true'
     fcu_url_override = LaunchConfiguration('fcu_url').perform(context)
-
     if fcu_url_override != '':
         fcu_url = fcu_url_override
     elif sim:
@@ -63,7 +61,7 @@ def create_mavros_node(context):
     )]
 
 def create_rtabmap_odom_node(context):
-    sim = bool(LaunchConfiguration('sim').perform(context))
+    sim = LaunchConfiguration('sim').perform(context).lower() == 'true'
     rtabmap_params_file = LaunchConfiguration('rtabmap_params_file').perform(context)
     camera_name = LaunchConfiguration('camera_name').perform(context)
 
@@ -74,11 +72,108 @@ def create_rtabmap_odom_node(context):
         output='screen',
         parameters=[rtabmap_params_file, {'use_sim_time': sim}],
         remappings=[
-            ("/rgb/image",f"/{camera_name}_camera/rgb/image"),
+            ("/rgb/image", f"/{camera_name}_camera/rgb/image"),
             ("/depth/image", f"/{camera_name}_camera/depth/image"),
             ("/rgb/camera_info", f"/{camera_name}_camera/camera_info")
         ]
     )]
+
+
+def create_nodes(context):
+    sim = LaunchConfiguration('sim').perform(context).lower() == 'true'
+
+    dlio_odom_node = Node(
+        package='direct_lidar_inertial_odometry',
+        executable='dlio_odom_node',
+        output='screen',
+        parameters=[LaunchConfiguration('dlio_params_file'), {'use_sim_time': sim}],
+        remappings=[
+            ('pointcloud', '/points'),
+            ('imu', '/imu/filtered'),
+            ('odom', '/odom/dlio'),
+            ('pose', '/dlio/pose'),
+            ('path', '/dlio/path'),
+            ('kf_pose', '/dlio/keyframes/pose'),
+            ('kf_cloud', '/dlio/keyframes/cloud'),
+            ('deskewed', '/dlio/deskewed')
+        ],
+    )
+
+    dlio_map_node = Node(
+        package='direct_lidar_inertial_odometry',
+        executable='dlio_map_node',
+        output='screen',
+        parameters=[LaunchConfiguration('dlio_params_file'), {'use_sim_time': sim}],
+        remappings=[('keyframes', '/dlio/pointcloud/keyframe')],
+    )
+
+    imu_filter_node = Node(
+        package="imu_filter_madgwick",
+        executable="imu_filter_madgwick_node",
+        name="imu_filter_madgwick",
+        output="screen",
+        parameters=[{"use_mag": False, "publish_tf": False, "use_sim_time": sim}],
+        remappings=[
+            ("imu/data_raw", "/imu/raw"),
+            ("imu/data", "/imu/filtered")
+        ],
+    )
+
+    navsat_transform_node = Node(
+        package='robot_localization',
+        executable='navsat_transform_node',
+        name='navsat_transform',
+        parameters=[
+            LaunchConfiguration('navsat_transform_config_file'),
+            {'use_sim_time': sim}
+        ],
+        remappings=[
+            ('imu/data', '/imu/filtered'),
+            ('gps/fix', '/gps/fix'),
+            ('odometry/filtered', '/odom/local'),
+            ('odometry/gps', '/odom/gps')
+        ]
+    )
+
+    ekf_local_node = Node(
+        package="robot_localization",
+        executable="ekf_node",
+        name="ekf_local",
+        output="screen",
+        parameters=[LaunchConfiguration('ekf_local_config_file'), {'use_sim_time': sim}],
+        remappings=[('odometry/filtered', '/odom/local')]
+    )
+
+    ekf_global_node = Node(
+        package="robot_localization",
+        executable="ekf_node",
+        name="ekf_global",
+        output="screen",
+        parameters=[LaunchConfiguration('ekf_global_config_file'), {'use_sim_time': sim}],
+        remappings=[('odometry/filtered', '/odom/global')]
+    )
+
+    object_tracker_node = Node(
+        package='mhseals_nav',
+        executable='object_tracker',
+        name='object_tracker',
+        parameters=[{'use_sim_time': sim}],
+        output='screen'
+    )
+
+    ekf_local_node_delayed = TimerAction(period=6.0, actions=[ekf_local_node])
+    ekf_global_node_delayed = TimerAction(period=6.0, actions=[ekf_global_node])
+
+    return [
+        # dlio_map_node,
+        # dlio_odom_node,
+        imu_filter_node,
+        navsat_transform_node,
+        ekf_local_node_delayed,
+        ekf_global_node_delayed,
+        object_tracker_node,
+    ]
+
 
 def generate_launch_description():
     mhseals_nav_dir = FindPackageShare('mhseals_nav')
@@ -101,109 +196,16 @@ def generate_launch_description():
         ('camera_name', 'front', 'Name of camera')
     ]
 
-    launch_configurations = {}
-    declare_arguments = []
-    for name, default_value, description in launch_args:
-        launch_configurations[name] = LaunchConfiguration(name)
-        declare_arguments.append(
-            DeclareLaunchArgument(name, default_value=default_value, description=description)
-        )
-
-    dlio_odom_node = Node(
-        package='direct_lidar_inertial_odometry',
-        executable='dlio_odom_node',
-        output='screen',
-        parameters=[launch_configurations['dlio_params_file'], {'use_sim_time': launch_configurations['sim']}],
-        remappings=[
-            ('pointcloud', '/points'),
-            ('imu', '/imu/filtered'),
-            ('odom', '/odom/dlio'),
-            ('pose', '/dlio/pose'),
-            ('path', '/dlio/path'),
-            ('kf_pose', '/dlio/keyframes/pose'),
-            ('kf_cloud', '/dlio/keyframes/cloud'),
-            ('deskewed', '/dlio/deskewed')
-        ],
-    )
-
-    dlio_map_node = Node(
-        package='direct_lidar_inertial_odometry',
-        executable='dlio_map_node',
-        output='screen',
-        parameters=[launch_configurations['dlio_params_file'], {'use_sim_time': launch_configurations['sim']}],
-        remappings=[('keyframes', '/dlio/pointcloud/keyframe')],
-    )
-
-    rtabmap_odom_node = OpaqueFunction(function=create_rtabmap_odom_node)
-
-    imu_filter_node = Node(
-        package="imu_filter_madgwick",
-        executable="imu_filter_madgwick_node",
-        name="imu_filter_madgwick",
-        output="screen",
-        parameters=[{"use_mag": False, "publish_tf": False, "use_sim_time": launch_configurations['sim']}],
-        remappings=[
-            ("imu/data_raw", "/imu/raw"),
-            ("imu/data", "/imu/filtered")
-        ],
-    )
-
-    navsat_transform_node = Node(
-        package='robot_localization',
-        executable='navsat_transform_node',
-        name='navsat_transform',
-        parameters=[
-            launch_configurations['navsat_transform_config_file'],
-            {'use_sim_time': launch_configurations['sim']}
-        ],
-        remappings=[
-            ('imu/data', '/imu/filtered'),
-            ('gps/fix', '/gps/fix'),
-            ('odometry/filtered', '/odom/local'),
-            ('odometry/gps', '/odom/gps')
-        ]
-    )
-    
-    ekf_local_node = Node(
-        package="robot_localization",
-        executable="ekf_node",
-        name="ekf_local",
-        output="screen",
-        parameters=[launch_configurations['ekf_local_config_file'], {'use_sim_time': launch_configurations['sim']}],
-        remappings=[
-            ('odometry/filtered', '/odom/local')
-        ]
-    )
-
-    ekf_global_node = Node(
-        package="robot_localization",
-        executable="ekf_node",
-        name="ekf_global",
-        output="screen",
-        parameters=[launch_configurations['ekf_global_config_file'], {'use_sim_time': launch_configurations['sim']}],
-        remappings=[
-            ('odometry/filtered', '/odom/global')
-        ]
-    )
-
-    ekf_local_node_delayed = TimerAction(
-        period=6.0,
-        actions=[ekf_local_node]
-    )
-    
-    ekf_global_node_delayed = TimerAction(
-        period=6.0,
-        actions=[ekf_global_node]
-    )
-    
-    mavros_node = OpaqueFunction(function=create_mavros_node)
+    declare_arguments = [
+        DeclareLaunchArgument(name, default_value=default_value, description=description)
+        for name, default_value, description in launch_args
+    ]
 
     set_mavros_message_rate = TimerAction(
         period=5.0,
         actions=[
             OpaqueFunction(
                 function=lambda context: [
-                    # Local position / odometry
                     ExecuteProcess(
                         cmd=[
                             'ros2', 'service', 'call',
@@ -213,7 +215,6 @@ def generate_launch_description():
                         ],
                         output='screen'
                     ),
-                    # High-rate IMU
                     ExecuteProcess(
                         cmd=[
                             'ros2', 'service', 'call',
@@ -223,7 +224,6 @@ def generate_launch_description():
                         ],
                         output='screen'
                     ),
-                    # GPS fix
                     ExecuteProcess(
                         cmd=[
                             'ros2', 'service', 'call',
@@ -238,28 +238,12 @@ def generate_launch_description():
         ]
     )
 
-    robot_state_publisher_node = OpaqueFunction(function=load_urdf)
-
-    object_tracker_node = Node(
-        package='mhseals_nav',
-        executable='object_tracker',
-        name='object_tracker',
-        parameters=[{'use_sim_time': launch_configurations['sim']}],
-        output='screen'
-    )
-
     return LaunchDescription(
         declare_arguments + [
-            # dlio_map_node,
-            # dlio_odom_node,
-            mavros_node,
-            # rtabmap_odom_node,
-            imu_filter_node,
-            navsat_transform_node,
-            ekf_local_node_delayed,
-            ekf_global_node_delayed,
+            OpaqueFunction(function=create_nodes),
+            OpaqueFunction(function=create_mavros_node),
+            # OpaqueFunction(function=create_rtabmap_odom_node),
+            OpaqueFunction(function=load_urdf),
             set_mavros_message_rate,
-            robot_state_publisher_node,
-            object_tracker_node
         ]
     )
