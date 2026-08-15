@@ -8,6 +8,10 @@
   <license>GPL-3.0</license>
 
   <!-- ROS Execution Dependencies -->
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>mavros</exec_depend>
+  <exec_depend>mavros_msgs</exec_depend>
   <exec_depend>ros2launch</exec_depend>
   <exec_depend>rviz2</exec_depend>
   <exec_depend>vision_msgs</exec_depend>
