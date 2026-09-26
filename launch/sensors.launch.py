@@ -117,7 +117,9 @@ def generate_launch_description():
         parameters=[{
             'model': 'VLP16',
             'frame_id': 'lidar_link',
-            'calibration': '/opt/ros/humble/share/velodyne_pointcloud/params/VLP16db.yaml'
+            'calibration': PathJoinSubstitution([
+                FindPackageShare('velodyne_pointcloud'), 'params', 'VLP16db.yaml'
+            ])
         }],
         remappings=[('velodyne_points', '/points')],
         condition=sensor_ignore('lidar')
