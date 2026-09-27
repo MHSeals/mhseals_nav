@@ -2,22 +2,3 @@
   ros__parameters:
     system_id: 255
     component_id: 240
-
-# MAVROS 2 plugins are separate nodes: scope parameters to their exact names.
-/mavros/imu:
-  ros__parameters:
-    # MAVROS converts FCU NED/aircraft orientation to ENU/base_link.
-    frame_id: base_link
-
-/mavros/local_position:
-  ros__parameters:
-    frame_id: odom
-    tf.send: false
-    tf.frame_id: odom
-    tf.child_frame_id: base_link
-
-/mavros/global_position:
-  ros__parameters:
-    frame_id: map
-    child_frame_id: base_link
-    tf.send: false

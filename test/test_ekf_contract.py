@@ -47,13 +47,9 @@ def test_nav2_rate_and_tf_contract():
         assert not any(config.get(key) for key in ('odom2', 'odom3'))
 
 
-def test_mavros_frames_are_scoped_to_exact_plugin_nodes():
+def test_mavros_global_defaults_do_not_relabel_sensor_frames():
     config = yaml.safe_load((ROOT / 'config/mavros.yaml').read_text())
     assert 'frame_id' not in config['/**']['ros__parameters']
-    assert config['/mavros/imu']['ros__parameters']['frame_id'] == 'base_link'
-    local = config['/mavros/local_position']['ros__parameters']
-    assert local['frame_id'] == local['tf.frame_id'] == 'odom'
-    assert config['/mavros/global_position']['ros__parameters']['frame_id'] == 'map'
 
 
 def test_mavros_relays_preserve_sensor_abstraction_at_safe_rates():
@@ -68,3 +64,5 @@ def test_mavros_relays_preserve_sensor_abstraction_at_safe_rates():
     assert "('mavros_imu_rate', '20.0'" in launch
     assert "('mavros_gps_rate', '5.0'" in launch
     assert "('odometry/filtered', '/odom/local')" in launch
+    assert "'frame_id', 'odom'" in launch
+    assert "'tf.frame_id', 'odom'" in launch

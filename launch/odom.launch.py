@@ -265,6 +265,25 @@ def generate_launch_description():
         ]
     )
 
+    # mavros_node creates plugin nodes dynamically, after its parameter files
+    # and remapping rules have been consumed. Configure the local-position
+    # plugin through its runtime parameter service once it exists.
+    configure_mavros_frames = TimerAction(
+        period=5.0,
+        actions=[
+            ExecuteProcess(
+                cmd=['ros2', 'param', 'set', '/mavros/local_position',
+                     'frame_id', 'odom'],
+                output='screen'
+            ),
+            ExecuteProcess(
+                cmd=['ros2', 'param', 'set', '/mavros/local_position',
+                     'tf.frame_id', 'odom'],
+                output='screen'
+            ),
+        ]
+    )
+
     robot_state_publisher_node = OpaqueFunction(function=load_urdf)
 
     return LaunchDescription(
@@ -279,6 +298,7 @@ def generate_launch_description():
             ekf_local_node_delayed,
             ekf_global_node_delayed,
             set_mavros_message_rate,
+            configure_mavros_frames,
             robot_state_publisher_node,
         ]
     )
