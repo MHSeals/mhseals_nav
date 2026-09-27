@@ -5,8 +5,8 @@
     two_d_mode: true
     publish_tf: true
     publish_acceleration: false
-    print_diagnostics: false
-    transform_time_offset: 0.3
+    print_diagnostics: true
+    transform_time_offset: 0.0
     predict_to_current_time: true
 
     map_frame: map
@@ -14,21 +14,23 @@
     base_link_frame: base_link
     world_frame: odom
 
-    # === MAVROS Odom ===
+    # FCU body velocity only: keep GPS position jumps out of odom->base_link.
     odom0: /odom/mavros
     odom0_differential: false
     odom0_relative: false
     odom0_queue_size: 10
     odom0_config: [
-      true,  true,  false,   # x, y, z
-      false, false,  true,   # roll, pitch, yaw
+      false, false, false,   # x, y, z
+      false, false, false,   # roll, pitch, yaw (from IMU below)
       true,  true,  false,   # vx, vy, vz
-      false, false,  true,   # vroll, vpitch, vyaw
+      false, false, false,   # vroll, vpitch, vyaw (from IMU below)
       false, false, false    # ax, ay, az
     ]
 
     # === MAVROS IMU ===
-    imu0: /imu/filtered
+    # /imu/raw is the legacy remap of MAVROS /imu/data: FCU-fused ENU
+    # orientation, NOT MAVROS /imu/data_raw. Preserve its absolute heading.
+    imu0: /imu/raw
     imu0_queue_size: 10
     imu0_differential: false
     imu0_relative: false
@@ -36,9 +38,10 @@
     
     imu0_config: [
       false, false, false,   # position
-      false, false, false,   # orientation (disable if VIO provides it)
-      true,  true,  true,    # angular velocity (gyro)
-      true,  true,  true     # linear acceleration
+      false, false, true,    # roll, pitch, yaw
+      false, false, false,   # vx, vy, vz (IMU does not measure velocity)
+      false, false, true,    # angular velocity: yaw rate
+      false, false, false    # acceleration off until bias/noise is calibrated
     ]
 
     # # === DLIO ===

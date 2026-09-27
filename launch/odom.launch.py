@@ -58,7 +58,8 @@ def create_mavros_node(context):
         ],
         remappings=[
             ('/mavros/local_position/odom', '/odom/mavros'),
-            ('/mavros/imu/data', '/imu/raw')
+            ('/mavros/imu/data', '/imu/raw'),
+            ('/mavros/global_position/raw/fix', '/gps/fix'),
         ]
     )]
 
@@ -157,9 +158,10 @@ def generate_launch_description():
             {'use_sim_time': launch_configurations['sim']}
         ],
         remappings=[
-            ('imu/data', '/imu/filtered'),
+            ('imu', '/imu/raw'),  # robot_localization ROS 2 subscription name
+            ('imu/data', '/imu/raw'),
             ('gps/fix', '/gps/fix'),
-            ('odometry/filtered', '/odom/local'),
+            ('odometry/filtered', '/odom/global'),
             ('odometry/gps', '/odom/gps')
         ]
     )
@@ -213,13 +215,14 @@ def generate_launch_description():
                         ],
                         output='screen'
                     ),
-                    # High-rate IMU
+                    # FCU-fused attitude + angular rates (/mavros/imu/data).
+                    # HIGHRES_IMU (105) alone only drives data_raw, not attitude.
                     ExecuteProcess(
                         cmd=[
                             'ros2', 'service', 'call',
                             '/mavros/set_message_interval',
                             'mavros_msgs/srv/MessageInterval',
-                            f'{{message_id: 105, message_rate: {LaunchConfiguration("mavros_imu_rate").perform(context)}}}'
+                            f'{{message_id: 31, message_rate: {LaunchConfiguration("mavros_imu_rate").perform(context)}}}'
                         ],
                         output='screen'
                     ),

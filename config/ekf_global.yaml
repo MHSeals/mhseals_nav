@@ -3,11 +3,11 @@
     frequency: 20.0
     sensor_timeout: 0.5
     two_d_mode: true
-    transform_time_offset: 0.3
+    transform_time_offset: 0.0
 
     publish_tf: true
     publish_acceleration: false
-    print_diagnostics: false
+    print_diagnostics: true
     predict_to_current_time: true
 
     map_frame: map
@@ -18,7 +18,7 @@
     # === Local Odom Reference ===
     odom0: /odom/local
     odom0_config: [
-      true,  true,  false,   # x, y, z
+      false, false, false,   # position comes only from GPS; avoid double-counting
       false, false,  true,   # roll, pitch, yaw
       true,  true,  false,   # vx, vy, vz
       false, false,  true,   # vroll, vpitch, vyaw
@@ -27,11 +27,12 @@
     odom0_differential: false
     
     odom1: /odom/gps
+    # navsat_transform supplies position, not yaw, velocity or yaw rate.
     odom1_config: [
       true,  true,  false,   # x, y, z
-      false, false,  true,   # roll, pitch, yaw
-      true,  true,  false,   # vx, vy, vz
-      false, false,  true,   # vroll, vpitch, vyaw
+      false, false, false,   # roll, pitch, yaw
+      false, false, false,   # vx, vy, vz
+      false, false, false,   # vroll, vpitch, vyaw
       false, false, false    # ax, ay, az
     ]
     odom1_differential: false
