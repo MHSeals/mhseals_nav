@@ -10,6 +10,9 @@ def generate_launch_description():
     launch_args = [
         # General
         ('sim', 'true', 'Use simulation time'),
+        ('use_lidar', 'true', 'Enable lidar costmap; false requires supervised operation'),
+        ('enable_object_tracking', 'false', 'Track canonical /detections in map'),
+        ('cmd_vel_topic', '/nav/cmd_vel', 'Final Nav2 velocity output'),
 
         # MAVROS / FCU
         ('fcu_url', 'tcp://127.0.0.1:5762', 'Flight control unit connection URL'),
@@ -85,7 +88,10 @@ def generate_launch_description():
             'sim': launch_configurations['sim'],
             'camera_name': launch_configurations['camera_name'],
             'rtabmap_params_file': launch_configurations['rtabmap_params_file'],
-            'nav2_params_file': launch_configurations['nav2_params_file']
+            'nav2_params_file': launch_configurations['nav2_params_file'],
+            'use_lidar': launch_configurations['use_lidar'],
+            'enable_object_tracking': launch_configurations['enable_object_tracking'],
+            'cmd_vel_topic': launch_configurations['cmd_vel_topic'],
         }.items()
     )
 

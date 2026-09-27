@@ -1,12 +1,29 @@
 """Explicit boat server set: no implicit docking, route server or SLAM."""
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration
+from launch.actions import DeclareLaunchArgument, LogInfo
+from launch.conditions import UnlessCondition
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
+from launch_ros.substitutions import FindPackageShare
+from nav2_common.launch import RewrittenYaml
 
 
 def generate_launch_description():
+    share = FindPackageShare('mhseals_nav')
+    rewrites = {
+        f'{name}.{name}.ros__parameters.obstacle_layer.enabled':
+            LaunchConfiguration('use_lidar')
+        for name in ('local_costmap', 'global_costmap')}
+    for key, filename in (
+            ('default_nav_to_pose_bt_xml', 'nav_to_pose.xml'),
+            ('default_nav_through_poses_bt_xml', 'nav_replan_recov.xml')):
+        rewrites[f'bt_navigator.ros__parameters.{key}'] = PathJoinSubstitution(
+            [share, 'behavior_trees', filename])
+    params = RewrittenYaml(
+        source_file=LaunchConfiguration('params_file'), root_key='',
+        param_rewrites=rewrites,
+        convert_types=True)
     servers = [
         ('nav2_controller', 'controller_server'),
         ('nav2_planner', 'planner_server'),
@@ -27,7 +44,7 @@ def generate_launch_description():
                       ('cmd_vel_smoothed', LaunchConfiguration('cmd_vel_topic'))]
         nodes.append(Node(
             package=package, executable=executable, name=executable,
-            parameters=[LaunchConfiguration('params_file'),
+            parameters=[params,
                         {'use_sim_time': clock, 'enable_stamped_cmd_vel': False}],
             remappings=remaps, output='screen'))
     nodes.append(Node(
@@ -36,7 +53,11 @@ def generate_launch_description():
         parameters=[{'autostart': True, 'use_sim_time': clock,
                      'node_names': [name for _, name in servers]}]))
     return LaunchDescription([
-        DeclareLaunchArgument('params_file'),
+        DeclareLaunchArgument('params_file', default_value=PathJoinSubstitution(
+            [share, 'config', 'nav2_params.yaml'])),
         DeclareLaunchArgument('use_sim_time', default_value='false'),
         DeclareLaunchArgument('cmd_vel_topic', default_value='/nav/cmd_vel'),
+        DeclareLaunchArgument('use_lidar', default_value='true'),
+        LogInfo(msg='LIDAR DISABLED: no range-obstacle avoidance; visual supervision required.',
+                condition=UnlessCondition(LaunchConfiguration('use_lidar'))),
     ] + nodes)

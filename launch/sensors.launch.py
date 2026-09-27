@@ -6,6 +6,7 @@ from launch.conditions import IfCondition, UnlessCondition
 
 from launch_ros.actions import Node, PushRosNamespace
 from launch_ros.substitutions import FindPackageShare
+from launch_ros.parameter_descriptions import ParameterValue
 
 def sensor_ignore(sensor):
     return UnlessCondition(
@@ -82,6 +83,8 @@ def generate_launch_description():
         ), 
         launch_arguments={ 'camera_model': launch_configurations['zed_camera_name'], 
                            'camera_name': launch_configurations['camera_name'], 
+                           'publish_tf': 'false',
+                           'publish_map_tf': 'false',
                            'common_config_path': launch_configurations['common_stereo_config_file'], 
                            'zed_id_path': launch_configurations['zed_config_file'], 
                            'ffmpeg_config_path': launch_configurations['ffmpeg_config_file'], 
@@ -140,7 +143,10 @@ def generate_launch_description():
         package='mhseals_nav',
         executable='zed_detections_converter',
         name='zed_detections_converter',
-        parameters=[{'use_sim_time': launch_configurations['sim']}],
+        condition=sensor_ignore('camera'),
+        parameters=[{'use_sim_time': ParameterValue(launch_configurations['sim'], value_type=bool),
+                     'objects_topic': ['/', launch_configurations['camera_name'],
+                                       '/zed_node/obj_det/objects']}],
         output='screen'
     )
 

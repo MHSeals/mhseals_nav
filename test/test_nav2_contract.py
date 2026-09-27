@@ -47,5 +47,9 @@ def test_public_launch_resolves_server_file_and_keeps_actuation_opt_in():
     assert (ROOT / 'launch/navigation.launch.py').exists()
     assert "('cmd_vel_topic', '/nav/cmd_vel'" in launch
     assert "('enable_mavros_velocity', 'false'" in launch
-    assert 'default_nav_to_pose_bt_xml' in launch
-    assert 'default_nav_through_poses_bt_xml' in launch
+    server_launch = (ROOT / 'launch/navigation.launch.py').read_text()
+    assert 'default_nav_to_pose_bt_xml' in server_launch
+    assert 'default_nav_through_poses_bt_xml' in server_launch
+    assert 'obstacle_layer.enabled' in server_launch
+    assert "LaunchConfiguration('use_lidar')" in server_launch
+    assert "'object_tracker'" not in (ROOT / 'launch/odom.launch.py').read_text()

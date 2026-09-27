@@ -5,7 +5,6 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import PathJoinSubstitution, LaunchConfiguration
 from launch_ros.substitutions import FindPackageShare
 from launch.conditions import IfCondition
-from nav2_common.launch import RewrittenYaml
 
 def create_rtabmap_slam_node(context):
     sim = LaunchConfiguration('sim').perform(context).lower() == 'true'
@@ -33,6 +32,7 @@ def generate_launch_description():
         ('sim', 'true', 'Use simulation time'),
         ('enable_slam', 'false', 'Optional RTABMap; GPS navigation does not require a static map'),
         ('enable_object_tracking', 'false', 'Optional detection tracker; not required for lidar navigation'),
+        ('use_lidar', 'true', 'Require lidar for obstacle avoidance; false is supervised blind navigation'),
         ('enable_mavros_velocity', 'false', 'Explicitly enable MAVROS actuation instead of direct-pin control'),
         ('cmd_vel_topic', '/nav/cmd_vel', 'Velocity setpoints; connect a calibrated controller explicitly'),
         ('camera_name', 'front', 'Name of camera'),
@@ -48,18 +48,6 @@ def generate_launch_description():
             DeclareLaunchArgument(name, default_value=default_value, description=description)
         )
 
-    nav2_params = RewrittenYaml(
-        source_file=launch_configurations['nav2_params_file'],
-        root_key='',
-        param_rewrites={
-            'bt_navigator.ros__parameters.default_nav_to_pose_bt_xml':
-                PathJoinSubstitution([mhseals_nav_dir, 'behavior_trees', 'nav_to_pose.xml']),
-            'bt_navigator.ros__parameters.default_nav_through_poses_bt_xml':
-                PathJoinSubstitution([mhseals_nav_dir, 'behavior_trees', 'nav_replan_recov.xml']),
-        },
-        convert_types=True,
-    )
-
     nav2_bringup_launch = TimerAction(
         period=3.0,
         actions=[
@@ -73,8 +61,9 @@ def generate_launch_description():
                 ]),
                 launch_arguments={
                     'use_sim_time': launch_configurations['sim'],
-                    'params_file': nav2_params,
+                    'params_file': launch_configurations['nav2_params_file'],
                     'cmd_vel_topic': launch_configurations['cmd_vel_topic'],
+                    'use_lidar': launch_configurations['use_lidar'],
                 }.items()
             )
         ]

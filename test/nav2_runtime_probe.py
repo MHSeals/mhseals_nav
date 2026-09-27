@@ -46,7 +46,8 @@ def main():
     state = [0.0, 0.0, 0.0]
     command = Twist()
     received = []
-    lidar_enabled = True
+    lidar_required = '--no-lidar' not in sys.argv
+    lidar_enabled = lidar_required
 
     def on_command(msg):
         nonlocal command
@@ -110,6 +111,7 @@ def main():
             if '--installed-launch' in sys.argv:
                 launch_command = ['ros2', 'launch', 'mhseals_nav', 'slam_nav.launch.py',
                                   'nav2_params_file:=' + str(params), 'sim:=false']
+            launch_command.append('use_lidar:=' + str(lidar_required).lower())
             process = subprocess.Popen(launch_command,
                 stdout=log, stderr=log, start_new_session=True)
             try:
@@ -153,11 +155,15 @@ def main():
                 spin_until(lambda: time.monotonic() - loss > 4.0, 6)
                 recent = [(v, w) for t, v, w in received if t > loss + 3.0]
                 # The smoother publishes a terminal zero then stops publishing.
-                assert any(t > loss and abs(v) < 0.001 and abs(w) < 0.001
-                           for t, v, w in received), 'No terminal stop command'
-                assert abs(command.linear.x) < 0.001 and abs(command.angular.z) < 0.001
-                assert all(abs(v) < 0.001 and abs(w) < 0.001 for v, w in recent), recent
-                print('PASS NavigateThroughPoses tree + stale lidar stops commands', flush=True)
+                if lidar_required:
+                    assert any(t > loss and abs(v) < 0.001 and abs(w) < 0.001
+                               for t, v, w in received), 'No terminal stop command'
+                    assert abs(command.linear.x) < 0.001 and abs(command.angular.z) < 0.001
+                    assert all(abs(v) < 0.001 and abs(w) < 0.001 for v, w in recent), recent
+                    print('PASS NavigateThroughPoses + stale lidar stops commands', flush=True)
+                else:
+                    assert any(v > 0.05 for v, _ in recent), recent
+                    print('PASS explicit no-lidar mode navigates without /points', flush=True)
                 handle2.cancel_goal_async()
             finally:
                 if process.poll() is None:

@@ -41,7 +41,7 @@ setup(
     install_requires=[
         'setuptools',
         'pyyaml',
-        "numpy"
+        "numpy", "websocket-client"
     ],
     zip_safe=True,
     author="Liam Bray",
