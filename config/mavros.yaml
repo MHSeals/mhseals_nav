@@ -13,10 +13,11 @@
   ros__parameters:
     frame_id: odom
     tf.send: false
+    tf.frame_id: odom
     tf.child_frame_id: base_link
 
 /mavros/global_position:
   ros__parameters:
-    frame_id: gps_link
+    frame_id: map
     child_frame_id: base_link
     tf.send: false
