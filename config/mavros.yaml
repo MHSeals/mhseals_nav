@@ -3,21 +3,20 @@
     system_id: 255
     component_id: 240
 
-# MAVROS 2 plugins are separate nodes: scope parameters to those nodes.
-# A wildcard frame_id=map incorrectly labels IMU samples as map-frame data.
-/**/imu:
+# MAVROS 2 plugins are separate nodes: scope parameters to their exact names.
+/mavros/imu:
   ros__parameters:
     # MAVROS converts FCU NED/aircraft orientation to ENU/base_link.
     frame_id: base_link
 
-/**/local_position:
+/mavros/local_position:
   ros__parameters:
     frame_id: odom
     tf.send: false
     tf.child_frame_id: base_link
 
-/**/global_position:
+/mavros/global_position:
   ros__parameters:
-    frame_id: map
+    frame_id: gps_link
     child_frame_id: base_link
     tf.send: false

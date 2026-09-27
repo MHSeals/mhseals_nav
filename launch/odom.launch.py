@@ -55,11 +55,6 @@ def create_mavros_node(context):
                 'fcu_url': fcu_url,
                 'gcs_url': LaunchConfiguration('gcs_url')
             }
-        ],
-        remappings=[
-            ('/mavros/local_position/odom', '/odom/mavros'),
-            ('/mavros/imu/data', '/imu/raw'),
-            ('/mavros/global_position/raw/fix', '/gps/fix'),
         ]
     )]
 
@@ -90,9 +85,9 @@ def generate_launch_description():
         ('fcu_url', '', 'Flight control unit connection URL'),
         ('gcs_url', 'udp://@127.0.0.1:14550', 'Ground control service connection URL'),
         ('mavros_params_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'mavros.yaml']), 'Path to MAVROS params'),
-        ('mavros_odom_rate', '100.0', 'Rate at which mavros publishes odom data'),
-        ('mavros_imu_rate', '100.0', 'Rate at which mavros publishes imu data'),
-        ('mavros_gps_rate', '15.0', 'Rate at which mavros publishes gps data'),
+        ('mavros_odom_rate', '20.0', 'Requested MAVROS odometry rate'),
+        ('mavros_imu_rate', '20.0', 'Requested MAVROS IMU rate'),
+        ('mavros_gps_rate', '5.0', 'Requested MAVROS GPS rate'),
         ('rtabmap_params_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'rtabmap.yaml']), 'Path to RTABMap params'),
         ('navsat_transform_config_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'navsat_transform.yaml']), 'Path to navsat_transform params'),
         ('ekf_local_config_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'ekf_local.yaml']), 'Path to local EKF config'),
@@ -200,6 +195,33 @@ def generate_launch_description():
     
     mavros_node = OpaqueFunction(function=create_mavros_node)
 
+    # MAVROS plugins are dynamically-created nodes and do not inherit the
+    # remappings passed to mavros_node. Relays preserve the stable hardware /
+    # simulation topic contract consumed by the rest of the stack.
+    mavros_topic_relays = [
+        Node(
+            package='topic_tools',
+            executable='relay',
+            name='mavros_odom_relay',
+            arguments=['/mavros/local_position/odom', '/odom/mavros'],
+            output='screen'
+        ),
+        Node(
+            package='topic_tools',
+            executable='relay',
+            name='mavros_imu_relay',
+            arguments=['/mavros/imu/data', '/imu/raw'],
+            output='screen'
+        ),
+        Node(
+            package='topic_tools',
+            executable='relay',
+            name='mavros_gps_relay',
+            arguments=['/mavros/global_position/raw/fix', '/gps/fix'],
+            output='screen'
+        ),
+    ]
+
     set_mavros_message_rate = TimerAction(
         period=5.0,
         actions=[
@@ -250,6 +272,7 @@ def generate_launch_description():
             mavros_node,
             # rtabmap_odom_node,
             imu_filter_node,
+            *mavros_topic_relays,
             navsat_transform_node,
             ekf_local_node_delayed,
             ekf_global_node_delayed,

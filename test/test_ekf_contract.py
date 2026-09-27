@@ -47,7 +47,22 @@ def test_nav2_rate_and_tf_contract():
         assert not any(config.get(key) for key in ('odom2', 'odom3'))
 
 
-def test_mavros_imu_frame_is_scoped_to_plugin():
+def test_mavros_frames_are_scoped_to_exact_plugin_nodes():
     config = yaml.safe_load((ROOT / 'config/mavros.yaml').read_text())
     assert 'frame_id' not in config['/**']['ros__parameters']
-    assert config['/**/imu']['ros__parameters']['frame_id'] == 'base_link'
+    assert config['/mavros/imu']['ros__parameters']['frame_id'] == 'base_link'
+    assert config['/mavros/local_position']['ros__parameters']['frame_id'] == 'odom'
+    assert config['/mavros/global_position']['ros__parameters']['frame_id'] == 'gps_link'
+
+
+def test_mavros_relays_preserve_sensor_abstraction_at_safe_rates():
+    launch = (ROOT / 'launch/odom.launch.py').read_text()
+    for source, destination in (
+        ('/mavros/local_position/odom', '/odom/mavros'),
+        ('/mavros/imu/data', '/imu/raw'),
+        ('/mavros/global_position/raw/fix', '/gps/fix'),
+    ):
+        assert f"arguments=['{source}', '{destination}']" in launch
+    assert "('mavros_odom_rate', '20.0'" in launch
+    assert "('mavros_imu_rate', '20.0'" in launch
+    assert "('mavros_gps_rate', '5.0'" in launch
