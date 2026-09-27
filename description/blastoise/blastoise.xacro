@@ -162,6 +162,19 @@
     <origin xyz="0 0.01270 0.29035" rpy="0 0 0"/>
   </joint>
 
+  <link name="gps_link"/>
+  <joint name="gps_link_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="gps_link"/>
+    <origin xyz="0 0.12529 0.23439"/>
+  </joint>
+  
+  <link name="imu_link"/>
+  <joint name="imu_link_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="imu_link"/>
+  </joint>
+
   <!-- ================= THRUSTERS ================= -->
   <xacro:t200_thruster name="front_left"
     parent="left_hull_link"
