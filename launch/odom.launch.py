@@ -63,7 +63,7 @@ def create_mavros_node(context):
     )]
 
 def create_rtabmap_odom_node(context):
-    sim = bool(LaunchConfiguration('sim').perform(context))
+    sim = LaunchConfiguration('sim').perform(context).lower() == 'true'
     rtabmap_params_file = LaunchConfiguration('rtabmap_params_file').perform(context)
     camera_name = LaunchConfiguration('camera_name').perform(context)
 

@@ -92,7 +92,7 @@ def generate_launch_description():
         condition=sensor_ignore('camera') 
     )
     
-    relays = OpaqueFunction(function=create_relays)
+    relays = OpaqueFunction(function=create_relays, condition=sensor_ignore('camera'))
 
     # Velodyne driver (skip if "lidar" is in sensors_ignore)
     velodyne_driver_node = Node(
