@@ -29,3 +29,9 @@ def test_sim_clock_is_boolean(filename, function, sim):
     exec(compile(ast.Module(body=[factory], type_ignores=[]), str(source), 'exec'), namespace)
     nodes = namespace[factory.name](None)
     assert nodes[0]['parameters'][1]['use_sim_time'] is (sim == 'true')
+
+
+def test_velodyne_driver_and_transform_use_same_model():
+    source = (Path(__file__).parents[1] / 'launch' /
+              'sensors.launch.py').read_text()
+    assert source.count("'model': 'VLP16'") == 2

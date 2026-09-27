@@ -104,6 +104,7 @@ def generate_launch_description():
         name='velodyne_driver',
         output='screen',
         parameters=[{
+            'model': 'VLP16',
             'frame_id': 'lidar_link',
             'device_ip': launch_configurations['velodyne_ip'],
             'port': launch_configurations['velodyne_port'],
