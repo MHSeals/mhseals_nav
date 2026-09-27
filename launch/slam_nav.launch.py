@@ -4,6 +4,8 @@ from launch.actions import IncludeLaunchDescription, DeclareLaunchArgument, Time
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import PathJoinSubstitution, LaunchConfiguration
 from launch_ros.substitutions import FindPackageShare
+from launch.conditions import IfCondition
+from nav2_common.launch import RewrittenYaml
 
 def create_rtabmap_slam_node(context):
     sim = LaunchConfiguration('sim').perform(context).lower() == 'true'
@@ -29,6 +31,10 @@ def generate_launch_description():
 
     launch_args = [
         ('sim', 'true', 'Use simulation time'),
+        ('enable_slam', 'false', 'Optional RTABMap; GPS navigation does not require a static map'),
+        ('enable_object_tracking', 'false', 'Optional detection tracker; not required for lidar navigation'),
+        ('enable_mavros_velocity', 'false', 'Explicitly enable MAVROS actuation instead of direct-pin control'),
+        ('cmd_vel_topic', '/nav/cmd_vel', 'Velocity setpoints; connect a calibrated controller explicitly'),
         ('camera_name', 'front', 'Name of camera'),
         ('nav2_params_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'nav2_params.yaml']), 'Path to Nav2 parameters file'),
         ('rtabmap_params_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'rtabmap.yaml']), 'Path to RTABMap params')
@@ -42,26 +48,40 @@ def generate_launch_description():
             DeclareLaunchArgument(name, default_value=default_value, description=description)
         )
 
+    nav2_params = RewrittenYaml(
+        source_file=launch_configurations['nav2_params_file'],
+        root_key='',
+        param_rewrites={
+            'bt_navigator.ros__parameters.default_nav_to_pose_bt_xml':
+                PathJoinSubstitution([mhseals_nav_dir, 'behavior_trees', 'nav_to_pose.xml']),
+            'bt_navigator.ros__parameters.default_nav_through_poses_bt_xml':
+                PathJoinSubstitution([mhseals_nav_dir, 'behavior_trees', 'nav_replan_recov.xml']),
+        },
+        convert_types=True,
+    )
+
     nav2_bringup_launch = TimerAction(
         period=3.0,
         actions=[
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource([
                     PathJoinSubstitution([
-                        FindPackageShare('nav2_bringup'),
+                        mhseals_nav_dir,
                         'launch',
-                        'navigation_launch.py'
+                        'navigation.launch.py'
                     ])
                 ]),
                 launch_arguments={
                     'use_sim_time': launch_configurations['sim'],
-                    'params_file': launch_configurations['nav2_params_file']
+                    'params_file': nav2_params,
+                    'cmd_vel_topic': launch_configurations['cmd_vel_topic'],
                 }.items()
             )
         ]
     )
 
-    rtabmap_slam_node = OpaqueFunction(function=create_rtabmap_slam_node)
+    rtabmap_slam_node = OpaqueFunction(function=create_rtabmap_slam_node,
+                                     condition=IfCondition(launch_configurations['enable_slam']))
 
     thruster_allocation_node = Node(
         package='mhseals_nav',
@@ -74,6 +94,8 @@ def generate_launch_description():
     twist_converter_node = Node(
         package='mhseals_nav',
         executable='twist_converter',
+        condition=IfCondition(launch_configurations['enable_mavros_velocity']),
+        remappings=[('/cmd_vel', launch_configurations['cmd_vel_topic'])],
         name='twist_converter',
         parameters=[{'use_sim_time': launch_configurations['sim']}],
         output='screen'
@@ -82,6 +104,7 @@ def generate_launch_description():
     object_tracker_node = Node(
         package='mhseals_nav',
         executable='object_tracker',
+        condition=IfCondition(launch_configurations['enable_object_tracking']),
         name='object_tracker',
         parameters=[{'use_sim_time': launch_configurations['sim']}],
         output='screen'
