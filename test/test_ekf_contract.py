@@ -63,6 +63,8 @@ def test_mavros_relays_preserve_sensor_abstraction_at_safe_rates():
     assert "('mavros_odom_rate', '20.0'" in launch
     assert "('mavros_imu_rate', '20.0'" in launch
     assert "('mavros_gps_rate', '5.0'" in launch
-    assert "('odometry/filtered', '/odom/local')" in launch
+    navsat_block = launch.split('navsat_transform_node = Node(', 1)[1].split(
+        'ekf_local_node = Node(', 1)[0]
+    assert "('odometry/filtered', '/odom/global')" in navsat_block
     assert "'frame_id', 'odom'" in launch
     assert "'tf.frame_id', 'odom'" in launch

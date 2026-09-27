@@ -156,9 +156,10 @@ def generate_launch_description():
             ('imu', '/imu/raw'),  # robot_localization ROS 2 subscription name
             ('imu/data', '/imu/raw'),
             ('gps/fix', '/gps/fix'),
-            # navsat_transform needs the local EKF reference. Feeding its own
-            # downstream global EKF creates a startup dependency cycle.
-            ('odometry/filtered', '/odom/local'),
+            # Use the global EKF reference so odometry/gps is expressed in map.
+            # The global EKF can initialize from /odom/local before the first
+            # GPS correction; this is the standard dual-EKF data flow.
+            ('odometry/filtered', '/odom/global'),
             ('odometry/gps', '/odom/gps')
         ]
     )
