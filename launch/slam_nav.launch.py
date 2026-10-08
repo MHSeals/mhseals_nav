@@ -33,7 +33,6 @@ def generate_launch_description():
         ('enable_slam', 'false', 'Optional RTABMap; GPS navigation does not require a static map'),
         ('enable_object_tracking', 'false', 'Optional detection tracker; not required for lidar navigation'),
         ('use_lidar', 'true', 'Require lidar for obstacle avoidance; false is supervised blind navigation'),
-        ('enable_mavros_velocity', 'false', 'Explicitly enable MAVROS actuation instead of direct-pin control'),
         ('cmd_vel_topic', '/nav/cmd_vel', 'Velocity setpoints; connect a calibrated controller explicitly'),
         ('camera_name', 'front', 'Name of camera'),
         ('nav2_params_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'nav2_params.yaml']), 'Path to Nav2 parameters file'),
@@ -83,7 +82,6 @@ def generate_launch_description():
     twist_converter_node = Node(
         package='mhseals_nav',
         executable='twist_converter',
-        condition=IfCondition(launch_configurations['enable_mavros_velocity']),
         remappings=[('/cmd_vel', launch_configurations['cmd_vel_topic'])],
         name='twist_converter',
         parameters=[{'use_sim_time': launch_configurations['sim']}],
