@@ -1,0 +1,57 @@
+%%{init: {'htmlLabels': false, 'fontFamily': 'Arial', 'flowchart': {'htmlLabels': false, 'nodeSpacing': 45, 'rankSpacing': 70, 'curve': 'basis', 'defaultRenderer': 'dagre-wrapper'}}}%%
+flowchart LR
+    subgraph Inputs["Alternative inputs"]
+        direction LR
+        Sim["crane_sim<br/>simulated sensors, detections and /clock"]
+        subgraph Boat["Physical boat"]
+            VLP["VLP-16 LiDAR"]
+            ZED["ZED 2i camera"]
+            Here["Here4 GPS"] --> Cube["Cube Orange FCU / IMU"]
+        end
+    end
+
+    subgraph ROS["astro_dock — ROS tooling and container workspace"]
+        direction TB
+        Clock["/clock<br/>ROS simulation time"]
+        Lidar["Velodyne interface<br/>ODROID"]
+        Mavros["MAVROS + measurement relays<br/>ODROID"]
+        Camera["ZED wrapper + detection adapter<br/>Jetson"]
+        Sensors["Sensor inputs<br/>/points, /odom/mavros, /imu/raw, /gps/fix"]
+        Detections["/detections<br/>Detection3DArray"]
+        Localization["odom.launch.py — ODROID<br/>dual EKFs, Navsat and robot TF<br/>/odom/local, /odom/global + TF"]
+        Objects["objects.launch.py — Jetson<br/>tracking in odom, publication in map"]
+        Navigation["navigation.launch.py — ODROID<br/>Nav2 planner, controller and behavior trees"]
+        Mapping["slam.launch.py — ODROID<br/>optional RTABMap mapping"]
+        Velocity["Velocity smoother<br/>/cmd_vel<br/>direct velocity output"]
+        Tracked["/objects/map + /tracked_objects<br/>semantic objects and visualization"]
+        Tests["mhseals_hardware — ODROID<br/>dashboard, manual effort and PWM<br/>boat_test.launch.py supplies measurements"]
+
+        Lidar -->|/points| Sensors
+        Mavros -->|/odom/mavros<br/>/imu/raw + /gps/fix| Sensors
+        Camera -->|converted objects| Detections
+        Sensors -->|/odom/mavros<br/>/imu/raw + /gps/fix| Localization
+        Sensors -->|/points| Navigation
+        Detections -->|positions + class IDs| Objects
+        Localization -->|/tf + /tf_static| Objects
+        Localization -->|/odom/local + TF| Navigation
+        Objects -->|map-frame tracks| Tracked
+        Navigation -->|/cmd_vel_nav| Velocity
+        Camera -->|raw RGB, depth and camera info| Mapping
+        Lidar -.->|/scan via optional lidar_flattener| Mapping
+        Localization -->|localization + mount TF| Mapping
+        Localization -->|/odom/local + TF| Tests
+        Clock -.->|sim:=true| Localization
+        Clock -.->|sim:=true| Navigation
+        Clock -.->|sim:=true| Objects
+        Clock -.->|sim:=true| Mapping
+        Sensors -->|FCU odometry, IMU + GPS| Tests
+    end
+
+    Sim -->|ROS TCP sensor input| Sensors
+    Sim --> Detections
+    Sim --> Clock
+    Sim -.->|images and /scan for mapping| Mapping
+    VLP --> Lidar
+    Cube --> Mavros
+    ZED --> Camera
+    Goals["Task / operator goals<br/>navigation actions in map"] --> Navigation

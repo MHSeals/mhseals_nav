@@ -1,0 +1,26 @@
+{
+  "theme": "base",
+  "themeVariables": {
+    "darkMode": true,
+    "background": "#0d1117",
+    "fontFamily": "Arial",
+    "textColor": "#e6edf3",
+    "lineColor": "#9da7b3",
+    "primaryColor": "#161b22",
+    "primaryTextColor": "#e6edf3",
+    "primaryBorderColor": "#8b949e",
+    "mainBkg": "#161b22",
+    "nodeBorder": "#8b949e",
+    "secondaryColor": "#161b22",
+    "secondaryTextColor": "#e6edf3",
+    "secondaryBorderColor": "#8b949e",
+    "tertiaryColor": "#0d1117",
+    "tertiaryTextColor": "#e6edf3",
+    "tertiaryBorderColor": "#30363d",
+    "clusterBkg": "#0d1117",
+    "clusterBorder": "#30363d",
+    "edgeLabelBackground": "#0d1117",
+    "titleColor": "#e6edf3"
+  },
+  "themeCSS": ".edgeLabel rect { opacity: 1 !important; fill: #0d1117 !important; }"
+}

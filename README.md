@@ -46,68 +46,13 @@ Configuration paths, device addresses, and rate overrides are listed by `ros2 la
 
 [`astro_dock`](https://github.com/1unarzDev/astro_dock) provides the ROS tooling and container workspace for these components. Simulation and hardware producers satisfy the interfaces below.
 
-```mermaid
-%%{init: {'flowchart': {'nodeSpacing': 45, 'rankSpacing': 70}}}%%
-flowchart LR
-    subgraph Inputs["Alternative inputs"]
-        direction LR
-        Sim["crane_sim<br/>simulated sensors, detections and /clock"]
-        subgraph Boat["Physical boat"]
-            VLP["VLP-16 LiDAR"]
-            ZED["ZED 2i camera"]
-            Here["Here4 GPS"] --> Cube["Cube Orange FCU / IMU"]
-        end
-    end
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/architecture-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="docs/architecture-light.svg">
+  <img src="docs/architecture-dark.svg" alt="Boat navigation architecture: simulated and physical sensors feed localization, object tracking, and navigation in the astro_dock ROS workspace.">
+</picture>
 
-    subgraph ROS["astro_dock — ROS tooling and container workspace"]
-        direction TB
-        Clock["/clock<br/>ROS simulation time"]
-        Lidar["Velodyne interface<br/>ODROID"]
-        Mavros["MAVROS + measurement relays<br/>ODROID"]
-        Camera["ZED wrapper + detection adapter<br/>Jetson"]
-        Sensors["Sensor inputs<br/>/points, /odom/mavros, /imu/raw, /gps/fix"]
-        Detections["/detections<br/>Detection3DArray"]
-        Localization["odom.launch.py — ODROID<br/>dual EKFs, Navsat and robot TF<br/>/odom/local, /odom/global + TF"]
-        Objects["objects.launch.py — Jetson<br/>tracking in odom, publication in map"]
-        Navigation["navigation.launch.py — ODROID<br/>Nav2 planner, controller and behavior trees"]
-        Mapping["slam.launch.py — ODROID<br/>optional RTABMap mapping"]
-        Velocity["Velocity smoother<br/>/cmd_vel<br/>direct velocity output"]
-        Tracked["/objects/map + /tracked_objects<br/>semantic objects and visualization"]
-        Tests["mhseals_hardware — ODROID<br/>dashboard, manual effort and PWM<br/>boat_test.launch.py supplies measurements"]
-
-        Lidar -->|/points| Sensors
-        Mavros -->|/odom/mavros<br/>/imu/raw + /gps/fix| Sensors
-        Camera -->|converted objects| Detections
-        Sensors -->|/odom/mavros<br/>/imu/raw + /gps/fix| Localization
-        Sensors -->|/points| Navigation
-        Detections -->|positions + class IDs| Objects
-        Localization -->|/tf + /tf_static| Objects
-        Localization -->|/odom/local + TF| Navigation
-        Objects -->|map-frame tracks| Tracked
-        Navigation -->|/cmd_vel_nav| Velocity
-        Camera -->|raw RGB, depth and camera info| Mapping
-        Lidar -.->|/scan via optional lidar_flattener| Mapping
-        Localization -->|localization + mount TF| Mapping
-        Localization -->|/odom/local + TF| Tests
-        Clock -.->|sim:=true| Localization
-        Clock -.->|sim:=true| Navigation
-        Clock -.->|sim:=true| Objects
-        Clock -.->|sim:=true| Mapping
-        Sensors -->|FCU odometry, IMU + GPS| Tests
-    end
-
-    Sim -->|ROS TCP sensor input| Sensors
-    Sim --> Detections
-    Sim --> Clock
-    Sim -.->|images and /scan for mapping| Mapping
-    VLP --> Lidar
-    Cube --> Mavros
-    ZED --> Camera
-    Goals["Task / operator goals<br/>navigation actions in map"] --> Navigation
-
-```
-
-
+[Editable Mermaid source](docs/architecture.mmd)
 
 Required interfaces depend on which components are running:
 
@@ -155,5 +100,13 @@ ros2 run tf2_ros tf2_echo map base_link
 ```
 
 `setup.py` registers `console_scripts` for `ros2 run mhseals_nav <executable>` and installs launch files, configurations, robot descriptions, and behavior trees. Register new runnable nodes there, declare dependencies in `package.xml`, and rebuild/source after installed assets change. Tuning lives in `config/`, physical frames in `description/`, and navigation behavior in `mhseals_nav/behavior_trees/`.
+
+After editing the [diagram source](docs/architecture.mmd), rebuild both images with Node.js/npm available:
+
+```bash
+./scripts/render-architecture.sh
+```
+
+The helper pins Mermaid 11.17.0, uses curved arrows and saved light/dark palettes, and defaults to dark where theme selection is unsupported.
 
 Keep changes lean and scoped. Open a pull request explaining what changed, why, and how it was tested, including any interface changes. Update the README when usage or architecture changes. Run ROS runtime probes in an isolated container/domain without boat hardware.
