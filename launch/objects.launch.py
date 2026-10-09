@@ -8,10 +8,17 @@ from launch_ros.parameter_descriptions import ParameterValue
 
 
 def nodes(context):
-    source = LaunchConfiguration("source").perform(context)
-    if source not in ("detections", "zed", "bridge"):
-        raise ValueError("source must be detections, zed, or bridge")
-    clock = ParameterValue(LaunchConfiguration("use_sim_time"), value_type=bool)
+    sim_value = LaunchConfiguration("sim").perform(context).lower()
+    if sim_value not in ("true", "false"):
+        raise ValueError("sim must be true or false")
+    sim = sim_value == "true"
+    url = LaunchConfiguration("rosbridge_url").perform(context)
+    root = LaunchConfiguration("camera_root_frame").perform(context)
+    if url and sim:
+        raise ValueError("rosbridge_url requires sim:=false")
+    if url and not root:
+        raise ValueError("legacy bridge requires camera_root_frame")
+    clock = ParameterValue(LaunchConfiguration("sim"), value_type=bool)
     remaps = [("detections", LaunchConfiguration("detections_topic"))]
     result = [
         Node(
@@ -22,10 +29,7 @@ def nodes(context):
             output="screen",
         )
     ]
-    if source != "detections":
-        url = LaunchConfiguration("rosbridge_url").perform(context)
-        if source == "bridge" and not url:
-            raise ValueError("bridge requires rosbridge_url:=ws://host:9090")
+    if not sim:
         result.append(
             Node(
                 package="mhseals_nav",
@@ -33,12 +37,16 @@ def nodes(context):
                 parameters=[
                     {
                         "use_sim_time": clock,
-                        "objects_topic": LaunchConfiguration("objects_topic"),
+                        "objects_topic": (
+                            LaunchConfiguration("objects_topic") if url else "objects"
+                        ),
                         "camera_root_frame": LaunchConfiguration("camera_root_frame"),
-                        "rosbridge_url": url if source == "bridge" else "",
+                        "rosbridge_url": url,
                     }
                 ],
-                remappings=remaps,
+                remappings=remaps + ([] if url else [
+                    ("objects", LaunchConfiguration("objects_topic"))
+                ]),
                 output="screen",
             )
         )
@@ -48,8 +56,7 @@ def nodes(context):
 def generate_launch_description():
     return LaunchDescription(
         [
-            DeclareLaunchArgument("source", default_value="detections"),
-            DeclareLaunchArgument("use_sim_time", default_value="false"),
+            DeclareLaunchArgument("sim", default_value="true"),
             DeclareLaunchArgument("detections_topic", default_value="/detections"),
             DeclareLaunchArgument(
                 "objects_topic", default_value="/front/zed_node/obj_det/objects"

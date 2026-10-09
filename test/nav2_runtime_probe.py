@@ -56,7 +56,7 @@ def main():
         assert -0.001 <= msg.linear.x <= 0.401, msg
         assert abs(msg.linear.y) < 0.001 and abs(msg.angular.z) <= 0.401, msg
 
-    subscription = node.create_subscription(Twist, '/nav/cmd_vel', on_command, 10)
+    subscription = node.create_subscription(Twist, '/cmd_vel', on_command, 10)
 
     def tick():
         state[2] += command.angular.z * 0.05
@@ -107,10 +107,10 @@ def main():
         with (Path(directory) / 'nav2.log').open('w+') as log:
             launch_command = [
                 'ros2', 'launch', str(root / 'launch/navigation.launch.py'),
-                'params_file:=' + str(params), 'use_sim_time:=false']
+                'params_file:=' + str(params), 'sim:=false']
             if '--installed-launch' in sys.argv:
-                launch_command = ['ros2', 'launch', 'mhseals_nav', 'slam_nav.launch.py',
-                                  'nav2_params_file:=' + str(params), 'sim:=false']
+                launch_command = ['ros2', 'launch', 'mhseals_nav', 'navigation.launch.py',
+                                  'params_file:=' + str(params), 'sim:=false']
             launch_command.append('use_lidar:=' + str(lidar_required).lower())
             process = subprocess.Popen(launch_command,
                 stdout=log, stderr=log, start_new_session=True)
@@ -139,7 +139,7 @@ def main():
                 assert result.result().status == 4, result.result()
                 assert state[0] > 1.5, state
                 assert any(v > 0.05 for _, v, _ in received)
-                print('PASS NavigateToPose + MPPI + smoother, pose:', state, flush=True)
+                print('PASS NavigateToPose + controller + smoother, pose:', state, flush=True)
                 through = ActionClient(node, NavigateThroughPoses, '/navigate_through_poses')
                 spin_until(through.server_is_ready, 10)
                 goal2 = NavigateThroughPoses.Goal()

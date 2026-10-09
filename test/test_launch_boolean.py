@@ -7,7 +7,7 @@ import pytest
 
 @pytest.mark.parametrize('filename,function', [
     ('odom.launch.py', 'create_rtabmap_odom_node'),
-    ('slam_nav.launch.py', 'create_rtabmap_slam_node'),
+    ('slam.launch.py', 'create_rtabmap_slam_node'),
 ])
 @pytest.mark.parametrize('sim', ['false', 'true'])
 def test_sim_clock_is_boolean(filename, function, sim):

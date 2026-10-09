@@ -6,7 +6,6 @@ from launch.conditions import IfCondition, UnlessCondition
 
 from launch_ros.actions import Node, PushRosNamespace
 from launch_ros.substitutions import FindPackageShare
-from launch_ros.parameter_descriptions import ParameterValue
 
 def sensor_ignore(sensor):
     return UnlessCondition(
@@ -140,24 +139,12 @@ def generate_launch_description():
         condition=IfCondition(launch_configurations['sim'])
     )
 
-    zed_detections_converter_node = Node(
-        package='mhseals_nav',
-        executable='zed_detections_converter',
-        name='zed_detections_converter',
-        condition=sensor_ignore('camera'),
-        parameters=[{'use_sim_time': ParameterValue(launch_configurations['sim'], value_type=bool),
-                     'objects_topic': ['/', launch_configurations['camera_name'],
-                                       '/zed_node/obj_det/objects']}],
-        output='screen'
-    )
-
     nodes = [ 
         zed_launch, 
         relays, 
         velodyne_driver_node, 
         velodyne_pointcloud_node, 
-        ros_tcp_endpoint,
-        zed_detections_converter_node
+        ros_tcp_endpoint
     ]
 
     return LaunchDescription(declare_arguments + nodes)

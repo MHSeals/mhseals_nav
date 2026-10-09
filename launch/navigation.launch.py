@@ -33,7 +33,7 @@ def generate_launch_description():
         ('nav2_waypoint_follower', 'waypoint_follower'),
         ('nav2_velocity_smoother', 'velocity_smoother'),
     ]
-    clock = ParameterValue(LaunchConfiguration('use_sim_time'), value_type=bool)
+    clock = ParameterValue(LaunchConfiguration('sim'), value_type=bool)
     nodes = []
     for package, executable in servers:
         remaps = []
@@ -41,7 +41,7 @@ def generate_launch_description():
             remaps = [('cmd_vel', 'cmd_vel_nav')]
         elif executable == 'velocity_smoother':
             remaps = [('cmd_vel', 'cmd_vel_nav'),
-                      ('cmd_vel_smoothed', LaunchConfiguration('cmd_vel_topic'))]
+                      ('cmd_vel_smoothed', 'cmd_vel')]
         nodes.append(Node(
             package=package, executable=executable, name=executable,
             parameters=[params,
@@ -55,8 +55,7 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument('params_file', default_value=PathJoinSubstitution(
             [share, 'config', 'nav2_params.yaml'])),
-        DeclareLaunchArgument('use_sim_time', default_value='false'),
-        DeclareLaunchArgument('cmd_vel_topic', default_value='/nav/cmd_vel'),
+        DeclareLaunchArgument('sim', default_value='true'),
         DeclareLaunchArgument('use_lidar', default_value='true'),
         LogInfo(msg='LIDAR DISABLED: no range-obstacle avoidance; visual supervision required.',
                 condition=UnlessCondition(LaunchConfiguration('use_lidar'))),

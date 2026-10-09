@@ -7,20 +7,22 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_mppi_and_command_limits():
+def test_rpp_and_command_limits():
     config = yaml.safe_load((ROOT / 'config/nav2_params.yaml').read_text())
     controller = config['controller_server']['ros__parameters']
-    mppi = controller['FollowPath']
+    rpp = controller['FollowPath']
     assert controller['odom_topic'] == '/odom/local'
     assert controller['progress_checker_plugins'] == ['progress_checker']
-    assert mppi['iteration_count'] == 1
-    assert mppi['model_dt'] == 1 / controller['controller_frequency']
-    assert 'iterations' not in mppi
-    for critic in mppi['critics']:
-        assert 'cost_weight' in mppi[critic]
+    assert rpp['plugin'] == (
+        'nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController')
+    assert rpp['use_collision_detection']
+    assert not rpp['allow_reversing']
     smoother = config['velocity_smoother']['ros__parameters']
-    assert smoother['max_velocity'] == [mppi['vx_max'], 0.0, mppi['wz_max']]
-    assert smoother['max_accel'] == [mppi['ax_max'], 0.0, mppi['az_max']]
+    assert smoother['max_velocity'][0] == rpp['desired_linear_vel']
+    assert smoother['max_velocity'][2] == rpp['rotate_to_heading_angular_vel']
+    assert smoother['min_velocity'][0] == 0.0
+    assert smoother['max_velocity'][1] == 0.0
+    assert smoother['velocity_timeout'] > 0
 
 
 def test_costmaps_do_not_require_slam_and_check_sensor_freshness():
@@ -29,7 +31,10 @@ def test_costmaps_do_not_require_slam_and_check_sensor_freshness():
         params = config[name][name]['ros__parameters']
         assert params['rolling_window']
         assert 'static_layer' not in params['plugins']
-        assert params['robot_radius'] >= 0.8
+        footprint = yaml.safe_load(params['footprint'])
+        assert len(footprint) >= 3
+        assert any(x > 0 for x, _ in footprint)
+        assert any(x < 0 for x, _ in footprint)
         assert params['obstacle_layer']['pointcloud']['expected_update_rate'] > 0
 
 
@@ -41,15 +46,22 @@ def test_recovery_trees_do_not_command_blind_motion():
         assert root.find('.//FollowPath') is not None
 
 
-def test_public_launch_resolves_server_file_and_keeps_actuation_opt_in():
-    launch = (ROOT / 'launch/slam_nav.launch.py').read_text()
-    assert "'navigation.launch.py'" in launch
-    assert (ROOT / 'launch/navigation.launch.py').exists()
-    assert "('cmd_vel_topic', '/nav/cmd_vel'" in launch
-    assert "('enable_mavros_velocity', 'false'" in launch
-    server_launch = (ROOT / 'launch/navigation.launch.py').read_text()
-    assert 'default_nav_to_pose_bt_xml' in server_launch
-    assert 'default_nav_through_poses_bt_xml' in server_launch
-    assert 'obstacle_layer.enabled' in server_launch
-    assert "LaunchConfiguration('use_lidar')" in server_launch
+def test_launch_responsibilities_and_velocity_output():
+    launch = (ROOT / 'launch/navigation.launch.py').read_text()
+    assert "('cmd_vel_smoothed', 'cmd_vel')" in launch
+    assert "('cmd_vel', 'cmd_vel_nav')" in launch
+    assert "twist_converter" not in launch
+    assert "enable_mavros_velocity" not in launch
+    assert 'default_nav_to_pose_bt_xml' in launch
+    assert 'default_nav_through_poses_bt_xml' in launch
+    assert 'obstacle_layer.enabled' in launch
+    assert "LaunchConfiguration('use_lidar')" in launch
     assert "'object_tracker'" not in (ROOT / 'launch/odom.launch.py').read_text()
+    assert "'object_tracker'" not in launch
+    assert not (ROOT / 'launch/slam_nav.launch.py').exists()
+    slam = (ROOT / 'launch/slam.launch.py').read_text()
+    assert "package='rtabmap_slam'" in slam
+    assert 'navigation.launch.py' not in slam
+    robot = (ROOT / 'launch/robot.launch.py').read_text()
+    for child in ('navigation', 'slam', 'objects'):
+        assert f"'{child}.launch.py'" in robot
