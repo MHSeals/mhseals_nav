@@ -105,6 +105,9 @@ def generate_launch_description():
         executable='velodyne_driver_node',
         name='velodyne_driver',
         output='screen',
+        # Keep the driver and transform on the same LARGE_DATA path. This is
+        # scoped to the lidar pair; TF and odometry stay on normal DDS.
+        additional_env={'FASTDDS_BUILTIN_TRANSPORTS': 'LARGE_DATA'},
         parameters=[{
             'model': 'VLP16',
             'frame_id': 'lidar_link',
