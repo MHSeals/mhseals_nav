@@ -102,6 +102,15 @@ ros2 run mhseals_hardware boat_test --monitor-only
 
 The dashboard can instead start the measurements with `--start-stack --fcu-url serial:///dev/ttyACM0:57600`; `--optional-sensors` adds local LiDAR and `--record` adds bags. Choose one startup path. For physical tests, omit `--monitor-only`, stop other actuator controllers, and secure the boat/clear propellers; the dashboard starts disarmed and confirms physical actions.
 
+For measured velocity control, fit the resulting bag with
+`ros2 run mhseals_hardware thrust_characterize`. Pass its generated
+`nav2_calibrated.yaml` as `navigation.launch.py params_file:=...`; this applies
+the measured velocity, acceleration, deceleration, and combined-axis limits to
+Nav2's velocity smoother. Run `boat_test --velocity-control` only after
+reviewing the profile; it inserts the calibrated SI-velocity controller before
+the normalized-effort PWM node and keeps the controller's bounded integral trim
+and watchdog active.
+
 ### Development
 
 Develop inside the [`astro_dock`](https://github.com/1unarzDev/astro_dock) ROS container; its README covers setup and simulation connections. From the workspace root:
