@@ -120,6 +120,10 @@ def generate_launch_description():
         executable='velodyne_transform_node',
         name='velodyne_transform',
         output='screen',
+        # PointCloud2 samples are larger than the default Fast DDS UDP
+        # payload.  Keep LARGE_DATA scoped to this writer so the lidar can
+        # cross the bridge without changing TF/odometry participants.
+        additional_env={'FASTDDS_BUILTIN_TRANSPORTS': 'LARGE_DATA'},
         parameters=[{
             'model': 'VLP16',
             'frame_id': 'lidar_link',
