@@ -50,7 +50,7 @@ local_costmap:
       robot_base_frame: base_link
       rolling_window: true
       update_frequency: 10.0
-      publish_frequency: 2.0
+      publish_frequency: 10.0
       width: 12
       height: 12
       resolution: 0.10
@@ -103,8 +103,8 @@ global_costmap:
       rolling_window: true
       track_unknown_space: false
       # Mapless local-horizon planning assumes unobserved water is free, NOT verified safe.
-      update_frequency: 2.0
-      publish_frequency: 1.0
+      update_frequency: 5.0
+      publish_frequency: 5.0
       width: 60
       height: 60
       resolution: 0.10

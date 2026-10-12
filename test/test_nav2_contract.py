@@ -36,6 +36,12 @@ def test_costmaps_do_not_require_slam_and_check_sensor_freshness():
         assert any(x > 0 for x, _ in footprint)
         assert any(x < 0 for x, _ in footprint)
         assert params['obstacle_layer']['pointcloud']['expected_update_rate'] > 0
+        if name == 'local_costmap':
+            assert params['update_frequency'] >= 10.0
+            assert params['publish_frequency'] >= 10.0
+        else:
+            assert params['update_frequency'] >= 5.0
+            assert params['publish_frequency'] >= 5.0
 
 
 def test_recovery_trees_do_not_command_blind_motion():
@@ -75,6 +81,7 @@ def test_rtabmap_uses_the_live_lidar_contract():
     assert params['subscribe_scan'] is False
     assert params['subscribe_rgb'] is False
     assert params['subscribe_depth'] is False
+    assert params['Rtabmap/DetectionRate'] == '10.0'
     assert '("/scan_cloud", "/points")' in (ROOT / 'launch/slam.launch.py').read_text()
 
 

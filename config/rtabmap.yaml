@@ -23,6 +23,11 @@ rtabmap:
     approx_sync: true
     publish_tf: false
 
+    # VLP16 runs at 600 RPM (10 scans/s).  RTAB-Map otherwise derives a
+    # camera-oriented 28.5 Hz target and reports a false low-frequency fault
+    # for this intentionally lidar-only profile.
+    Rtabmap/DetectionRate: "10.0"
+
     sync_queue_size: 10
     topic_queue_size: 10
 

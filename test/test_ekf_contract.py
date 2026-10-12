@@ -55,11 +55,12 @@ def test_mavros_global_defaults_do_not_relabel_sensor_frames():
 def test_mavros_relays_preserve_sensor_abstraction_at_safe_rates():
     launch = (ROOT / 'launch/odom.launch.py').read_text()
     for source, destination in (
-        ('/mavros/local_position/odom', '/odom/mavros'),
+        ('/mavros/global_position/local', '/odom/mavros'),
         ('/mavros/imu/data', '/imu/raw'),
         ('/mavros/global_position/raw/fix', '/gps/fix'),
     ):
         assert f"arguments=['{source}', '{destination}']" in launch
+    assert "message_id: 33, message_rate" in launch
     assert "('mavros_odom_rate', '20.0'" in launch
     assert "('mavros_imu_rate', '20.0'" in launch
     assert "('mavros_gps_rate', '5.0'" in launch

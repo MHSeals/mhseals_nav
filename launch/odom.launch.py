@@ -206,7 +206,11 @@ def generate_launch_description():
             package='topic_tools',
             executable='relay',
             name='mavros_odom_relay',
-            arguments=['/mavros/local_position/odom', '/odom/mavros'],
+            # ArduPilot publishes GLOBAL_POSITION_INT through MAVROS's
+            # global_position plugin.  The local_position plugin's odometry
+            # topic is advertised on some FCUs but remains silent, which
+            # leaves the EKF predicting without fresh translational motion.
+            arguments=['/mavros/global_position/local', '/odom/mavros'],
             output='screen'
         ),
         Node(
@@ -230,13 +234,16 @@ def generate_launch_description():
         actions=[
             OpaqueFunction(
                 function=lambda context: [
-                    # Local position / odometry
+                    # GLOBAL_POSITION_INT drives /mavros/global_position/local.
+                    # Request it at the same 20 Hz contract consumed by the
+                    # local EKF; MAVLink message 32 (LOCAL_POSITION_NED) is
+                    # not emitted by the current ArduPilot rover profile.
                     ExecuteProcess(
                         cmd=[
                             'ros2', 'service', 'call',
                             '/mavros/set_message_interval',
                             'mavros_msgs/srv/MessageInterval',
-                            f'{{message_id: 32, message_rate: {LaunchConfiguration("mavros_odom_rate").perform(context)}}}'
+                            f'{{message_id: 33, message_rate: {LaunchConfiguration("mavros_odom_rate").perform(context)}}}'
                         ],
                         output='screen'
                     ),
