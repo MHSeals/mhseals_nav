@@ -21,7 +21,10 @@ def create_relays(context):
         Node(
             package='topic_tools',
             executable='relay',
-            arguments=[f'/{camera_name}/zed_node/rgb/color/rect/image/compressed', f'/{camera_name}_camera/rgb/image'],
+            # RTAB-Map subscribes to sensor_msgs/Image.  Relaying the ZED
+            # CompressedImage topic under an Image name leaves the mapper
+            # connected to the wrong type; use the raw image stream here.
+            arguments=[f'/{camera_name}/zed_node/rgb/color/rect/image', f'/{camera_name}_camera/rgb/image'],
             output='screen'
         ),
         Node(

@@ -56,6 +56,7 @@ def test_launch_responsibilities_and_velocity_output():
     assert 'default_nav_through_poses_bt_xml' in launch
     assert 'obstacle_layer.enabled' in launch
     assert "LaunchConfiguration('use_lidar')" in launch
+    assert "('received_global_plan', 'local_plan')" in launch
     assert "'object_tracker'" not in (ROOT / 'launch/odom.launch.py').read_text()
     assert "'object_tracker'" not in launch
     assert not (ROOT / 'launch/slam_nav.launch.py').exists()
@@ -65,3 +66,19 @@ def test_launch_responsibilities_and_velocity_output():
     robot = (ROOT / 'launch/robot.launch.py').read_text()
     for child in ('navigation', 'slam', 'objects'):
         assert f"'{child}.launch.py'" in robot
+
+
+def test_rtabmap_uses_the_live_lidar_contract():
+    config = yaml.safe_load((ROOT / 'config/rtabmap.yaml').read_text())
+    params = config['rtabmap']['ros__parameters']
+    assert params['subscribe_scan_cloud'] is True
+    assert params['subscribe_scan'] is False
+    assert params['subscribe_rgb'] is False
+    assert params['subscribe_depth'] is False
+    assert '("/scan_cloud", "/points")' in (ROOT / 'launch/slam.launch.py').read_text()
+
+
+def test_camera_relay_keeps_sensor_msgs_image_type():
+    sensors = (ROOT / 'launch/sensors.launch.py').read_text()
+    assert '/rgb/color/rect/image/compressed' not in sensors
+    assert '/rgb/color/rect/image' in sensors

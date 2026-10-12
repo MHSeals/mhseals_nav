@@ -12,7 +12,7 @@ def generate_launch_description():
         # General
         ('sim', 'true', 'Use simulation time'),
         ('use_lidar', 'true', 'Enable lidar costmap; false requires supervised operation'),
-        ('enable_slam', 'false', 'Enable optional RTABMap mapping'),
+        ('enable_slam', 'false', 'Enable optional RTABMap lidar-cloud mapping'),
 
         # MAVROS / FCU
         ('fcu_url', '', 'Flight control unit connection URL'),

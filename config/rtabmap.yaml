@@ -1,11 +1,16 @@
 rtabmap:
   ros__parameters:
     # Sensors
-    subscribe_depth: true
-    subscribe_rgb: true
+    # The boat's always-on sensor is the VLP16 PointCloud2 stream.  Camera
+    # topics live on the Jetson's separate ROS domain and are optional; if
+    # RGB/depth remain enabled RTAB-Map synchronizes all inputs and silently
+    # waits forever when the camera is not running.
+    subscribe_depth: false
+    subscribe_rgb: false
     subscribe_rgbd: false
     subscribe_stereo: false
-    subscribe_scan: true
+    subscribe_scan: false
+    subscribe_scan_cloud: true
     
     # Frames
     frame_id: "base_link"
@@ -40,6 +45,11 @@ rtabmap:
     Grid/NoiseFilteringMinNeighbors: "3"
     Mem/SaveDepth16Format: "true"
     Mem/DepthCompressionFormat: ".rvl"
+
+    # RTAB-Map's scan-cloud input is remapped to /points by slam.launch.py.
+    # Keep this explicit so a future /scan LaserScan publisher cannot make
+    # the mapper switch inputs accidentally.
+    subscribe_sensor_data: false
 
 rgbd_odometry:
   ros__parameters:

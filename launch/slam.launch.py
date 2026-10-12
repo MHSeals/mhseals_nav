@@ -21,7 +21,8 @@ def create_rtabmap_slam_node(context):
         remappings=[
             ("/rgb/image", f"/{camera_name}_camera/rgb/image"),
             ("/depth/image", f"/{camera_name}_camera/depth/image"),
-            ("/rgb/camera_info", f"/{camera_name}_camera/camera_info")
+            ("/rgb/camera_info", f"/{camera_name}_camera/camera_info"),
+            ("/scan_cloud", "/points"),
         ]
     )]
 

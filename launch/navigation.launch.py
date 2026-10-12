@@ -39,6 +39,10 @@ def generate_launch_description():
         remaps = []
         if executable in ('controller_server', 'behavior_server'):
             remaps = [('cmd_vel', 'cmd_vel_nav')]
+            if executable == 'controller_server':
+                # RViz uses /local_plan for the controller's active path;
+                # Nav2 calls the same stream /received_global_plan.
+                remaps.append(('received_global_plan', 'local_plan'))
         elif executable == 'velocity_smoother':
             remaps = [('cmd_vel', 'cmd_vel_nav'),
                       ('cmd_vel_smoothed', 'cmd_vel')]
