@@ -46,13 +46,11 @@ Configuration paths, device addresses, and rate overrides are listed by `ros2 la
 
 [`astro_dock`](https://github.com/1unarzDev/astro_dock) provides the ROS tooling and container workspace for these components. Simulation and hardware producers satisfy the interfaces below.
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/architecture-dark.svg">
-  <source media="(prefers-color-scheme: light)" srcset="docs/architecture-light.svg">
-  <img src="docs/architecture-dark.svg" alt="Boat navigation architecture: simulated and physical sensors feed localization, object tracking, and navigation in the astro_dock ROS workspace.">
-</picture>
-
-[Editable Mermaid source](docs/architecture.mmd)
+The architecture is deliberately topic based: simulated or physical sensors feed
+localization, object tracking, and navigation; the global EKF owns `map → odom`,
+the local EKF owns `odom → base_link`, and sensor mounts come from the robot
+description. Keep this graph in one ROS domain per ROS release and use the
+explicit camera bridge when the Jetson runs a different release.
 
 Required interfaces depend on which components are running:
 
@@ -89,7 +87,7 @@ The checked-in Nav2 profile updates the local costmap at 10 Hz and the global co
 
 ### Boat tests
 
-The test launch supplies measurements; the [`mhseals_hardware` dashboard](https://github.com/mhseals/mhseals_hardware/blob/main/docs/boat-test.md) owns monitoring, recording, and confirmed physical tests.
+The test launch supplies measurements; the [`mhseals_hardware` dashboard](../mhseals_hardware/README.md) owns monitoring, recording, and confirmed physical tests.
 
 ```bash
 # Terminal 1 on ODROID; camera remains on Jetson.
@@ -128,13 +126,5 @@ ros2 run tf2_ros tf2_echo map base_link
 ```
 
 `setup.py` registers `console_scripts` for `ros2 run mhseals_nav <executable>` and installs launch files, configurations, robot descriptions, and behavior trees. Register new runnable nodes there, declare dependencies in `package.xml`, and rebuild/source after installed assets change. Tuning lives in `config/`, physical frames in `description/`, and navigation behavior in `mhseals_nav/behavior_trees/`.
-
-After editing the [diagram source](docs/architecture.mmd), rebuild both images with Node.js/npm available:
-
-```bash
-./scripts/render-architecture.sh
-```
-
-The helper pins Mermaid 11.17.0, uses curved arrows and saved light/dark palettes, and defaults to dark where theme selection is unsupported.
 
 Keep changes lean and scoped. Open a pull request explaining what changed, why, and how it was tested, including any interface changes. Update the README when usage or architecture changes. Run ROS runtime probes in an isolated container/domain without boat hardware.
