@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+  Large-data transport for the lidar participants (Velodyne driver/transform and
+  the relay ingest). Equivalent to Fast DDS LARGE_DATA: UDP multicast discovery,
+  TCP for endpoint discovery and data. Netmask filtering keeps hosts with Wi-Fi,
+  WARP or Docker interfaces on the interface that shares the peer's subnet;
+  builtin LARGE_DATA advertises every interface, and the ODROID then accepts the
+  viewer's TCP connections without ever answering on them.
+  Opt a process in with FASTRTPS_DEFAULT_PROFILES_FILE / FASTDDS_DEFAULT_PROFILES_FILE.
+-->
+<dds xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
+<profiles>
+  <transport_descriptors>
+    <transport_descriptor>
+      <transport_id>pdp_udp</transport_id>
+      <type>UDPv4</type>
+      <netmask_filter>ON</netmask_filter>
+    </transport_descriptor>
+    <transport_descriptor>
+      <transport_id>data_tcp</transport_id>
+      <type>TCPv4</type>
+      <netmask_filter>ON</netmask_filter>
+      <listening_ports><port>0</port></listening_ports>
+    </transport_descriptor>
+  </transport_descriptors>
+  <participant profile_name="boat_large_data" is_default_profile="true">
+    <rtps>
+      <userTransports><transport_id>pdp_udp</transport_id><transport_id>data_tcp</transport_id></userTransports>
+      <useBuiltinTransports>false</useBuiltinTransports>
+      <netmask_filter>ON</netmask_filter>
+      <ignore_non_matching_locators>true</ignore_non_matching_locators>
+      <builtin>
+        <metatrafficMulticastLocatorList><locator><udpv4><address>239.255.0.1</address></udpv4></locator></metatrafficMulticastLocatorList>
+        <metatrafficUnicastLocatorList><locator><tcpv4><address>0.0.0.0</address><physical_port>0</physical_port><port>0</port></tcpv4></locator></metatrafficUnicastLocatorList>
+      </builtin>
+      <defaultUnicastLocatorList><locator><tcpv4><address>0.0.0.0</address><physical_port>0</physical_port><port>0</port></tcpv4></locator></defaultUnicastLocatorList>
+    </rtps>
+  </participant>
+  <data_writer profile_name="default_writer" is_default_profile="true">
+    <ignore_non_matching_locators>true</ignore_non_matching_locators>
+  </data_writer>
+  <data_reader profile_name="default_reader" is_default_profile="true">
+    <ignore_non_matching_locators>true</ignore_non_matching_locators>
+  </data_reader>
+</profiles>
+</dds>

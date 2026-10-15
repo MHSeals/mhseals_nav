@@ -7,6 +7,12 @@ from launch.conditions import IfCondition, UnlessCondition
 from launch_ros.actions import Node, PushRosNamespace
 from launch_ros.substitutions import FindPackageShare
 
+# Large-data transport for the lidar pair only; see config/fastdds_large_data.xml.
+LARGE_DATA_PROFILE = PathJoinSubstitution(
+    [FindPackageShare('mhseals_nav'), 'config', 'fastdds_large_data.xml'])
+large_data_env = {'FASTRTPS_DEFAULT_PROFILES_FILE': LARGE_DATA_PROFILE,
+                  'FASTDDS_DEFAULT_PROFILES_FILE': LARGE_DATA_PROFILE}
+
 def sensor_ignore(sensor):
     return UnlessCondition(
         PythonExpression(
@@ -105,9 +111,9 @@ def generate_launch_description():
         executable='velodyne_driver_node',
         name='velodyne_driver',
         output='screen',
-        # Keep the driver and transform on the same LARGE_DATA path. This is
-        # scoped to the lidar pair; TF and odometry stay on normal DDS.
-        additional_env={'FASTDDS_BUILTIN_TRANSPORTS': 'LARGE_DATA'},
+        # The lidar pair uses the large-data transport; TF and odometry stay on
+        # the default transport. See config/fastdds_large_data.xml.
+        additional_env=large_data_env,
         parameters=[{
             'model': 'VLP16',
             'frame_id': 'lidar_link',
@@ -123,10 +129,7 @@ def generate_launch_description():
         executable='velodyne_transform_node',
         name='velodyne_transform',
         output='screen',
-        # PointCloud2 samples are larger than the default Fast DDS UDP
-        # payload.  Keep LARGE_DATA scoped to this writer so the lidar can
-        # cross the bridge without changing TF/odometry participants.
-        additional_env={'FASTDDS_BUILTIN_TRANSPORTS': 'LARGE_DATA'},
+        additional_env=large_data_env,
         parameters=[{
             'model': 'VLP16',
             'frame_id': 'lidar_link',
