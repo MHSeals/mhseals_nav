@@ -10,7 +10,7 @@ Launch files separate the main responsibilities:
 
 - `robot.launch.py` composes sensors, localization, navigation, and objects. `enable_slam:=true` additionally starts the lidar-cloud RTABMap mapper; navigation and EKF localization run either way. Generally used for simulation; on the boat, launch components on their respective hosts.
 - `sensors.launch.py` starts Velodyne/ZED drivers with `sim:=false`, or the ROS TCP endpoint with `sim:=true`. Use `sensors_ignore:=camera` on ODROID and `sensors_ignore:=lidar` on Jetson.
-- `odom.launch.py` starts MAVROS, measurement relays, dual EKFs, Navsat, and robot TF.
+- `odom.launch.py` starts MAVROS and measurement relays (`fcu:=true`), dual EKFs, Navsat, and robot TF.
 - `navigation.launch.py` starts Nav2 servers and lifecycle management. SLAM is optional.
 - `slam.launch.py` starts RTABMap mapping, leaving localization TF with the EKFs.
 - `objects.launch.py` always tracks `/detections`. With `sim:=false`, it also converts ZED objects into that interface, remapping the adapter input to `objects_topic`. Set `rosbridge_url` and `camera_root_frame` for a legacy ZED host.
@@ -34,6 +34,7 @@ Start each component once. `robot` includes navigation, so running it also start
 | `use_lidar` | `robot`, `navigation` | `true`; require `/points` for obstacle avoidance. `false` disables both obstacle layers for supervised testing; cameras do not replace them |
 | `sensors_ignore` | `robot`, `sensors`, `boat_test` | Empty except `boat_test` (`camera`); comma-separated local drivers to skip, e.g. `camera,lidar`. Does not disable Nav2 obstacle layers |
 | `enable_slam` | `robot` | `false`; include `slam.launch.py` for lidar-cloud RTABMap mapping from `/points`. It leaves TF ownership with the EKFs and does not change Nav2 localization |
+| `fcu` | `robot`, `odom` | `true`; start MAVROS and its relays. `false` when a simulator (crane_ml `--crane-roboboat-contract`) publishes `/odom/mavros`, `/imu/raw` and `/gps/fix` itself, so simulation needs no ArduPilot |
 | `fcu_url` | `robot`, `odom`, `boat_test` | Required for `boat_test`; otherwise empty selects SITL TCP in simulation or `/dev/ttyACM0` at 57600 baud on hardware |
 | `camera_name` | `robot`, `sensors`, `odom`, `slam` | `front`; camera namespace and topic prefix |
 | `detections_topic`, `objects_topic` | `objects` | `/detections`, `/front/zed_node/obj_det/objects`; tracker input and ZED source |

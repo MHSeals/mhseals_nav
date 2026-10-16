@@ -1,5 +1,5 @@
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, OpaqueFunction
+from launch.actions import DeclareLaunchArgument, GroupAction, OpaqueFunction
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
@@ -81,6 +81,8 @@ def generate_launch_description():
 
     launch_args = [
         ('sim', 'true', 'Run in simulation mode'),
+        ('fcu', 'true', 'Start MAVROS and its relays; false when a simulator publishes '
+                        '/odom/mavros, /imu/raw and /gps/fix directly'),
         ('robot_state_publish_frequency', '100.0', 'Rate at which robot state is published'),
         ('fcu_url', '', 'Flight control unit connection URL'),
         ('gcs_url', 'udp://@127.0.0.1:14550', 'Ground control service connection URL'),
@@ -294,19 +296,23 @@ def generate_launch_description():
 
     robot_state_publisher_node = OpaqueFunction(function=load_urdf)
 
+    # Everything that talks to the flight controller. The EKFs only need the
+    # topics, so a simulator can publish them and run without ArduPilot.
+    flight_controller = GroupAction(
+        condition=IfCondition(launch_configurations['fcu']),
+        actions=[mavros_node, *mavros_topic_relays, set_mavros_message_rate,
+                 configure_mavros_frames])
+
     return LaunchDescription(
         declare_arguments + [
             # dlio_map_node,
             # dlio_odom_node,
-            mavros_node,
             # rtabmap_odom_node,
+            flight_controller,
             imu_filter_node,
-            *mavros_topic_relays,
             navsat_transform_node,
             ekf_local_node_delayed,
             ekf_global_node_delayed,
-            set_mavros_message_rate,
-            configure_mavros_frames,
             robot_state_publisher_node,
         ]
     )

@@ -15,6 +15,7 @@ def generate_launch_description():
         ('enable_slam', 'false', 'Enable optional RTABMap lidar-cloud mapping'),
 
         # MAVROS / FCU
+        ('fcu', 'true', 'Start MAVROS; false when the simulator publishes the FCU topics'),
         ('fcu_url', '', 'Flight control unit connection URL'),
         ('gcs_url', 'udp://127.0.0.1:14550', 'Ground control station connection URL'),
         ('mavros_params_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'mavros.yaml']), 'Path to MAVROS parameters file'),
@@ -65,6 +66,7 @@ def generate_launch_description():
         ]),
         launch_arguments={
             'sim': launch_configurations['sim'],
+            'fcu': launch_configurations['fcu'],
             'fcu_url': launch_configurations['fcu_url'],
             'gcs_url': launch_configurations['gcs_url'],
             'mavros_params_file': launch_configurations['mavros_params_file'],
