@@ -107,7 +107,7 @@ Parameters (class labels, distances, routes, timeouts) are in `config/tasks/<tas
 [`mhseals_testing`](https://github.com/mhseals/mhseals_testing) checks this stack's sensors and TF, runs thruster trials and characterization, and scores navigation and missions. Its `measurement.launch.py` includes `odom.launch.py` (with `fcu:=false` in simulation), so localization starts the same way in tests as in operation:
 
 ```bash
-ros2 run mhseals_testing boat_test --start-stack --fcu-url serial:///dev/ttyACM0:57600
+ros2 run mhseals_testing boat_test --start-stack   # the flight controller is detected
 ```
 
 The suite's characterization writes a Nav2 overlay with the measured velocity, acceleration, deceleration, and combined-axis limits; pass it as `navigation.launch.py params_file:=...`. Nav2 commands are SI velocities, so they need `calibrated_velocity_controller` in front of the normalized-effort PWM node (`boat_test --velocity-control`).
