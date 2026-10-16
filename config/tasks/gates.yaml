@@ -1,0 +1,6 @@
+# Task 1, navigation channel. Labels are the tracker's class ids (/objects/map).
+red: red_pole_buoy
+green: green_pole_buoy
+max_gate_width: 8.0     # m; wider red/green pairs are not one gate
+search_distance: 10.0   # m driven past the entry gate while looking for the exit gate
+timeout: 300.0          # s

@@ -84,6 +84,24 @@ RTABMap should report a live input frequency and publish `/map` while the boat m
 
 The checked-in Nav2 profile updates the local costmap at 10 Hz and the global costmap at 5 Hz, matching the `crane_ml` commissioning baseline. Restart `navigation.launch.py` after changing these parameters; an already active lifecycle node retains its previous values.
 
+### Tasks
+
+RoboBoat tasks are [py_trees](https://py-trees.readthedocs.io) behaviour trees in `mhseals_nav/tasks/`, layered on Nav2: Nav2's XML trees decide *how to drive* (plan, follow, recover), the task trees decide *what to do* (which gates, which beacon, when to report). Leaves are plain Python over a blackboard of tracked objects (`/objects/map`), the boat's map pose and the time, so they are testable without ROS.
+
+```bash
+ros2 launch mhseals_nav task.launch.py task:=gates            # or debris, sprint, speed_challenge
+ros2 launch mhseals_nav task.launch.py task:=sprint sim:=true params_file:=my_sprint.yaml
+```
+
+| Task | Tree |
+| --- | --- |
+| `gates` | Through the entry and exit gates; if only the entry is visible, drive on until the exit appears |
+| `debris` | Transit the channel, report debris and beacons as seen, circle a survivor beacon, return |
+| `sprint` | Through the gate, drive on until the beacon shows, circle it by colour, return through the gate |
+| `speed_challenge` | The first red or green signal picks a route of (forward, left) offsets, driven with Nav2 |
+
+Parameters (class labels, distances, routes, timeouts) are in `config/tasks/<task>.yaml`. Each run publishes `/task/events` (JSON, one per event), a latched `/task/status` with the running leaf, and exits 0 on success, 1 on failure, 2 on timeout. `mhseals_testing`'s mission rehearsal launches these and scores the events.
+
 ### Boat tests
 
 [`mhseals_testing`](https://github.com/mhseals/mhseals_testing) checks this stack's sensors and TF, runs thruster trials and characterization, and scores navigation and missions. Its `measurement.launch.py` includes `odom.launch.py` (with `fcu:=false` in simulation), so localization starts the same way in tests as in operation:

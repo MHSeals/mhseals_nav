@@ -27,11 +27,12 @@ data_files = [
     (os.path.join('share', package_name, 'rviz'),
      glob(os.path.join('rviz', '*'))),
     (os.path.join('share', package_name, 'config'),
-     glob(os.path.join('config', '*'))),
+     [path for path in glob(os.path.join('config', '*')) if os.path.isfile(path)]),
 ]
 
 data_files += package_files('description')
 data_files += package_files('urdf')
+data_files += package_files(os.path.join('config', 'tasks'))
 
 setup(
     name=package_name,
@@ -55,8 +56,8 @@ setup(
             "object_tracker = mhseals_nav.object_tracker:main",
             "thruster_allocation = mhseals_nav.thruster_allocation:main",
             "zed_detections_converter = mhseals_nav.zed_detections_converter:main",
-            "waypoint_speed_challenge = mhseals_nav.waypoint_speed_challenge:main",
-            "lidar_relay = mhseals_nav.lidar_relay:main"
+            "lidar_relay = mhseals_nav.lidar_relay:main",
+            "run_task = mhseals_nav.tasks.interface:main",
         ],
     },
 )
