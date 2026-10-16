@@ -16,6 +16,7 @@ import rclpy
 from rclpy.action import ActionClient
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile
+from rclpy.signals import SignalHandlerOptions
 from rclpy.time import Time
 import yaml
 from geometry_msgs.msg import PoseStamped
@@ -172,7 +173,9 @@ def main(args=None):
     parser.add_argument('--params', help='task YAML (default: config/tasks/<task>.yaml)')
     argv = rclpy.utilities.remove_ros_args(args=sys.argv if args is None else args)
     options = parser.parse_args(argv[1:])
-    rclpy.init(args=args)
+    # Without rclpy's SIGINT handler, Ctrl+C reaches finish() with a live context, so
+    # the final event goes out and a running Nav2 goal is cancelled.
+    rclpy.init(args=args, signal_handler_options=SignalHandlerOptions.NO)
     runner = TaskRunner(options.task, load_params(options.task, options.params))
     try:
         while rclpy.ok() and runner.outcome is None:
