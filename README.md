@@ -14,7 +14,6 @@ Launch files separate the main responsibilities:
 - `navigation.launch.py` starts Nav2 servers and lifecycle management. SLAM is optional.
 - `slam.launch.py` starts RTABMap mapping, leaving localization TF with the EKFs.
 - `objects.launch.py` always tracks `/detections`. With `sim:=false`, it also converts ZED objects into that interface, remapping the adapter input to `objects_topic`. Set `rosbridge_url` and `camera_root_frame` for a legacy ZED host.
-- `boat_test.launch.py` provides localization and optional local sensors for the hardware test dashboard.
 
 ```bash
 ros2 launch mhseals_nav <launch_name>.launch.py param1:=value1 param2:=value2
@@ -32,14 +31,13 @@ Start each component once. `robot` includes navigation, so running it also start
 | --- | --- | --- |
 | `sim` | `robot`, `sensors`, `odom`, `navigation`, `slam`, `objects` | `true`; simulation time requires `/clock`. In `objects`, also selects simulated detections rather than ZED input |
 | `use_lidar` | `robot`, `navigation` | `true`; require `/points` for obstacle avoidance. `false` disables both obstacle layers for supervised testing; cameras do not replace them |
-| `sensors_ignore` | `robot`, `sensors`, `boat_test` | Empty except `boat_test` (`camera`); comma-separated local drivers to skip, e.g. `camera,lidar`. Does not disable Nav2 obstacle layers |
+| `sensors_ignore` | `robot`, `sensors` | Empty; comma-separated local drivers to skip, e.g. `camera,lidar`. Does not disable Nav2 obstacle layers |
 | `enable_slam` | `robot` | `false`; include `slam.launch.py` for lidar-cloud RTABMap mapping from `/points`. It leaves TF ownership with the EKFs and does not change Nav2 localization |
 | `fcu` | `robot`, `odom` | `true`; start MAVROS and its relays. `false` when a simulator (crane_ml `--crane-roboboat-contract`) publishes `/odom/mavros`, `/imu/raw` and `/gps/fix` itself, so simulation needs no ArduPilot |
-| `fcu_url` | `robot`, `odom`, `boat_test` | Required for `boat_test`; otherwise empty selects SITL TCP in simulation or `/dev/ttyACM0` at 57600 baud on hardware |
+| `fcu_url` | `robot`, `odom` | Empty selects SITL TCP in simulation or `/dev/ttyACM0` at 57600 baud on hardware |
 | `camera_name` | `robot`, `sensors`, `odom`, `slam` | `front`; camera namespace and topic prefix |
 | `detections_topic`, `objects_topic` | `objects` | `/detections`, `/front/zed_node/obj_det/objects`; tracker input and ZED source |
 | `rosbridge_url`, `camera_root_frame` | `objects` | Empty; with `sim:=false`, select legacy transport and its calibrated camera subtree root |
-| `start_sensors` | `boat_test` | `false`; also start local drivers, respecting `sensors_ignore` |
 
 Configuration paths, device addresses, and rate overrides are listed by `ros2 launch mhseals_nav <launch_name>.launch.py --show-args`. Keeping `use_lidar:=true` while skipping the local driver allows another host or simulator to supply `/points`. Disabling LiDAR is explicit; stale data never triggers an automatic fallback.
 
@@ -88,27 +86,13 @@ The checked-in Nav2 profile updates the local costmap at 10 Hz and the global co
 
 ### Boat tests
 
-The test launch supplies measurements; the [`mhseals_hardware` dashboard](../mhseals_hardware/README.md) owns monitoring, recording, and confirmed physical tests.
+[`mhseals_testing`](https://github.com/mhseals/mhseals_testing) checks this stack's sensors and TF, runs thruster trials and characterization, and scores navigation and missions. Its `measurement.launch.py` includes `odom.launch.py` (with `fcu:=false` in simulation), so localization starts the same way in tests as in operation:
 
 ```bash
-# Terminal 1 on ODROID; camera remains on Jetson.
-ros2 launch mhseals_nav boat_test.launch.py \
-  fcu_url:=serial:///dev/ttyACM0:57600 start_sensors:=true
-
-# Terminal 2: monitor the running stack.
-ros2 run mhseals_hardware boat_test --monitor-only
+ros2 run mhseals_testing boat_test --start-stack --fcu-url serial:///dev/ttyACM0:57600
 ```
 
-The dashboard can instead start the measurements with `--start-stack --fcu-url serial:///dev/ttyACM0:57600`; `--optional-sensors` adds local LiDAR and `--record` adds bags. Choose one startup path. For physical tests, omit `--monitor-only`, stop other actuator controllers, and secure the boat/clear propellers; the dashboard starts disarmed and confirms physical actions.
-
-For measured velocity control, fit the resulting bag with
-`ros2 run mhseals_hardware thrust_characterize`. Pass its generated
-`nav2_calibrated.yaml` as `navigation.launch.py params_file:=...`; this applies
-the measured velocity, acceleration, deceleration, and combined-axis limits to
-Nav2's velocity smoother. Run `boat_test --velocity-control` only after
-reviewing the profile; it inserts the calibrated SI-velocity controller before
-the normalized-effort PWM node and keeps the controller's bounded integral trim
-and watchdog active.
+The suite's characterization writes a Nav2 overlay with the measured velocity, acceleration, deceleration, and combined-axis limits; pass it as `navigation.launch.py params_file:=...`. Nav2 commands are SI velocities, so they need `calibrated_velocity_controller` in front of the normalized-effort PWM node (`boat_test --velocity-control`).
 
 ### Development
 
