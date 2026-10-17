@@ -33,15 +33,46 @@ class Leaf(py_trees.behaviour.Behaviour):
 
 
 class WaitFor(Leaf):
-    """RUNNING until at least ``count`` objects with each of ``labels`` are tracked."""
+    """RUNNING until at least ``count`` objects with each of ``labels`` are tracked.
 
-    def __init__(self, name, labels, count=1, any_of=False):
+    Meanwhile the boat holds where it began waiting: wind and current would carry
+    it off, and out of sight of what it waits for. Once it is ``hold`` metres off,
+    Nav2 brings it back. After ``timeout`` seconds with nothing seen it fails.
+    """
+
+    def __init__(self, name, labels, count=1, any_of=False, hold=1.5, timeout=30.0):
         super().__init__(name)
         self.labels, self.count, self.any_of = tuple(labels), count, any_of
+        self.hold, self.timeout, self.navigator = hold, timeout, None
+
+    def setup(self, **kwargs):
+        self.navigator = kwargs.get('navigator')
+
+    def initialise(self):
+        self.anchor = self.start = self.goal = None
 
     def update(self):
         seen = [len(self.labelled(label)) >= self.count for label in self.labels]
-        return Status.SUCCESS if (any(seen) if self.any_of else all(seen)) else Status.RUNNING
+        if any(seen) if self.any_of else all(seen):
+            return Status.SUCCESS
+        if self.start is None:
+            self.start = self.board.now
+        if self.timeout is not None and self.board.now - self.start > self.timeout:
+            self.feedback_message = f'nothing seen in {self.timeout:.0f} s'
+            return Status.FAILURE
+        pose = self.board.pose
+        if pose is None or self.navigator is None:
+            return Status.RUNNING
+        if self.anchor is None:
+            self.anchor = list(pose)
+        if ((self.goal is None or self.goal.done)
+                and math.dist(pose[:2], self.anchor[:2]) > self.hold):
+            self.goal = self.navigator.send([self.anchor])
+        return Status.RUNNING
+
+    def terminate(self, new_status):
+        if new_status == Status.INVALID and self.goal is not None:
+            self.goal.cancel()
 
 
 class Seen(Leaf):

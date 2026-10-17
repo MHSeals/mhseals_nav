@@ -102,7 +102,11 @@ class TaskRunner(Node):
         self.listener = TransformListener(self.tf, self)
         self.create_subscription(Detection3DArray, params.get('objects_topic', '/objects/map'),
                                  self._objects, 10)
-        self.events = self.create_publisher(String, '/task/events', 10)
+        # Kept for late joiners: a run's first events go out before a watcher that
+        # started with it has matched the publisher.
+        self.events = self.create_publisher(
+            String, '/task/events',
+            QoSProfile(depth=100, durability=DurabilityPolicy.TRANSIENT_LOCAL))
         self.status = self.create_publisher(
             String, '/task/status',
             QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))

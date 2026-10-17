@@ -1,4 +1,5 @@
 """Static guardrails for the Jazzy boat profile; not a hydrodynamic test."""
+import math
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
@@ -41,6 +42,12 @@ def test_inflation_leaves_a_six_foot_gate_open():
         # Lethal space ends at the inscribed radius; the hull must fit between two buoys.
         assert 2 * half_beam < gate - 0.2
         assert params['inflation_layer']['inflation_radius'] <= gate / 2
+        # MPPI checks the whole footprint only once the cost says a corner may touch;
+        # that cost is read at the circumscribed radius, so inflation must reach it.
+        circumscribed = max(math.hypot(abs(x) + params['footprint_padding'],
+                                       abs(y) + params['footprint_padding'])
+                            for x, y in footprint)
+        assert params['inflation_layer']['inflation_radius'] >= circumscribed
 
 
 def test_costmaps_do_not_require_slam_and_check_sensor_freshness():

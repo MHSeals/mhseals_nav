@@ -135,8 +135,9 @@ local_costmap:
       width: 12
       height: 12
       resolution: 0.05
+      # Padding covers tracking error at speed and buoy position noise.
       footprint: "[[0.5315, 0.4475], [0.5315, -0.4475], [-0.5315, -0.4475], [-0.5315, 0.4475]]"
-      footprint_padding: 0.05
+      footprint_padding: 0.1
       plugins: [obstacle_layer, inflation_layer]
       # Spatio-temporal voxels that decay: over open water a LiDAR's rays mostly
       # return nothing, so nothing would ever clear a mark; the local map lets go after 3 s.
@@ -195,12 +196,13 @@ local_costmap:
           vertical_fov_offset: 0.0
           horizontal_fov_angle: 6.28
           decay_acceleration: 5.0
-      # Narrow enough for a 6 ft (1.83 m) gate: the hull is 0.9 m wide, so
-      # each side has about 0.4 m. Cost still falls off toward the middle.
+      # Out to the hull's padded circumscribed radius (0.84 m), so MPPI knows
+      # when to check the whole footprint, and inside half a 6 ft (1.83 m) gate,
+      # so the gate's middle stays free. Cost still falls off toward the middle.
       inflation_layer:
         plugin: nav2_costmap_2d::InflationLayer
-        cost_scaling_factor: 6.0
-        inflation_radius: 0.6
+        cost_scaling_factor: 5.0
+        inflation_radius: 0.9
       always_send_full_costmap: false
 
 planner_server:
@@ -232,8 +234,9 @@ global_costmap:
       width: 100
       height: 100
       resolution: 0.10
+      # Padding covers tracking error at speed and buoy position noise.
       footprint: "[[0.5315, 0.4475], [0.5315, -0.4475], [-0.5315, -0.4475], [-0.5315, 0.4475]]"
-      footprint_padding: 0.05
+      footprint_padding: 0.1
       plugins: [obstacle_layer, inflation_layer]
       # Spatio-temporal voxels that decay: over open water a LiDAR's rays mostly
       # return nothing, so nothing would ever clear a mark; the global map keeps a buoy 15 s after it leaves view.
@@ -292,12 +295,13 @@ global_costmap:
           vertical_fov_offset: 0.0
           horizontal_fov_angle: 6.28
           decay_acceleration: 5.0
-      # Narrow enough for a 6 ft (1.83 m) gate: the hull is 0.9 m wide, so
-      # each side has about 0.4 m. Cost still falls off toward the middle.
+      # Out to the hull's padded circumscribed radius (0.84 m), so MPPI knows
+      # when to check the whole footprint, and inside half a 6 ft (1.83 m) gate,
+      # so the gate's middle stays free. Cost still falls off toward the middle.
       inflation_layer:
         plugin: nav2_costmap_2d::InflationLayer
-        cost_scaling_factor: 6.0
-        inflation_radius: 0.6
+        cost_scaling_factor: 5.0
+        inflation_radius: 0.9
       always_send_full_costmap: false
 
 behavior_server:

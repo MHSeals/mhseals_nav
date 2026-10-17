@@ -139,6 +139,19 @@ def gate(x, y, width, red='red_pole_buoy', green='green_pole_buoy'):
     return [(red, x, y + width / 2), (green, x, y - width / 2)]
 
 
+def test_waiting_holds_station_against_drift_then_gives_up():
+    world = World('nav_channel', params('nav_channel'))
+
+    def drift(tick, world):  # the current carries the boat while nothing is in sight
+        x, y, yaw = world.state['pose']
+        world.state['pose'] = (x, y + 0.05, yaw)
+
+    assert world.run(script=drift) == 'FAILURE'  # after the 30 s timeout
+    assert world.goals and all(goal.route[-1][:2] == pytest.approx((0, 0.05))
+                               for goal in world.goals)  # back to where it began waiting
+    assert abs(world.state['pose'][1]) < 2.0
+
+
 def test_nav_channel_crosses_both_gates():
     world = World('nav_channel', params('nav_channel'))
     world.state['objects'] = gate(7, 0, 3) + gate(13, 0, 3)
