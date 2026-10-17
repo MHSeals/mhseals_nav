@@ -9,5 +9,5 @@ staging: 3.0            # m out from the banner, lined up before sliding in
 bay_depth: 1.5          # m the bay reaches out from the spine
 dock_time: 5.0          # s held in the bay
 search_distance: 20.0
-time_limit: 240.0
+time_limit: 360.0       # includes driving to the task area
 timeout: 240.0

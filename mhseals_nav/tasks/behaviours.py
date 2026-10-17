@@ -172,15 +172,22 @@ class Navigate(Leaf):
 
     def initialise(self):
         self.tries = 0
+        self.send()
+
+    def send(self):
         self.goal = self.navigator.send(self.board.get(self.key), precise=self.precise)
+        self.sent = self.board.now
 
     def update(self):
         if self.goal is None:
             return Status.FAILURE
-        if self.goal.done and self.goal.status == 'REJECTED' and self.tries < self.RETRIES:
-            # Nav2 runs one navigation at a time and rejects ours while another winds down.
+        # Nav2 runs one navigation at a time: while another winds down it rejects ours,
+        # or accepts and at once aborts it. Either way, try again.
+        refused = self.goal.done and (self.goal.status == 'REJECTED' or (
+            self.goal.status == 'ABORTED' and self.board.now - self.sent < 1.0))
+        if refused and self.tries < self.RETRIES:
             self.tries += 1
-            self.goal = self.navigator.send(self.board.get(self.key), precise=self.precise)
+            self.send()
             return Status.RUNNING
         if not self.goal.done:
             return Status.RUNNING

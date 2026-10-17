@@ -2,6 +2,6 @@
 # frame is the start pose: approaches are its task areas, as a team would take them
 # from the day's layout. Run: run_task --task mission --params <this file>.
 tasks: [nav_channel, follow_path, docking, speed_challenge, return_home]
-timeout: 1200.0
+timeout: 1800.0
 docking: {approach: [12.0, -14.0, -1.5708]}
 speed_challenge: {approach: [-1.0, 11.0, 0.0]}

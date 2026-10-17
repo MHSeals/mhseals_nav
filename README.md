@@ -63,7 +63,7 @@ Required interfaces depend on which components are running:
 
 Navigation and tracking also require `/tf` and `/tf_static` with `map → odom → base_link → sensor` connectivity. The global EKF owns `map → odom`, the local EKF owns `odom → base_link`, and the robot description owns sensor mounts. Preserve measurement frame IDs and timestamps, and synchronize clocks across hosts. `/imu/raw` is the legacy name for FCU-fused MAVROS `/imu/data`, rather than `/imu/data_raw`.
 
-Navigation uses Regulated Pure Pursuit with rolling costmaps. Object tracks are separate from collision avoidance. RTABMap mapping consumes the live lidar cloud and external EKF odometry; it does not publish a competing localization transform.
+Navigation uses MPPI with the Omni model at 10 Hz (the boat can sway) and rolling costmaps of decaying voxels, fed by the LiDAR and by the camera-tracked objects (`/objects/points`), since small buoys sit below the LiDAR's rings up close. The characterization's Nav2 overlay gives MPPI 70 % of the measured limits, leaving the velocity loop authority for lag, turns and wind. RTABMap mapping consumes the live lidar cloud and external EKF odometry; it does not publish a competing localization transform.
 
 ### Mapping and rates
 
@@ -89,16 +89,22 @@ The checked-in Nav2 profile updates the local costmap at 10 Hz and the global co
 RoboBoat tasks are [py_trees](https://py-trees.readthedocs.io) behaviour trees in `mhseals_nav/tasks/`, layered on Nav2: Nav2's XML trees decide *how to drive* (plan, follow, recover), the task trees decide *what to do* (which gates, which beacon, when to report). Leaves are plain Python over a blackboard of tracked objects (`/objects/map`), the boat's map pose and the time, so they are testable without ROS.
 
 ```bash
-ros2 launch mhseals_nav task.launch.py task:=gates            # or debris, sprint, speed_challenge
-ros2 launch mhseals_nav task.launch.py task:=sprint sim:=true params_file:=my_sprint.yaml
+ros2 launch mhseals_nav task.launch.py task:=nav_channel   # or follow_path, docking, speed_challenge, return_home
+ros2 run mhseals_nav run_task --task mission --params config/tasks/mission_crane.yaml --ros-args -p use_sim_time:=true
 ```
+
+The RoboBoat 2025 tasks (handbook section 3.2; task 5, the deliveries, is not attempted):
 
 | Task | Tree |
 | --- | --- |
-| `gates` | Through the entry and exit gates; if only the entry is visible, drive on until the exit appears |
-| `debris` | Transit the channel, report debris and beacons as seen, circle a survivor beacon, return |
-| `sprint` | Through the gate, drive on until the beacon shows, circle it by colour, return through the gate |
-| `speed_challenge` | The first red or green signal picks a route of (forward, left) offsets, driven with Nav2 |
+| `nav_channel` | Through two red/green pole gates; sweeps and drives on if the second is out of view |
+| `follow_path` | Gate after gate of small red/green buoys until none is ahead, avoiding yellow buoys and vessels; reports the yellow count |
+| `docking` | Finds the banner of the day, picks an empty bay under it, stages, slides in, holds, backs out |
+| `speed_challenge` | Through the gate, finds the blue mark, circles it, back through the gate; reports the black count (no light panel yet) |
+| `return_home` | Back through the black-buoy gate by the start |
+| `mission` | All of them in order, each under a time limit; a failed task is skipped, the channel is required |
+
+A task with `approach: [x, y, yaw]` first drives to that map pose, taken from the day's course layout. Counts are reported as an event for the operator display, or with `report: spin` as one turn per object.
 
 Parameters (class labels, distances, routes, timeouts) are in `config/tasks/<task>.yaml`. Each run publishes `/task/events` (JSON, one per event), a latched `/task/status` with the running leaf, and exits 0 on success, 1 on failure, 2 on timeout. `mhseals_testing`'s mission rehearsal launches these and scores the events.
 

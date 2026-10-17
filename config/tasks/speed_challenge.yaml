@@ -9,6 +9,6 @@ search_distance: 30.0   # m; the mark is 40-100 ft past the gate
 circle_radius: 2.5
 circle_clockwise: false # either direction scores
 circle_points: 8
-time_limit: 240.0
+time_limit: 360.0       # includes driving to the task area
 timeout: 240.0
 gate_radius: 10.0        # m from the approach (when given) within which its gate lies
