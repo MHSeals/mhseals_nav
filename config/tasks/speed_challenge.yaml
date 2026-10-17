@@ -1,6 +1,13 @@
-# Waypoint speed challenge. The first signal seen picks a route of (forward, left)
-# metres from the boat's pose at that moment. Set these to the course layout.
-routes:
-  Red: [[10.0, 0.0], [20.0, 5.0], [10.0, 10.0], [0.0, 0.0]]
-  Green: [[10.0, 0.0], [20.0, -5.0], [10.0, -10.0], [0.0, 0.0]]
-timeout: 300.0
+# Task 4, speed challenge (no light panel yet: the run starts at once).
+red: red_buoy
+green: green_buoy
+mark: blue_buoy
+count: black_buoy       # oil spills, counted only past the gate
+report: display
+max_gate_width: 4.0
+search_distance: 30.0   # m; the mark is 40-100 ft past the gate
+circle_radius: 2.5
+circle_clockwise: false # either direction scores
+circle_points: 8
+time_limit: 240.0
+timeout: 240.0

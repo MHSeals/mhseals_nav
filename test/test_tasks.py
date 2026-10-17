@@ -17,6 +17,41 @@ def test_gates_pair_nearest_markers_and_face_away_from_the_boat():
     behind = geometry.gate_midpoints(reds[:1], greens[:1], origin=(30, 0, math.pi))
     assert abs(abs(behind[0][2]) - math.pi) < 1e-9
     assert geometry.gate_midpoints([(0, 0)], [(20, 0)], (0, 0, 0), max_width=8) == []
+    # One colour: each black buoy is used once, and never with itself.
+    blacks = [(-2.5, 1.6), (-2.5, -1.6), (10, 12)]
+    home = geometry.gate_midpoints(blacks, blacks, (6, 0, math.pi), max_width=4)
+    assert [g[:2] for g in home] == [(-2.5, 0)] and abs(abs(home[0][2]) - math.pi) < 1e-9
+
+
+def test_next_gate_is_ahead_and_not_cleared():
+    gates = [(5, 0, 0), (12, 1, 0), (-4, 0, 0)]
+    assert geometry.next_gate(gates, (0, 0, 0), []) == (5, 0, 0)
+    assert geometry.next_gate(gates, (6, 0, 0), [(5, 0, 0)]) == (12, 1, 0)
+    # Behind the direction of travel, or past the horizon, is not next.
+    assert geometry.next_gate(gates, (13, 0, 0), [(5, 0, 0), (12, 1, 0)]) is None
+    assert geometry.next_gate([(40, 0, 0)], (0, 0, 0), []) is None
+    assert geometry.through((5, 0, 0)) == [(3.5, 0, 0), (7.0, 0, 0)]
+
+
+def test_unique_spin_and_memory():
+    assert geometry.unique([(0, 0), (0.5, 0), (3, 0)]) == [(0, 0), (3, 0)]
+    turns = geometry.spin((1, 2, 0), 2)
+    assert len(turns) == 8 and turns[-1][2] == pytest.approx(0, abs=1e-9)
+    memory = geometry.remember([], [('red', 1, 1)], now=0.0)
+    memory = geometry.remember(memory, [('red', 1.2, 1)], now=2.0)  # the same buoy, moved
+    assert memory == [('red', 1.2, 1, 2.0)]
+    assert geometry.remember(memory, [], now=4.0) == memory  # a short dropout keeps it
+    assert geometry.remember(memory, [], now=8.0) == []
+
+
+def test_dock_bays_open_toward_the_boat():
+    banners = [(10, -5), (10, -3), (10, -1)]
+    opening = geometry.dock_axis(banners, (10, -3), (0, 0, 0))
+    assert opening == pytest.approx(math.pi)  # the spine runs along y; the boat is at -x
+    assert geometry.dock_axis([(10, -3)], (10, -3), (0, -3, 0)) == pytest.approx(math.pi)
+    poses = geometry.bay((10, -3), opening)
+    assert poses['berth'] == pytest.approx((9.15, -3, 0))  # facing the spine, +x
+    assert poses['staging'][:2] == pytest.approx((7, -3))
 
 
 def test_circle_and_reverse_and_relative():
@@ -33,8 +68,9 @@ def test_circle_and_reverse_and_relative():
 
 
 class Goal:
-    def __init__(self, world, route, ticks=3):
-        self.world, self.route, self.ticks, self.cancelled = world, route, ticks, False
+    def __init__(self, world, route, precise=False, ticks=3, status='SUCCEEDED'):
+        self.world, self.route, self.precise = world, route, precise
+        self.ticks, self.cancelled, self.status = ticks, False, status
 
     @property
     def done(self):
@@ -42,9 +78,7 @@ class Goal:
         self.ticks -= 1
         if self.ticks <= 1 and not self.cancelled:
             self.world['pose'] = self.route[-1]
-        return self.ticks <= 0
-
-    status = 'SUCCEEDED'
+        return self.ticks <= 0 or self.cancelled
 
     def cancel(self):
         self.cancelled = True
@@ -60,19 +94,22 @@ class World:
         self.tree.setup(navigator=self, report=lambda event, **details: self.events.append(
             (event, details)))
         self.board = py_trees.blackboard.Client(name='world')
-        for key in ('objects', 'pose', 'now'):
+        for key in ('objects', 'pose', 'now', 'home'):
             self.board.register_key(key=key, access=py_trees.common.Access.WRITE)
+        self.board.home = None
 
-    def send(self, route):
-        self.goals.append(Goal(self.state, route))
+    def send(self, route, precise=False):
+        self.goals.append(Goal(self.state, route, precise))
         return self.goals[-1]
 
-    def run(self, ticks=200, script=None):
+    def run(self, ticks=400, script=None):
         for tick in range(ticks):
             if script:
                 script(tick, self)
             self.board.objects, self.board.pose, self.board.now = (
                 self.state['objects'], self.state['pose'], tick / 10)
+            if self.board.home is None:
+                self.board.home = self.state['pose']
             self.tree.tick()
             if self.tree.root.status in (py_trees.common.Status.SUCCESS,
                                          py_trees.common.Status.FAILURE):
@@ -82,89 +119,131 @@ class World:
     def names(self):
         return [event for event, _ in self.events]
 
+    def event(self, name):
+        return next(details for event, details in self.events if event == name)
 
-GATES = dict(red='red_pole_buoy', green='green_pole_buoy', max_gate_width=8.0,
-             search_distance=10.0)
+
+def params(task):
+    import yaml
+    from pathlib import Path
+    return yaml.safe_load((Path(__file__).parents[1] / f'config/tasks/{task}.yaml').read_text())
 
 
-def test_gates_with_both_gates_visible():
-    world = World('gates', GATES)
-    world.state['objects'] = [('red_pole_buoy', 10, 2), ('green_pole_buoy', 10, -2),
-                              ('red_pole_buoy', 25, 2), ('green_pole_buoy', 25, -2)]
+def gate(x, y, width, red='red_pole_buoy', green='green_pole_buoy'):
+    return [(red, x, y + width / 2), (green, x, y - width / 2)]
+
+
+def test_nav_channel_crosses_both_gates():
+    world = World('nav_channel', params('nav_channel'))
+    world.state['objects'] = gate(7, 0, 3) + gate(13, 0, 3)
     assert world.run() == 'SUCCESS'
-    assert len(world.goals) == 1 and len(world.goals[0].route) == 2
-    assert world.names() == ['gate_cleared']
+    assert world.names() == ['gate_cleared', 'gate_cleared']
+    assert [goal.route[-1][:2] for goal in world.goals] == [(9.0, 0.0), (15.0, 0.0)]
 
 
-def test_gates_search_ahead_for_the_exit_gate():
-    world = World('gates', GATES)
-    entry = [('red_pole_buoy', 10, 2), ('green_pole_buoy', 10, -2)]
-    exit_gate = [('red_pole_buoy', 30, 2), ('green_pole_buoy', 30, -2)]
-    world.state['objects'] = list(entry)
+def test_nav_channel_searches_ahead_for_the_second_gate():
+    world = World('nav_channel', params('nav_channel'))
+    world.state['objects'] = gate(7, 0, 3)
 
     def appear(tick, world):
-        if len(world.goals) == 2:  # the exit gate shows up while searching ahead
-            world.state['objects'] = entry + exit_gate
+        if len(world.goals) == 2:  # the second gate shows up while searching ahead
+            world.state['objects'] = gate(7, 0, 3) + gate(20, 0, 3)
 
     assert world.run(script=appear) == 'SUCCESS'
-    assert world.goals[1].route[0][:2] == pytest.approx((20, 0))  # searched 10 m ahead
-    assert world.goals[1].cancelled  # the search was preempted by the sighting
-    assert world.goals[-1].route[0][:2] == pytest.approx((30, 0))
-    assert world.names() == ['gate_cleared', 'gate_cleared']
+    assert world.goals[1].cancelled  # the search leg was preempted by the sighting
+    assert world.goals[-1].route[-1][:2] == pytest.approx((22, 0))
 
 
-DEBRIS = dict(red='red_buoy', green='green_buoy', channel_gates=4, max_gate_width=8.0,
-              survivor=['green_light_buoy'], circle_radius=2.0, circle_clockwise=False,
-              debris=['black_buoy'], beacons=['green_light_buoy', 'red_light_buoy'])
-
-
-def test_debris_reports_sightings_circles_the_survivor_and_returns():
-    world = World('debris', DEBRIS)
-    world.state['objects'] = [('red_buoy', 5, 2), ('green_buoy', 5, -2),
-                              ('red_buoy', 12, 2), ('green_buoy', 12, -2),
-                              ('black_buoy', 20, 4), ('green_light_buoy', 25, 0)]
+def test_follow_path_runs_every_gate_and_reports_the_species_count():
+    world = World('follow_path', params('follow_path'))
+    world.state['objects'] = (
+        gate(5, 0, 2.4, 'red_buoy', 'green_buoy') + gate(10, -2, 2.4, 'red_buoy', 'green_buoy')
+        + gate(14.5, -5, 2.4, 'red_buoy', 'green_buoy')
+        + [('yellow_buoy', 7.5, 0.5), ('yellow_buoy', 12.5, -2.5), ('yellow_buoy', 12.7, -2.6)])
     assert world.run() == 'SUCCESS'
+    assert world.names().count('gate_cleared') == 3
+    assert world.event('species_count') == {'count': 2, 'method': 'display'}
+
+
+def test_docking_skips_the_occupied_bay():
+    world = World('docking', params('docking'))
+    world.state['objects'] = [('blue_square', 10, -1), ('red_circle', 10, -3),
+                              ('blue_square', 10, -5), ('yellow_target_boat', 9.25, -1)]
+    assert world.run() == 'SUCCESS'
+    berth = next(goal for goal in world.goals if goal.precise)
+    assert berth.route[-1] == pytest.approx((9.15, -5, 0))
+    assert world.names() == ['docked', 'undocked']
+    assert world.goals[-1].route[-1][:2] == pytest.approx((7, -5))  # backed out
+
+
+def test_speed_challenge_circles_the_mark_and_counts_spills_past_the_gate():
+    world = World('speed_challenge', params('speed_challenge'))
+    start = gate(5, 0, 2.5, 'red_buoy', 'green_buoy') + [('black_buoy', 2, 3)]
+    world.state['objects'] = list(start)
+
+    def mark(tick, world):
+        if tick == 20:
+            world.state['objects'] = start + [
+                ('black_buoy', 12, 1.5), ('black_buoy', 15, -1.5), ('blue_buoy', 20, 0)]
+
+    assert world.run(script=mark) == 'SUCCESS'
     names = world.names()
-    assert names.count('debris') == 1 and names.count('beacon') == 1
-    assert names.index('channel_transited') < names.index('survivor_circled') \
-        < names.index('returned')
-    assert world.goals[-1].route[-1][:2] == pytest.approx((5, 0))  # back through the first gate
+    assert names.index('speed_started') < names.index('spill_count') < names.index('speed_finished')
+    assert world.event('spill_count')['count'] == 2  # the one before the gate is not in the task
+    circle = next(goal.route for goal in world.goals if len(goal.route) == 8)
+    assert all(math.dist(p[:2], (20, 0)) == pytest.approx(2.5) for p in circle)
+    back = world.goals[-1].route
+    assert back[-1][0] < 5 and abs(abs(back[-1][2]) - math.pi) < 1e-9
 
 
-def test_debris_without_survivor_still_returns():
-    world = World('debris', DEBRIS)
-    world.state['objects'] = [('red_buoy', 5, 2), ('green_buoy', 5, -2)]
+def test_return_home_finds_the_black_gate_by_home():
+    world = World('return_home', params('return_home'))
+    world.board.home = (0.0, 0.0, 0.0)
+    world.state['pose'] = (20.0, 0.0, math.pi)
+    world.state['objects'] = [('black_buoy', -2.5, 1.6), ('black_buoy', -2.5, -1.6),
+                              ('black_buoy', 10, 12.6), ('black_buoy', 14, 9.4)]
     assert world.run() == 'SUCCESS'
-    assert 'no_survivor_found' in world.names() and 'returned' in world.names()
+    assert world.goals[0].route == [pytest.approx((6, 0, math.pi))]
+    assert world.goals[-1].route[-1][:2] == pytest.approx((-4.5, 0))
+    assert world.names() == ['gate_cleared', 'returned_home']
 
 
-SPRINT = dict(red='red_pole_buoy', green='green_pole_buoy', max_gate_width=8.0,
-              search_distance=20.0, circle_radius=2.0,
-              beacon_directions={'red_light_buoy': False, 'green_light_buoy': True})
+def test_mission_skips_a_failed_task_and_still_returns_home():
+    settings = dict(tasks=['nav_channel', 'follow_path', 'return_home'])
+    for name in settings['tasks']:
+        settings[name] = params(name)
+    settings['follow_path']['time_limit'] = 3.0  # no path in sight: it times out
+    world = World('mission', settings)
+    world.state['objects'] = gate(7, 0, 3) + gate(13, 0, 3) + [
+        ('black_buoy', -2.5, 1.6), ('black_buoy', -2.5, -1.6)]
+    assert world.run(ticks=800) == 'SUCCESS'
+    names = world.names()
+    assert world.event('stage_skipped')['stage'] == 'follow_path'
+    assert names[-2:] == ['returned_home', 'stage_completed']
 
 
-def test_sprint_circles_by_beacon_colour_and_returns():
-    world = World('sprint', SPRINT)
-    world.state['objects'] = [('red_pole_buoy', 5, 2), ('green_pole_buoy', 5, -2)]
-
-    def beacon(tick, world):
-        if tick == 15:
-            world.state['objects'] = world.state['objects'] + [('green_light_buoy', 30, 0)]
-
-    assert world.run(script=beacon) == 'SUCCESS'
-    found = dict(world.events)['beacon_found']
-    assert found['circle_target'] == 'green_light_buoy'
-    circle = next(goal.route for goal in world.goals if len(goal.route) == 6)
-    # Clockwise around (30, 0): the second pose is clockwise from the first.
-    a, b = (math.atan2(p[1], p[0] - 30) for p in circle[:2])
-    assert math.remainder(b - a, 2 * math.pi) < 0
-    assert world.names()[-1] == 'sprint_finished'
+def test_mission_needs_the_channel():
+    settings = dict(tasks=['nav_channel', 'return_home'])
+    for name in settings['tasks']:
+        settings[name] = params(name)
+    settings['nav_channel']['time_limit'] = 2.0
+    world = World('mission', settings)
+    assert world.run() == 'FAILURE'
 
 
-def test_speed_challenge_picks_the_route_by_colour():
-    params = dict(routes={'Red': [[10, 0], [10, 10]], 'Green': [[10, 0], [10, -10]]})
-    world = World('speed_challenge', params)
-    world.state['objects'] = [('Green', 3, 0)]
-    assert world.run() == 'SUCCESS'
-    assert world.goals[0].route[-1][:2] == pytest.approx((10, -10))
-    assert dict(world.events)['route_chosen']['route_choice'] == 'Green'
+def test_task_labels_are_detector_or_course_classes():
+    from pathlib import Path
+    import yaml
+    root = Path(__file__).parents[1]
+    classes = yaml.safe_load((root / 'config/custom_object_detection.yaml').read_text())
+    detector = {value['label'] for key, value in classes['object_detection'].items()
+                if key.startswith('class_')}
+    banners = {f'{c}_{s}' for c in ('red', 'green', 'blue')
+               for s in ('circle', 'triangle', 'square', 'plus')}
+    vessels = {'yellow_target_boat', 'black_target_boat'}
+    for task in ('nav_channel', 'follow_path', 'docking', 'speed_challenge', 'return_home'):
+        config = params(task)
+        labels = {config[k] for k in ('red', 'green', 'count', 'mark', 'marker', 'banner')
+                  if k in config}
+        labels |= set(config.get('banners', [])) | set(config.get('vessels', []))
+        assert labels <= detector | banners | vessels, (task, labels - detector)

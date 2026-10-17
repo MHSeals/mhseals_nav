@@ -1,0 +1,8 @@
+# Task 6, return to home through the gate of two black buoys near the start.
+marker: black_buoy
+approach: 6.0           # m out from home, on the boat's side, before looking for the gate
+home_radius: 8.0        # m; only black pairs this close to home are the home gate
+max_gate_width: 4.0
+search_distance: 6.0
+time_limit: 240.0
+timeout: 240.0

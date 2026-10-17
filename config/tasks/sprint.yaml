@@ -1,9 +1,0 @@
-# Task 3, emergency sprint.
-red: red_pole_buoy
-green: green_pole_buoy
-max_gate_width: 8.0
-search_distance: 20.0
-# Beacon colour -> circle clockwise? Red is passed counterclockwise, green clockwise.
-beacon_directions: {red_light_buoy: false, green_light_buoy: true}
-circle_radius: 2.0
-timeout: 300.0

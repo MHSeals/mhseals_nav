@@ -1,0 +1,4 @@
+# The whole run, in order; each task's own YAML is loaded under its name and can be
+# overridden here (e.g. docking: {banner: red_circle}).
+tasks: [nav_channel, follow_path, docking, speed_challenge, return_home]
+timeout: 1200.0

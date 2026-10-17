@@ -26,6 +26,7 @@ from std_msgs.msg import String
 from tf2_ros import Buffer, TransformException, TransformListener
 from vision_msgs.msg import Detection3DArray
 
+from mhseals_nav.tasks import geometry
 from mhseals_nav.tasks.trees import TREES
 
 EXIT_CODES = {'SUCCESS': 0, 'FAILURE': 1, 'TIMEOUT': 2}
@@ -63,9 +64,13 @@ class Navigator:
     """Sends routes of (x, y, yaw) map poses to Nav2 without blocking the tick."""
 
     def __init__(self, node, frame='map'):
+        from ament_index_python.packages import get_package_share_directory
         self.node, self.frame = node, frame
         self.to_pose = ActionClient(node, NavigateToPose, 'navigate_to_pose')
         self.through = ActionClient(node, NavigateThroughPoses, 'navigate_through_poses')
+        # Docking ends on the tight goal checker (behavior_trees/nav_precise.xml).
+        self.precise_tree = (f"{get_package_share_directory('mhseals_nav')}"
+                             '/behavior_trees/nav_precise.xml')
 
     def pose(self, x, y, yaw):
         pose = PoseStamped()
@@ -75,10 +80,13 @@ class Navigator:
         pose.pose.orientation.z, pose.pose.orientation.w = math.sin(yaw / 2), math.cos(yaw / 2)
         return pose
 
-    def send(self, route):
+    def send(self, route, precise=False):
         poses = [self.pose(*waypoint) for waypoint in route]
-        if len(poses) == 1:
-            return Goal(self.to_pose.send_goal_async(NavigateToPose.Goal(pose=poses[0])))
+        if len(poses) == 1 or precise:
+            goal = NavigateToPose.Goal(pose=poses[-1])
+            if precise:
+                goal.behavior_tree = self.precise_tree
+            return Goal(self.to_pose.send_goal_async(goal))
         return Goal(self.through.send_goal_async(NavigateThroughPoses.Goal(poses=poses)))
 
 
@@ -88,7 +96,8 @@ class TaskRunner(Node):
         self.task = task
         self.timeout = float(params.get('timeout', 600.0))
         self.frame = params.get('map_frame', 'map')
-        self.objects = []
+        self.objects, self.memory = [], []
+        self.memory_horizon = float(params.get('memory', 5.0))
         self.tf = Buffer()
         self.listener = TransformListener(self.tf, self)
         self.create_subscription(Detection3DArray, params.get('objects_topic', '/objects/map'),
@@ -98,8 +107,9 @@ class TaskRunner(Node):
             String, '/task/status',
             QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
         self.board = py_trees.blackboard.Client(name='runner')
-        for key in ('objects', 'pose', 'now'):
+        for key in ('objects', 'pose', 'now', 'home'):
             self.board.register_key(key=key, access=py_trees.common.Access.WRITE)
+        self.board.home = None
         self.tree = py_trees.trees.BehaviourTree(TREES[task](params))
         self.tree.setup(timeout=15.0, navigator=Navigator(self, self.frame), report=self.report)
         self.started = None
@@ -107,8 +117,12 @@ class TaskRunner(Node):
         self.create_timer(1.0 / float(params.get('tick_hz', 10.0)), self.tick)
 
     def _objects(self, message):
-        self.objects = [(d.results[0].hypothesis.class_id, d.bbox.center.position.x,
-                         d.bbox.center.position.y) for d in message.detections if d.results]
+        # Remembered for a few seconds, so a track that drops out briefly does not
+        # make a sighting flicker.
+        seen = [(d.results[0].hypothesis.class_id, d.bbox.center.position.x,
+                 d.bbox.center.position.y) for d in message.detections if d.results]
+        self.memory = geometry.remember(self.memory, seen, self.now(), self.memory_horizon)
+        self.objects = [item[:3] for item in self.memory]
 
     def now(self):
         return self.get_clock().now().nanoseconds / 1e9
@@ -139,6 +153,8 @@ class TaskRunner(Node):
             self.started = now
             self.report('task_started')
         self.board.objects, self.board.pose, self.board.now = self.objects, self.pose(), now
+        if self.board.home is None:
+            self.board.home = self.board.pose  # where the run started, for the return
         self.tree.tick()
         status = self.tree.root.status.name
         if status in ('SUCCESS', 'FAILURE'):
@@ -160,11 +176,15 @@ class TaskRunner(Node):
 
 
 def load_params(task, path=None):
-    if path is None:
-        from ament_index_python.packages import get_package_share_directory
-        path = f"{get_package_share_directory('mhseals_nav')}/config/tasks/{task}.yaml"
-    with open(path, encoding='utf-8') as stream:
-        return yaml.safe_load(stream) or {}
+    """Load a task's YAML; for the mission, each task's own YAML under its name."""
+    from ament_index_python.packages import get_package_share_directory
+    folder = f"{get_package_share_directory('mhseals_nav')}/config/tasks"
+    with open(path or f'{folder}/{task}.yaml', encoding='utf-8') as stream:
+        params = yaml.safe_load(stream) or {}
+    if task == 'mission':
+        for name in params['tasks']:
+            params[name] = {**load_params(name), **params.get(name, {})}
+    return params
 
 
 def main(args=None):
