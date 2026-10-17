@@ -7,22 +7,36 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_rpp_and_command_limits():
+def test_omni_mppi_and_command_limits():
     config = yaml.safe_load((ROOT / 'config/nav2_params.yaml').read_text())
     controller = config['controller_server']['ros__parameters']
-    rpp = controller['FollowPath']
+    mppi = controller['FollowPath']
     assert controller['odom_topic'] == '/odom/local'
     assert controller['progress_checker_plugins'] == ['progress_checker']
-    assert rpp['plugin'] == (
-        'nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController')
-    assert rpp['use_collision_detection']
-    assert not rpp['allow_reversing']
+    assert mppi['plugin'] == 'nav2_mppi_controller::MPPIController'
+    assert mppi['motion_model'] == 'Omni'
+    assert 'CostCritic' in mppi['critics'] and mppi['CostCritic']['consider_footprint']
+    # The camera looks forward: prefer facing along the path.
+    assert mppi['PathAngleCritic']['mode'] == 0 and 'PreferForwardCritic' in mppi['critics']
     smoother = config['velocity_smoother']['ros__parameters']
-    assert smoother['max_velocity'][0] == rpp['desired_linear_vel']
-    assert smoother['max_velocity'][2] == rpp['rotate_to_heading_angular_vel']
-    assert smoother['min_velocity'][0] == 0.0
-    assert smoother['max_velocity'][1] == 0.0
+    # The smoother passes everything MPPI may command, sway included, and no more.
+    assert smoother['max_velocity'] == [mppi['vx_max'], mppi['vy_max'], mppi['wz_max']]
+    assert smoother['min_velocity'] == [mppi['vx_min'], -mppi['vy_max'], -mppi['wz_max']]
     assert smoother['velocity_timeout'] > 0
+    for checker in controller['goal_checker_plugins']:
+        assert controller[checker]['plugin'] == 'nav2_controller::StoppedGoalChecker'
+
+
+def test_inflation_leaves_a_six_foot_gate_open():
+    config = yaml.safe_load((ROOT / 'config/nav2_params.yaml').read_text())
+    gate = 6 * 0.3048
+    for name in ['local_costmap', 'global_costmap']:
+        params = config[name][name]['ros__parameters']
+        footprint = yaml.safe_load(params['footprint'])
+        half_beam = max(abs(y) for _, y in footprint) + params['footprint_padding']
+        # Lethal space ends at the inscribed radius; the hull must fit between two buoys.
+        assert 2 * half_beam < gate - 0.2
+        assert params['inflation_layer']['inflation_radius'] <= gate / 2
 
 
 def test_costmaps_do_not_require_slam_and_check_sensor_freshness():
@@ -45,7 +59,7 @@ def test_costmaps_do_not_require_slam_and_check_sensor_freshness():
 
 
 def test_recovery_trees_do_not_command_blind_motion():
-    for name in ['nav_to_pose.xml', 'nav_replan_recov.xml']:
+    for name in ['nav_to_pose.xml', 'nav_replan_recov.xml', 'nav_precise.xml']:
         root = ET.parse(ROOT / 'mhseals_nav/behavior_trees' / name).getroot()
         assert not any(node.tag in ['Spin', 'BackUp', 'ClearEntireCostmap'] for node in root.iter())
         assert len(root.find('.//RecoveryNode')) == 2

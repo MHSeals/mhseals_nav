@@ -1,7 +1,7 @@
 """Isolated Nav2 commissioning smoke test, NOT a boat dynamics simulation.
 
 Run only in a network-isolated container with ROS_DOMAIN_ID=231, ROS sourced.
-Uses synthetic clear-water point returns and ideal velocity tracking.
+Uses synthetic clear-water point returns and ideal holonomic velocity tracking.
 """
 import math
 import os
@@ -48,20 +48,23 @@ def main():
     received = []
     lidar_required = '--no-lidar' not in sys.argv
     lidar_enabled = lidar_required
+    limits = config['velocity_smoother']['ros__parameters']
+    high, low = limits['max_velocity'], limits['min_velocity']
 
     def on_command(msg):
         nonlocal command
         command = msg
         received.append((time.monotonic(), msg.linear.x, msg.angular.z))
-        assert -0.001 <= msg.linear.x <= 0.401, msg
-        assert abs(msg.linear.y) < 0.001 and abs(msg.angular.z) <= 0.401, msg
+        for value, axis in ((msg.linear.x, 0), (msg.linear.y, 1), (msg.angular.z, 2)):
+            assert low[axis] - 0.001 <= value <= high[axis] + 0.001, msg
 
     subscription = node.create_subscription(Twist, '/cmd_vel', on_command, 10)
 
     def tick():
         state[2] += command.angular.z * 0.05
-        state[0] += command.linear.x * math.cos(state[2]) * 0.05
-        state[1] += command.linear.x * math.sin(state[2]) * 0.05
+        c, s = math.cos(state[2]), math.sin(state[2])
+        state[0] += (command.linear.x * c - command.linear.y * s) * 0.05
+        state[1] += (command.linear.x * s + command.linear.y * c) * 0.05
         stamp = node.get_clock().now().to_msg()
         transform = TransformStamped()
         transform.header.stamp = stamp
