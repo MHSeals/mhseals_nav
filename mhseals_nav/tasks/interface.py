@@ -80,6 +80,9 @@ class Navigator:
         pose.pose.orientation.z, pose.pose.orientation.w = math.sin(yaw / 2), math.cos(yaw / 2)
         return pose
 
+    def ready(self):
+        return self.to_pose.server_is_ready() and self.through.server_is_ready()
+
     def send(self, route, precise=False):
         poses = [self.pose(*waypoint) for waypoint in route]
         if len(poses) == 1 or precise:
@@ -115,7 +118,8 @@ class TaskRunner(Node):
             self.board.register_key(key=key, access=py_trees.common.Access.WRITE)
         self.board.home = None
         self.tree = py_trees.trees.BehaviourTree(TREES[task](params))
-        self.tree.setup(timeout=15.0, navigator=Navigator(self, self.frame), report=self.report)
+        self.navigator = Navigator(self, self.frame)
+        self.tree.setup(timeout=15.0, navigator=self.navigator, report=self.report)
         self.started = None
         self.outcome = None
         self.create_timer(1.0 / float(params.get('tick_hz', 10.0)), self.tick)
@@ -153,6 +157,10 @@ class TaskRunner(Node):
         now = self.now()
         if self.started is None:
             if now == 0:  # waiting for /clock
+                return
+            # A goal sent before discovery has matched Nav2's action servers is lost,
+            # and its future never completes: the tree would wait on it for good.
+            if not self.navigator.ready():
                 return
             self.started = now
             self.report('task_started')
