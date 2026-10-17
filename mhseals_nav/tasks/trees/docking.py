@@ -4,9 +4,14 @@ Find the banner, choose a bay under it (skipping any with a vessel in it),
 stage in front, slide in with the precise goal checker, hold, and back out.
 """
 
-from py_trees.composites import Sequence
+from py_trees.composites import Selector, Sequence
 
-from mhseals_nav.tasks.behaviours import Hold, Navigate, PlanBay, Report, Search
+from mhseals_nav.tasks.behaviours import Hold, Navigate, PlanBay, PlanLook, Report, Search
+
+
+def plan_bay(params, name):
+    return PlanBay(name, 'bay', params['banner'], params['banners'], params['vessels'],
+                   berth=params['berth'], staging=params['staging'], depth=params['bay_depth'])
 
 
 def build(params):
@@ -14,8 +19,17 @@ def build(params):
     return Sequence('docking', memory=True, children=[
         Search('find the dock', params['banners'], params['search_distance']),
         Search('find the banner', (banner,), params['search_distance']),
-        PlanBay('choose a bay', 'bay', banner, params['banners'], params['vessels'],
-                berth=params['berth'], staging=params['staging'], depth=params['bay_depth']),
+        # The camera may see only part of the dock: if no empty bay is in view yet,
+        # look along it once and choose again.
+        Selector('choose a bay', memory=True, children=[
+            plan_bay(params, 'first look'),
+            Sequence('look along the dock', memory=True, children=[
+                PlanLook('plan look', 'look'),
+                Navigate('look one way', 'look'),
+                Navigate('look the other way', 'look_rest'),
+                plan_bay(params, 'second look'),
+            ]),
+        ]),
         Navigate('to the bay', 'bay_staging'),
         Navigate('into the bay', 'bay_berth', precise=True),
         Report('report docked', 'docked', include=('bay',), banner=banner),

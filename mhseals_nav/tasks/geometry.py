@@ -81,8 +81,12 @@ def relative(pose, offsets):
     return route
 
 
-def through(gate, before=1.5, after=2.0):
-    """Two poses that carry the whole hull across a gate's line, not just to it."""
+def through(gate, before=1.5, after=1.1):
+    """Two poses that carry the whole hull across a gate's line, not just to it.
+
+    ``after`` is half the hull (0.53 m) and a margin: far enough to clear the
+    line, near enough not to land on what lies beyond the gate.
+    """
     x, y, yaw = gate
     c, s = math.cos(yaw), math.sin(yaw)
     return [(x - before * c, y - before * s, yaw), (x + after * c, y + after * s, yaw)]
@@ -183,3 +187,15 @@ def crossed(gate, pose, beyond=0.6, half_width=2.5):
     along = dx * math.cos(yaw) + dy * math.sin(yaw)
     across = -dx * math.sin(yaw) + dy * math.cos(yaw)
     return along >= beyond and abs(across) <= half_width
+
+
+def look_around(pose, angle=1.05):
+    """A forward camera's sweep: turn in place to one side, then to the other.
+
+    Two single-pose routes, sent one after the other: Nav2 drops waypoints within
+    a metre of the boat and calls a route done when the boat already sits at its
+    end, so a sweep through several poses back to the start would never turn.
+    """
+    x, y, yaw = pose
+    wrap = lambda a: math.atan2(math.sin(a), math.cos(a))  # noqa: E731
+    return [[(x, y, wrap(yaw + angle))], [(x, y, wrap(yaw - angle))]]

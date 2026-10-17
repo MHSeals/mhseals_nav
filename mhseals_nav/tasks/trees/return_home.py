@@ -8,7 +8,7 @@ from mhseals_nav.tasks.behaviours import GateRun, Navigate, PlanHome, Report
 def build(params):
     black = params['marker']
     return Sequence('return home', memory=True, children=[
-        PlanHome('plan home', 'home_route', params['approach']),
+        PlanHome('plan home', 'home_route', params['home_approach']),
         Navigate('back toward home', 'home_route'),
         GateRun('through the home gate', 'home_gate', black, black, gates=1,
                 search=params['search_distance'], max_width=params['max_gate_width'],

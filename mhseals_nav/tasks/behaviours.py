@@ -92,10 +92,13 @@ class PlanForward(Leaf):
 
 
 class PlanCircle(Leaf):
-    """Circle the nearest of ``labels``; ``clockwise`` is a bool or {label: bool}."""
+    """Circle the nearest of ``labels``; ``clockwise`` is a bool or {label: bool}.
+
+    Writes the first half of the circle to ``key`` and the rest to ``key``_rest.
+    """
 
     def __init__(self, name, key, labels, radius, clockwise, points=6):
-        super().__init__(name, writes=(key, key + '_target'))
+        super().__init__(name, writes=(key, key + '_rest', key + '_target'))
         self.key, self.labels, self.radius = key, tuple(labels), radius
         self.clockwise, self.points = clockwise, points
 
@@ -107,8 +110,12 @@ class PlanCircle(Leaf):
         label, x, y = min(targets, key=lambda t: math.dist(t[1:], pose[:2]))
         clockwise = (self.clockwise[label] if isinstance(self.clockwise, dict)
                      else self.clockwise)
-        self.board.set(self.key, geometry.circle((x, y), self.radius, self.points, clockwise,
-                                                 pose[:2]), overwrite=True)
+        poses = geometry.circle((x, y), self.radius, self.points, clockwise, pose[:2])
+        # Two halves: Nav2 checks only the distance to a route's last pose, and a whole
+        # circle ends where the boat starts it, so it would "arrive" at once.
+        half = len(poses) // 2
+        self.board.set(self.key, poses[:half], overwrite=True)
+        self.board.set(self.key + '_rest', poses[half:], overwrite=True)
         self.board.set(self.key + '_target', label, overwrite=True)
         return Status.SUCCESS
 
@@ -161,12 +168,20 @@ class Navigate(Leaf):
     def setup(self, **kwargs):
         self.navigator = kwargs['navigator']
 
+    RETRIES = 30  # ticks: a goal just cancelled elsewhere can take a moment to clear
+
     def initialise(self):
+        self.tries = 0
         self.goal = self.navigator.send(self.board.get(self.key), precise=self.precise)
 
     def update(self):
         if self.goal is None:
-            return Status.FAILURE  # Nav2 rejected the goal
+            return Status.FAILURE
+        if self.goal.done and self.goal.status == 'REJECTED' and self.tries < self.RETRIES:
+            # Nav2 runs one navigation at a time and rejects ours while another winds down.
+            self.tries += 1
+            self.goal = self.navigator.send(self.board.get(self.key), precise=self.precise)
+            return Status.RUNNING
         if not self.goal.done:
             return Status.RUNNING
         self.feedback_message = self.goal.status
@@ -242,15 +257,17 @@ class GateRun(Leaf):
 
     def initialise(self):
         self.cleared, self.goal, self.target, self.searched = [], None, None, 0.0
-        self.cancelled = None
+        self.cancelled, self.looked, self.legs = None, False, []
 
     def visible_gate(self):
         reds = self.labelled(self.red)
         greens = reds if self.red == self.green else self.labelled(self.green)
         gates = geometry.gate_midpoints(reds, greens, self.board.pose, self.max_width,
                                         self.min_width)
-        if self.near:
+        if self.near and self.board.exists(self.near):
             centre = self.board.get(self.near)
+            if isinstance(centre, list):  # a one-pose route, such as the task's approach
+                centre = centre[0]
             gates = [g for g in gates if centre and math.dist(g[:2], centre[:2]) <= self.radius]
         direction = self.cleared[-1][2] if self.cleared else None
         return geometry.next_gate(gates, self.board.pose, self.cleared, direction)
@@ -265,7 +282,7 @@ class GateRun(Leaf):
         if self.goal is not None:
             if self.target is None and self.visible_gate() is not None:
                 self.goal.cancel()  # a gate appeared while searching: go to it
-                self.cancelled, self.goal = self.goal, None
+                self.cancelled, self.goal, self.legs = self.goal, None, []
                 return Status.RUNNING
             elif not self.goal.done:
                 return Status.RUNNING
@@ -281,6 +298,9 @@ class GateRun(Leaf):
                 self.report('gate_cleared', gate=len(self.cleared),
                             position=[round(v, 2) for v in self.target[:2]])
                 self.goal = self.target = None
+            elif self.legs:
+                self.goal = self.navigator.send(self.legs.pop(0))  # the sweep's other side
+                return Status.RUNNING
             else:
                 self.goal = None
         if self.limit is not None and len(self.cleared) >= self.limit:
@@ -291,8 +311,16 @@ class GateRun(Leaf):
             self.goal = self.navigator.send(geometry.through(gate))
             return Status.RUNNING if self.goal is not None else Status.FAILURE
         if self.searched < self.search:
-            self.searched += self.step
-            self.goal = self.navigator.send([geometry.forward(self.board.pose, self.step)])
+            # The camera looks forward: sweep each side before driving on, as a
+            # bending path can put the next gate well off the bow.
+            if not self.looked:
+                self.looked = True
+                first, *self.legs = geometry.look_around(self.board.pose)
+                self.goal = self.navigator.send(first)
+            else:
+                self.looked = False
+                self.searched += self.step
+                self.goal = self.navigator.send([geometry.forward(self.board.pose, self.step)])
             return Status.RUNNING if self.goal is not None else Status.FAILURE
         self.feedback_message = f'{len(self.cleared)} gates, none ahead'
         return Status.SUCCESS if self.cleared else Status.FAILURE
@@ -507,4 +535,32 @@ class PlanHome(Leaf):
         out = geometry.heading(home, pose)
         point = (home[0] + self.approach * math.cos(out), home[1] + self.approach * math.sin(out))
         self.board.set(self.key, [(*point, geometry.heading(point, home))], overwrite=True)
+        return Status.SUCCESS
+
+
+class PlanPose(Leaf):
+    """Write the fixed map pose ``pose`` (x, y, yaw) to ``key`` as a one-pose route."""
+
+    def __init__(self, name, key, pose):
+        super().__init__(name, writes=(key,))
+        self.key, self.pose = key, tuple(float(value) for value in pose)
+
+    def update(self):
+        self.board.set(self.key, [self.pose], overwrite=True)
+        return Status.SUCCESS
+
+
+class PlanLook(Leaf):
+    """Write an in-place sweep: one side to ``key``, the other to ``key``_rest."""
+
+    def __init__(self, name, key):
+        super().__init__(name, writes=(key, key + '_rest'))
+        self.key = key
+
+    def update(self):
+        if self.board.pose is None:
+            return Status.FAILURE
+        first, rest = geometry.look_around(self.board.pose)
+        self.board.set(self.key, first, overwrite=True)
+        self.board.set(self.key + '_rest', rest, overwrite=True)
         return Status.SUCCESS

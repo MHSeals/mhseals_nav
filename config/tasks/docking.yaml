@@ -4,7 +4,7 @@ banners: [red_circle, red_triangle, red_square, red_plus,
           green_circle, green_triangle, green_square, green_plus,
           blue_circle, blue_triangle, blue_square, blue_plus]
 vessels: [yellow_target_boat, black_target_boat]
-berth: 0.85             # m from the banner to the boat's centre when docked
+berth: 1.2              # m from the banner to the boat's centre: bow 0.67 m off the spine, stern in the bay
 staging: 3.0            # m out from the banner, lined up before sliding in
 bay_depth: 1.5          # m the bay reaches out from the spine
 dock_time: 5.0          # s held in the bay

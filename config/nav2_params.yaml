@@ -33,10 +33,10 @@ controller_server:
     precise_goal_checker:
       plugin: nav2_controller::StoppedGoalChecker
       stateful: true
-      xy_goal_tolerance: 0.2
-      yaw_goal_tolerance: 0.2
-      trans_stopped_velocity: 0.15
-      rot_stopped_velocity: 0.15
+      xy_goal_tolerance: 0.3
+      yaw_goal_tolerance: 0.25
+      trans_stopped_velocity: 0.25    # gusts keep a berthed boat stirring
+      rot_stopped_velocity: 0.25
     FollowPath:
       plugin: nav2_mppi_controller::MPPIController
       motion_model: Omni
@@ -155,7 +155,27 @@ local_costmap:
         transform_tolerance: 0.2
         mapping_mode: false
         map_save_duration: 60.0
-        observation_sources: pointcloud
+        observation_sources: pointcloud objects
+        # Camera-tracked objects (object_tracker): the LiDAR's rings pass over a
+        # 0.15 m buoy up close; marking only, the voxel decay clears them.
+        objects:
+          topic: /objects/points
+          data_type: PointCloud2
+          marking: true
+          clearing: false
+          min_obstacle_height: -1.5
+          max_obstacle_height: 3.0
+          obstacle_range: 20.0
+          expected_update_rate: 0.0
+          observation_persistence: 0.0
+          inf_is_valid: false
+          voxel_filter: false
+          clear_after_reading: true
+          model_type: 1
+          vertical_fov_angle: 0.52
+          vertical_fov_offset: 0.0
+          horizontal_fov_angle: 6.28
+          decay_acceleration: 0.0
         pointcloud:
           topic: /points
           data_type: PointCloud2
@@ -191,7 +211,9 @@ planner_server:
     planner_plugins: [GridBased]
     GridBased:
       plugin: nav2_navfn_planner::NavfnPlanner
-      tolerance: 0.05
+      # A waypoint inside an obstacle's margin (just past a gate, by a buoy) ends at
+      # the nearest free cell within this distance instead of failing.
+      tolerance: 0.5
       use_astar: true
       allow_unknown: false
 
@@ -206,8 +228,9 @@ global_costmap:
       # Mapless local-horizon planning assumes unobserved water is free, NOT verified safe.
       update_frequency: 5.0
       publish_frequency: 5.0
-      width: 60
-      height: 60
+      # A RoboBoat course spans about 100 m; plans reach any task area from anywhere.
+      width: 100
+      height: 100
       resolution: 0.10
       footprint: "[[0.5315, 0.4475], [0.5315, -0.4475], [-0.5315, -0.4475], [-0.5315, 0.4475]]"
       footprint_padding: 0.05
@@ -229,7 +252,27 @@ global_costmap:
         transform_tolerance: 0.2
         mapping_mode: false
         map_save_duration: 60.0
-        observation_sources: pointcloud
+        observation_sources: pointcloud objects
+        # Camera-tracked objects (object_tracker): the LiDAR's rings pass over a
+        # 0.15 m buoy up close; marking only, the voxel decay clears them.
+        objects:
+          topic: /objects/points
+          data_type: PointCloud2
+          marking: true
+          clearing: false
+          min_obstacle_height: -1.5
+          max_obstacle_height: 3.0
+          obstacle_range: 20.0
+          expected_update_rate: 0.0
+          observation_persistence: 0.0
+          inf_is_valid: false
+          voxel_filter: false
+          clear_after_reading: true
+          model_type: 1
+          vertical_fov_angle: 0.52
+          vertical_fov_offset: 0.0
+          horizontal_fov_angle: 6.28
+          decay_acceleration: 0.0
         pointcloud:
           topic: /points
           data_type: PointCloud2

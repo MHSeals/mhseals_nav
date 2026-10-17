@@ -1,6 +1,6 @@
 /**:
   ros__parameters:
-    frequency: 80.0
+    frequency: 30.0   # inputs come at 20-50 Hz; 80 Hz missed its deadlines under load and lagged TF
     sensor_timeout: 0.5
     two_d_mode: true
     publish_tf: true

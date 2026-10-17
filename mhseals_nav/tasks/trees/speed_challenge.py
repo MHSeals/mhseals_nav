@@ -18,13 +18,16 @@ def build(params):
     red, green, mark = params['red'], params['green'], params['mark']
     run = Sequence('speed run', memory=True, children=[
         WaitFor('gate visible', (red, green)),
+        # Its gate is the one by its approach: other tasks' red/green gates look alike.
         GateRun('through the gate', 'speed_gate', red, green, gates=1,
-                max_width=params['max_gate_width']),
+                max_width=params['max_gate_width'], near='approach',
+                radius=params['gate_radius']),
         Report('report start', 'speed_started'),
         Search('find the mark', (mark,), params['search_distance']),
         PlanCircle('plan circle', 'circle', (mark,), params['circle_radius'],
                    clockwise=params['circle_clockwise'], points=params['circle_points']),
-        Navigate('circle the mark', 'circle'),
+        Navigate('round the mark', 'circle'),
+        Navigate('and back to the start', 'circle_rest'),
         ReportCount('report count', 'spills', 'spill_count', spin=params['report'] == 'spin'),
         PlanGatePass('plan return', 'return', 'speed_gate', back=True),
         Navigate('back through the gate', 'return'),

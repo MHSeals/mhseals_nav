@@ -23,6 +23,7 @@
   <exec_depend>nav2_velocity_smoother</exec_depend>
   <exec_depend>nav2_lifecycle_manager</exec_depend>
   <exec_depend>nav2_msgs</exec_depend>
+  <exec_depend>sensor_msgs_py</exec_depend>
   <exec_depend>action_msgs</exec_depend>
   <exec_depend>py_trees</exec_depend>
   <exec_depend>mavros</exec_depend>

@@ -30,7 +30,7 @@ def test_next_gate_is_ahead_and_not_cleared():
     # Behind the direction of travel, or past the horizon, is not next.
     assert geometry.next_gate(gates, (13, 0, 0), [(5, 0, 0), (12, 1, 0)]) is None
     assert geometry.next_gate([(40, 0, 0)], (0, 0, 0), []) is None
-    assert geometry.through((5, 0, 0)) == [(3.5, 0, 0), (7.0, 0, 0)]
+    assert geometry.through((5, 0, 0)) == [(3.5, 0, 0), (6.1, 0, 0)]
 
 
 def test_crossed_means_past_the_line_near_the_middle():
@@ -144,7 +144,7 @@ def test_nav_channel_crosses_both_gates():
     world.state['objects'] = gate(7, 0, 3) + gate(13, 0, 3)
     assert world.run() == 'SUCCESS'
     assert world.names() == ['gate_cleared', 'gate_cleared']
-    assert [goal.route[-1][:2] for goal in world.goals] == [(9.0, 0.0), (15.0, 0.0)]
+    assert [goal.route[-1][:2] for goal in world.goals] == [(8.1, 0.0), (14.1, 0.0)]
 
 
 def test_nav_channel_searches_ahead_for_the_second_gate():
@@ -157,7 +157,7 @@ def test_nav_channel_searches_ahead_for_the_second_gate():
 
     assert world.run(script=appear) == 'SUCCESS'
     assert world.goals[1].cancelled  # the search leg was preempted by the sighting
-    assert world.goals[-1].route[-1][:2] == pytest.approx((22, 0))
+    assert world.goals[-1].route[-1][:2] == pytest.approx((21.1, 0))
 
 
 def test_follow_path_runs_every_gate_and_reports_the_species_count():
@@ -177,7 +177,7 @@ def test_docking_skips_the_occupied_bay():
                               ('blue_square', 10, -5), ('yellow_target_boat', 9.25, -1)]
     assert world.run() == 'SUCCESS'
     berth = next(goal for goal in world.goals if goal.precise)
-    assert berth.route[-1] == pytest.approx((9.15, -5, 0))
+    assert berth.route[-1] == pytest.approx((8.8, -5, 0))
     assert world.names() == ['docked', 'undocked']
     assert world.goals[-1].route[-1][:2] == pytest.approx((7, -5))  # backed out
 
@@ -196,7 +196,9 @@ def test_speed_challenge_circles_the_mark_and_counts_spills_past_the_gate():
     names = world.names()
     assert names.index('speed_started') < names.index('spill_count') < names.index('speed_finished')
     assert world.event('spill_count')['count'] == 2  # the one before the gate is not in the task
-    circle = next(goal.route for goal in world.goals if len(goal.route) == 8)
+    halves = [goal.route for goal in world.goals if len(goal.route) == 4]
+    assert len(halves) == 2  # two halves, each ending away from where it began
+    circle = halves[0] + halves[1]
     assert all(math.dist(p[:2], (20, 0)) == pytest.approx(2.5) for p in circle)
     back = world.goals[-1].route
     assert back[-1][0] < 5 and abs(abs(back[-1][2]) - math.pi) < 1e-9
@@ -210,7 +212,7 @@ def test_return_home_finds_the_black_gate_by_home():
                               ('black_buoy', 10, 12.6), ('black_buoy', 14, 9.4)]
     assert world.run() == 'SUCCESS'
     assert world.goals[0].route == [pytest.approx((6, 0, math.pi))]
-    assert world.goals[-1].route[-1][:2] == pytest.approx((-4.5, 0))
+    assert world.goals[-1].route[-1][:2] == pytest.approx((-3.6, 0))
     assert world.names() == ['gate_cleared', 'returned_home']
 
 
@@ -253,3 +255,26 @@ def test_task_labels_are_detector_or_course_classes():
                   if k in config}
         labels |= set(config.get('banners', [])) | set(config.get('vessels', []))
         assert labels <= detector | banners | vessels, (task, labels - detector)
+
+
+def test_a_task_drives_to_its_approach_first():
+    settings = dict(params('docking'), approach=[12.0, -14.0, -1.57])
+    world = World('docking', settings)
+    world.state['objects'] = [('blue_square', 10, -1), ('red_circle', 10, -3),
+                              ('blue_square', 10, -5)]
+    assert world.run() == 'SUCCESS'
+    assert world.goals[0].route == [(12.0, -14.0, -1.57)]
+
+
+def test_docking_looks_along_the_dock_when_no_empty_bay_is_in_view():
+    world = World('docking', params('docking'))
+    occupied = [('blue_square', 10, -1), ('yellow_target_boat', 9.25, -1)]
+    world.state['objects'] = list(occupied)
+
+    def turn(tick, world):
+        if any(len(goal.route) == 1 and goal.route[0][:2] == world.goals[0].route[-1][:2] for goal in world.goals[1:]):  # the sweep shows the rest
+            world.state['objects'] = occupied + [('red_circle', 10, -3), ('blue_square', 10, -5)]
+
+    assert world.run(script=turn) == 'SUCCESS'
+    berth = next(goal for goal in world.goals if goal.precise)
+    assert berth.route[-1][:2] == pytest.approx((8.8, -5))

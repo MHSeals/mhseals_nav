@@ -11,3 +11,4 @@ circle_clockwise: false # either direction scores
 circle_points: 8
 time_limit: 240.0
 timeout: 240.0
+gate_radius: 10.0        # m from the approach (when given) within which its gate lies
