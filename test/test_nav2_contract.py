@@ -15,6 +15,9 @@ def test_omni_mppi_and_command_limits():
     assert controller['progress_checker_plugins'] == ['progress_checker']
     assert mppi['plugin'] == 'nav2_mppi_controller::MPPIController'
     assert mppi['motion_model'] == 'Omni'
+    # MPPI advances its plan one model_dt per control cycle.
+    assert mppi['model_dt'] == 1.0 / controller['controller_frequency']
+    assert mppi['prune_distance'] >= mppi['vx_max'] * mppi['time_steps'] * mppi['model_dt']
     assert 'CostCritic' in mppi['critics'] and mppi['CostCritic']['consider_footprint']
     # The camera looks forward: prefer facing along the path.
     assert mppi['PathAngleCritic']['mode'] == 0 and 'PreferForwardCritic' in mppi['critics']
