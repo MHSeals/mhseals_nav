@@ -16,15 +16,30 @@
     world_frame: map
 
     # === Local Odom Reference ===
+    # Velocities only: a pose from the odom frame reaches this filter through its own
+    # map->odom transform, so it always agrees with the estimate and never corrects it.
     odom0: /odom/local
     odom0_config: [
       false, false, false,   # position comes only from GPS; avoid double-counting
-      false, false,  true,   # roll, pitch, yaw
+      false, false, false,   # roll, pitch, yaw: from the IMU below
       true,  true,  false,   # vx, vy, vz
       false, false,  true,   # vroll, vpitch, vyaw
       false, false, false    # ax, ay, az
     ]
     odom0_differential: false
+
+    # === Heading ===
+    imu0: /imu/raw
+    imu0_config: [
+      false, false, false,   # position
+      false, false,  true,   # roll, pitch, yaw: absolute heading
+      false, false, false,   # vx, vy, vz
+      false, false, false,   # angular velocity: already in odom0
+      false, false, false    # acceleration
+    ]
+    imu0_differential: false
+    imu0_relative: false
+    imu0_remove_gravitational_acceleration: true
     
     odom1: /odom/gps
     # navsat_transform supplies position, not yaw, velocity or yaw rate.

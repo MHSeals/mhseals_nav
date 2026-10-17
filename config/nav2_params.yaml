@@ -21,21 +21,20 @@ controller_server:
       plugin: nav2_controller::SimpleProgressChecker
       required_movement_radius: 0.1
       movement_time_allowance: 20.0
+    # Waves alone keep a floating boat moving at about 0.1 m/s, so ordinary goals
+    # only need the pose; docking (behavior_trees/nav_precise.xml) also needs it settled.
     general_goal_checker:
-      plugin: nav2_controller::StoppedGoalChecker
+      plugin: nav2_controller::SimpleGoalChecker
       stateful: true
-      xy_goal_tolerance: 0.3
+      xy_goal_tolerance: 0.4
       yaw_goal_tolerance: 0.5
-      trans_stopped_velocity: 0.1
-      rot_stopped_velocity: 0.1
-    # Docking and station keeping (behavior_trees/nav_precise.xml).
     precise_goal_checker:
       plugin: nav2_controller::StoppedGoalChecker
       stateful: true
-      xy_goal_tolerance: 0.15
-      yaw_goal_tolerance: 0.15
-      trans_stopped_velocity: 0.05
-      rot_stopped_velocity: 0.05
+      xy_goal_tolerance: 0.2
+      yaw_goal_tolerance: 0.2
+      trans_stopped_velocity: 0.15
+      rot_stopped_velocity: 0.15
     FollowPath:
       plugin: nav2_mppi_controller::MPPIController
       motion_model: Omni
@@ -43,7 +42,9 @@ controller_server:
       model_dt: 0.05
       batch_size: 1000
       iteration_count: 1
-      temperature: 0.3
+      # Low temperature: commit to the best samples; a floating boat's odometry is
+      # noisy (waves) and its response lags, which a high temperature averages away.
+      temperature: 0.1
       gamma: 0.015
       vx_std: 0.2
       vy_std: 0.2
@@ -56,7 +57,7 @@ controller_server:
       ax_min: -0.4
       ay_max: 0.4
       az_max: 0.6
-      prune_distance: 2.0
+      prune_distance: 3.0      # at least vx_max x the horizon (0.6 m/s x 2.8 s), with margin
       transform_tolerance: 0.2
       retry_attempt_limit: 2
       enforce_path_inversion: false
@@ -79,8 +80,8 @@ controller_server:
       GoalCritic:
         enabled: true
         cost_power: 1
-        cost_weight: 5.0
-        threshold_to_consider: 1.4
+        cost_weight: 8.0
+        threshold_to_consider: 2.5
       GoalAngleCritic:
         enabled: true
         cost_power: 1
@@ -98,7 +99,7 @@ controller_server:
       PathFollowCritic:
         enabled: true
         cost_power: 1
-        cost_weight: 5.0
+        cost_weight: 10.0
         offset_from_furthest: 5
         threshold_to_consider: 1.4
       # Face along the path (mode 0): the camera and lidar look forward.

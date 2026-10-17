@@ -1,10 +1,13 @@
 """Isolated Nav2 commissioning smoke test, NOT a boat dynamics simulation.
 
 Run only in a network-isolated container with ROS_DOMAIN_ID=231, ROS sourced.
-Uses synthetic clear-water point returns and ideal holonomic velocity tracking.
+Uses synthetic clear-water point returns and a holonomic plant. ``--lag S`` gives
+it a first-order velocity response and ``--noise M`` adds that much (m/s, rad/s)
+Gaussian noise to its odometry, as waves do to a floating boat.
 """
 import math
 import os
+import random
 from pathlib import Path
 import signal
 import subprocess
@@ -23,6 +26,10 @@ from sensor_msgs.msg import PointCloud2
 from std_msgs.msg import Header
 from tf2_ros import TransformBroadcaster, StaticTransformBroadcaster
 import yaml
+
+
+def option(name, default):
+    return sys.argv[sys.argv.index(name) + 1] if name in sys.argv else default
 
 
 def main():
@@ -60,11 +67,18 @@ def main():
 
     subscription = node.create_subscription(Twist, '/cmd_vel', on_command, 10)
 
+    lag = float(option('--lag', 0.0))
+    noise = float(option('--noise', 0.0))
+    actual = [0.0, 0.0, 0.0]
+
     def tick():
-        state[2] += command.angular.z * 0.05
+        wanted = (command.linear.x, command.linear.y, command.angular.z)
+        for axis in range(3):
+            actual[axis] += (wanted[axis] - actual[axis]) * min(1.0, 0.05 / lag if lag else 1.0)
+        state[2] += actual[2] * 0.05
         c, s = math.cos(state[2]), math.sin(state[2])
-        state[0] += (command.linear.x * c - command.linear.y * s) * 0.05
-        state[1] += (command.linear.x * s + command.linear.y * c) * 0.05
+        state[0] += (actual[0] * c - actual[1] * s) * 0.05
+        state[1] += (actual[0] * s + actual[1] * c) * 0.05
         stamp = node.get_clock().now().to_msg()
         transform = TransformStamped()
         transform.header.stamp = stamp
@@ -78,7 +92,9 @@ def main():
         odom.child_frame_id = 'base_link'
         odom.pose.pose.position.x, odom.pose.pose.position.y = state[:2]
         odom.pose.pose.orientation = transform.transform.rotation
-        odom.twist.twist = command
+        odom.twist.twist.linear.x = actual[0] + random.gauss(0.0, noise)
+        odom.twist.twist.linear.y = actual[1] + random.gauss(0.0, noise)
+        odom.twist.twist.angular.z = actual[2] + random.gauss(0.0, noise)
         odom_pub.publish(odom)
         if lidar_enabled:
             header = Header(stamp=stamp, frame_id='base_link')

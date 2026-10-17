@@ -23,8 +23,9 @@ def test_omni_mppi_and_command_limits():
     assert smoother['max_velocity'] == [mppi['vx_max'], mppi['vy_max'], mppi['wz_max']]
     assert smoother['min_velocity'] == [mppi['vx_min'], -mppi['vy_max'], -mppi['wz_max']]
     assert smoother['velocity_timeout'] > 0
-    for checker in controller['goal_checker_plugins']:
-        assert controller[checker]['plugin'] == 'nav2_controller::StoppedGoalChecker'
+    assert controller['precise_goal_checker']['plugin'] == 'nav2_controller::StoppedGoalChecker'
+    assert (controller['precise_goal_checker']['xy_goal_tolerance']
+            < controller['general_goal_checker']['xy_goal_tolerance'])
 
 
 def test_inflation_leaves_a_six_foot_gate_open():
