@@ -33,6 +33,12 @@ def test_next_gate_is_ahead_and_not_cleared():
     assert geometry.through((5, 0, 0)) == [(3.5, 0, 0), (7.0, 0, 0)]
 
 
+def test_crossed_means_past_the_line_near_the_middle():
+    gate = (10, 0, 0)
+    assert geometry.crossed(gate, (11, 0.5, 0)) and not geometry.crossed(gate, (10.2, 0, 0))
+    assert not geometry.crossed(gate, (11, 4, 0)) and not geometry.crossed(gate, (9, 0, 0))
+
+
 def test_unique_spin_and_memory():
     assert geometry.unique([(0, 0), (0.5, 0), (3, 0)]) == [(0, 0), (3, 0)]
     turns = geometry.spin((1, 2, 0), 2)

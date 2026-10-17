@@ -174,3 +174,12 @@ def remember(memory, seen, now, horizon=5.0, separation=1.0):
         else:
             kept[match] = (label, x, y, now)
     return kept
+
+
+def crossed(gate, pose, beyond=0.6, half_width=2.5):
+    """Has the boat at ``pose`` crossed ``gate``: past its line, within reach of its middle?"""
+    x, y, yaw = gate
+    dx, dy = pose[0] - x, pose[1] - y
+    along = dx * math.cos(yaw) + dy * math.sin(yaw)
+    across = -dx * math.sin(yaw) + dy * math.cos(yaw)
+    return along >= beyond and abs(across) <= half_width

@@ -242,6 +242,7 @@ class GateRun(Leaf):
 
     def initialise(self):
         self.cleared, self.goal, self.target, self.searched = [], None, None, 0.0
+        self.cancelled = None
 
     def visible_gate(self):
         reds = self.labelled(self.red)
@@ -257,14 +258,22 @@ class GateRun(Leaf):
     def update(self):
         if self.board.pose is None:
             return Status.RUNNING
+        # Nav2 takes one navigation at a time: let a cancelled goal finish first.
+        if self.cancelled is not None and not self.cancelled.done:
+            return Status.RUNNING
+        self.cancelled = None
         if self.goal is not None:
             if self.target is None and self.visible_gate() is not None:
                 self.goal.cancel()  # a gate appeared while searching: go to it
-                self.goal = None
+                self.cancelled, self.goal = self.goal, None
+                return Status.RUNNING
             elif not self.goal.done:
                 return Status.RUNNING
             elif self.target is not None:
-                if self.goal.status != 'SUCCEEDED':
+                # The boat's own pose decides: Nav2 may give up on the last metres past
+                # a gate it has already carried the hull through.
+                if (self.goal.status != 'SUCCEEDED' and
+                        not geometry.crossed(self.target, self.board.pose)):
                     self.feedback_message = f'gate {len(self.cleared) + 1}: {self.goal.status}'
                     return Status.FAILURE
                 self.cleared.append(self.target)
@@ -310,6 +319,8 @@ class Search(Leaf):
         if self.labelled(*self.labels):
             if self.goal is not None:
                 self.goal.cancel()
+                if not self.goal.done:  # Nav2 takes one navigation at a time
+                    return Status.RUNNING
                 self.goal = None
             return Status.SUCCESS
         if self.board.pose is None or (self.goal is not None and not self.goal.done):
