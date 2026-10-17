@@ -63,7 +63,7 @@ Required interfaces depend on which components are running:
 
 Navigation and tracking also require `/tf` and `/tf_static` with `map → odom → base_link → sensor` connectivity. The global EKF owns `map → odom`, the local EKF owns `odom → base_link`, and the robot description owns sensor mounts. Preserve measurement frame IDs and timestamps, and synchronize clocks across hosts. `/imu/raw` is the legacy name for FCU-fused MAVROS `/imu/data`, rather than `/imu/data_raw`.
 
-Navigation uses MPPI with the Omni model at 10 Hz (the boat can sway) and rolling costmaps of decaying voxels, fed by the LiDAR and by the camera-tracked objects (`/objects/points`), since small buoys sit below the LiDAR's rings up close. The characterization's Nav2 overlay gives MPPI 70 % of the measured limits, leaving the velocity loop authority for lag, turns and wind. RTABMap mapping consumes the live lidar cloud and external EKF odometry; it does not publish a competing localization transform.
+Navigation uses MPPI with the Omni model at 10 Hz (the boat can sway) and rolling costmaps of decaying voxels, fed by the LiDAR and by the camera-tracked objects (`/objects/points`), since small buoys sit below the LiDAR's rings up close. The characterization's Nav2 overlay gives MPPI the boat's full measured limits, scaled to full effort. RTABMap mapping consumes the live lidar cloud and external EKF odometry; it does not publish a competing localization transform.
 
 ### Mapping and rates
 
