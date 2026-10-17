@@ -140,13 +140,16 @@ def gate(x, y, width, red='red_pole_buoy', green='green_pole_buoy'):
 
 
 def test_waiting_holds_station_against_drift_then_gives_up():
+    from mhseals_nav.tasks.behaviours import WaitFor
     world = World('nav_channel', params('nav_channel'))
+    world.tree = py_trees.trees.BehaviourTree(WaitFor('gate', ('red',), timeout=30.0))
+    world.tree.setup(navigator=world, report=lambda event, **details: None)
 
     def drift(tick, world):  # the current carries the boat while nothing is in sight
         x, y, yaw = world.state['pose']
         world.state['pose'] = (x, y + 0.05, yaw)
 
-    assert world.run(script=drift) == 'FAILURE'  # after the 30 s timeout
+    assert world.run(script=drift) == 'FAILURE'  # after the timeout
     assert world.goals and all(goal.route[-1][:2] == pytest.approx((0, 0.05))
                                for goal in world.goals)  # back to where it began waiting
     assert abs(world.state['pose'][1]) < 2.0

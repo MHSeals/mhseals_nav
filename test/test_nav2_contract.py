@@ -41,7 +41,10 @@ def test_inflation_leaves_a_six_foot_gate_open():
         half_beam = max(abs(y) for _, y in footprint) + params['footprint_padding']
         # Lethal space ends at the inscribed radius; the hull must fit between two buoys.
         assert 2 * half_beam < gate - 0.2
-        assert params['inflation_layer']['inflation_radius'] <= gate / 2
+        # The gate's middle may cost something, but well short of the inscribed cost.
+        inflation = params['inflation_layer']
+        middle = 252 * math.exp(-inflation['cost_scaling_factor'] * (gate / 2 - half_beam))
+        assert middle < 128
         # MPPI checks the whole footprint only once the cost says a corner may touch;
         # that cost is read at the circumscribed radius, so inflation must reach it.
         circumscribed = max(math.hypot(abs(x) + params['footprint_padding'],

@@ -196,13 +196,14 @@ local_costmap:
           vertical_fov_offset: 0.0
           horizontal_fov_angle: 6.28
           decay_acceleration: 5.0
-      # Out to the hull's padded circumscribed radius (0.84 m), so MPPI knows
-      # when to check the whole footprint, and inside half a 6 ft (1.83 m) gate,
-      # so the gate's middle stays free. Cost still falls off toward the middle.
+      # Past the hull's padded circumscribed radius (0.84 m), so MPPI knows when
+      # to check the whole footprint, and wide enough that the gap between two
+      # buoys is not free water: the planner squeezes through only when it must.
+      # A 6 ft (1.83 m) gate's middle still costs about 84 of 252, passable.
       inflation_layer:
         plugin: nav2_costmap_2d::InflationLayer
-        cost_scaling_factor: 5.0
-        inflation_radius: 0.9
+        cost_scaling_factor: 3.0
+        inflation_radius: 1.5
       always_send_full_costmap: false
 
 planner_server:
@@ -295,13 +296,14 @@ global_costmap:
           vertical_fov_offset: 0.0
           horizontal_fov_angle: 6.28
           decay_acceleration: 5.0
-      # Out to the hull's padded circumscribed radius (0.84 m), so MPPI knows
-      # when to check the whole footprint, and inside half a 6 ft (1.83 m) gate,
-      # so the gate's middle stays free. Cost still falls off toward the middle.
+      # Past the hull's padded circumscribed radius (0.84 m), so MPPI knows when
+      # to check the whole footprint, and wide enough that the gap between two
+      # buoys is not free water: the planner squeezes through only when it must.
+      # A 6 ft (1.83 m) gate's middle still costs about 84 of 252, passable.
       inflation_layer:
         plugin: nav2_costmap_2d::InflationLayer
-        cost_scaling_factor: 5.0
-        inflation_radius: 0.9
+        cost_scaling_factor: 3.0
+        inflation_radius: 1.5
       always_send_full_costmap: false
 
 behavior_server:

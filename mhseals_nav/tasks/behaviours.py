@@ -37,10 +37,11 @@ class WaitFor(Leaf):
 
     Meanwhile the boat holds where it began waiting: wind and current would carry
     it off, and out of sight of what it waits for. Once it is ``hold`` metres off,
-    Nav2 brings it back. After ``timeout`` seconds with nothing seen it fails.
+    Nav2 brings it back. With a ``timeout``, it fails after that many seconds
+    with nothing seen; otherwise the task's own deadline bounds the wait.
     """
 
-    def __init__(self, name, labels, count=1, any_of=False, hold=1.5, timeout=30.0):
+    def __init__(self, name, labels, count=1, any_of=False, hold=1.5, timeout=None):
         super().__init__(name)
         self.labels, self.count, self.any_of = tuple(labels), count, any_of
         self.hold, self.timeout, self.navigator = hold, timeout, None
