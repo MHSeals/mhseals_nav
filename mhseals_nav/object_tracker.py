@@ -94,7 +94,8 @@ class ObjectTracker(Node):
             pose = do_transform_pose(det.bbox.center, transform)
             label = det.results[0].hypothesis.class_id if det.results else "unknown"
             result.append(
-                ([pose.position.x, pose.position.y, pose.position.z], str(label))
+                ([pose.position.x, pose.position.y, pose.position.z], str(label),
+                 det.results[0].hypothesis.score if det.results else 0.0)
             )
         return result
 
@@ -150,6 +151,7 @@ class ObjectTracker(Node):
             detection.bbox.center = pose
             hypothesis = ObjectHypothesisWithPose()
             hypothesis.hypothesis.class_id = track.label
+            hypothesis.hypothesis.score = track.confidence
             hypothesis.pose.pose = pose
             detection.results.append(hypothesis)
             array.detections.append(detection)

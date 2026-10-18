@@ -41,3 +41,12 @@ def test_stale_duplicates_invalid_positions_and_one_to_one_matching():
     tracks.update([([0.1, 0.0, 0.0], "red"), ([0.2, 0.0, 0.0], "red")], 3.0)
     assert sorted(t.hits for t in tracks.tracks) == [1, 2]
     assert tracks.tracks[0].position == pytest.approx([0.05, 0.0, 0.0])
+
+
+def test_tracks_retain_latest_observed_confidence():
+    tracks = ObjectTracks(confirmation_count=1, confirmation_time=0)
+    tracks.update([([5., 0., 0.], "red", .9)], 1.)
+    assert tracks.objects[0].confidence == .9
+    tracks.update([([5.1, 0., 0.], "red", .85)], 2.)
+    assert len(tracks.objects) == 1
+    assert tracks.objects[0].confidence == .85

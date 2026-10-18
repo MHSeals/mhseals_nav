@@ -26,6 +26,8 @@ def generate_launch_description():
                 'camera_model': LaunchConfiguration('camera_model'),
                 'camera_name': LaunchConfiguration('camera_name'),
                 'publish_tf': 'false', 'publish_map_tf': 'false',
+                'ros_params_override_path': PathJoinSubstitution(
+                    [share, 'config', 'legacy_zed.yaml']),
             }.items()),
         Node(package='mhseals_nav', executable='legacy_buoy_detector',
              parameters=[{

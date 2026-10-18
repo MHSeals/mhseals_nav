@@ -2,6 +2,9 @@
 
 import math
 from copy import deepcopy
+from itertools import product
+
+from geometry_msgs.msg import Point
 
 import rclpy
 from rclpy.node import Node
@@ -47,6 +50,22 @@ def convert_objects(message):
             detection.bbox.size.x, detection.bbox.size.y, detection.bbox.size.z = map(
                 float, size
             )
+        corners = obj.get("bounding_box_3d", {}).get("corners", [])
+        if len(corners) == 8:
+            points = [[float(v) for v in corner["kp"]] for corner in corners]
+            if any(len(p) != 3 or not all(map(math.isfinite, p)) for p in points):
+                continue
+            low = [min(p[i] for p in points) for i in range(3)]
+            high = [max(p[i] for p in points) for i in range(3)]
+            # SDK corners are already in the reported ROS frame. Enclose them
+            # there, rather than assuming width/height/depth match its XYZ axes.
+            if high != low:
+                pose.position.x, pose.position.y, pose.position.z = (
+                    (a + b) / 2 for a, b in zip(low, high)
+                )
+                detection.bbox.size.x, detection.bbox.size.y, detection.bbox.size.z = (
+                    b - a for a, b in zip(low, high)
+                )
         hypothesis = ObjectHypothesisWithPose()
         hypothesis.hypothesis.class_id = str(obj["label"])
         hypothesis.hypothesis.score = max(0.0, min(1.0, confidence / 100.0))
@@ -76,7 +95,7 @@ def confidence_markers(detections, previous_count=0):
         else:
             marker.pose.position.z += detection.bbox.size.z / 2 + .08
         marker.text = f"{best.score:.0%}"
-        marker.scale.z = .06
+        marker.scale.z = .10
         rgb = colors.get(best.class_id.lower(), (190, 190, 190))
         marker.color.r, marker.color.g, marker.color.b = (v / 255 for v in rgb)
         marker.color.a = 1.0
@@ -89,19 +108,54 @@ def confidence_markers(detections, previous_count=0):
     return markers
 
 
+def detection_markers(detections, previous_count=0):
+    """Standard RViz markers queue for TF instead of drawing at the origin."""
+    markers = confidence_markers(detections, previous_count)
+    for index, detection in enumerate(detections.detections):
+        label = markers.markers[index]
+        box = Marker()
+        box.header = detections.header
+        box.ns, box.id = "detection_boxes", index
+        box.type = Marker.LINE_LIST
+        box.pose = detection.bbox.center
+        box.scale.x = .01
+        box.color = label.color
+        box.lifetime = label.lifetime
+        size = detection.bbox.size
+        corners = list(product(*[(-v / 2, v / 2) for v in (size.x, size.y, size.z)]))
+        for i, a in enumerate(corners):
+            for b in corners[i + 1:]:
+                if sum(x != y for x, y in zip(a, b)) == 1:
+                    box.points.extend([Point(x=a[0], y=a[1], z=a[2]),
+                                       Point(x=b[0], y=b[1], z=b[2])])
+        markers.markers.append(box)
+    for index in range(len(detections.detections), previous_count):
+        marker = Marker()
+        marker.ns, marker.id, marker.action = "detection_boxes", index, Marker.DELETE
+        markers.markers.append(marker)
+    return markers
+
+
 class ZedDetectionsConverter(Node):
     def __init__(self):
         super().__init__("zed_detections_converter")
         self.declare_parameter("objects_topic", "/front/zed_node/obj_det/objects")
         self.declare_parameter("rosbridge_url", "")
         self.declare_parameter("camera_root_frame", "")
+        self.declare_parameter("max_detection_age", 1.0)
+        self.max_age = self.get_parameter("max_detection_age").value
+        if not math.isfinite(self.max_age) or self.max_age <= 0:
+            raise ValueError("max_detection_age must be finite and positive")
         topic = self.get_parameter("objects_topic").value
         url = self.get_parameter("rosbridge_url").value
-        self.pub = self.create_publisher(Detection3DArray, "detections", 10)
-        self.confidence_pub = self.create_publisher(
-            MarkerArray, self.pub.topic_name + "/confidence", 10
+        self.pub = self.create_publisher(Detection3DArray, "detections", 1)
+        self.marker_pub = self.create_publisher(
+            MarkerArray, self.pub.topic_name + "/markers", 1
         )
-        self.confidence_count = 0
+        self.marker_count = 0
+        self.last_stamp = -1
+        self.display_stamp = None
+        self.expire_timer = self.create_timer(0.1, self.expire_display)
         self.source = None
         self.static_filter = None
         if url:
@@ -156,11 +210,18 @@ class ZedDetectionsConverter(Node):
     def publish_packet(self, packet):
         try:
             detections = convert_objects(packet)
+            stamp = detections.header.stamp.sec * 1_000_000_000 + detections.header.stamp.nanosec
+            now = self.get_clock().now().nanoseconds
+            if stamp <= self.last_stamp or not -.1 <= (now - stamp) * 1e-9 <= self.max_age:
+                return
+            self.last_stamp = stamp
+            self.display_stamp = stamp
+            self.last_header = detections.header
             self.pub.publish(detections)
-            self.confidence_pub.publish(
-                confidence_markers(detections, self.confidence_count)
+            self.marker_pub.publish(
+                detection_markers(detections, self.marker_count)
             )
-            self.confidence_count = len(detections.detections)
+            self.marker_count = len(detections.detections)
         except (
             KeyError,
             TypeError,
@@ -171,6 +232,21 @@ class ZedDetectionsConverter(Node):
             self.get_logger().warning(
                 f"Dropped malformed ZED objects: {error}", throttle_duration_sec=5.0
             )
+
+    def expire_display(self):
+        if self.display_stamp is None:
+            return
+        age = (self.get_clock().now().nanoseconds - self.display_stamp) * 1e-9
+        if -.1 <= age <= self.max_age:
+            return
+        empty = Detection3DArray()
+        empty.header = self.last_header
+        self.pub.publish(empty)
+        self.marker_pub.publish(detection_markers(empty, self.marker_count))
+        self.marker_count = 0
+        self.display_stamp = None
+        if age < 0:
+            self.last_stamp = -1
 
     def destroy_node(self):
         if self.source:

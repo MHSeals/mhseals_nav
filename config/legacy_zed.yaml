@@ -1,0 +1,7 @@
+/**:
+  ros__parameters:
+    object_detection:
+      od_enabled: true
+      model: CUSTOM_BOX_OBJECTS
+      object_tracking_enabled: false
+      confidence_threshold: 0.0

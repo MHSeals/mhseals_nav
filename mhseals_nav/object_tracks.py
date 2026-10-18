@@ -12,6 +12,7 @@ class Track:
     first_seen: float
     last_seen: float
     hits: int = 1
+    confidence: float = 0.0
 
 
 class ObjectTracks:
@@ -63,14 +64,14 @@ class ObjectTracks:
             return
         self.last_stamp = stamp
         observations = [
-            (tuple(float(v) for v in p), label)
-            for p, label in observations[: self.max_tracks]
+            (tuple(float(v) for v in p), label, float(score[0]) if score else 0.0)
+            for p, label, *score in observations[: self.max_tracks]
             if len(p) == 3 and all(map(math.isfinite, p))
         ]
         used, matched = set(), set()
         pairs = []
         for i, track in enumerate(self.tracks):
-            for j, (position, label) in enumerate(observations):
+            for j, (position, label, _) in enumerate(observations):
                 distance = math.dist(track.position, position)
                 if label == track.label and distance <= self.distance:
                     pairs.append((distance, i, j))
@@ -86,11 +87,13 @@ class ObjectTracks:
             )
             track.last_seen = stamp
             track.hits += 1
+            track.confidence = observations[j][2]
             used.add(j)
             matched.add(i)
-        for j, (position, label) in enumerate(observations):
+        for j, (position, label, confidence) in enumerate(observations):
             if j not in used and len(self.tracks) < self.max_tracks:
-                self.tracks.append(Track(self.next_id, position, label, stamp, stamp))
+                self.tracks.append(Track(
+                    self.next_id, position, label, stamp, stamp, confidence=confidence))
                 self.next_id += 1
 
     @property

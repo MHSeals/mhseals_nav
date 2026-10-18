@@ -2,6 +2,7 @@
 
 import math
 import os
+from types import SimpleNamespace
 
 import pytest
 
@@ -12,7 +13,9 @@ from geometry_msgs.msg import TransformStamped
 from vision_msgs.msg import Detection3DArray, Detection3D, ObjectHypothesisWithPose
 from visualization_msgs.msg import Marker
 
-from mhseals_nav.zed_detections_converter import convert_objects, confidence_markers
+from mhseals_nav.zed_detections_converter import (
+    ZedDetectionsConverter, convert_objects, confidence_markers, detection_markers,
+)
 from mhseals_nav.object_tracker import ObjectTracker
 from mhseals_nav.camera_static_tf import CameraStaticTF
 
@@ -43,6 +46,42 @@ def test_zed_array_and_tracking_state():
         assert not convert_objects(value).detections
 
 
+def test_sdk_corners_define_box_geometry_in_the_reported_frame():
+    value = packet()
+    value['objects'][0]['dimensions_3d'] = [99., 99., 99.]
+    value['objects'][0]['bounding_box_3d'] = dict(corners=[
+        dict(kp=[x, y, z]) for x in [1., 1.4]
+        for y in [-.2, .2] for z in [-.5, .7]
+    ])
+    box = convert_objects(value).detections[0].bbox
+    assert [box.center.position.x, box.center.position.y,
+            box.center.position.z] == pytest.approx([1.2, 0., .1])
+    assert [box.size.x, box.size.y, box.size.z] == pytest.approx([.4, .4, 1.2])
+
+
+def test_delayed_duplicate_and_reordered_packets_do_not_replay_in_rviz():
+    published = []
+    labels = []
+    now = [100_000_000_000]
+    node = SimpleNamespace(
+        pub=SimpleNamespace(publish=published.append),
+        marker_pub=SimpleNamespace(publish=labels.append),
+        marker_count=0, last_stamp=-1, display_stamp=None, max_age=1.,
+        get_clock=lambda: SimpleNamespace(now=lambda: SimpleNamespace(nanoseconds=now[0])),
+    )
+    ZedDetectionsConverter.publish_packet(node, packet(99))
+    ZedDetectionsConverter.publish_packet(node, packet(100))
+    ZedDetectionsConverter.publish_packet(node, packet(99))
+    ZedDetectionsConverter.publish_packet(node, packet(100))
+    ZedDetectionsConverter.publish_packet(node, packet(95))
+    assert len(published) == 2
+    now[0] += 2_000_000_000
+    ZedDetectionsConverter.expire_display(node)
+    assert not published[-1].detections
+    assert labels[-1].markers[0].action == Marker.DELETE
+    assert node.marker_count == 0
+
+
 def test_confidence_labels_are_small_above_boxes_and_do_not_change_detections():
     value = packet()
     value['header']['frame_id'] = 'front_left_camera_optical_frame'
@@ -51,7 +90,7 @@ def test_confidence_labels_are_small_above_boxes_and_do_not_change_detections():
     label, deleted = confidence_markers(array, previous_count=2).markers
     assert label.type == Marker.TEXT_VIEW_FACING
     assert label.text == '90%'
-    assert label.scale.z == pytest.approx(.06)
+    assert label.scale.z == pytest.approx(.10)
     assert label.pose.position.y == pytest.approx(-.68)
     assert label.pose.position.x == array.detections[0].bbox.center.position.x
     assert label.header == array.header
@@ -118,6 +157,7 @@ def test_moving_boat_uses_acquisition_tf_and_map_correction(tracker):
     )()
     tracker.publish_objects()
     assert arrays[-1].detections[0].bbox.center.position.x == pytest.approx(15.0)
+    assert arrays[-1].detections[0].results[0].hypothesis.score == pytest.approx(.9)
     # Packet gaps must not erase confirmed tracks before their tracking timeout.
     assert all(m.lifetime.sec + m.lifetime.nanosec * 1e-9 == pytest.approx(tracker.tracks.timeout)
                for m in markers[-1].markers)
@@ -169,3 +209,22 @@ def test_missing_tf_retries_then_stale_packets_are_dropped(tracker):
     tracker.tick()
     assert not tracker.pending
     assert tracker.tracks.tracks[0].hits == 1
+
+
+def test_outline_markers_wait_for_acquisition_tf_and_delete_disappeared_boxes():
+    array = convert_objects(packet())
+    array.detections[0].bbox.size.x = .4
+    array.detections[0].bbox.size.y = .6
+    array.detections[0].bbox.size.z = 1.2
+    markers = detection_markers(array, previous_count=2).markers
+    box = next(m for m in markers if m.ns == "detection_boxes" and m.action == Marker.ADD)
+    assert box.type == Marker.LINE_LIST
+    assert len(box.points) == 24
+    assert box.header == array.header  # standard Marker display queues until TF exists
+    assert not box.frame_locked
+    assert box.pose == array.detections[0].bbox.center
+    assert box.scale.x == pytest.approx(.01)
+    assert sorted({p.x for p in box.points}) == pytest.approx([-.2, .2])
+    assert sorted({p.z for p in box.points}) == pytest.approx([-.6, .6])
+    assert {(m.ns, m.id) for m in markers if m.action == Marker.DELETE} == {
+        ("confidence", 1), ("detection_boxes", 1)}

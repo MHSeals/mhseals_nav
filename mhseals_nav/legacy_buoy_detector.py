@@ -1,11 +1,10 @@
-"""SDK 4 camera shim: TensorRT YOLO11 + registered depth -> ZED objects.
+"""SDK 4 custom inference: TensorRT YOLO11 -> synchronized SDK 3D boxes.
 
 The SDK 4 wrapper cannot run CUSTOM_YOLOLIKE_BOX_OBJECTS. Keep its camera and
-calibration, and publish the same small object interface consumed by the bridge.
+calibration; feed 2D detections back to its CUSTOM_BOX_OBJECTS input.
 """
 
 import ctypes
-from collections import deque
 import hashlib
 from pathlib import Path
 import subprocess
@@ -61,26 +60,11 @@ def decode_boxes(output: np.ndarray, geometry: tuple, thresholds: list) -> list:
     return sorted(found, key=lambda item: -item[1])[:256]
 
 
-def project_box(box: list, depth: np.ndarray, k: list):
-    """Return optical-frame position and approximate box dimensions in metres."""
+def box_corners(box: list):
+    """SDK pixel corners: top left, top right, bottom right, bottom left."""
     x, y, width, height = box
-    u, v = x + width / 2, y + height / 2
-    region = depth[
-        max(0, int(v - height * .2)):min(depth.shape[0], int(v + height * .2) + 1),
-        max(0, int(u - width * .2)):min(depth.shape[1], int(u + width * .2) + 1)]
-    valid = region[np.isfinite(region) & (region > .3) & (region < 20.)]
-    if valid.size < 3 or k[0] <= 0 or k[4] <= 0:
-        return None
-    z = float(np.median(valid))
-    width_m, height_m = width * z / k[0], height * z / k[4]
-    # Visible surface spread is only a visualization estimate of thickness.
-    # Exclude background, trim noisy tails, and bound it by the projected width.
-    surface = valid[np.abs(valid - z) <= max(width_m, .05)]
-    near, far = (np.percentile(surface, [10, 90])
-                 if surface.size >= 3 else (z, z))
-    thickness = max(.05, min(width_m, float(far - near)))
-    return ([(u - k[2]) * z / k[0], (v - k[5]) * z / k[4], z],
-            [width_m, height_m, thickness])
+    return [[int(u), int(v)] for u, v in (
+        (x, y), (x + width, y), (x + width, y + height), (x, y + height))]
 
 
 class TensorRTModel:
@@ -171,8 +155,8 @@ class LegacyBuoyDetector:
     def __init__(self):
         import rclpy
         from ament_index_python.packages import get_package_share_directory
-        from rclpy.qos import qos_profile_sensor_data
-        from sensor_msgs.msg import Image, CameraInfo, CompressedImage
+        from rclpy.qos import QoSProfile, ReliabilityPolicy
+        from sensor_msgs.msg import Image, CompressedImage
         from zed_interfaces.msg import Object, ObjectsStamped
 
         self.node = rclpy.create_node('buoy_detector')
@@ -180,12 +164,10 @@ class LegacyBuoyDetector:
         defaults = dict(model_file=str(share / 'epoch60.onnx'),
                         class_config=str(share / 'custom_object_detection.yaml'),
                         engine_cache='/usr/local/zed/resources/astro_buoys',
-                        camera_topic='/front/zed_node', rate=10.0)
+                        camera_topic='/front/zed_node')
         for key, value in defaults.items():
             self.node.declare_parameter(key, value)
         values = {key: self.node.get_parameter(key).value for key in defaults}
-        if not 0 < values['rate'] <= 30:
-            raise ValueError('rate must be between zero and 30 Hz')
         with open(values['class_config']) as stream:
             config = yaml.safe_load(stream)['object_detection']
         classes = [config['class_%03d' % i]
@@ -197,49 +179,24 @@ class LegacyBuoyDetector:
                                    self.node.get_logger())
         self.object_type, self.array_type = Object, ObjectsStamped
         self.jpeg_type = CompressedImage
-        self.images, self.depths = deque(maxlen=3), deque(maxlen=3)
-        self.info = None
         prefix = values['camera_topic'].rstrip('/')
         self.objects = self.node.create_publisher(
-            ObjectsStamped, prefix + '/obj_det/objects', 10)
+            ObjectsStamped, prefix + '/obj_det/custom_boxes', 1)
         self.debug = self.node.create_publisher(
             CompressedImage, '~/image/compressed', 1)
-        self.subscriptions = [
-            self.node.create_subscription(Image, prefix + '/rgb/image_rect_color',
-                                          self.images.append, qos_profile_sensor_data),
-            self.node.create_subscription(Image, prefix + '/depth/depth_registered',
-                                          self.depths.append, qos_profile_sensor_data),
-            self.node.create_subscription(CameraInfo, prefix + '/rgb/camera_info',
-                                          self.camera_info, qos_profile_sensor_data)]
-        self.timer = self.node.create_timer(1 / values['rate'], self.tick)
+        self.subscription = self.node.create_subscription(
+            Image, prefix + '/rgb/image_rect_color', self.image_callback,
+            QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT))
 
-    def camera_info(self, message) -> None:
-        """Retain the camera's actual rectified intrinsics."""
-        self.info = message
-
-    def tick(self) -> None:
-        """Process only a fresh image/depth pair with the same acquisition time."""
-        pair = next(((image, depth) for image in reversed(self.images)
-                     for depth in reversed(self.depths)
-                     if image.header.stamp == depth.header.stamp), None)
-        if pair is None or self.info is None:
-            return
-        image, depth = pair
-        self.images.clear()
-        self.depths.clear()
+    def image_callback(self, image) -> None:
+        """Reply with 2D boxes for this exact image; the wrapper owns all 3D."""
         age = self.node.get_clock().now().nanoseconds * 1e-9 - (
             image.header.stamp.sec + image.header.stamp.nanosec * 1e-9)
         if not -.1 <= age <= .5:
             self.node.get_logger().warning(
-                'Dropping stale RGB-D pair (age %.3f s); check host clocks '
+                'Dropping stale image (age %.3f s); check host clocks '
                 'and camera latency' % age, throttle_duration_sec=5.0)
             return
-        if (image.header.frame_id != depth.header.frame_id
-                or image.header.frame_id != self.info.header.frame_id
-                or (image.width, image.height) != (depth.width, depth.height)
-                or (image.width, image.height) != (self.info.width, self.info.height)
-                or depth.encoding != '32FC1'):
-            raise ValueError('Expected co-registered colour/depth and intrinsics')
         channels = {'bgra8': 4, 'rgba8': 4, 'bgr8': 3, 'rgb8': 3}[image.encoding]
         pixels = np.ndarray((image.height, image.width, channels), np.uint8,
                             buffer=image.data, strides=(image.step, channels, 1))
@@ -248,26 +205,17 @@ class LegacyBuoyDetector:
                                   if channels == 3 else cv2.COLOR_RGBA2BGR)
         elif channels == 4:
             pixels = cv2.cvtColor(pixels, cv2.COLOR_BGRA2BGR)
-        depths = np.ndarray((depth.height, depth.width),
-                            '>f4' if depth.is_bigendian else '<f4',
-                            buffer=depth.data, strides=(depth.step, 4))
         tensor, geometry = prepare_image(pixels, self.model.shape)
         boxes = decode_boxes(self.model.infer(tensor), geometry, self.thresholds)
         array = self.array_type()
         array.header = image.header
         annotated = pixels.copy() if self.debug.get_subscription_count() else None
         for category, score, box in boxes:
-            projected = project_box(box, depths, self.info.k)
-            if projected is None:
-                continue
-            position, dimensions = projected
             obj = self.object_type()
             obj.label, obj.label_id = self.labels[category], category
             obj.confidence = score * 100
-            obj.position = list(map(float, position))
-            obj.dimensions_3d = list(map(float, dimensions))
-            # These are fresh measurements; the ODROID owns temporal tracking.
-            obj.tracking_available = False
+            for corner, point in zip(obj.bounding_box_2d.corners, box_corners(box)):
+                corner.kp = point
             array.objects.append(obj)
             if annotated is not None:
                 x, y, w, h = map(int, box)

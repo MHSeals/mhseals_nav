@@ -66,7 +66,7 @@ Navigation and tracking also require `/tf` and `/tf_static` with `map â†’ odom â
 
 Navigation uses MPPI with the Omni model at 10 Hz (the boat can sway) and rolling costmaps of decaying voxels, fed by the LiDAR. Camera tracks retain class and position for task planning and RViz; they do not synthesize obstacle geometry. The characterization's Nav2 overlay gives MPPI the boat's measured limits at the tested effort. RTABMap mapping consumes the live lidar cloud and external EKF odometry; it does not publish a competing localization transform.
 
-On JetPack 5, SDK 4 cannot run `CUSTOM_YOLOLIKE_BOX_OBJECTS`. The legacy detector runs the checked-in 640-pixel ONNX model with TensorRT 8, matches RGB and registered depth by acquisition timestamp, and publishes metric positions in the actual optical frame. Box thickness estimates the visible depth spread, rejecting background samples and bounding it by projected width with a 5 cm visibility floor; it is for visualization, not collision geometry. Its first start compiles a GPU-specific FP16 engine; the ZED resources volume retains that cache across container rebuilds. TensorRT/CUDA come from JetPack; OpenCV, NumPy, and PyYAML are required.
+On JetPack 5, SDK 4 cannot run `CUSTOM_YOLOLIKE_BOX_OBJECTS`. The legacy detector runs the checked-in 640-pixel ONNX model with TensorRT 8 and sends 2D boxes to the SDK 4 wrapper's `CUSTOM_BOX_OBJECTS` input. The JP5 image includes a wrapper patch that holds each grabbed frame until its matching inference arrives (up to 500 ms); the SDK supplies positions and eight 3D box corners in the reported camera frame. The bridge derives RViz extents from those corners, including depth; no surface-thickness estimate is added. Its first start compiles a GPU-specific FP16 engine; the ZED resources volume retains that cache across container rebuilds. TensorRT/CUDA come from JetPack; OpenCV, NumPy, and PyYAML are required.
 
 ```bash
 # Squirtle container (Foxy, domain 142), after building:
@@ -81,7 +81,7 @@ Run the ODROID's odometry and sensors as usual. The bridge reconnects after conn
 
 The hardware sensor launch also starts the local LiDAR relay. Each host's relay publishes locally, so ODROID navigation works without a viewer and another viewer's relay cannot duplicate its scans.
 
-RViz markers retain their track IDs across update gaps and expire with `track_timeout`; a temporary TF lookup failure does not delete valid tracks. The ZED converter publishes small confidence percentages above detection boxes on `/detections/confidence`, matching the RViz detection plugin's default colors; disable that plugin's built-in `Show Score` to avoid duplicate labels.
+RViz markers retain their track IDs across update gaps and expire with `track_timeout`; a temporary TF lookup failure does not delete valid tracks. The ZED converter rejects repeated, reordered, or more than one-second-old packets and clears expired raw boxes and labels. It publishes outlines and 10 cm confidence percentages together on `/detections/markers`. Use RViz's standard `MarkerArray` display for this topic: it waits for acquisition-time TF, avoiding the detection-array outline plugin's origin jump on failed transforms. `/objects/map` retains classed positions and the latest observed confidence, without box geometry; use `/tracked_objects` to visualize that semantic history separately from live detections.
 
 ### Mapping and rates
 
