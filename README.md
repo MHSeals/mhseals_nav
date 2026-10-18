@@ -64,7 +64,7 @@ Required interfaces depend on which components are running:
 
 Navigation and tracking also require `/tf` and `/tf_static` with `map → odom → base_link → sensor` connectivity. The global EKF owns `map → odom`, the local EKF owns `odom → base_link`, and the robot description owns sensor mounts. Preserve measurement frame IDs and timestamps, and synchronize clocks across hosts. `/imu/raw` is the legacy name for FCU-fused MAVROS `/imu/data`, rather than `/imu/data_raw`.
 
-Navigation uses MPPI with the Omni model at 10 Hz (the boat can sway) and rolling costmaps of decaying voxels, fed by the LiDAR and by the camera-tracked objects (`/objects/points`), since small buoys sit below the LiDAR's rings up close. The characterization's Nav2 overlay gives MPPI the boat's full measured limits, scaled to full effort. RTABMap mapping consumes the live lidar cloud and external EKF odometry; it does not publish a competing localization transform.
+Navigation uses MPPI with the Omni model at 10 Hz (the boat can sway) and rolling costmaps of decaying voxels, fed by the LiDAR. Camera tracks retain class and position for task planning and RViz; they do not synthesize obstacle geometry. The characterization's Nav2 overlay gives MPPI the boat's measured limits at the tested effort. RTABMap mapping consumes the live lidar cloud and external EKF odometry; it does not publish a competing localization transform.
 
 On JetPack 5, SDK 4 cannot run `CUSTOM_YOLOLIKE_BOX_OBJECTS`. The legacy detector runs the checked-in 640-pixel ONNX model with TensorRT 8, matches RGB and registered depth by acquisition timestamp, and publishes metric positions in the actual optical frame. Its first start compiles a GPU-specific FP16 engine; the ZED resources volume retains that cache across container rebuilds. TensorRT/CUDA come from JetPack; OpenCV, NumPy, and PyYAML are required.
 
@@ -77,9 +77,11 @@ JETSON_IP=$(getent ahostsv4 squirtle-jetson.local | awk 'NR==1 {print $1}')
 docker exec -it roboboat_dev bash -lc "source /opt/ros/jazzy/setup.bash && source install/setup.bash && ros2 launch mhseals_nav objects.launch.py sim:=false rosbridge_url:=ws://${JETSON_IP}:9090 camera_root_frame:=front_camera_link"
 ```
 
-Run the ODROID's odometry and sensors as usual. The bridge reconnects after connection loss, retries subscriptions when the camera starts later, and relays only object measurements and camera-internal static TF; ODROID localization and the robot description retain TF ownership. Just like Unity, its tracker publishes `/objects/map` (`Detection3DArray`, `map`) for tasks, `/objects/points` (`PointCloud2`, `odom`) for both Nav2 costmaps, and `/tracked_objects` (`MarkerArray`) for RViz. Confirmed objects expire after 30 seconds without observations. Keep host clocks synchronized; stale measurements are rejected. The optional annotated camera view is `/buoy_detector/image/compressed`. Low light can prevent detection or stereo depth; indoors, GPS corrections can move `map`, so use `odom` to assess local stability.
+Run the ODROID's odometry and sensors as usual. The bridge reconnects after connection loss, retries subscriptions when the camera starts later, and relays only object measurements and camera-internal static TF; ODROID localization and the robot description retain TF ownership. Just like Unity, its tracker publishes `/objects/map` (`Detection3DArray`, `map`) for tasks and `/tracked_objects` (`MarkerArray`) for RViz. Confirmed objects expire after 30 seconds without observations. Keep host clocks synchronized; stale measurements are rejected. The optional annotated camera view is `/buoy_detector/image/compressed`. Low light can prevent detection or stereo depth; indoors, GPS corrections can move `map`, so use `odom` to assess local stability.
 
 The hardware sensor launch also starts the local LiDAR relay. Each host's relay publishes locally, so ODROID navigation works without a viewer and another viewer's relay cannot duplicate its scans.
+
+RViz markers retain their track IDs across update gaps and expire with `track_timeout`; a temporary TF lookup failure does not delete valid tracks.
 
 ### Mapping and rates
 

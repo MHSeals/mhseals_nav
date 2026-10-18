@@ -156,27 +156,7 @@ local_costmap:
         transform_tolerance: 0.2
         mapping_mode: false
         map_save_duration: 60.0
-        observation_sources: pointcloud objects
-        # Camera-tracked objects (object_tracker): the LiDAR's rings pass over a
-        # 0.15 m buoy up close; marking only, the voxel decay clears them.
-        objects:
-          topic: /objects/points
-          data_type: PointCloud2
-          marking: true
-          clearing: false
-          min_obstacle_height: -1.5
-          max_obstacle_height: 3.0
-          obstacle_range: 20.0
-          expected_update_rate: 0.0
-          observation_persistence: 0.0
-          inf_is_valid: false
-          voxel_filter: false
-          clear_after_reading: true
-          model_type: 1
-          vertical_fov_angle: 0.52
-          vertical_fov_offset: 0.0
-          horizontal_fov_angle: 6.28
-          decay_acceleration: 0.0
+        observation_sources: pointcloud
         pointcloud:
           topic: /points
           data_type: PointCloud2
@@ -270,27 +250,7 @@ global_costmap:
         transform_tolerance: 0.2
         mapping_mode: false
         map_save_duration: 60.0
-        observation_sources: pointcloud objects
-        # Camera-tracked objects (object_tracker): the LiDAR's rings pass over a
-        # 0.15 m buoy up close; marking only, the voxel decay clears them.
-        objects:
-          topic: /objects/points
-          data_type: PointCloud2
-          marking: true
-          clearing: false
-          min_obstacle_height: -1.5
-          max_obstacle_height: 3.0
-          obstacle_range: 20.0
-          expected_update_rate: 0.0
-          observation_persistence: 0.0
-          inf_is_valid: false
-          voxel_filter: false
-          clear_after_reading: true
-          model_type: 1
-          vertical_fov_angle: 0.52
-          vertical_fov_offset: 0.0
-          horizontal_fov_angle: 6.28
-          decay_acceleration: 0.0
+        observation_sources: pointcloud
         pointcloud:
           topic: /points
           data_type: PointCloud2

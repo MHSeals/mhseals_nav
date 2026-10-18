@@ -64,6 +64,8 @@ def test_costmaps_do_not_require_slam_and_check_sensor_freshness():
         assert any(x > 0 for x, _ in footprint)
         assert any(x < 0 for x, _ in footprint)
         assert params['obstacle_layer']['pointcloud']['expected_update_rate'] > 0
+        assert params['obstacle_layer']['observation_sources'] == 'pointcloud'
+        assert params['obstacle_layer']['pointcloud']['topic'] == '/points'
         if name == 'local_costmap':
             assert params['update_frequency'] >= 10.0
             assert params['publish_frequency'] >= 10.0

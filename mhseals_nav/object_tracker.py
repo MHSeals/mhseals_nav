@@ -10,18 +10,12 @@ from rclpy.time import Time
 from rclpy.duration import Duration
 from rclpy.qos import qos_profile_sensor_data
 from geometry_msgs.msg import Pose
-from sensor_msgs.msg import PointCloud2
-from sensor_msgs_py import point_cloud2
-from std_msgs.msg import Header
 from vision_msgs.msg import Detection3DArray, Detection3D, ObjectHypothesisWithPose
 from visualization_msgs.msg import Marker, MarkerArray
 from tf2_ros import Buffer, TransformListener, TransformException
 from tf2_geometry_msgs import do_transform_pose
 
 from mhseals_nav.object_tracks import ObjectTracks
-
-OBJECT_RADIUS = 0.25  # m, about an A-0/A-2 buoy, for the costmap points
-
 
 class ObjectTracker(Node):
     """Track in odom so map->odom corrections move every landmark together."""
@@ -74,9 +68,6 @@ class ObjectTracker(Node):
         self.published_ids = set()
         self.marker_pub = self.create_publisher(MarkerArray, "tracked_objects", 10)
         self.object_pub = self.create_publisher(Detection3DArray, "objects/map", 10)
-        # Tracked objects as points for the costmap: small buoys sit too low for a
-        # VLP-16's rings at close range, but the camera keeps them in view.
-        self.points_pub = self.create_publisher(PointCloud2, "objects/points", 10)
         self.detection_sub = self.create_subscription(
             Detection3DArray,
             "detections",
@@ -129,19 +120,7 @@ class ObjectTracker(Node):
             self.tracks.update(observations, stamp)
         self.publish_objects()
 
-    def publish_points(self):
-        """A ring of points around each confirmed track, in the tracking frame."""
-        header = Header(frame_id=self.tracking_frame, stamp=self.get_clock().now().to_msg())
-        points = []
-        for track in self.tracks.objects:
-            x, y = float(track.position[0]), float(track.position[1])
-            points.append((x, y, 0.2))
-            points += [(x + OBJECT_RADIUS * math.cos(a), y + OBJECT_RADIUS * math.sin(a), 0.2)
-                       for a in (k * math.pi / 4 for k in range(8))]
-        self.points_pub.publish(point_cloud2.create_cloud_xyz32(header, points))
-
     def publish_objects(self):
-        self.publish_points()
         array = Detection3DArray()
         array.header.frame_id = self.map_frame
         array.header.stamp = self.get_clock().now().to_msg()
@@ -157,6 +136,7 @@ class ObjectTracker(Node):
                 self.get_logger().warning(
                     f"Objects waiting for map TF: {error}", throttle_duration_sec=5.0
                 )
+                return
         for track in self.tracks.objects if transform is not None else []:
             pose = Pose()
             pose.position.x, pose.position.y, pose.position.z = map(
@@ -194,7 +174,9 @@ class ObjectTracker(Node):
                 )
                 marker.color.a = 1.0
                 marker.text = track.label
-                marker.lifetime = Duration(seconds=0.5).to_msg()
+                # Survive transport gaps; explicit DELETE still removes expired
+                # tracks, and this timeout clears markers if the tracker stops.
+                marker.lifetime = Duration(seconds=self.tracks.timeout).to_msg()
                 markers.markers.append(marker)
             visible.add(track.id)
         for identifier in self.published_ids - visible:
