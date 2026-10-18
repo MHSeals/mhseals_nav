@@ -2,6 +2,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, GroupAction, OpaqueFunction
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 from launch.actions import ExecuteProcess, TimerAction
 from launch.conditions import IfCondition, UnlessCondition
@@ -88,6 +89,7 @@ def generate_launch_description():
         ('gcs_url', 'udp://@127.0.0.1:14550', 'Ground control service connection URL'),
         ('mavros_params_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'mavros.yaml']), 'Path to MAVROS params'),
         ('mavros_odom_rate', '20.0', 'Requested MAVROS odometry rate'),
+        ('mavros_velocity_stddev', '0.2', 'FCU velocity uncertainty in m/s when covariance is unknown'),
         ('mavros_imu_rate', '20.0', 'Requested MAVROS IMU rate'),
         ('mavros_gps_rate', '5.0', 'Requested MAVROS GPS rate'),
         ('rtabmap_params_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'rtabmap.yaml']), 'Path to RTABMap params'),
@@ -205,14 +207,17 @@ def generate_launch_description():
     # simulation topic contract consumed by the rest of the stack.
     mavros_topic_relays = [
         Node(
-            package='topic_tools',
-            executable='relay',
-            name='mavros_odom_relay',
+            package='mhseals_nav',
+            executable='mavros_odometry',
+            name='mavros_odom_adapter',
             # ArduPilot publishes GLOBAL_POSITION_INT through MAVROS's
             # global_position plugin.  The local_position plugin's odometry
             # topic is advertised on some FCUs but remains silent, which
             # leaves the EKF predicting without fresh translational motion.
-            arguments=['/mavros/global_position/local', '/odom/mavros'],
+            # This source carries ENU velocity despite its base_link child label.
+            # Rotate with its own FCU attitude and replace unknown covariance.
+            parameters=[{'velocity_stddev': ParameterValue(
+                LaunchConfiguration('mavros_velocity_stddev'), value_type=float)}],
             output='screen'
         ),
         Node(

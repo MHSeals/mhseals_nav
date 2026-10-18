@@ -8,6 +8,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import time
+import yaml
 
 import rclpy
 from ament_index_python.packages import get_package_prefix
@@ -89,7 +90,9 @@ try:
     while time.monotonic() - start < 15:
         rclpy.spin_once(node, timeout_sec=.01)
     assert all(process.poll() is None for process in processes), 'Filter process exited'
-    for key, minimum in (('local', 40), ('global', 15), ('gps', 5)):
+    expected = {key: yaml.safe_load((config / filename).read_text())['/**']['ros__parameters']['frequency']
+                for key, filename in (('local', 'ekf_local.yaml'), ('global', 'ekf_global.yaml'))}
+    for key, minimum in (('local', .8 * expected['local']), ('global', .75 * expected['global']), ('gps', 5)):
         stamps = [stamp for stamp in counts[key] if stamp > start + 8]
         assert len(stamps) > 2, f'No usable {key} output'
         hz = (len(stamps) - 1) / (stamps[-1] - stamps[0])

@@ -58,6 +58,7 @@ setup(
             "zed_detections_converter = mhseals_nav.zed_detections_converter:main",
             "legacy_buoy_detector = mhseals_nav.legacy_buoy_detector:main",
             "lidar_relay = mhseals_nav.lidar_relay:main",
+            "mavros_odometry = mhseals_nav.mavros_odometry:main",
             "run_task = mhseals_nav.tasks.interface:main",
         ],
     },

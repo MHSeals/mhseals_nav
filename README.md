@@ -14,6 +14,7 @@ Launch files separate the main responsibilities:
 - `navigation.launch.py` starts Nav2 servers and lifecycle management. SLAM is optional.
 - `slam.launch.py` starts RTABMap mapping, leaving localization TF with the EKFs.
 - `objects.launch.py` always tracks `/detections`. With `sim:=false`, it also converts ZED objects into that interface, remapping the adapter input to `objects_topic`. Set `rosbridge_url` and `camera_root_frame` for a legacy ZED host.
+- `legacy_zed.launch.py` starts the JetPack 5 / ZED SDK 4 camera, TensorRT buoy detector, and rosbridge. Use it instead of the camera part of `sensors.launch.py`; start each camera only once.
 
 ```bash
 ros2 launch mhseals_nav <launch_name>.launch.py param1:=value1 param2:=value2
@@ -84,7 +85,11 @@ The hardware sensor launch also starts the local LiDAR relay. Each host's relay 
 
 The validated `crane_ml` RoboBoat stack is the reference for the live navigation contract: authoritative `odom → base_link` at 50 Hz, a 10 Hz 3-D LiDAR cloud, and LiDAR-fed rolling costmaps at 10 Hz local / 5 Hz global. It deliberately validates authoritative-odometry navigation rather than SLAM ([baseline](https://github.com/1unarzDev/crane_ml/blob/main/Docs/RoboBoatNavigationBaseline.md)). This package preserves that contract on the boat while adding optional lidar-cloud RTABMap mapping.
 
-On the physical ArduPilot path, `odom.launch.py` requests `GLOBAL_POSITION_INT` (MAVLink message 33) at 20 Hz, relays `/mavros/global_position/local` to `/odom/mavros`, and publishes the local EKF at 80 Hz. The previous `/mavros/local_position/odom` topic can be advertised without emitting samples on the rover profile. The VLP16 driver runs at 600 RPM (10 scans/s); `sensors.launch.py` gives the driver/transform pair the large-data profile in `config/fastdds_large_data.xml`, while odometry and TF use normal DDS. On the viewer, the `lidar_relay` executable republishes the cloud on normal DDS with one reliable writer compatible with both RViz and Nav2, so each timestamp represents one scan.
+On the physical ArduPilot path, `odom.launch.py` requests `GLOBAL_POSITION_INT` (MAVLink message 33) at 20 Hz, adapts `/mavros/global_position/local` to `/odom/mavros`, and publishes the local EKF at 30 Hz. The adapter rotates ENU linear velocity into body FLU using the message’s FCU attitude and replaces unknown covariance with `mavros_velocity_stddev` (default 0.2 m/s per axis). Simulation with `fcu:=false` already supplies body velocity. The previous `/mavros/local_position/odom` topic can be advertised without emitting samples on the rover profile. The VLP16 driver runs at 600 RPM (10 scans/s); `sensors.launch.py` gives the driver/transform pair the large-data profile in `config/fastdds_large_data.xml`, while odometry and TF use normal DDS. On the viewer, the `lidar_relay` executable republishes the cloud on normal DDS with one reliable writer compatible with both RViz and Nav2, so each timestamp represents one scan. Its bounded cloud uses an odd sampling stride to retain all 16 laser rings.
+
+The FCU must supply a calibrated absolute heading: ROS ENU yaw = 90° − compass heading (195° bow heading means −105° ENU). Check `/mavros/global_position/compass_hdg` outside, away from metal, against the physical bow. Enable the intended calibrated compass in Mission Planner; board orientation and compass rotation describe their actual mounts. Do not hide an FCU heading error with URDF rotation or `navsat_transform.yaw_offset`.
+
+Use `navigation.launch.py limits_file:=<measured-limits.yaml>` for characterization output; it merges with the current `params_file` and recalculates pruning distance against the current controller horizon. Regenerate old full-profile characterization files.
 
 Start mapping only after the sensor and odometry stacks are live:
 

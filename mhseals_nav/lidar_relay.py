@@ -25,6 +25,11 @@ def decimate(message, max_bytes):
     step = message.point_step
     total = message.width * message.height
     stride = max(1, -(-total // max(1, max_bytes // step)))
+    # VLP16 points interleave 16 laser rings. An even stride (typically 20)
+    # aliases that pattern and loses entire rings. An odd stride visits all
+    # 16 rings while keeping the same payload bound.
+    if stride % 2 == 0:
+        stride += 1
     data = b"".join(bytes(message.data[i * step:(i + 1) * step]) for i in range(0, total, stride))
     return type(message)(
         header=message.header, height=1, width=len(data) // step, fields=message.fields,
