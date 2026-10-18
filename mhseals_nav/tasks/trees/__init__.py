@@ -1,4 +1,4 @@
-"""Task trees by name, RoboBoat 2025 (handbook section 3.2).
+"""Task trees by name: RoboBoat 2025 and commissioning exercises.
 
 Each ``build(params)`` returns a py_trees root. Task 5 (deliveries) is not attempted.
 A task with ``approach: [x, y, yaw]`` (map frame, from the day's course layout)
@@ -10,7 +10,8 @@ from py_trees.decorators import FailureIsSuccess
 
 from mhseals_nav.tasks.behaviours import Navigate, PlanPose
 from mhseals_nav.tasks.trees import (
-    docking, follow_path, mission, nav_channel, return_home, speed_challenge,
+    circle_test, docking, follow_path, mission, nav_channel, pair_test,
+    return_home, speed_challenge,
 )
 
 
@@ -35,5 +36,7 @@ TREES = {name: approached(build) for name, build in {
     'docking': docking.build,
     'speed_challenge': speed_challenge.build,
     'return_home': return_home.build,
+    'pair_test': pair_test.build,
+    'circle_test': circle_test.build,
 }.items()}
 TREES['mission'] = mission.build

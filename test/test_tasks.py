@@ -265,7 +265,8 @@ def test_task_labels_are_detector_or_course_classes():
     banners = {f'{c}_{s}' for c in ('red', 'green', 'blue')
                for s in ('circle', 'triangle', 'square', 'plus')}
     vessels = {'yellow_target_boat', 'black_target_boat'}
-    for task in ('nav_channel', 'follow_path', 'docking', 'speed_challenge', 'return_home'):
+    for task in ('nav_channel', 'follow_path', 'docking', 'speed_challenge',
+                 'return_home', 'pair_test', 'circle_test'):
         config = params(task)
         labels = {config[k] for k in ('red', 'green', 'count', 'mark', 'marker', 'banner')
                   if k in config}
@@ -294,3 +295,132 @@ def test_docking_looks_along_the_dock_when_no_empty_bay_is_in_view():
     assert world.run(script=turn) == 'SUCCESS'
     berth = next(goal for goal in world.goals if goal.precise)
     assert berth.route[-1][:2] == pytest.approx((8.8, -5))
+
+
+@pytest.mark.parametrize('swapped', [False, True])
+@pytest.mark.parametrize('yaw', [0.0, 1.2, -2.0])
+def test_pair_test_crosses_both_ways_and_turns_beyond_the_pair(swapped, yaw):
+    settings = params('pair_test')
+    world = World('pair_test', settings)
+    start = (4, -3, yaw)
+    centre = geometry.forward(start, 7)
+    sign = -1 if swapped else 1
+    dx, dy = -1.5 * math.sin(yaw) * sign, 1.5 * math.cos(yaw) * sign
+    world.state.update(pose=start, objects=[
+        ('red_pole_buoy', centre[0] + dx, centre[1] + dy),
+        ('green_pole_buoy', centre[0] - dx, centre[1] - dy),
+    ])
+    assert world.run() == 'SUCCESS'
+    assert world.names() == ['gate_cleared', 'pair_turned', 'pair_returned']
+    outward, clearance, turn, back = [goal.route for goal in world.goals]
+    assert outward == [pytest.approx(p) for p in geometry.through(centre)]
+    far = geometry.forward(centre, settings['clearance'])
+    assert clearance == [pytest.approx(far)]
+    assert turn[0][:2] == pytest.approx(far[:2])
+    assert math.cos(turn[0][2] - yaw) == pytest.approx(-1)
+    assert world.goals[2].precise  # finish the in-place turn, separately
+    assert back[0] == pytest.approx(turn[0])
+    assert back[-1][:2] == pytest.approx(geometry.forward(centre, -1.5)[:2])
+
+
+def test_pair_test_remembers_the_pair_after_tracks_disappear():
+    world = World('pair_test', params('pair_test'))
+    world.state['objects'] = gate(7, 0, 3)
+
+    def disappear(tick, world):
+        if world.goals:
+            # A different pair appears after the outbound goal was chosen.
+            world.state['objects'] = gate(20, 10, 3) if tick % 2 else []
+
+    assert world.run(script=disappear) == 'SUCCESS'
+    assert world.goals[-1].route[-1][:2] == pytest.approx((5.5, 0))
+
+
+@pytest.mark.parametrize('objects', [[], [('red_pole_buoy', 7, 1.5)],
+                                      gate(7, 0, 0.5), gate(7, 0, 12)])
+def test_pair_test_fails_after_bounded_search_without_a_valid_pair(objects):
+    settings = params('pair_test')
+    world = World('pair_test', settings)
+    world.state['objects'] = objects
+    assert world.run() == 'FAILURE'
+    assert not world.events
+    positions = [(0, 0)] + [goal.route[-1][:2] for goal in world.goals]
+    distance = sum(math.dist(a, b) for a, b in zip(positions, positions[1:]))
+    assert distance == pytest.approx(settings['search_distance'])
+
+
+@pytest.mark.parametrize('clockwise', [False, True])
+def test_circle_test_stages_then_completes_a_lap_and_restores_home(clockwise):
+    settings = dict(params('circle_test'), circle_clockwise=clockwise)
+    world = World('circle_test', settings)
+    home, centre = (2, -4, 0.7), (12, -4)
+    world.state.update(pose=home, objects=[('yellow_buoy', *centre)])
+
+    def disappear(tick, world):
+        if world.goals:
+            world.state['objects'] = []  # survive a camera dropout
+
+    assert world.run(script=disappear) == 'SUCCESS'
+    assert world.names() == ['buoy_circled', 'returned_home']
+    entry, first, second, returned = [goal.route for goal in world.goals]
+    assert entry[0][:2] == pytest.approx((9, -4))
+    lap = entry + first + second
+    assert len(first) == len(second) == settings['circle_points'] // 2
+    assert all(math.dist(p[:2], centre) == pytest.approx(3) for p in lap)
+    angles = [geometry.heading(centre, pose) for pose in lap]
+    swept = sum(math.remainder(b - a, 2 * math.pi)
+                for a, b in zip(angles, angles[1:]))
+    assert swept == pytest.approx((-1 if clockwise else 1) * 2 * math.pi)
+    assert returned == [home] and world.goals[-1].precise
+    assert world.state['pose'] == home
+
+
+def test_circle_test_keeps_the_origin_from_before_searching():
+    world = World('circle_test', params('circle_test'))
+    home = (3, -2, 0.3)
+    world.state['pose'] = home
+
+    def appear(tick, world):
+        if world.state['pose'] != home:
+            x, y, _ = geometry.forward(world.state['pose'], 8)
+            world.state['objects'] = [('yellow_buoy', x, y)]
+
+    assert world.run(script=appear) == 'SUCCESS'
+    assert world.goals[0].cancelled
+    assert world.goals[-1].route == [home]
+
+
+def test_circle_test_fails_if_search_only_finds_other_buoys():
+    settings = params('circle_test')
+    world = World('circle_test', settings)
+    world.state['objects'] = [('blue_buoy', 8, 0), ('red_pole_buoy', 6, 2)]
+    assert world.run() == 'FAILURE'
+    assert not world.events
+    assert world.state['pose'][0] == pytest.approx(settings['search_distance'])
+
+
+@pytest.mark.parametrize('task,goal_index', [
+    ('pair_test', 1), ('pair_test', 2), ('pair_test', 3),
+    ('circle_test', 0), ('circle_test', 1), ('circle_test', 2),
+    ('circle_test', 3),
+])
+def test_commissioning_nav_failure_prevents_completion(task, goal_index):
+    world = World(task, params(task))
+    world.state['objects'] = gate(7, 0, 3) + [('yellow_buoy', 12, 0)]
+
+    def abort(tick, world):
+        if len(world.goals) > goal_index:
+            world.goals[goal_index].status = 'CANCELED'
+
+    assert world.run(script=abort) == 'FAILURE'
+    completion = 'pair_returned' if task == 'pair_test' else 'returned_home'
+    assert completion not in world.names()
+
+
+@pytest.mark.parametrize('task', ['pair_test', 'circle_test'])
+def test_commissioning_tasks_cancel_navigation_when_stopped(task):
+    world = World(task, params(task))
+    world.state['objects'] = gate(7, 0, 3) + [('yellow_buoy', 12, 0)]
+    assert world.run(ticks=1) == 'RUNNING'
+    world.tree.root.stop(py_trees.common.Status.INVALID)
+    assert world.goals[-1].cancelled

@@ -1,0 +1,9 @@
+# Cross one red/green pole pair in either order, turn, and cross back.
+red: red_pole_buoy
+green: green_pole_buoy
+min_gate_width: 2.0     # m; leave room for the hull and buoy radii
+max_gate_width: 8.0
+search_distance: 10.0  # m of forward search, with camera sweeps
+clearance: 3.0         # m past the gate centre before turning
+time_limit: 180.0
+timeout: 180.0

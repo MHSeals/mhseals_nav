@@ -126,11 +126,13 @@ class PlanForward(Leaf):
 class PlanCircle(Leaf):
     """Circle the nearest of ``labels``; ``clockwise`` is a bool or {label: bool}.
 
-    Writes the first half of the circle to ``key`` and the rest to ``key``_rest.
+    Writes the first half to ``key``, the rest to ``key``_rest, and the nearest
+    entry pose to ``key``_entry. Approach the entry before starting a full lap.
     """
 
     def __init__(self, name, key, labels, radius, clockwise, points=6):
-        super().__init__(name, writes=(key, key + '_rest', key + '_target'))
+        super().__init__(name, writes=(key, key + '_rest', key + '_target',
+                                      key + '_entry'))
         self.key, self.labels, self.radius = key, tuple(labels), radius
         self.clockwise, self.points = clockwise, points
 
@@ -149,6 +151,7 @@ class PlanCircle(Leaf):
         self.board.set(self.key, poses[:half], overwrite=True)
         self.board.set(self.key + '_rest', poses[half:], overwrite=True)
         self.board.set(self.key + '_target', label, overwrite=True)
+        self.board.set(self.key + '_entry', [poses[-1]], overwrite=True)
         return Status.SUCCESS
 
 
@@ -523,18 +526,25 @@ class Hold(Leaf):
 
 
 class PlanGatePass(Leaf):
-    """Write a route through the last gate in ``source``; ``back`` crosses it the other way."""
+    """Route through the last gate in ``source``; ``back`` reverses it.
 
-    def __init__(self, name, key, source, back=False):
-        super().__init__(name, reads=(source,), writes=(key,))
+    ``key``_end holds only the endpoint, for extending a completed crossing.
+    """
+
+    def __init__(self, name, key, source, back=False, before=1.5, after=1.1):
+        super().__init__(name, reads=(source,), writes=(key, key + '_end'))
         self.key, self.source, self.back = key, source, back
+        self.before, self.after = before, after
 
     def update(self):
         gates = self.board.get(self.source)
         if not gates:
             return Status.FAILURE
-        route = geometry.through(gates[-1])
-        self.board.set(self.key, geometry.reverse(route) if self.back else route, overwrite=True)
+        route = geometry.through(gates[-1], self.before, self.after)
+        if self.back:
+            route = geometry.reverse(route)
+        self.board.set(self.key, route, overwrite=True)
+        self.board.set(self.key + '_end', [route[-1]], overwrite=True)
         return Status.SUCCESS
 
 
@@ -561,9 +571,12 @@ class Deadline(Decorator):
 
 
 class PlanHome(Leaf):
-    """Write a pose ``approach`` metres out from home, on the boat's side, facing home."""
+    """Pose ``approach`` metres out from home, facing home.
 
-    def __init__(self, name, key, approach):
+    With no approach, restore the initial position and heading instead.
+    """
+
+    def __init__(self, name, key, approach=None):
         super().__init__(name, writes=(key,))
         self.key, self.approach = key, approach
 
@@ -571,6 +584,9 @@ class PlanHome(Leaf):
         home, pose = self.board.home, self.board.pose
         if home is None or pose is None:
             return Status.FAILURE
+        if self.approach is None:
+            self.board.set(self.key, [home], overwrite=True)
+            return Status.SUCCESS
         out = geometry.heading(home, pose)
         point = (home[0] + self.approach * math.cos(out), home[1] + self.approach * math.sin(out))
         self.board.set(self.key, [(*point, geometry.heading(point, home))], overwrite=True)

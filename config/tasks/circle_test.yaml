@@ -1,0 +1,8 @@
+# Find a yellow buoy, circle it once, then restore the starting map pose.
+mark: yellow_buoy
+search_distance: 15.0  # m of forward search; failure if no yellow buoy is found
+circle_radius: 3.0     # m from the buoy centre
+circle_clockwise: false
+circle_points: 12
+time_limit: 240.0
+timeout: 240.0

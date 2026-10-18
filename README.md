@@ -130,6 +130,15 @@ A task with `approach: [x, y, yaw]` first drives to that map pose, taken from th
 
 Parameters (class labels, distances, routes, timeouts) are in `config/tasks/<task>.yaml`. Each run publishes `/task/events` (JSON, one per event), a latched `/task/status` with the running leaf, and exits 0 on success, 1 on failure, 2 on timeout. `mhseals_testing`'s mission rehearsal launches these and scores the events.
 
+Two commissioning tasks use the same stack; start localization, object tracking and Nav2 first:
+
+```bash
+ros2 launch mhseals_nav task.launch.py task:=pair_test
+ros2 launch mhseals_nav task.launch.py task:=circle_test
+```
+
+`pair_test` crosses the nearest red/green pole pair ahead in either colour order, continues 3 m beyond its centre, turns around, then crosses the same pair back. `circle_test` searches ahead for a yellow buoy, approaches its near side, circles once at a 3 m radius, then returns to the run's initial map position and heading. The pair search sweeps and advances up to 10 m; the yellow search advances up to 15 m. Missing targets fail the test. Adjust distances, circle direction and timeouts in their task YAMLs (`params_file:=...`); add `sim:=true` in simulation. Run one task at a time, or choose it under `t` in `boat_test` for supervised operation and scoring.
+
 ### Boat tests
 
 [`mhseals_testing`](https://github.com/mhseals/mhseals_testing) checks this stack's sensors and TF, runs thruster trials and characterization, and scores navigation and missions. Its `measurement.launch.py` includes `odom.launch.py` (with `fcu:=false` in simulation), so localization starts the same way in tests as in operation:

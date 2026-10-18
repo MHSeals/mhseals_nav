@@ -155,16 +155,19 @@ class TaskRunner(Node):
         if self.outcome is not None:
             return
         now = self.now()
+        pose = self.pose()
         if self.started is None:
             if now == 0:  # waiting for /clock
                 return
             # A goal sent before discovery has matched Nav2's action servers is lost,
             # and its future never completes: the tree would wait on it for good.
-            if not self.navigator.ready():
+            # Action discovery can finish before this process receives TF.
+            # Planning also needs the initial map pose (and a valid home).
+            if pose is None or not self.navigator.ready():
                 return
             self.started = now
             self.report('task_started')
-        self.board.objects, self.board.pose, self.board.now = self.objects, self.pose(), now
+        self.board.objects, self.board.pose, self.board.now = self.objects, pose, now
         if self.board.home is None:
             self.board.home = self.board.pose  # where the run started, for the return
         self.tree.tick()
