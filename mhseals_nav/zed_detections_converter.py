@@ -215,7 +215,7 @@ class ZedDetectionsConverter(Node):
             if stamp <= self.last_stamp or not -.1 <= (now - stamp) * 1e-9 <= self.max_age:
                 return
             self.last_stamp = stamp
-            self.display_stamp = stamp
+            self.display_stamp = now
             self.last_header = detections.header
             self.pub.publish(detections)
             self.marker_pub.publish(

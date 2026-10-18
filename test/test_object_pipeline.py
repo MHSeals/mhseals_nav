@@ -82,6 +82,26 @@ def test_delayed_duplicate_and_reordered_packets_do_not_replay_in_rviz():
     assert node.marker_count == 0
 
 
+
+def test_display_timeout_measures_silence_without_replaying_old_packets():
+    published, markers = [], []
+    now = [100_000_000_000]
+    node = SimpleNamespace(
+        pub=SimpleNamespace(publish=published.append),
+        marker_pub=SimpleNamespace(publish=markers.append),
+        marker_count=0, last_stamp=-1, display_stamp=None, max_age=1.,
+        get_clock=lambda: SimpleNamespace(now=lambda: SimpleNamespace(nanoseconds=now[0])),
+    )
+    ZedDetectionsConverter.publish_packet(node, packet(99))
+    now[0] += 500_000_000
+    ZedDetectionsConverter.expire_display(node)
+    assert len(published) == 1  # modest transport delay must not shorten display hold
+    ZedDetectionsConverter.publish_packet(node, packet(99))
+    assert len(published) == 1  # replay does not refresh the hold
+    now[0] += 600_000_000
+    ZedDetectionsConverter.expire_display(node)
+    assert len(published) == 2 and not published[-1].detections
+
 def test_confidence_labels_are_small_above_boxes_and_do_not_change_detections():
     value = packet()
     value['header']['frame_id'] = 'front_left_camera_optical_frame'
