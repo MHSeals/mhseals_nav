@@ -4,6 +4,7 @@
 Fast DDS picks its transport once per process, so the relay runs two: a receiver
 on config/fastdds_large_data.xml and a publisher on the default transport. The
 receiver passes each cloud, decimated to a bounded payload, through a pipe.
+Run one relay on the sensor host; its normal-DDS output serves Nav2 and viewers.
 """
 
 import argparse
@@ -37,11 +38,12 @@ def decimate(message, max_bytes):
         is_dense=message.is_dense)
 
 
-def _qos():
+def _qos(reliable=True):
     from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
     # Reliable is compatible with both RViz's reliable reader and Nav2's
     # best-effort SensorDataQoS reader, so one writer serves both.
-    return QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE,
+    return QoSProfile(depth=1, reliability=(ReliabilityPolicy.RELIABLE if reliable
+                                           else ReliabilityPolicy.BEST_EFFORT),
                       durability=DurabilityPolicy.VOLATILE)
 
 
@@ -56,16 +58,17 @@ def receive(pipe, topic, max_bytes, profile):
     node = rclpy.create_node("lidar_relay_receive")
     node.create_subscription(
         PointCloud2, topic,
-        lambda message: pipe.send_bytes(serialize_message(decimate(message, max_bytes))), _qos())
+        lambda message: pipe.send_bytes(serialize_message(decimate(message, max_bytes))), _qos(False))
     node.get_logger().info(f"receiving {topic} on the large-data transport")
     rclpy.spin(node)
 
 
 def publish(pipe, topic):
     os.environ.pop("FASTDDS_BUILTIN_TRANSPORTS", None)
-    # Every viewer/boat consumer has its own relay. Do not send its copy back
-    # across the LAN, where another relay would duplicate the same scan.
-    os.environ["ROS_AUTOMATIC_DISCOVERY_RANGE"] = "LOCALHOST"
+    # Reduce on the boat before crossing the LAN. Viewers subscribe directly;
+    # another TCP reader of the full cloud can stall the sensor participant.
+    os.environ["ROS_AUTOMATIC_DISCOVERY_RANGE"] = "SUBNET"
+    os.environ["RMW_FASTRTPS_PUBLICATION_MODE"] = "ASYNCHRONOUS"
     os.environ.pop("ROS_LOCALHOST_ONLY", None)
     import rclpy
     from rclpy.serialization import deserialize_message

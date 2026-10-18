@@ -149,10 +149,6 @@ class ZedDetectionsConverter(Node):
         topic = self.get_parameter("objects_topic").value
         url = self.get_parameter("rosbridge_url").value
         self.pub = self.create_publisher(Detection3DArray, "detections", 1)
-        self.marker_pub = self.create_publisher(
-            MarkerArray, self.pub.topic_name + "/markers", 1
-        )
-        self.marker_count = 0
         self.last_stamp = -1
         self.display_stamp = None
         self.expire_timer = self.create_timer(0.1, self.expire_display)
@@ -218,10 +214,6 @@ class ZedDetectionsConverter(Node):
             self.display_stamp = now
             self.last_header = detections.header
             self.pub.publish(detections)
-            self.marker_pub.publish(
-                detection_markers(detections, self.marker_count)
-            )
-            self.marker_count = len(detections.detections)
         except (
             KeyError,
             TypeError,
@@ -242,8 +234,6 @@ class ZedDetectionsConverter(Node):
         empty = Detection3DArray()
         empty.header = self.last_header
         self.pub.publish(empty)
-        self.marker_pub.publish(detection_markers(empty, self.marker_count))
-        self.marker_count = 0
         self.display_stamp = None
         if age < 0:
             self.last_stamp = -1

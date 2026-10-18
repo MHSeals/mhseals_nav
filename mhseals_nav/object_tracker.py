@@ -1,6 +1,7 @@
 """Timestamped detections -> local tracks -> current map-frame objects."""
 
 from collections import deque
+from copy import deepcopy
 import hashlib
 import math
 
@@ -16,6 +17,7 @@ from tf2_ros import Buffer, TransformListener, TransformException
 from tf2_geometry_msgs import do_transform_pose
 
 from mhseals_nav.object_tracks import ObjectTracks
+from mhseals_nav.zed_detections_converter import detection_markers
 
 class ObjectTracker(Node):
     """Track in odom so map->odom corrections move every landmark together."""
@@ -65,6 +67,9 @@ class ObjectTracker(Node):
         self.tf_listener = TransformListener(self.tf_buffer, self)
         self.pending = deque(maxlen=10)
         self.last_now = float("-inf")
+        self.latest_detections = None
+        self.raw_received = 0.0
+        self.raw_count = 0
         self.published_ids = set()
         self.marker_pub = self.create_publisher(MarkerArray, "tracked_objects", 10)
         self.object_pub = self.create_publisher(Detection3DArray, "objects/map", 10)
@@ -74,6 +79,8 @@ class ObjectTracker(Node):
             self.detections_callback,
             qos_profile_sensor_data,
         )
+        self.detection_marker_pub = self.create_publisher(
+            MarkerArray, self.detection_sub.topic_name + "/markers", 1)
         self.timer = self.create_timer(0.1, self.tick)
 
     def detections_callback(self, msg):
@@ -82,7 +89,8 @@ class ObjectTracker(Node):
 
     def transform_detections(self, msg):
         """All-or-nothing batch; retry missing TF without blocking its listener."""
-        result = []
+        result = Detection3DArray(header=deepcopy(msg.header))
+        result.header.frame_id = self.tracking_frame
         for det in msg.detections:
             header = det.header if det.header.frame_id else msg.header
             stamp = header.stamp
@@ -91,34 +99,40 @@ class ObjectTracker(Node):
             transform = self.tf_buffer.lookup_transform(
                 self.tracking_frame, header.frame_id, Time.from_msg(stamp)
             )
-            pose = do_transform_pose(det.bbox.center, transform)
-            label = det.results[0].hypothesis.class_id if det.results else "unknown"
-            result.append(
-                ([pose.position.x, pose.position.y, pose.position.z], str(label),
-                 det.results[0].hypothesis.score if det.results else 0.0)
-            )
+            transformed = deepcopy(det)
+            transformed.header.frame_id = self.tracking_frame
+            transformed.bbox.center = do_transform_pose(det.bbox.center, transform)
+            result.detections.append(transformed)
         return result
 
     def tick(self):
         now = self.get_clock().now().nanoseconds * 1e-9
         if now < self.last_now:
             self.pending.clear()
+            self.latest_detections = None
         self.last_now = now
         self.tracks.expire(now)
         for _ in range(len(self.pending)):
             msg = self.pending.popleft()
             stamp = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
-            if stamp <= 0 or not -0.1 <= now - stamp <= self.max_age:
+            if stamp <= 0 or stamp <= self.tracks.last_stamp or not -0.1 <= now - stamp <= self.max_age:
                 continue
             try:
-                observations = self.transform_detections(msg)
+                transformed = self.transform_detections(msg)
             except TransformException as error:
                 self.pending.append(msg)
                 self.get_logger().warning(
                     f"Detections waiting for TF: {error}", throttle_duration_sec=5.0
                 )
                 continue
+            observations = [
+                ([d.bbox.center.position.x, d.bbox.center.position.y, d.bbox.center.position.z],
+                 d.results[0].hypothesis.class_id if d.results else "unknown",
+                 d.results[0].hypothesis.score if d.results else 0.0)
+                for d in transformed.detections]
             self.tracks.update(observations, stamp)
+            self.latest_detections = transformed
+            self.raw_received = now
         self.publish_objects()
 
     def publish_objects(self):
@@ -128,7 +142,7 @@ class ObjectTracker(Node):
         markers = MarkerArray()
         visible = set()
         transform = None
-        if self.tracks.objects:
+        if self.tracks.objects or self.latest_detections is not None:
             try:
                 transform = self.tf_buffer.lookup_transform(
                     self.map_frame, self.tracking_frame, Time()
@@ -138,6 +152,20 @@ class ObjectTracker(Node):
                     f"Objects waiting for map TF: {error}", throttle_duration_sec=5.0
                 )
                 return
+        if self.latest_detections is not None:
+            raw = deepcopy(self.latest_detections)
+            raw.header = array.header
+            if self.get_clock().now().nanoseconds * 1e-9 - self.raw_received > self.max_age:
+                raw.detections.clear()
+                self.latest_detections = None
+            for det in raw.detections:
+                det.header = raw.header
+                det.bbox.center = do_transform_pose(det.bbox.center, transform)
+            self.detection_marker_pub.publish(detection_markers(raw, self.raw_count))
+            self.raw_count = len(raw.detections)
+        elif self.raw_count:
+            self.detection_marker_pub.publish(detection_markers(array, self.raw_count))
+            self.raw_count = 0
         for track in self.tracks.objects if transform is not None else []:
             pose = Pose()
             pose.position.x, pose.position.y, pose.position.z = map(

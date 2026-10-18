@@ -2,7 +2,9 @@
 <!--
   Large-data transport for the lidar participants (Velodyne driver/transform and
   the relay ingest). Equivalent to Fast DDS LARGE_DATA: UDP multicast discovery,
-  TCP for endpoint discovery and data. Netmask filtering keeps hosts with Wi-Fi,
+  TCP for endpoint discovery and data. Keep SHM disabled so the raw and normal
+  DDS graphs cannot match each other's /points endpoints on the sensor host.
+  TCP_NODELAY avoids scan batching. Netmask filtering keeps hosts with Wi-Fi,
   WARP or Docker interfaces on the interface that shares the peer's subnet;
   builtin LARGE_DATA advertises every interface, and the ODROID then accepts the
   viewer's TCP connections without ever answering on them.
@@ -19,6 +21,7 @@
     <transport_descriptor>
       <transport_id>data_tcp</transport_id>
       <type>TCPv4</type>
+      <enable_tcp_nodelay>true</enable_tcp_nodelay>
       <netmask_filter>ON</netmask_filter>
       <listening_ports><port>0</port></listening_ports>
     </transport_descriptor>

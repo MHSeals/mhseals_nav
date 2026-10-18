@@ -61,12 +61,10 @@ def test_sdk_corners_define_box_geometry_in_the_reported_frame():
 
 def test_delayed_duplicate_and_reordered_packets_do_not_replay_in_rviz():
     published = []
-    labels = []
     now = [100_000_000_000]
     node = SimpleNamespace(
         pub=SimpleNamespace(publish=published.append),
-        marker_pub=SimpleNamespace(publish=labels.append),
-        marker_count=0, last_stamp=-1, display_stamp=None, max_age=1.,
+        last_stamp=-1, display_stamp=None, max_age=1.,
         get_clock=lambda: SimpleNamespace(now=lambda: SimpleNamespace(nanoseconds=now[0])),
     )
     ZedDetectionsConverter.publish_packet(node, packet(99))
@@ -78,18 +76,16 @@ def test_delayed_duplicate_and_reordered_packets_do_not_replay_in_rviz():
     now[0] += 2_000_000_000
     ZedDetectionsConverter.expire_display(node)
     assert not published[-1].detections
-    assert labels[-1].markers[0].action == Marker.DELETE
-    assert node.marker_count == 0
+    assert node.display_stamp is None
 
 
 
 def test_display_timeout_measures_silence_without_replaying_old_packets():
-    published, markers = [], []
+    published = []
     now = [100_000_000_000]
     node = SimpleNamespace(
         pub=SimpleNamespace(publish=published.append),
-        marker_pub=SimpleNamespace(publish=markers.append),
-        marker_count=0, last_stamp=-1, display_stamp=None, max_age=1.,
+        last_stamp=-1, display_stamp=None, max_age=1.,
         get_clock=lambda: SimpleNamespace(now=lambda: SimpleNamespace(nanoseconds=now[0])),
     )
     ZedDetectionsConverter.publish_packet(node, packet(99))
@@ -162,20 +158,28 @@ def test_moving_boat_uses_acquisition_tf_and_map_correction(tracker):
     after.detections[0].bbox.center.position.x = 0.0
     after.detections[0].bbox.center.position.y = -3.0
     for msg in [before, after]:
-        observations = tracker.transform_detections(msg)
-        assert observations[0][0] == pytest.approx([5.0, 0.0, 0.0])
-        tracker.tracks.update(observations, float(msg.header.stamp.sec))
+        transformed = tracker.transform_detections(msg)
+        pose = transformed.detections[0].bbox.center.position
+        assert [pose.x, pose.y, pose.z] == pytest.approx([5.0, 0.0, 0.0])
+        tracker.tracks.update([([pose.x, pose.y, pose.z], "red", .9)],
+                              float(msg.header.stamp.sec))
+        tracker.latest_detections = transformed
+        tracker.raw_received = tracker.get_clock().now().nanoseconds * 1e-9
     assert len(tracker.tracks.tracks) == 1
     tracker.tracks.confirmation_count = 2
     tracker.tf_buffer.set_transform(transform("map", "odom", 11, 10.0), "test")
-    arrays, markers = [], []
+    arrays, markers, raw_markers = [], [], []
     tracker.object_pub = type(
         "Pub", (), {"publish": lambda _, msg: arrays.append(msg)}
     )()
     tracker.marker_pub = type(
         "Pub", (), {"publish": lambda _, msg: markers.append(msg)}
     )()
+    tracker.detection_marker_pub = SimpleNamespace(publish=raw_markers.append)
     tracker.publish_objects()
+    box = next(m for m in raw_markers[-1].markers if m.ns == "detection_boxes")
+    assert box.header.frame_id == "map"
+    assert box.pose.position.x == pytest.approx(15.)
     assert arrays[-1].detections[0].bbox.center.position.x == pytest.approx(15.0)
     assert arrays[-1].detections[0].results[0].hypothesis.score == pytest.approx(.9)
     # Packet gaps must not erase confirmed tracks before their tracking timeout.
@@ -184,6 +188,12 @@ def test_moving_boat_uses_acquisition_tf_and_map_correction(tracker):
     tracker.tf_buffer.set_transform(transform("map", "odom", 12, 20.0), "test")
     tracker.publish_objects()
     assert arrays[-1].detections[0].bbox.center.position.x == pytest.approx(25.0)
+    box = next(m for m in raw_markers[-1].markers if m.ns == "detection_boxes")
+    assert box.pose.position.x == pytest.approx(25.)
+    tracker.raw_received -= 2.
+    tracker.publish_objects()
+    assert all(m.action == Marker.DELETE for m in raw_markers[-1].markers)
+    assert tracker.latest_detections is None
     tracker.tf_buffer.clear()
     count = len(markers)
     tracker.publish_objects()
