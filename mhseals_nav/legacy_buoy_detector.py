@@ -62,7 +62,7 @@ def decode_boxes(output: np.ndarray, geometry: tuple, thresholds: list) -> list:
 
 
 def project_box(box: list, depth: np.ndarray, k: list):
-    """Use finite centre-region depth; return metres in the optical frame."""
+    """Return optical-frame position and approximate box dimensions in metres."""
     x, y, width, height = box
     u, v = x + width / 2, y + height / 2
     region = depth[
@@ -72,7 +72,15 @@ def project_box(box: list, depth: np.ndarray, k: list):
     if valid.size < 3 or k[0] <= 0 or k[4] <= 0:
         return None
     z = float(np.median(valid))
-    return [(u - k[2]) * z / k[0], (v - k[5]) * z / k[4], z]
+    width_m, height_m = width * z / k[0], height * z / k[4]
+    # Visible surface spread is only a visualization estimate of thickness.
+    # Exclude background, trim noisy tails, and bound it by the projected width.
+    surface = valid[np.abs(valid - z) <= max(width_m, .05)]
+    near, far = (np.percentile(surface, [10, 90])
+                 if surface.size >= 3 else (z, z))
+    thickness = max(.05, min(width_m, float(far - near)))
+    return ([(u - k[2]) * z / k[0], (v - k[5]) * z / k[4], z],
+            [width_m, height_m, thickness])
 
 
 class TensorRTModel:
@@ -249,15 +257,15 @@ class LegacyBuoyDetector:
         array.header = image.header
         annotated = pixels.copy() if self.debug.get_subscription_count() else None
         for category, score, box in boxes:
-            position = project_box(box, depths, self.info.k)
-            if position is None:
+            projected = project_box(box, depths, self.info.k)
+            if projected is None:
                 continue
+            position, dimensions = projected
             obj = self.object_type()
             obj.label, obj.label_id = self.labels[category], category
             obj.confidence = score * 100
             obj.position = list(map(float, position))
-            obj.dimensions_3d = [box[2] * position[2] / self.info.k[0],
-                                 box[3] * position[2] / self.info.k[4], 0.0]
+            obj.dimensions_3d = list(map(float, dimensions))
             # These are fresh measurements; the ODROID owns temporal tracking.
             obj.tracking_available = False
             array.objects.append(obj)
