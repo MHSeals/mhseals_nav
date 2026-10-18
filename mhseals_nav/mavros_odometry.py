@@ -71,6 +71,11 @@ def main(args=None):
         rclpy.spin(node)
     except (KeyboardInterrupt, ExternalShutdownException):
         pass
+    except Exception:
+        # A callback may still publish while SIGTERM invalidates its DDS context.
+        # Preserve real callback errors while the context is running.
+        if node.context.ok():
+            raise
     finally:
         node.destroy_node()
         rclpy.try_shutdown()

@@ -55,5 +55,6 @@ finally:
         p.terminate()
     for p in processes:
         p.wait(timeout=5)
+    assert processes[0].returncode == 0, 'Adapter did not stop cleanly'
     n.destroy_node()
     rclpy.shutdown()
