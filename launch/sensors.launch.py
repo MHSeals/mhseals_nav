@@ -157,6 +157,8 @@ def generate_launch_description():
         relays, 
         velodyne_driver_node, 
         velodyne_pointcloud_node, 
+        Node(package='mhseals_nav', executable='lidar_relay',
+             output='screen', condition=sensor_ignore('lidar')),
         ros_tcp_endpoint
     ]
 

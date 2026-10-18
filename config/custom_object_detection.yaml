@@ -1,7 +1,7 @@
 object_detection:
   od_enabled: true
   detection_model: CUSTOM_YOLOLIKE_BOX_OBJECTS
-  custom_onnx_input_size: 512
+  custom_onnx_input_size: 640
   custom_onnx_file: '/home/roboboat/roboboat_ws/src/mhseals_nav/config/epoch60.onnx'
   custom_class_count: 13
 

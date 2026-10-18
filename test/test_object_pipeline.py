@@ -82,21 +82,30 @@ def test_moving_boat_uses_acquisition_tf_and_map_correction(tracker):
     assert len(tracker.tracks.tracks) == 1
     tracker.tracks.confirmation_count = 2
     tracker.tf_buffer.set_transform(transform("map", "odom", 11, 10.0), "test")
-    arrays, markers = [], []
+    arrays, markers, clouds = [], [], []
     tracker.object_pub = type(
         "Pub", (), {"publish": lambda _, msg: arrays.append(msg)}
     )()
     tracker.marker_pub = type(
         "Pub", (), {"publish": lambda _, msg: markers.append(msg)}
     )()
+    tracker.points_pub = type(
+        "Pub", (), {"publish": lambda _, msg: clouds.append(msg)}
+    )()
     tracker.publish_objects()
     assert arrays[-1].detections[0].bbox.center.position.x == pytest.approx(15.0)
+    from sensor_msgs_py.point_cloud2 import read_points_numpy
+
+    assert clouds[-1].header.frame_id == "odom"
+    assert read_points_numpy(clouds[-1])[0] == pytest.approx([5.0, 0.0, 0.2])
     tracker.tf_buffer.set_transform(transform("map", "odom", 12, 20.0), "test")
     tracker.publish_objects()
     assert arrays[-1].detections[0].bbox.center.position.x == pytest.approx(25.0)
-    tracker.tracks.expire(15.0)
+    assert read_points_numpy(clouds[-1])[0] == pytest.approx([5.0, 0.0, 0.2])
+    tracker.tracks.expire(11.0 + tracker.get_parameter("track_timeout").value + 1.0)
     tracker.publish_objects()
     assert not arrays[-1].detections
+    assert clouds[-1].width == 0
     assert len(markers[-1].markers) == 2
     assert all(m.action == Marker.DELETE for m in markers[-1].markers)
 

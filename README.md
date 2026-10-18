@@ -65,6 +65,21 @@ Navigation and tracking also require `/tf` and `/tf_static` with `map → odom �
 
 Navigation uses MPPI with the Omni model at 10 Hz (the boat can sway) and rolling costmaps of decaying voxels, fed by the LiDAR and by the camera-tracked objects (`/objects/points`), since small buoys sit below the LiDAR's rings up close. The characterization's Nav2 overlay gives MPPI the boat's full measured limits, scaled to full effort. RTABMap mapping consumes the live lidar cloud and external EKF odometry; it does not publish a competing localization transform.
 
+On JetPack 5, SDK 4 cannot run `CUSTOM_YOLOLIKE_BOX_OBJECTS`. The legacy detector runs the checked-in 640-pixel ONNX model with TensorRT 8, matches RGB and registered depth by acquisition timestamp, and publishes metric positions in the actual optical frame. Its first start compiles a GPU-specific FP16 engine; the ZED resources volume retains that cache across container rebuilds. TensorRT/CUDA come from JetPack; OpenCV, NumPy, and PyYAML are required.
+
+```bash
+# Squirtle container (Foxy, domain 142), after building:
+source /opt/zed_ros2/setup.bash && source install/setup.bash
+ros2 launch mhseals_nav legacy_zed.launch.py
+# ODROID host: resolve the current address, then pass it into its Jazzy container:
+JETSON_IP=$(getent ahostsv4 squirtle-jetson.local | awk 'NR==1 {print $1}')
+docker exec -it roboboat_dev bash -lc "source /opt/ros/jazzy/setup.bash && source install/setup.bash && ros2 launch mhseals_nav objects.launch.py sim:=false rosbridge_url:=ws://${JETSON_IP}:9090 camera_root_frame:=front_camera_link"
+```
+
+Run the ODROID's odometry and sensors as usual. The bridge reconnects after connection loss, retries subscriptions when the camera starts later, and relays only object measurements and camera-internal static TF; ODROID localization and the robot description retain TF ownership. Just like Unity, its tracker publishes `/objects/map` (`Detection3DArray`, `map`) for tasks, `/objects/points` (`PointCloud2`, `odom`) for both Nav2 costmaps, and `/tracked_objects` (`MarkerArray`) for RViz. Confirmed objects expire after 30 seconds without observations. Keep host clocks synchronized; stale measurements are rejected. The optional annotated camera view is `/buoy_detector/image/compressed`. Low light can prevent detection or stereo depth; indoors, GPS corrections can move `map`, so use `odom` to assess local stability.
+
+The hardware sensor launch also starts the local LiDAR relay. Each host's relay publishes locally, so ODROID navigation works without a viewer and another viewer's relay cannot duplicate its scans.
+
 ### Mapping and rates
 
 The validated `crane_ml` RoboBoat stack is the reference for the live navigation contract: authoritative `odom → base_link` at 50 Hz, a 10 Hz 3-D LiDAR cloud, and LiDAR-fed rolling costmaps at 10 Hz local / 5 Hz global. It deliberately validates authoritative-odometry navigation rather than SLAM ([baseline](https://github.com/1unarzDev/crane_ml/blob/main/Docs/RoboBoatNavigationBaseline.md)). This package preserves that contract on the boat while adding optional lidar-cloud RTABMap mapping.

@@ -3,6 +3,7 @@
 import json
 from queue import Empty, Full, Queue
 from threading import Event, Thread
+from time import monotonic
 
 
 class RosbridgeSource:
@@ -25,19 +26,19 @@ class RosbridgeSource:
         while not self.stop.is_set():
             try:
                 self.socket = self.websocket.create_connection(self.url, timeout=1.0)
-                for topic in self.messages:
-                    self.socket.send(
-                        json.dumps(
-                            dict(
-                                op="subscribe",
-                                topic=topic,
-                                throttle_rate=100 if topic == self.topic else 0,
-                                queue_length=1 if topic == self.topic else 100,
-                            )
-                        )
-                    )
+                last_activity = {topic: 0.0 for topic in self.messages}
                 self.logger.info(f"Object bridge connected: {self.url} {self.topic}")
                 while not self.stop.is_set():
+                    # Foxy may silently reject subscriptions before a publisher exists.
+                    # Reusing the id replaces the subscription, avoiding duplicates.
+                    for topic, last in last_activity.items():
+                        if monotonic() - last >= 5.0:
+                            self.socket.send(json.dumps(dict(
+                                op="subscribe", id=f"objects:{topic}", topic=topic,
+                                throttle_rate=100 if topic == self.topic else 0,
+                                queue_length=1 if topic == self.topic else 100,
+                            )))
+                            last_activity[topic] = monotonic()
                     try:
                         raw = self.socket.recv()
                     except self.websocket.WebSocketTimeoutException:
@@ -59,6 +60,10 @@ class RosbridgeSource:
                     ):
                         continue
                     queue = self.messages[packet["topic"]]
+                    # Static transforms need only one successful subscription.
+                    last_activity[packet["topic"]] = (
+                        monotonic() if packet["topic"] == self.topic else float("inf")
+                    )
                     try:
                         queue.put_nowait(packet["msg"])
                     except Full:

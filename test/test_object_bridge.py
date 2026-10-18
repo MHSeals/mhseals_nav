@@ -20,7 +20,8 @@ from websockets.sync.server import serve
 from mhseals_nav.zed_detections_converter import ZedDetectionsConverter
 
 
-def test_legacy_json_reconnects_and_publishes_local_ros():
+@pytest.mark.parametrize("silent_failure", [False, True])
+def test_legacy_json_recovers_from_late_publisher_and_reconnects(silent_failure):
     assert os.environ.get("ROS_DOMAIN_ID") == "231"
     stop = Event()
     connections = []
@@ -31,7 +32,21 @@ def test_legacy_json_reconnects_and_publishes_local_ros():
         assert subscription["op"] == "subscribe"
         assert subscription["topic"] == topic
         assert "type" not in subscription  # Works with zed_interfaces OR zed_msgs.
+        # A stable id prevents repeated subscriptions from accumulating.
+        assert subscription.get("id")
         assert json.loads(socket.recv())["topic"] == "/tf_static"
+        connections.append(1)
+        if len(connections) == 1:
+            if silent_failure:
+                # Real Foxy silently rejects this until the publisher starts.
+                retry = json.loads(socket.recv(timeout=7))
+                assert retry == subscription
+                assert json.loads(socket.recv())["topic"] == "/tf_static"
+            else:
+                socket.send(json.dumps(dict(
+                    op="status", level="error", id=subscription["id"],
+                    msg="Cannot infer topic type: publisher is not yet advertised")))
+            return
         transforms = []
         for parent, child in [
             ("zed_camera_link", "zed_left_camera_frame"),
@@ -52,7 +67,6 @@ def test_legacy_json_reconnects_and_publishes_local_ros():
                 dict(op="publish", topic="/tf_static", msg=dict(transforms=transforms))
             )
         )
-        connections.append(1)
         for _ in range(15):
             packet = dict(
                 header=dict(
@@ -106,7 +120,7 @@ def test_legacy_json_reconnects_and_publishes_local_ros():
         executor.add_node(converter)
         executor.add_node(probe)
         try:
-            deadline = time.monotonic() + 8
+            deadline = time.monotonic() + 12
             while time.monotonic() < deadline and (
                 len(connections) < 2 or len(received) < 3
             ):

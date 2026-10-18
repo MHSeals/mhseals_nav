@@ -58,6 +58,10 @@ def receive(pipe, topic, max_bytes, profile):
 
 def publish(pipe, topic):
     os.environ.pop("FASTDDS_BUILTIN_TRANSPORTS", None)
+    # Every viewer/boat consumer has its own relay. Do not send its copy back
+    # across the LAN, where another relay would duplicate the same scan.
+    os.environ["ROS_AUTOMATIC_DISCOVERY_RANGE"] = "LOCALHOST"
+    os.environ.pop("ROS_LOCALHOST_ONLY", None)
     import rclpy
     from rclpy.serialization import deserialize_message
     from sensor_msgs.msg import PointCloud2
