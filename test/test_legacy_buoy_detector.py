@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from mhseals_nav.legacy_buoy_detector import (
-    box_corners, decode_boxes, prepare_image,
+    box_corners, decode_boxes, detect_image, prepare_image, suppress_boxes,
 )
 
 
@@ -43,3 +43,50 @@ def test_invalid_model_output_is_rejected_instead_of_mislabelled():
     with pytest.raises(ValueError):
         decode_boxes(np.zeros((1, 84, 8400)),
                      (1., 0, 140, 360, 640), [.2] * 13)
+
+
+def test_detail_crops_restore_original_coordinates_and_merge_repeated_objects():
+    class Model:
+        shape = (640, 640)
+        calls = 0
+
+        def infer(self, tensor):
+            self.calls += 1
+            result = np.zeros((1, 17, 1), np.float32)
+            # Same green buoy in the two overlapping middle/right crops.
+            if self.calls in (3, 4):
+                x = 560 if self.calls == 3 else 80 / 3
+                result[0, :4, 0] = [x, 320, 20, 60]
+                result[0, 4 + 7, 0] = .8 if self.calls == 3 else .7
+            return result
+
+    model = Model()
+    found = detect_image(model, np.zeros((1080, 1920, 3), np.uint8),
+                         [.2] * 13, tile_size=720)
+    assert model.calls == 4
+    assert len(found) == 1
+    assert found[0][0] == 7
+    assert found[0][1] == pytest.approx(.8)
+    assert found[0][2] == pytest.approx([1218.75, 506.25, 22.5, 67.5])
+
+
+@pytest.mark.parametrize('shape,tile_size', [((360, 640), 720), ((1080, 1920), 0)])
+def test_single_pass_for_small_images_or_disabled_crops(shape, tile_size):
+    class Model:
+        shape = (640, 640)
+        calls = 0
+
+        def infer(self, tensor):
+            self.calls += 1
+            return np.zeros((1, 17, 1), np.float32)
+
+    model = Model()
+    assert detect_image(model, np.zeros((*shape, 3), np.uint8),
+                        [.2] * 13, tile_size) == []
+    assert model.calls == 1
+
+
+def test_crop_merging_keeps_distinct_colours_at_the_same_position():
+    box = [100., 200., 20., 60.]
+    found = suppress_boxes([(7, .8, box), (7, .7, box), (10, .6, box)])
+    assert [item[0] for item in found] == [7, 10]

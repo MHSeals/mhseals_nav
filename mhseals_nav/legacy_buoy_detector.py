@@ -46,18 +46,40 @@ def decode_boxes(output: np.ndarray, geometry: tuple, thresholds: list) -> list:
     xy1 = np.clip(xy1, [0, 0], [width, height])
     xy2 = np.clip(xy2, [0, 0], [width, height])
     boxes = np.concatenate((xy1, xy2 - xy1), axis=1)
+    return suppress_boxes([
+        (int(category), float(score), box.tolist())
+        for category, score, box in zip(classes, scores, boxes)
+        if (box[2:] > 1).all()])
+
+
+def suppress_boxes(boxes: list) -> list:
+    """Suppress same-class duplicates, including overlapping inference crops."""
     found = []
-    for category in np.unique(classes):
-        indices = np.flatnonzero((classes == category)
-                                 & (boxes[:, 2:] > 1).all(axis=1))
-        if not len(indices):
-            continue
-        selected = cv2.dnn.NMSBoxes(boxes[indices].tolist(),
-                                   scores[indices].tolist(), 0.0, 0.45)
-        for index in np.asarray(selected, dtype=int).reshape(-1):
-            i = indices[index]
-            found.append((int(category), float(scores[i]), boxes[i].tolist()))
+    for category in sorted({item[0] for item in boxes}):
+        candidates = [item for item in boxes if item[0] == category]
+        selected = cv2.dnn.NMSBoxes([item[2] for item in candidates],
+                                   [item[1] for item in candidates], 0.0, 0.45)
+        found.extend(candidates[int(i)]
+                     for i in np.asarray(selected, dtype=int).reshape(-1))
     return sorted(found, key=lambda item: -item[1])[:256]
+
+
+def detect_image(model, pixels: np.ndarray, thresholds: list,
+                 tile_size: int = 0) -> list:
+    """Keep the full view and three detail crops around the central water band."""
+    height, width = pixels.shape[:2]
+    views = [(0, 0, pixels)]
+    if tile_size > 0 and min(height, width) > tile_size:
+        y = (height - tile_size) // 2
+        for x in np.linspace(0, width - tile_size, 3, dtype=int):
+            views.append((int(x), y, pixels[y:y + tile_size, x:x + tile_size]))
+    boxes = []
+    for x, y, view in views:
+        tensor, geometry = prepare_image(view, model.shape)
+        for category, score, (bx, by, bw, bh) in decode_boxes(
+                model.infer(tensor), geometry, thresholds):
+            boxes.append((category, score, [x + bx, y + by, bw, bh]))
+    return suppress_boxes(boxes)
 
 
 def box_corners(box: list):
@@ -164,7 +186,7 @@ class LegacyBuoyDetector:
         defaults = dict(model_file=str(share / 'epoch60.onnx'),
                         class_config=str(share / 'custom_object_detection.yaml'),
                         engine_cache='/usr/local/zed/resources/astro_buoys',
-                        camera_topic='/front/zed_node')
+                        camera_topic='/front/zed_node', tile_size=0)
         for key, value in defaults.items():
             self.node.declare_parameter(key, value)
         values = {key: self.node.get_parameter(key).value for key in defaults}
@@ -177,6 +199,9 @@ class LegacyBuoyDetector:
                            if item['enabled'] else 1.1 for item in classes]
         self.model = TensorRTModel(values['model_file'], values['engine_cache'],
                                    self.node.get_logger())
+        cv2.setNumThreads(1)
+        self.model.infer(np.zeros((1, 3, *self.model.shape), np.float32))
+        self.tile_size = int(values['tile_size'])
         self.object_type, self.array_type = Object, ObjectsStamped
         self.jpeg_type = CompressedImage
         prefix = values['camera_topic'].rstrip('/')
@@ -205,8 +230,7 @@ class LegacyBuoyDetector:
                                   if channels == 3 else cv2.COLOR_RGBA2BGR)
         elif channels == 4:
             pixels = cv2.cvtColor(pixels, cv2.COLOR_BGRA2BGR)
-        tensor, geometry = prepare_image(pixels, self.model.shape)
-        boxes = decode_boxes(self.model.infer(tensor), geometry, self.thresholds)
+        boxes = detect_image(self.model, pixels, self.thresholds, self.tile_size)
         array = self.array_type()
         array.header = image.header
         annotated = pixels.copy() if self.debug.get_subscription_count() else None
@@ -227,7 +251,12 @@ class LegacyBuoyDetector:
         if annotated is not None:
             message = self.jpeg_type()
             message.header, message.format = image.header, 'jpeg'
-            message.data = cv2.imencode('.jpg', annotated)[1].tobytes()
+            if annotated.shape[1] > 1280:
+                annotated = cv2.resize(annotated, (
+                    1280, round(annotated.shape[0] * 1280 / annotated.shape[1])),
+                    interpolation=cv2.INTER_AREA)
+            message.data = cv2.imencode('.jpg', annotated, [
+                cv2.IMWRITE_JPEG_QUALITY, 85])[1].tobytes()
             self.debug.publish(message)
 
 

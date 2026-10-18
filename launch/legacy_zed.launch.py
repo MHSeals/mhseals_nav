@@ -1,7 +1,10 @@
 """JP5 / SDK 4: calibrated ZED RGB-D, external buoy inference and rosbridge."""
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import (
+    DeclareLaunchArgument, GroupAction, IncludeLaunchDescription,
+    SetEnvironmentVariable,
+)
 from launch.launch_description_sources import (
     AnyLaunchDescriptionSource, PythonLaunchDescriptionSource,
 )
@@ -19,23 +22,32 @@ def generate_launch_description():
             [share, 'config', 'epoch60.onnx'])),
         DeclareLaunchArgument('engine_cache',
                               default_value='/usr/local/zed/resources/astro_buoys'),
-        IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(PathJoinSubstitution([
-                FindPackageShare('zed_wrapper'), 'launch', 'zed_camera.launch.py'])),
-            launch_arguments={
-                'camera_model': LaunchConfiguration('camera_model'),
-                'camera_name': LaunchConfiguration('camera_name'),
-                'publish_tf': 'false', 'publish_map_tf': 'false',
-                'ros_params_override_path': PathJoinSubstitution(
-                    [share, 'config', 'legacy_zed.yaml']),
-            }.items()),
-        Node(package='mhseals_nav', executable='legacy_buoy_detector',
-             parameters=[{
-                 'model_file': LaunchConfiguration('model_file'),
-                 'engine_cache': LaunchConfiguration('engine_cache'),
-                 'camera_topic': ['/', LaunchConfiguration('camera_name'), '/zed_node'],
-             }], output='screen'),
-        IncludeLaunchDescription(AnyLaunchDescriptionSource(PathJoinSubstitution([
-            FindPackageShare('rosbridge_server'), 'launch',
-            'rosbridge_websocket_launch.xml']))),
+        DeclareLaunchArgument('tile_size', default_value='720',
+                              description='Central detail crop size; 0 disables crops'),
+        GroupAction(actions=[
+            SetEnvironmentVariable('FASTRTPS_DEFAULT_PROFILES_FILE',
+                PathJoinSubstitution([share, 'config', 'legacy_camera_dds.xml'])),
+            SetEnvironmentVariable('FASTDDS_DEFAULT_PROFILES_FILE',
+                PathJoinSubstitution([share, 'config', 'legacy_camera_dds.xml'])),
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(PathJoinSubstitution([
+                    FindPackageShare('zed_wrapper'), 'launch', 'zed_camera.launch.py'])),
+                launch_arguments={
+                    'camera_model': LaunchConfiguration('camera_model'),
+                    'camera_name': LaunchConfiguration('camera_name'),
+                    'publish_tf': 'false', 'publish_map_tf': 'false',
+                    'ros_params_override_path': PathJoinSubstitution(
+                        [share, 'config', 'legacy_zed.yaml']),
+                }.items()),
+            Node(package='mhseals_nav', executable='legacy_buoy_detector',
+                 parameters=[{
+                     'model_file': LaunchConfiguration('model_file'),
+                     'engine_cache': LaunchConfiguration('engine_cache'),
+                     'camera_topic': ['/', LaunchConfiguration('camera_name'), '/zed_node'],
+                     'tile_size': LaunchConfiguration('tile_size'),
+                 }], output='screen'),
+            IncludeLaunchDescription(AnyLaunchDescriptionSource(PathJoinSubstitution([
+                FindPackageShare('rosbridge_server'), 'launch',
+                'rosbridge_websocket_launch.xml']))),
+        ]),
     ])
