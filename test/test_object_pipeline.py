@@ -12,7 +12,7 @@ from geometry_msgs.msg import TransformStamped
 from vision_msgs.msg import Detection3DArray, Detection3D, ObjectHypothesisWithPose
 from visualization_msgs.msg import Marker
 
-from mhseals_nav.zed_detections_converter import convert_objects
+from mhseals_nav.zed_detections_converter import convert_objects, confidence_markers
 from mhseals_nav.object_tracker import ObjectTracker
 from mhseals_nav.camera_static_tf import CameraStaticTF
 
@@ -41,6 +41,33 @@ def test_zed_array_and_tracking_state():
     for state in [0, 2, 3]:
         value["objects"][0]["tracking_state"] = state
         assert not convert_objects(value).detections
+
+
+def test_confidence_labels_are_small_above_boxes_and_do_not_change_detections():
+    value = packet()
+    value['header']['frame_id'] = 'front_left_camera_optical_frame'
+    value['objects'][0]['dimensions_3d'] = [.4, 1.2, .2]
+    array = convert_objects(value)
+    label, deleted = confidence_markers(array, previous_count=2).markers
+    assert label.type == Marker.TEXT_VIEW_FACING
+    assert label.text == '90%'
+    assert label.scale.z == pytest.approx(.06)
+    assert label.pose.position.y == pytest.approx(-.68)
+    assert label.pose.position.x == array.detections[0].bbox.center.position.x
+    assert label.header == array.header
+    assert label.color.r == label.color.g == label.color.b == pytest.approx(190 / 255)
+    assert label.lifetime.sec == 2
+    assert array.detections[0].bbox.center.position.y == 0.
+    assert deleted.action == Marker.DELETE and deleted.id == 1
+    assert deleted.ns == label.ns
+    # Non-optical camera frames use Z up.
+    array.header.frame_id = 'camera_link'
+    label = confidence_markers(array).markers[0]
+    assert label.pose.position.z == pytest.approx(.18)
+    assert label.pose.position.y == 0.
+    array.detections.clear()
+    assert all(m.action == Marker.DELETE
+               for m in confidence_markers(array, previous_count=2).markers)
 
 
 def transform(parent, child, stamp, x=0.0, yaw=0.0):

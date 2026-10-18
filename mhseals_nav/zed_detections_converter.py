@@ -1,12 +1,14 @@
 """Native ZED or legacy rosbridge JSON -> the local Jazzy detection contract."""
 
 import math
+from copy import deepcopy
 
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from rosidl_runtime_py.convert import message_to_ordereddict
 from vision_msgs.msg import Detection3DArray, Detection3D, ObjectHypothesisWithPose
+from visualization_msgs.msg import Marker, MarkerArray
 
 
 def convert_objects(message):
@@ -54,6 +56,39 @@ def convert_objects(message):
     return array
 
 
+def confidence_markers(detections, previous_count=0):
+    """Small labels above boxes, matching the RViz detection plugin's palette."""
+    markers = MarkerArray()
+    colors = {"car": (255, 165, 0), "person": (0, 0, 255),
+              "cyclist": (255, 255, 0), "motorcycle": (230, 230, 250)}
+    for index, detection in enumerate(detections.detections):
+        if not detection.results:
+            continue
+        best = max(detection.results, key=lambda r: r.hypothesis.score).hypothesis
+        marker = Marker()
+        marker.header = detections.header
+        marker.ns, marker.id = "confidence", index
+        marker.type = Marker.TEXT_VIEW_FACING
+        marker.pose.position = deepcopy(detection.bbox.center.position)
+        marker.pose.orientation.w = 1.0
+        if "optical" in detections.header.frame_id:
+            marker.pose.position.y -= detection.bbox.size.y / 2 + .08
+        else:
+            marker.pose.position.z += detection.bbox.size.z / 2 + .08
+        marker.text = f"{best.score:.0%}"
+        marker.scale.z = .06
+        rgb = colors.get(best.class_id.lower(), (190, 190, 190))
+        marker.color.r, marker.color.g, marker.color.b = (v / 255 for v in rgb)
+        marker.color.a = 1.0
+        marker.lifetime.sec = 2
+        markers.markers.append(marker)
+    for index in range(len(detections.detections), previous_count):
+        marker = Marker()
+        marker.ns, marker.id, marker.action = "confidence", index, Marker.DELETE
+        markers.markers.append(marker)
+    return markers
+
+
 class ZedDetectionsConverter(Node):
     def __init__(self):
         super().__init__("zed_detections_converter")
@@ -63,6 +98,10 @@ class ZedDetectionsConverter(Node):
         topic = self.get_parameter("objects_topic").value
         url = self.get_parameter("rosbridge_url").value
         self.pub = self.create_publisher(Detection3DArray, "detections", 10)
+        self.confidence_pub = self.create_publisher(
+            MarkerArray, self.pub.topic_name + "/confidence", 10
+        )
+        self.confidence_count = 0
         self.source = None
         self.static_filter = None
         if url:
@@ -116,7 +155,12 @@ class ZedDetectionsConverter(Node):
 
     def publish_packet(self, packet):
         try:
-            self.pub.publish(convert_objects(packet))
+            detections = convert_objects(packet)
+            self.pub.publish(detections)
+            self.confidence_pub.publish(
+                confidence_markers(detections, self.confidence_count)
+            )
+            self.confidence_count = len(detections.detections)
         except (
             KeyError,
             TypeError,

@@ -81,7 +81,7 @@ Run the ODROID's odometry and sensors as usual. The bridge reconnects after conn
 
 The hardware sensor launch also starts the local LiDAR relay. Each host's relay publishes locally, so ODROID navigation works without a viewer and another viewer's relay cannot duplicate its scans.
 
-RViz markers retain their track IDs across update gaps and expire with `track_timeout`; a temporary TF lookup failure does not delete valid tracks.
+RViz markers retain their track IDs across update gaps and expire with `track_timeout`; a temporary TF lookup failure does not delete valid tracks. The ZED converter publishes small confidence percentages above detection boxes on `/detections/confidence`, matching the RViz detection plugin's default colors; disable that plugin's built-in `Show Score` to avoid duplicate labels.
 
 ### Mapping and rates
 
