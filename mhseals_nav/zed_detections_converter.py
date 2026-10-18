@@ -109,7 +109,7 @@ def confidence_markers(detections, previous_count=0):
 
 
 def detection_markers(detections, previous_count=0):
-    """Standard RViz markers queue for TF instead of drawing at the origin."""
+    """Standard RViz markers hide on missing TF instead of drawing at the origin."""
     markers = confidence_markers(detections, previous_count)
     for index, detection in enumerate(detections.detections):
         label = markers.markers[index]

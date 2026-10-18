@@ -211,7 +211,7 @@ def test_missing_tf_retries_then_stale_packets_are_dropped(tracker):
     assert tracker.tracks.tracks[0].hits == 1
 
 
-def test_outline_markers_wait_for_acquisition_tf_and_delete_disappeared_boxes():
+def test_outline_markers_use_acquisition_tf_and_delete_disappeared_boxes():
     array = convert_objects(packet())
     array.detections[0].bbox.size.x = .4
     array.detections[0].bbox.size.y = .6
@@ -220,7 +220,7 @@ def test_outline_markers_wait_for_acquisition_tf_and_delete_disappeared_boxes():
     box = next(m for m in markers if m.ns == "detection_boxes" and m.action == Marker.ADD)
     assert box.type == Marker.LINE_LIST
     assert len(box.points) == 24
-    assert box.header == array.header  # standard Marker display queues until TF exists
+    assert box.header == array.header  # standard Marker display hides boxes if this TF is unavailable
     assert not box.frame_locked
     assert box.pose == array.detections[0].bbox.center
     assert box.scale.x == pytest.approx(.01)
