@@ -97,8 +97,9 @@ def main(args=None):
 
     def receive_gps(message):
         linear = message.twist.linear
+        # Arrival time, not the header: MAVROS stamps GPS with the FCU's clock.
         gps.update(velocity=(linear.x, linear.y, linear.z),
-                   stamp=message.header.stamp.sec + message.header.stamp.nanosec * 1e-9)
+                   stamp=node.get_clock().now().nanoseconds * 1e-9)
 
     if source == 'gps':
         node.create_subscription(TwistStamped, '/mavros/global_position/raw/gps_vel',
