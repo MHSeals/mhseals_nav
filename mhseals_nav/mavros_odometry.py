@@ -3,6 +3,12 @@
 MAVROS global_position/local labels its ENU velocity as base_link and uses
 [-1, 0, ...] for unknown covariance. Neither is a valid EKF twist input.
 Its pose already contains the FCU's ENU attitude; no compass offset belongs here.
+
+``velocity_source: gps`` takes the velocity from the GPS receiver's own ENU
+velocity (/mavros/global_position/raw/gps_vel) instead of the FCU EKF's. On
+Blastoise (2026-10-18) the EKF's velocity grew to 1.9 m/s during a yaw in place
+while the GPS read 0.1 m/s; the GPS velocity does not drift. Rotation into the
+body still uses the FCU attitude, so the compass must be right.
 """
 from copy import deepcopy
 import math
@@ -47,6 +53,15 @@ def body_odometry(message, velocity_stddev):
     return result
 
 
+def with_velocity(message, velocity):
+    """The same odometry with its ENU velocity replaced and covariance unknown."""
+    result = deepcopy(message)
+    out = result.twist.twist.linear
+    out.x, out.y, out.z = (float(v) for v in velocity)
+    result.twist.covariance = [-1.] + [0.] * 35
+    return result
+
+
 def main(args=None):
     import rclpy
     from nav_msgs.msg import Odometry
@@ -54,16 +69,40 @@ def main(args=None):
     from rclpy.qos import qos_profile_sensor_data
     from rclpy.executors import ExternalShutdownException
 
+    from geometry_msgs.msg import TwistStamped
+
     rclpy.init(args=args)
     node = Node('mavros_odom_adapter')
     stddev = node.declare_parameter('velocity_stddev', .2).value
+    source = node.declare_parameter('velocity_source', 'fcu').value
+    max_age = node.declare_parameter('gps_velocity_max_age', .5).value
+    if source not in ('fcu', 'gps'):
+        raise ValueError('velocity_source must be fcu or gps')
     publisher = node.create_publisher(Odometry, '/odom/mavros', 10)
+    gps = {}
 
     def receive(message):
         try:
+            if source == 'gps':
+                stamp = gps.get('stamp')
+                age = (node.get_clock().now().nanoseconds * 1e-9 - stamp) if stamp else None
+                if age is None or not -.1 <= age <= max_age:
+                    node.get_logger().warning('GPS velocity is stale; not publishing',
+                                              throttle_duration_sec=5.)
+                    return
+                message = with_velocity(message, gps['velocity'])
             publisher.publish(body_odometry(message, stddev))
         except ValueError as error:
             node.get_logger().warning(str(error), throttle_duration_sec=5.)
+
+    def receive_gps(message):
+        linear = message.twist.linear
+        gps.update(velocity=(linear.x, linear.y, linear.z),
+                   stamp=message.header.stamp.sec + message.header.stamp.nanosec * 1e-9)
+
+    if source == 'gps':
+        node.create_subscription(TwistStamped, '/mavros/global_position/raw/gps_vel',
+                                 receive_gps, qos_profile_sensor_data)
 
     node.create_subscription(Odometry, '/mavros/global_position/local', receive,
                              qos_profile_sensor_data)

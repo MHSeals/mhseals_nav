@@ -5,7 +5,7 @@ from types import SimpleNamespace as S
 
 import pytest
 
-from mhseals_nav.mavros_odometry import body_odometry
+from mhseals_nav.mavros_odometry import body_odometry, with_velocity
 
 
 def message(yaw, velocity, covariance=None):
@@ -43,3 +43,11 @@ def test_invalid_attitude_is_rejected(value):
     raw.pose.pose.orientation.w = value
     with pytest.raises(ValueError):
         body_odometry(raw, .2)
+
+
+def test_gps_velocity_replaces_the_fcu_velocity_before_rotation():
+    raw = message(math.pi / 2, (-1.1, -1.6))          # the FCU's drifting estimate
+    fixed = body_odometry(with_velocity(raw, (0., .5, 0.)), .3)
+    assert (fixed.twist.twist.linear.x, fixed.twist.twist.linear.y) == pytest.approx((.5, 0.))
+    assert fixed.twist.covariance[0] == pytest.approx(.09)
+    assert raw.twist.twist.linear.x == -1.1           # the original message is untouched

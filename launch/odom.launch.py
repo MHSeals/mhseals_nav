@@ -89,7 +89,8 @@ def generate_launch_description():
         ('gcs_url', 'udp://@127.0.0.1:14550', 'Ground control service connection URL'),
         ('mavros_params_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'mavros.yaml']), 'Path to MAVROS params'),
         ('mavros_odom_rate', '20.0', 'Requested MAVROS odometry rate'),
-        ('mavros_velocity_stddev', '0.2', 'FCU velocity uncertainty in m/s when covariance is unknown'),
+        ('mavros_velocity_stddev', '0.3', 'Body velocity uncertainty in m/s (GPS velocity repeats at the FCU rate)'),
+        ('mavros_velocity_source', 'gps', 'Body velocity from the GPS receiver (gps) or the FCU EKF (fcu)'),
         ('mavros_imu_rate', '20.0', 'Requested MAVROS IMU rate'),
         ('mavros_gps_rate', '5.0', 'Requested MAVROS GPS rate'),
         ('rtabmap_params_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'rtabmap.yaml']), 'Path to RTABMap params'),
@@ -217,7 +218,8 @@ def generate_launch_description():
             # This source carries ENU velocity despite its base_link child label.
             # Rotate with its own FCU attitude and replace unknown covariance.
             parameters=[{'velocity_stddev': ParameterValue(
-                LaunchConfiguration('mavros_velocity_stddev'), value_type=float)}],
+                LaunchConfiguration('mavros_velocity_stddev'), value_type=float),
+                'velocity_source': LaunchConfiguration('mavros_velocity_source')}],
             output='screen'
         ),
         Node(
