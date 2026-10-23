@@ -1,6 +1,7 @@
 """Merge measured limits with the current navigation parameters at launch."""
 import logging
 from copy import deepcopy
+from math import isfinite
 from pathlib import Path
 
 import yaml
@@ -114,7 +115,10 @@ def warn_overridden(limits, result, path=()):
 
 
 def typed_like(base, limits, path=()):
-    """Copy of limits with ints widened to float where base holds a float; non-numbers there are dropped.
+    """Copy of limits with ints widened to float where base holds a float.
+
+    Non-numbers, non-finite values and values whose sign differs from the base
+    (or is zero where the base is not) are dropped, so the base value stays.
 
     Nav2 rejects a params file whose parameter changes type, so a hand-edited
     `vx_max: 1` must not reach it as an integer.
@@ -127,6 +131,9 @@ def typed_like(base, limits, path=()):
         elif isinstance(default, float) and not isinstance(default, bool):
             if isinstance(value, bool) or not isinstance(value, (int, float)):
                 log.error('Ignoring overlay %s = %r: not a number', '.'.join(path + (key,)), value)
+                continue
+            if not isfinite(value) or (default and value * default <= 0):
+                log.error('Ignoring overlay %s = %r: not finite or out of range', '.'.join(path + (key,)), value)
                 continue
             result[key] = float(value)
         else:

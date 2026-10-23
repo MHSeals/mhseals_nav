@@ -125,3 +125,13 @@ def test_non_numeric_overlay_values_are_dropped_not_handed_to_nav2(caplog):
         base, merged = overlay_params(vx_max='0.4', controller_frequency=True)
     assert merged == merge_limits(base, {})
     assert 'not a number' in caplog.text
+
+
+def test_non_finite_zero_and_negative_overlay_values_keep_the_base(caplog):
+    for params in ({'vx_max': float('nan')}, {'vx_max': -.4}, {'vx_max': float('inf')},
+                   {'controller_frequency': 0}, {'controller_frequency': -5}):
+        caplog.clear()
+        with caplog.at_level('ERROR'):
+            base, merged = overlay_params(**params)
+        assert merged == merge_limits(base, {}), params
+        assert 'out of range' in caplog.text
