@@ -37,8 +37,12 @@ def load_overlay(path):
 EKF_NODES = {'ekf_local', 'ekf_global', 'navsat_transform'}
 
 
-def ekf_overlay(path, node):
-    """Parameters the overlay sets for one EKF/navsat node, flat or under ros__parameters."""
+def ekf_overlay(path, node, base_path=None):
+    """Parameters the overlay sets for one EKF/navsat node, flat or under ros__parameters.
+
+    With base_path (the packaged config) values are typed like it, so an int
+    frequency stays a float and NaN is dropped; robot_localization aborts on both.
+    """
     overlay = load_overlay(path)
     for key in overlay.keys() - EKF_NODES:
         log.warning('Ignoring overlay key %r in %s: use node-keyed sections (%s), not /**',
@@ -48,7 +52,12 @@ def ekf_overlay(path, node):
         log.error('Ignoring overlay section %s in %s: not a mapping', node, path)
         return {}
     params = section.get('ros__parameters', section)
-    return params if isinstance(params, dict) else {}
+    if not isinstance(params, dict):
+        return {}
+    if base_path is None:
+        return params
+    base = load_overlay(base_path).get('/**', {}).get('ros__parameters', {})
+    return typed_like(base, params, keep_sign=False)
 
 
 def valid_numbers(controller, follow):
@@ -114,11 +123,13 @@ def warn_overridden(limits, result, path=()):
                         '.'.join(path + (key,)), value, result.get(key))
 
 
-def typed_like(base, limits, path=()):
+def typed_like(base, limits, path=(), keep_sign=True):
     """Copy of limits with ints widened to float where base holds a float.
 
     Non-numbers, non-finite values and values whose sign differs from the base
     (or is zero where the base is not) are dropped, so the base value stays.
+
+    keep_sign=False skips the sign check for parameters that may be negative.
 
     Nav2 rejects a params file whose parameter changes type, so a hand-edited
     `vx_max: 1` must not reach it as an integer.
@@ -127,12 +138,12 @@ def typed_like(base, limits, path=()):
     for key, value in limits.items():
         default = base.get(key) if isinstance(base, dict) else None
         if isinstance(value, dict):
-            result[key] = typed_like(default, value, path + (key,))
+            result[key] = typed_like(default, value, path + (key,), keep_sign)
         elif isinstance(default, float) and not isinstance(default, bool):
             if isinstance(value, bool) or not isinstance(value, (int, float)):
                 log.error('Ignoring overlay %s = %r: not a number', '.'.join(path + (key,)), value)
                 continue
-            if not isfinite(value) or (default and value * default <= 0):
+            if not isfinite(value) or (keep_sign and default and value * default <= 0):
                 log.error('Ignoring overlay %s = %r: not finite or out of range', '.'.join(path + (key,)), value)
                 continue
             result[key] = float(value)

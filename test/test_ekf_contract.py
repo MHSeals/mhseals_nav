@@ -127,3 +127,14 @@ def test_wildcard_overlay_warns_instead_of_silently_applying_nothing(tmp_path, c
     path.write_text('/**:\n  ros__parameters:\n    frequency: 40.0\n')
     assert ekf_overlay(str(path), 'ekf_local') == {}
     assert '/**' in caplog.text
+
+
+def test_overlay_is_typed_like_the_packaged_config(tmp_path, caplog):
+    from mhseals_nav.navigation_config import ekf_overlay
+    base = ROOT / 'config/ekf_local.yaml'
+    path = tmp_path / 'ekf.yaml'
+    path.write_text('ekf_local:\n  frequency: 30\n  sensor_timeout: .nan\n  transform_time_offset: -0.1\n')
+    params = ekf_overlay(str(path), 'ekf_local', str(base))
+    assert params == {'frequency': 30.0, 'transform_time_offset': -0.1}
+    assert isinstance(params['frequency'], float)
+    assert 'sensor_timeout' in caplog.text

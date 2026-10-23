@@ -18,10 +18,11 @@ def ekf_nodes(context):
 
     def node(name, executable, config, remappings):
         # Later entries win, so the overlay replaces a whole key such as odom0_config.
+        base = LaunchConfiguration(config).perform(context)
         return Node(
             package='robot_localization', executable=executable, name=name, output='screen',
-            parameters=[LaunchConfiguration(config).perform(context),
-                        ekf_overlay(overlay, name), {'use_sim_time': sim}],
+            parameters=[base,
+                        ekf_overlay(overlay, name, base), {'use_sim_time': sim}],
             remappings=remappings)
 
     navsat = node('navsat_transform', 'navsat_transform_node', 'navsat_transform_config_file', [
