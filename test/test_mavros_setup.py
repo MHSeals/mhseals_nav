@@ -102,3 +102,9 @@ def test_a_time_boot_drop_means_the_fcu_rebooted_without_disconnecting():
     assert rebooted(90_000, 1_500)
     assert not rebooted(90_000, 91_000)
     assert not rebooted(None, 1_500)
+
+
+def test_rates_are_not_also_requested_unconditionally_at_start():
+    import inspect
+    from mhseals_nav import mavros_setup
+    assert 'wanted.set()  # once at start' not in inspect.getsource(mavros_setup.main)

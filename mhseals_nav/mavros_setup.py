@@ -117,7 +117,7 @@ def main(args=None):
                       on_change=lambda values, changed: wanted.set())
     client = node.create_client(MessageInterval, '/mavros/set_message_interval')
     wanted = threading.Event()
-    wanted.set()  # once at start
+    # Not set at start: the first connected /mavros/state is a False->True edge and asks.
     connected = [False]
 
     def receive_state(state):
