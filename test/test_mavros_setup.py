@@ -2,7 +2,8 @@
 import struct
 
 from mhseals_nav.mavros_setup import (
-    decode_ekf_status, ekf_status_values, parse_rates, request_rates)
+    decode_boot_ms, decode_ekf_status, ekf_status_values, parse_rates, rebooted,
+    request_rates)
 import pytest
 
 
@@ -92,3 +93,12 @@ def test_high_flag_bits_use_the_ardupilot_names():
     raw = struct.pack('<5fHf', 0, 0, 0, 0, 0, 1024 | 32768, 0)
     status = decode_ekf_status(193, len(raw), words(raw))
     assert status['names'] == ['UNINITIALIZED', 'GPS_GLITCHING']
+
+
+def test_a_time_boot_drop_means_the_fcu_rebooted_without_disconnecting():
+    payload = struct.pack('<QI', 0, 90_000)
+    assert decode_boot_ms(2, len(payload), words(payload)) == 90_000
+    assert decode_boot_ms(193, len(payload), words(payload)) is None
+    assert rebooted(90_000, 1_500)
+    assert not rebooted(90_000, 91_000)
+    assert not rebooted(None, 1_500)

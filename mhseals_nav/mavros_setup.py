@@ -2,6 +2,8 @@
 
 MAVROS 2 reopens the FCU endpoint after a reboot, but the FCU forgets the
 SET_MESSAGE_INTERVAL requests, so they are sent on each connected false->true edge.
+A reboot shorter than MAVROS's connection timeout never drops that flag, so a backwards
+step in SYSTEM_TIME.time_boot_ms also counts as a reconnect.
 
 It also decodes EKF_STATUS_REPORT, which MAVROS has no plugin for, from the raw
 MAVLink stream onto /fcu/ekf_status for the health checks.
@@ -12,6 +14,8 @@ import time
 
 from mhseals_nav.utils.live_params import LiveParams
 
+SYSTEM_TIME = 2
+SYSTEM_TIME_BOOT = '<QI'  # time_unix_usec, time_boot_ms
 EKF_STATUS_REPORT = 193
 EKF_FIELDS = ('velocity_variance', 'pos_horiz_variance', 'pos_vert_variance',
               'compass_variance', 'terrain_alt_variance')
@@ -35,6 +39,20 @@ def parse_rates(entries):
 def reconnected(was_connected, is_connected):
     """True on the false->true edge, when the FCU has forgotten its intervals."""
     return is_connected and not was_connected
+
+
+def rebooted(previous_ms, boot_ms):
+    """True when the FCU's time since boot went backwards, i.e. it restarted."""
+    return previous_ms is not None and boot_ms < previous_ms
+
+
+def decode_boot_ms(msgid, length, payload64):
+    """time_boot_ms of a SYSTEM_TIME message, or None for other messages."""
+    if msgid != SYSTEM_TIME:
+        return None
+    raw = struct.pack(f'<{len(payload64)}Q', *payload64)[:length]
+    raw = raw.ljust(struct.calcsize(SYSTEM_TIME_BOOT), b'\0')
+    return struct.unpack(SYSTEM_TIME_BOOT, raw[:struct.calcsize(SYSTEM_TIME_BOOT)])[1]
 
 
 def request_rates(rates, call, log, attempts=3, wait=8., sleep=time.sleep):
@@ -125,7 +143,15 @@ def main(args=None):
 
     ekf_pub = node.create_publisher(DiagnosticStatus, '/fcu/ekf_status', 10)
 
+    boot_ms = [None]
+
     def receive_mavlink(msg):
+        now_ms = decode_boot_ms(msg.msgid, msg.len, msg.payload64)
+        if now_ms is not None:
+            if rebooted(boot_ms[0], now_ms):
+                node.get_logger().info('FCU boot time went backwards; requesting rates again')
+                wanted.set()
+            boot_ms[0] = now_ms
         status = decode_ekf_status(msg.msgid, msg.len, msg.payload64)
         if status is None:
             return
