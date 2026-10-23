@@ -70,6 +70,19 @@ def gps_velocity(raw, min_stddev, nofix_stddev, unknown_stddev):
             max(raw.vel_acc / 1000, min_stddev) if raw.vel_acc else unknown_stddev)
 
 
+def gps_sample(gps, now, max_age, nofix_stddev):
+    """(velocity, sigma, fresh) to fuse for one FCU odometry message, or None to skip.
+
+    A stale receiver yields the same slow-boat prior as no fix, on every message:
+    silence would let the EKF's constant-velocity model hold and even grow the
+    last velocity. A fresh sample is fused once, not at the FCU rate.
+    """
+    arrival = gps.get('arrival')
+    if arrival is not None and -.1 <= now - arrival <= max_age:
+        return (gps['velocity'], gps['stddev'], True) if gps.pop('new', False) else None
+    return (0., 0., 0.), nofix_stddev, False
+
+
 def with_velocity(message, velocity, stddev):
     """The same odometry with its ENU velocity and diagonal sigma replaced."""
     result = deepcopy(message)
@@ -79,6 +92,45 @@ def with_velocity(message, velocity, stddev):
     for i in range(3):
         result.twist.covariance[7*i] = stddev ** 2
     return result
+
+
+class Adapter:
+    """Turn FCU odometry into body-frame odometry, optionally with GPS velocity.
+
+    ``live`` maps the tuning parameter names to their current values and times
+    are seconds, so the node behaviour needs no ROS to be tested.
+    """
+
+    def __init__(self, live, source, gps_frame):
+        self.live, self.source, self.gps_frame = live, source, gps_frame
+        self.gps = {}
+
+    def receive_gps(self, raw, now):
+        """Remember the latest receiver sample as velocity, sigma and stamp."""
+        stamp = raw.header.stamp
+        velocity, sigma = gps_velocity(raw, self.live['gps_velocity_min_stddev'],
+                                       self.live['velocity_stddev_nofix'],
+                                       self.live['velocity_stddev'])
+        # Arrival time gates freshness since the header may carry FCU time; the
+        # header is only the output stamp when it agrees with arrival.
+        age = now - (stamp.sec + stamp.nanosec * 1e-9)
+        self.gps.update(velocity=velocity, stddev=sigma, arrival=now, new=True, stamp=stamp,
+                        stamp_ok=-.1 <= age <= self.live['gps_velocity_max_age'])
+
+    def receive(self, message, now):
+        """The odometry to publish for an FCU message, None to skip; ValueError if unusable."""
+        if self.source == 'gps':
+            sample = gps_sample(self.gps, now, self.live['gps_velocity_max_age'],
+                                self.live['velocity_stddev_nofix'])
+            if sample is None:
+                return None  # fuse each receiver sample once, not at the 20 Hz FCU rate
+            velocity, stddev, fresh = sample
+            message = with_velocity(message, velocity, stddev)
+            if fresh and self.gps['stamp_ok']:
+                message.header.stamp = self.gps['stamp']
+        result = body_odometry(message, self.live['velocity_stddev'])
+        result.child_frame_id = self.gps_frame if self.source == 'gps' else 'base_link'
+        return result
 
 
 def main(args=None):
@@ -106,39 +158,21 @@ def main(args=None):
         'velocity_stddev', 'gps_velocity_max_age', 'gps_velocity_min_stddev',
         'velocity_stddev_nofix')}, restart_only=('velocity_source', 'gps_frame'))
     publisher = node.create_publisher(Odometry, '/odom/mavros', 10)
-    gps = {}
+    adapter = Adapter(live, source, gps_frame)
 
     def receive(message):
         try:
-            if source == 'gps':
-                arrival = gps.get('arrival')
-                age = (node.get_clock().now().nanoseconds * 1e-9 - arrival) if arrival else None
-                if age is None or not -.1 <= age <= live['gps_velocity_max_age']:
-                    node.get_logger().warning('GPS velocity is stale; not publishing',
-                                              throttle_duration_sec=5.)
-                    return
-                if not gps.pop('new', False):
-                    return  # fuse each receiver sample once, not at the 20 Hz FCU rate
-                message = with_velocity(message, gps['velocity'], gps['stddev'])
-                if gps['stamp_ok']:
-                    message.header.stamp = gps['stamp']
-            result = body_odometry(message, live['velocity_stddev'])
-            result.child_frame_id = gps_frame if source == 'gps' else 'base_link'
-            publisher.publish(result)
+            result = adapter.receive(message, now())
+            if result is not None:
+                publisher.publish(result)
         except ValueError as error:
             node.get_logger().warning(str(error), throttle_duration_sec=5.)
 
+    def now():
+        return node.get_clock().now().nanoseconds * 1e-9
+
     def receive_gps(raw):
-        now = node.get_clock().now().nanoseconds * 1e-9
-        stamp = raw.header.stamp
-        velocity, sigma = gps_velocity(raw, live['gps_velocity_min_stddev'],
-                                       live['velocity_stddev_nofix'],
-                                       live['velocity_stddev'])
-        # Arrival time gates freshness since the header may carry FCU time; the
-        # header is only the output stamp when it agrees with arrival.
-        age = now - (stamp.sec + stamp.nanosec * 1e-9)
-        gps.update(velocity=velocity, stddev=sigma, arrival=now, new=True, stamp=stamp,
-                   stamp_ok=-.1 <= age <= live['gps_velocity_max_age'])
+        adapter.receive_gps(raw, now())
 
     if source == 'gps':
         node.create_subscription(GPSRAW, '/mavros/gpsstatus/gps1/raw',

@@ -5,7 +5,7 @@ from types import SimpleNamespace as S
 
 import pytest
 
-from mhseals_nav.mavros_odometry import body_odometry, gps_velocity, with_velocity
+from mhseals_nav.mavros_odometry import Adapter, body_odometry, gps_velocity, with_velocity
 
 
 def message(yaw, velocity, covariance=None):
@@ -75,3 +75,49 @@ def test_gps_zero_accuracy_means_unknown_not_perfect():
 @pytest.mark.parametrize('raw', [sample(0, fix_type=2), sample(0, vel=65535), sample(65535)])
 def test_gps_without_a_usable_measurement_is_a_wide_zero_prior(raw):
     assert gps_velocity(raw, .05, 1., .3) == ((0., 0., 0.), 1.)
+
+
+LIVE = dict(velocity_stddev=.3, gps_velocity_max_age=.5, gps_velocity_min_stddev=.05,
+            velocity_stddev_nofix=1.)
+
+
+def raw_sample(sec, nanosec=0, **kwargs):
+    return S(header=S(stamp=S(sec=sec, nanosec=nanosec)), **vars(sample(9000, **kwargs)))
+
+
+def test_each_gps_sample_is_published_once_in_the_gps_frame():
+    adapter = Adapter(LIVE, 'gps', 'gps_link')
+    adapter.receive_gps(raw_sample(10), 10.)
+    first = adapter.receive(message(0., (5., 5.)), 10.05)
+    assert first.child_frame_id == 'gps_link'
+    assert first.twist.twist.linear.x == pytest.approx(1.)  # GPS east, not the FCU's 5
+    assert adapter.receive(message(0., (5., 5.)), 10.1) is None
+    adapter.receive_gps(raw_sample(10, 200000000), 10.2)
+    assert adapter.receive(message(0., (5., 5.)), 10.25) is not None
+
+
+def test_stale_gps_velocity_publishes_the_zero_prior_instead_of_going_silent():
+    adapter = Adapter(LIVE, 'gps', 'gps_link')
+    adapter.receive_gps(raw_sample(10), 10.)
+    # Every FCU message after the receiver stops carries v=0 with the no-fix sigma,
+    # so the EKF decays to rest instead of holding the last velocity.
+    for now in (10.6, 11., 40.):
+        result = adapter.receive(message(0., (1., 0.)), now)
+        assert result.child_frame_id == 'gps_link'
+        assert result.twist.twist.linear.x == 0.
+        assert result.twist.covariance[0] == pytest.approx(1.)
+    assert adapter.receive(message(0., (1., 0.)), 5.).twist.covariance[0] == pytest.approx(1.)  # no sample yet
+
+
+@pytest.mark.parametrize('header_sec, stamped', [(10, True), (500, False)])
+def test_gps_header_is_the_stamp_only_when_it_agrees_with_arrival(header_sec, stamped):
+    adapter = Adapter(LIVE, 'gps', 'gps_link')
+    adapter.receive_gps(raw_sample(header_sec), 10.)
+    result = adapter.receive(message(0., (1., 0.)), 10.05)
+    assert (result.header.stamp != 123) is stamped
+
+
+def test_fcu_source_keeps_the_fcu_velocity_and_base_link():
+    result = Adapter(LIVE, 'fcu', 'gps_link').receive(message(0., (2., 0.)), 10.)
+    assert result.child_frame_id == 'base_link'
+    assert result.twist.twist.linear.x == pytest.approx(2.)
