@@ -155,3 +155,29 @@ def test_rc_frames_without_channels_do_not_count_and_silence_is_low():
     empty = deque((t * 0.04, 0) for t in range(126))
     assert rc_rate_low(empty, 5.)
     assert rc_rate_low(deque(), 100.)
+
+
+def test_spin_swallows_rclerror_only_after_shutdown(monkeypatch):
+    """SIGINT can invalidate the context under rclpy.spin; that must not print a traceback."""
+    import rclpy
+    from rclpy.impl.implementation_singleton import rclpy_implementation
+    from mhseals_nav import mavros_setup
+
+    def broken(node):
+        raise rclpy_implementation.RCLError('failed to initialize wait set: the given context is not valid')
+
+    monkeypatch.setattr(rclpy, 'spin', broken)
+    monkeypatch.setattr(rclpy, 'ok', lambda: False)
+    mavros_setup.spin_until_shutdown(None)
+    monkeypatch.setattr(rclpy, 'ok', lambda: True)
+    with pytest.raises(rclpy_implementation.RCLError):
+        mavros_setup.spin_until_shutdown(None)
+
+
+def test_rate_shortfalls_flags_ids_stuck_at_the_fcu_default():
+    from mhseals_nav.mavros_setup import rate_shortfalls
+    wanted = {33: 20., 30: 20., 27: 10., 1: 2., 65: 25., 116: 0.}
+    # boat_20261019_002558 (50 s): the pre-request defaults
+    counts = {33: 935, 30: 95, 27: 140, 1: 95, 116: 90}
+    assert rate_shortfalls(counts, 50., wanted) == [(27, 10., 2.8), (30, 20., 1.9), (65, 25., 0.)]
+    assert rate_shortfalls({33: 1000, 30: 1000, 27: 500, 1: 100, 65: 1250}, 50., wanted) == []

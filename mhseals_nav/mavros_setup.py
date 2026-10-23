@@ -71,6 +71,17 @@ def rc_rate_low(arrivals, now, window=5., min_hz=10., min_channels=8):
     return good / window < min_hz
 
 
+def rate_shortfalls(counts, span, wanted, tolerance=0.7):
+    """(id, wanted Hz, measured Hz) for every requested id arriving below tolerance * wanted.
+
+    counts maps message id to messages seen over span seconds, e.g. from a bag of
+    /uas1/mavlink_source after connect or an FCU reboot. Ids wanted at 0 or less are skipped.
+    """
+    measured = {i: counts.get(i, 0) / span for i in wanted}
+    return [(i, hz, measured[i]) for i, hz in sorted(wanted.items())
+            if hz > 0 and measured[i] < tolerance * hz]
+
+
 def from_fcu(sysid, compid, fcu_sysid=1):
     """True for the autopilot's own messages, not a routed GCS or companion's."""
     return sysid == fcu_sysid and compid == MAV_COMP_ID_AUTOPILOT1
@@ -135,12 +146,25 @@ def ekf_status_values(status):
     return (1 if stuck else 0), ','.join(status['names']), values
 
 
+def spin_until_shutdown(node):
+    """Spin until SIGINT; the wait-set RCLError of a context shut down mid-spin is a clean exit."""
+    import rclpy
+    from rclpy.executors import ExternalShutdownException
+    from rclpy.impl.implementation_singleton import rclpy_implementation
+    try:
+        rclpy.spin(node)
+    except (KeyboardInterrupt, ExternalShutdownException):
+        pass
+    except rclpy_implementation.RCLError:
+        if rclpy.ok():
+            raise
+
+
 def main(args=None):
     import rclpy
     from diagnostic_msgs.msg import DiagnosticStatus, KeyValue
     from mavros_msgs.msg import Mavlink, RCIn, State
     from mavros_msgs.srv import MessageInterval
-    from rclpy.executors import ExternalShutdownException
     from rclpy.node import Node
     from rclpy.qos import qos_profile_sensor_data
 
@@ -242,9 +266,7 @@ def main(args=None):
     node.create_timer(1., check_rc_rate)
     threading.Thread(target=work, daemon=True).start()
     try:
-        rclpy.spin(node)
-    except (KeyboardInterrupt, ExternalShutdownException):
-        pass
+        spin_until_shutdown(node)
     finally:
         node.destroy_node()
         rclpy.try_shutdown()
