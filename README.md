@@ -108,6 +108,23 @@ RTABMap should report a live input frequency and publish `/map` while the boat m
 
 The checked-in Nav2 profile updates the local costmap at 10 Hz and the global costmap at 2 Hz (published at 1 Hz) with 0.20 m cells, below the `crane_ml` baseline of 5 Hz, to spare the ODROID; planning runs at 1 Hz. Restart `navigation.launch.py` after changing these parameters; an already active lifecycle node retains its previous values.
 
+### FCU parameters
+
+`config/fcu/blastoise.param` is the FCU's as-found state on 2026-10-22 (ArduRover 4.6.3, Cube Orange+), still holding the test-night values `EK3_SRC1_YAW=8` (GSF) and `COMPASS_USE=0`: no compass is used, so the EKF yaw stays 0 and the EKF sits in `CONST_POS_MODE`. Odometry from that window is invalid for heading and velocity. Diff each write against the file, write the batch on land, reboot, then snapshot again. Target values:
+
+| Param | Now | Target | Why |
+|---|---|---|---|
+| `EK3_SRC1_YAW` | 8 | 1 | Compass yaw |
+| `COMPASS_USE` | 0 | 1 | The Here4 (RM3100) is the cleanest, external compass |
+| `COMPASS_USE2`, `COMPASS_USE3` | 0 | 0 | The internal mag reads 3x the expected horizontal field |
+| `COMPASS_OFS_X/Y/Z` | -529/-873/864 | from the fixed-yaw calibration (MAV_CMD 42006), never hand-typed | The stored offsets give \|B\| 1669 mG against about 470 expected |
+| `GPS1_POS_X/Y/Z` | 0 | measured Here4 offset from the Cube (FRD, m) | Lever arm for RTK and velocity under yaw rate |
+| `SYSID_MYGCS` | 42 | 255 | Match MAVROS `system_id` |
+| `GPS_DRV_OPTIONS` | 0 | 64 for one diagnostic boot, then 0 | Logs each injected RTCM frame |
+| `LOG_DISARMED` | 0 | 1 during RTK and calibration tests only | Logs while on the trailer |
+
+Leave `EK3_MAG_CAL`, the `EK3_GSF_*` masks (the emergency yaw reset), `GPS_INJECT_TO` and `SR0_*` alone: message rates come from `mavros_setup`, not the FCU. Once the compass yaw is restored, lower MAVROS's `/mavros/imu` `orientation_stdev` from its 1.0 rad default so the EKF can use it.
+
 ### Tasks
 
 RoboBoat tasks are [py_trees](https://py-trees.readthedocs.io) behaviour trees in `mhseals_nav/tasks/`, layered on Nav2: Nav2's XML trees decide *how to drive* (plan, follow, recover), the task trees decide *what to do* (which gates, which beacon, when to report). Leaves are plain Python over a blackboard of tracked objects (`/objects/map`), the boat's map pose and the time, so they are testable without ROS.

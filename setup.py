@@ -33,6 +33,7 @@ data_files = [
 data_files += package_files('description')
 data_files += package_files('urdf')
 data_files += package_files(os.path.join('config', 'tasks'))
+data_files += package_files(os.path.join('config', 'fcu'))
 
 setup(
     name=package_name,
