@@ -2,6 +2,7 @@
 
 import os
 import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -136,3 +137,63 @@ def test_converter_reports_stages_and_relogs_remote_warnings(monkeypatch):
     assert converter["drop_stale"] == "1" and converter["drop_malformed"] == "1"
     assert 50 <= int(converter["latency_ms"]) <= 400
     assert log.lines.count("squirtle: stale image") == 1
+
+
+def test_relayed_follows_the_source_namespace():
+    packet = dict(status=[
+        dict(name="perception/legacy_zed/detector", hardware_id="squirtle", level=0, values=[]),
+        dict(name="front: ZED", hardware_id="Stereolabs ZED 2i", level=0, values=[]),
+    ])
+    out = perception_status.relayed(packet, source="bench")
+    assert [s.name for s in out] == ["perception/bench/detector", "perception/bench/front: ZED"]
+
+
+def test_detector_stage_reports_one_window_at_a_time():
+    stage = perception_status.DetectorStage(start=100.0)
+    stage.accept(.10, .20, 4, 2)
+    stage.accept(.30, .40, 4, 0)
+    stage.drop("stale")
+    values = stage.values(101.0)
+    assert values == dict(hz="2.00", drop_stale=1, proc_ms="200", proc_ms_max="300",
+                          latency_ms="400", views=4, objects="1.0")
+    # The window restarts; drops stay cumulative.
+    assert stage.values(102.0) == dict(hz="0.00", drop_stale=1)
+
+
+def test_detector_report_publishes_the_prefixed_stage():
+    from mhseals_nav.legacy_buoy_detector import LegacyBuoyDetector, view_count
+
+    assert view_count(1080, 1920, 0, 3) == 1 and view_count(1080, 1920, 720, 3) == 4
+    published = []
+    detector = SimpleNamespace(
+        node=SimpleNamespace(get_clock=lambda: rclpy.clock.Clock()),
+        perception_status=perception_status, diagnostic_type=DiagnosticArray, host="squirtle",
+        stage=perception_status.DetectorStage(0.0),
+        status_pub=SimpleNamespace(publish=published.append))
+    LegacyBuoyDetector.report(detector)
+    assert published and len(published) == 1
+    (stage,) = published[0].status
+    assert stage.name == "perception/legacy_zed/detector" and stage.hardware_id == "squirtle"
+    assert {v.key: v.value for v in stage.values}["hz"] == "0.00"
+
+
+def test_native_converter_reports_its_converter_stage():
+    from mhseals_nav.zed_detections_converter import ZedDetectionsConverter
+
+    rclpy.init()
+    node = ZedDetectionsConverter()
+    got = []
+    node.status_pub = SimpleNamespace(publish=got.append)
+    try:
+        # Status goes out on the 1 Hz timer only, never per packet.
+        assert node.report_timer.timer_period_ns == 1_000_000_000
+        node.publish_packet(dict(header=1))
+        assert got == []
+        node.stage.accept(time.monotonic(), .05)
+        node.report()
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+    (stage,) = got[0].status
+    assert stage.name == "perception/zed_native/converter"
+    assert {v.key: v.value for v in stage.values}["latency_ms"] == "50"

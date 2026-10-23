@@ -1,30 +1,34 @@
-"""Build /perception/status stages for the legacy ZED route (nothing here touches ROS I/O)."""
+"""Build /perception/status stages for the ZED perception routes (nothing here touches ROS I/O)."""
 
 from collections import deque
 from urllib.parse import urlparse
 
 from diagnostic_msgs.msg import DiagnosticStatus, KeyValue
 
-PREFIX = "perception/legacy_zed/"
+SOURCE = "legacy_zed"
+PREFIX = f"perception/{SOURCE}/"
 WARN_LEVEL = 30  # rcl_interfaces/Log WARN; also catches ERROR and FATAL.
 
 
-def status(name, host, values, level=DiagnosticStatus.OK, message=""):
+def status(name, host, values, level=DiagnosticStatus.OK, message="", source=SOURCE):
     """One DiagnosticStatus; values are rendered verbatim as strings."""
-    out = DiagnosticStatus(name=PREFIX + name, hardware_id=host, level=level, message=message)
+    out = DiagnosticStatus(
+        name=f"perception/{source}/{name}", hardware_id=host, level=level, message=message
+    )
     out.values = [KeyValue(key=k, value=str(v)) for k, v in values.items()]
     return out
 
 
-def relayed(packet, zed_only=False):
-    """Remote statuses to forward; /diagnostics is cut down to ZED wrapper entries."""
+def relayed(packet, zed_only=False, source=SOURCE):
+    """Remote statuses to forward in the source namespace; /diagnostics keeps ZED only."""
+    prefix = f"perception/{source}/"
     out = []
     for item in packet.get("status", []):
         name, host = str(item.get("name", "")), str(item.get("hardware_id", ""))
         if not name or (zed_only and not host.startswith("Stereolabs")):
             continue
         status_out = DiagnosticStatus(
-            name=name if name.startswith(PREFIX) else PREFIX + name,
+            name=prefix + (name[len(PREFIX):] if name.startswith(PREFIX) else name),
             hardware_id=host, message=str(item.get("message", "")),
             level=int(item.get("level", 0)).to_bytes(1, "little"),
         )
@@ -65,6 +69,33 @@ class StageClock:
                        latency_ms_p95=f"{lat[min(len(lat) - 1, int(.95 * len(lat)))] * 1e3:.0f}")
         else:
             out["hz"] = "0.00"
+        return out
+
+
+class DetectorStage:
+    """Per-second frame statistics for the detector stage; values() starts a new window."""
+
+    def __init__(self, start):
+        self.start = start
+        self.frames = []  # (proc_s, latency_s, views, objects)
+        self.drops = dict(stale=0)
+
+    def accept(self, proc, latency, views, objects):
+        self.frames.append((proc, latency, views, objects))
+
+    def drop(self, kind):
+        self.drops[kind] += 1
+
+    def values(self, now):
+        count, span = len(self.frames), max(now - self.start, 1e-6)
+        out = dict(hz=f"{count / span:.2f}", **{f"drop_{k}": v for k, v in self.drops.items()})
+        if count:
+            proc, latency, views, objects = zip(*self.frames)
+            out.update(proc_ms=f"{sum(proc) / count * 1e3:.0f}",
+                       proc_ms_max=f"{max(proc) * 1e3:.0f}",
+                       latency_ms=f"{sorted(latency)[count // 2] * 1e3:.0f}",
+                       views=max(views), objects=f"{sum(objects) / count:.1f}")
+        self.start, self.frames = now, []
         return out
 
 

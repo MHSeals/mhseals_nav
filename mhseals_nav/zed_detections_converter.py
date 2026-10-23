@@ -3,6 +3,7 @@
 import math
 from copy import deepcopy
 from itertools import product
+from socket import gethostname
 from time import monotonic
 
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus
@@ -150,6 +151,8 @@ class ZedDetectionsConverter(Node):
         self.declare_parameter("rosbridge_url", "")
         self.declare_parameter("camera_root_frame", "")
         self.declare_parameter("remote_name", "squirtle")
+        # Stage namespace; empty follows the route.
+        self.declare_parameter("perception_source", "")
         self.declare_parameter("max_detection_age", 1.0)
         self.live = LiveParams(
             self, {"max_detection_age": positive},
@@ -168,6 +171,10 @@ class ZedDetectionsConverter(Node):
         self.relayed = {}
         self.packets_seen = 0
         self.last_report = monotonic()
+        self.perception_source = (self.get_parameter("perception_source").value
+                                  or (perception_status.SOURCE if url else "zed_native"))
+        self.status_pub = self.create_publisher(DiagnosticArray, "/perception/status", 1)
+        self.report_timer = self.create_timer(1.0, self.report)
         if url:
             from mhseals_nav.rosbridge_source import RosbridgeSource
 
@@ -181,9 +188,7 @@ class ZedDetectionsConverter(Node):
             self.source = RosbridgeSource(
                 url, topic, self.get_logger(), bool(root), relay=True
             )
-            self.status_pub = self.create_publisher(DiagnosticArray, "/perception/status", 1)
             self.timer = self.create_timer(0.05, self.poll)
-            self.report_timer = self.create_timer(1.0, self.report)
             self.logged = {}
         else:
             try:
@@ -231,7 +236,9 @@ class ZedDetectionsConverter(Node):
             if packet is None:
                 continue
             try:
-                items = perception_status.relayed(packet, topic == "/diagnostics")
+                items = perception_status.relayed(
+                    packet, topic == "/diagnostics", self.perception_source
+                )
             except (KeyError, TypeError, ValueError, OverflowError, AttributeError) as error:
                 self.get_logger().warning(
                     f"Dropped malformed {topic} from remote: {error}", throttle_duration_sec=5.0
@@ -257,23 +264,26 @@ class ZedDetectionsConverter(Node):
                 self.get_logger().warning(f"{self.remote_name}: {text}")
 
     def report(self):
-        """1 Hz /perception/status: remote stages plus bridge and converter."""
+        """1 Hz /perception/status: converter stage, plus bridge and remote stages on rosbridge."""
         now = monotonic()
-        # Remote topics are throttled to 1 s: keep the last value until it is clearly stale.
-        self.relayed = {n: v for n, v in self.relayed.items() if now - v[0] <= RELAY_STALE}
-        seen = self.source.packets
-        host = perception_status.host(self.source.url)
-        bridge = perception_status.bridge_values(self.source)
-        bridge["hz"] = f"{(seen - self.packets_seen) / (now - self.last_report):.2f}"
-        self.packets_seen, self.last_report = seen, now
-        level = DiagnosticStatus.OK if self.source.connected else DiagnosticStatus.ERROR
+        source = self.perception_source
+        stages = [perception_status.status(
+            "converter", perception_status.host(self.source.url) if self.source else gethostname(),
+            self.stage.values(now), source=source)]
+        if self.source:
+            # Remote topics are throttled to 1 s: keep the last value until it is clearly stale.
+            self.relayed = {n: v for n, v in self.relayed.items() if now - v[0] <= RELAY_STALE}
+            seen = self.source.packets
+            bridge = perception_status.bridge_values(self.source)
+            bridge["hz"] = f"{(seen - self.packets_seen) / (now - self.last_report):.2f}"
+            self.packets_seen, self.last_report = seen, now
+            level = DiagnosticStatus.OK if self.source.connected else DiagnosticStatus.ERROR
+            stages = [perception_status.status(
+                "bridge", perception_status.host(self.source.url), bridge, level, source=source),
+                *stages, *(item for _, item in self.relayed.values())]
         array = DiagnosticArray()
         array.header.stamp = self.get_clock().now().to_msg()
-        array.status = [
-            perception_status.status("bridge", host, bridge, level),
-            perception_status.status("converter", host, self.stage.values(now)),
-            *(item for _, item in self.relayed.values()),
-        ]
+        array.status = stages
         self.status_pub.publish(array)
 
     def publish_packet(self, packet):

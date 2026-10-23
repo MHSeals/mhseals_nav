@@ -7,7 +7,9 @@ calibration; feed 2D detections back to its CUSTOM_BOX_OBJECTS input.
 import ctypes
 import hashlib
 from pathlib import Path
+import socket
 import subprocess
+import time
 
 import cv2
 import numpy as np
@@ -73,13 +75,18 @@ def tile_origins(height: int, width: int, tile_size: int, tile_count: int,
     return [(int(x), y) for x in np.linspace(0, width - tile_size, tile_count, dtype=int)]
 
 
+def view_count(height: int, width: int, tile_size: int, tile_count: int) -> int:
+    """Inference passes per image: the full view plus any detail crops."""
+    return 1 + (tile_count if tile_size > 0 and min(height, width) > tile_size else 0)
+
+
 def detect_image(model, pixels: np.ndarray, thresholds: list, tile_size: int = 0,
                  tile_count: int = 3, tile_center: float = .5) -> list:
     """Keep the full view and detail crops around the water band, which sits
     at tile_center of the image height (the horizon follows camera pitch)."""
     height, width = pixels.shape[:2]
     views = [(0, 0, pixels)]
-    if tile_size > 0 and min(height, width) > tile_size:
+    if view_count(height, width, tile_size, tile_count) > 1:
         for x, y in tile_origins(height, width, tile_size, tile_count, tile_center):
             views.append((x, y, pixels[y:y + tile_size, x:x + tile_size]))
     boxes = []
@@ -188,7 +195,10 @@ class LegacyBuoyDetector:
         from ament_index_python.packages import get_package_share_directory
         from rclpy.qos import QoSProfile, ReliabilityPolicy
         from sensor_msgs.msg import Image, CompressedImage
+        from diagnostic_msgs.msg import DiagnosticArray
         from zed_interfaces.msg import Object, ObjectsStamped
+
+        from mhseals_nav import perception_status
 
         self.node = rclpy.create_node('buoy_detector')
         share = Path(get_package_share_directory('mhseals_nav')) / 'config'
@@ -216,6 +226,11 @@ class LegacyBuoyDetector:
             'tile_size': at_least(0), 'tile_count': at_least(1),
             'tile_center': unit, 'image_max_age': positive})
         self.object_type, self.array_type = Object, ObjectsStamped
+        self.perception_status, self.diagnostic_type = perception_status, DiagnosticArray
+        self.stage = perception_status.DetectorStage(time.monotonic())
+        self.host = socket.gethostname()
+        self.status_pub = self.node.create_publisher(DiagnosticArray, '/perception/status', 1)
+        self.report_timer = self.node.create_timer(1.0, self.report)
         self.jpeg_type = CompressedImage
         prefix = values['camera_topic'].rstrip('/')
         self.objects = self.node.create_publisher(
@@ -234,6 +249,7 @@ class LegacyBuoyDetector:
             self.node.get_logger().warning(
                 'Dropping stale image (age %.3f s); check host clocks '
                 'and camera latency' % age, throttle_duration_sec=5.0)
+            self.stage.drop('stale')
             return
         channels = {'bgra8': 4, 'rgba8': 4, 'bgr8': 3, 'rgb8': 3}[image.encoding]
         pixels = np.ndarray((image.height, image.width, channels), np.uint8,
@@ -243,9 +259,11 @@ class LegacyBuoyDetector:
                                   if channels == 3 else cv2.COLOR_RGBA2BGR)
         elif channels == 4:
             pixels = cv2.cvtColor(pixels, cv2.COLOR_BGRA2BGR)
+        started = time.monotonic()
         boxes = detect_image(self.model, pixels, self.thresholds,
                              int(self.live['tile_size']), int(self.live['tile_count']),
                              self.live['tile_center'])
+        proc = time.monotonic() - started
         array = self.array_type()
         array.header = image.header
         annotated = pixels.copy() if self.debug.get_subscription_count() else None
@@ -263,6 +281,10 @@ class LegacyBuoyDetector:
                             (x, max(15, y - 5)), cv2.FONT_HERSHEY_SIMPLEX,
                             .45, (0, 255, 0), 1)
         self.objects.publish(array)
+        views = view_count(image.height, image.width, int(self.live['tile_size']),
+                           int(self.live['tile_count']))
+        self.stage.accept(proc, self.node.get_clock().now().nanoseconds * 1e-9 - (
+            image.header.stamp.sec + image.header.stamp.nanosec * 1e-9), views, len(boxes))
         if annotated is not None:
             message = self.jpeg_type()
             message.header, message.format = image.header, 'jpeg'
@@ -273,6 +295,14 @@ class LegacyBuoyDetector:
             message.data = cv2.imencode('.jpg', annotated, [
                 cv2.IMWRITE_JPEG_QUALITY, 85])[1].tobytes()
             self.debug.publish(message)
+
+    def report(self) -> None:
+        """1 Hz detector stage for the boat-side converter to relay."""
+        array = self.diagnostic_type()
+        array.header.stamp = self.node.get_clock().now().to_msg()
+        array.status = [self.perception_status.status(
+            'detector', self.host, self.stage.values(time.monotonic()))]
+        self.status_pub.publish(array)
 
 
 def main(args=None) -> None:
