@@ -209,13 +209,10 @@ class Navigate(Leaf):
     def initialise(self):
         self.tries = 0
         self.send()
-        route = self.board.get(self.key)
-        if self.report is not None and route:  # once per route; retries stay quiet
-            x, y, yaw = route[-1]
-            self.report('goal', x=round(x, 2), y=round(y, 2), yaw=round(yaw, 2))
 
-    def send(self):
-        self.goal = self.navigator.send(self.board.get(self.key), precise=self.precise)
+    def send(self, retry=False):
+        self.goal = self.navigator.send(
+            self.board.get(self.key), precise=self.precise, quiet=retry)
         self.sent = self.board.now
 
     def update(self):

@@ -104,7 +104,7 @@ class World:
             self.board.register_key(key=key, access=py_trees.common.Access.WRITE)
         self.board.home = None
 
-    def send(self, route, precise=False):
+    def send(self, route, precise=False, quiet=False):
         self.goals.append(Goal(self.state, route, precise))
         return self.goals[-1]
 

@@ -65,7 +65,7 @@ class Navigator:
 
     def __init__(self, node, frame='map'):
         from ament_index_python.packages import get_package_share_directory
-        self.node, self.frame = node, frame
+        self.node, self.frame, self.report = node, frame, None
         self.to_pose = ActionClient(node, NavigateToPose, 'navigate_to_pose')
         self.through = ActionClient(node, NavigateThroughPoses, 'navigate_through_poses')
         # Docking ends on the tight goal checker (behavior_trees/nav_precise.xml).
@@ -83,7 +83,11 @@ class Navigator:
     def ready(self):
         return self.to_pose.server_is_ready() and self.through.server_is_ready()
 
-    def send(self, route, precise=False):
+    def send(self, route, precise=False, quiet=False):
+        """Send a route; every send is a ``goal`` event unless ``quiet`` (a retry)."""
+        if self.report is not None and route and not quiet:
+            x, y, yaw = route[-1]
+            self.report('goal', x=round(x, 2), y=round(y, 2), yaw=round(yaw, 2))
         poses = [self.pose(*waypoint) for waypoint in route]
         if len(poses) == 1 or precise:
             goal = NavigateToPose.Goal(pose=poses[-1])
@@ -119,6 +123,7 @@ class TaskRunner(Node):
         self.board.home = None
         self.tree = py_trees.trees.BehaviourTree(TREES[task](params))
         self.navigator = Navigator(self, self.frame)
+        self.navigator.report = self.report
         self.tree.setup(timeout=15.0, navigator=self.navigator, report=self.report)
         self.started = None
         self.outcome = None

@@ -18,7 +18,7 @@ def test_circle_waits_for_initial_tf_before_planning(monkeypatch):
     runner = None
     goals = []
 
-    def send(route, precise=False):
+    def send(route, precise=False, quiet=False):
         goals.append(route)
         return SimpleNamespace(done=False, cancel=lambda: None)
 
@@ -60,7 +60,7 @@ def test_home_reported_once_and_goal_per_send(monkeypatch):
         monkeypatch.setattr(runner, 'report', lambda event, **d: events.append((event, d)))
         monkeypatch.setattr(runner.navigator, 'ready', lambda: True)
         monkeypatch.setattr(runner.navigator, 'send',
-                            lambda route, precise=False: SimpleNamespace(
+                            lambda route, precise=False, quiet=False: SimpleNamespace(
                                 done=False, cancel=lambda: None))
         monkeypatch.setattr(runner, 'pose', lambda: (1.0, 2.0, 0.5))
         for _ in range(3):
@@ -73,26 +73,64 @@ def test_home_reported_once_and_goal_per_send(monkeypatch):
         rclpy.try_shutdown()
 
 
-def test_navigate_reports_goal_once_per_route():
+def reporting_navigator(events):
+    """A real Navigator whose Nav2 clients are stubbed, so ``send`` reports for real."""
+    from mhseals_nav.tasks.interface import Navigator
+    navigator = Navigator.__new__(Navigator)
+    navigator.report = lambda event, **d: events.append((event, d))
+    navigator.pose = lambda x, y, yaw: (x, y, yaw)
+    client = SimpleNamespace(send_goal_async=lambda goal: SimpleNamespace(
+        done=lambda: False, result=lambda: None, add_done_callback=lambda f: None))
+    navigator.to_pose = navigator.through = client
+    return navigator
+
+
+def board(route):
+    return SimpleNamespace(get=lambda key: route, now=0.0)
+
+
+def test_navigate_reports_one_goal_across_retries(monkeypatch):
+    from mhseals_nav.tasks import interface
     from mhseals_nav.tasks.behaviours import Navigate
-    sent, events = [], []
+    monkeypatch.setattr(interface, 'Goal', lambda future: SimpleNamespace(done=False))
+    monkeypatch.setattr(interface, 'NavigateToPose', SimpleNamespace(Goal=lambda **k: None))
+    monkeypatch.setattr(interface, 'NavigateThroughPoses', SimpleNamespace(Goal=lambda **k: None))
+    events = []
     node = Navigate('go', 'route')
-    node.navigator = SimpleNamespace(send=lambda route, precise=False: sent.append(route))
-    node.report = lambda event, **d: events.append((event, d))
-    node.board = SimpleNamespace(get=lambda key: [(0.0, 0.0, 0.0), (4.0, 5.0, 1.5)], now=0.0)
+    node.navigator = reporting_navigator(events)
+    node.board = board([(0.0, 0.0, 0.0), (4.0, 5.0, 1.5)])
     node.initialise()
-    node.send()  # a retry
-    assert len(sent) == 2
+    for _ in range(30):
+        node.send(retry=True)
     assert events == [('goal', dict(x=4.0, y=5.0, yaw=1.5))]
 
 
-def test_navigate_on_an_empty_route_fails_without_raising():
+def test_navigate_on_an_empty_route_fails_without_event_or_raising():
     from py_trees.common import Status
     from mhseals_nav.tasks.behaviours import Navigate
     events = []
     node = Navigate('go', 'route')
-    node.navigator = SimpleNamespace(send=lambda route, precise=False: None)
+    node.navigator = SimpleNamespace(send=lambda route, precise=False, quiet=False: None)
     node.report = lambda event, **d: events.append(event)
-    node.board = SimpleNamespace(get=lambda key: [], now=0.0)
+    node.board = board([])
     node.initialise()
     assert node.update() == Status.FAILURE and events == []
+
+
+def test_empty_route_send_reports_nothing(monkeypatch):
+    from mhseals_nav.tasks import interface
+    monkeypatch.setattr(interface, 'Goal', lambda future: SimpleNamespace(done=False))
+    monkeypatch.setattr(interface, 'NavigateThroughPoses', SimpleNamespace(Goal=lambda **k: None))
+    events = []
+    reporting_navigator(events).send([])
+    assert events == []
+
+
+def test_pass_gates_through_a_gate_reports_one_goal(monkeypatch):
+    from mhseals_nav.tasks import geometry, interface
+    events = []
+    navigator = reporting_navigator(events)
+    monkeypatch.setattr(interface, 'Goal', lambda future: SimpleNamespace(done=False))
+    monkeypatch.setattr(interface, 'NavigateThroughPoses', SimpleNamespace(Goal=lambda **k: None))
+    navigator.send(geometry.through((10.0, 0.0, 0.0)))
+    assert len(events) == 1 and events[0][0] == 'goal'
