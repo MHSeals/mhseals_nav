@@ -8,6 +8,7 @@
   <license>GPL-3.0</license>
 
   <!-- ROS Execution Dependencies -->
+  <exec_depend>diagnostic_msgs</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
   <exec_depend>nav2_common</exec_depend>

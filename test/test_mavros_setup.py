@@ -1,5 +1,9 @@
 """Message rates must be requested again whenever the FCU forgets them."""
-from mhseals_nav.mavros_setup import parse_rates, request_rates
+import struct
+
+from mhseals_nav.mavros_setup import (
+    decode_ekf_status, ekf_status_values, parse_rates, request_rates)
+import pytest
 
 
 def test_rates_parse_to_id_and_hz():
@@ -32,3 +36,46 @@ def test_rc_channels_is_requested_at_25_hz_by_default():
     launch = (Path(__file__).parents[1] / 'launch' / 'odom.launch.py').read_text()
     assert "(65, LaunchConfiguration('mavros_rc_rate')" in launch
     assert "('mavros_rc_rate', '25.0'" in launch
+
+
+# EKF_STATUS_REPORT as sent on the boat: flags 167 = ATT|VEL_H|VEL_V|POS_V_ABS|CONST_POS_MODE.
+EKF_PAYLOAD = struct.pack('<5fHf', 0.1, 0.2, 0.3, 0.4, 0.5, 167, 0.)
+
+
+def words(raw):
+    raw = raw.ljust(-(-len(raw) // 8) * 8, b'\0')
+    return list(struct.unpack(f'<{len(raw) // 8}Q', raw))
+
+
+def test_ekf_status_payload_decodes_flags_and_variances():
+    status = decode_ekf_status(193, len(EKF_PAYLOAD), words(EKF_PAYLOAD))
+    assert status['flags'] == 167
+    assert status['names'] == ['ATTITUDE', 'VELOCITY_HORIZ', 'VELOCITY_VERT',
+                               'POS_VERT_ABS', 'CONST_POS_MODE']
+    assert status['compass_variance'] == pytest.approx(0.4, rel=1e-6)
+    assert status['pos_horiz_variance'] == pytest.approx(0.2, rel=1e-6)
+
+
+def test_a_truncated_mavlink2_payload_is_zero_padded():
+    short = EKF_PAYLOAD[:22]  # the extension field was all zeros and was cut
+    assert decode_ekf_status(193, 22, words(short))['flags'] == 167
+
+
+def test_other_messages_publish_nothing():
+    assert decode_ekf_status(24, len(EKF_PAYLOAD), words(EKF_PAYLOAD)) is None
+
+
+def test_const_pos_mode_warns_and_a_healthy_ekf_is_ok():
+    stuck = decode_ekf_status(193, 26, words(EKF_PAYLOAD))
+    level, message, values = ekf_status_values(stuck)
+    assert (level, values['const_pos_mode'], values['flags']) == (1, 'true', '167')
+    assert message.endswith('CONST_POS_MODE')
+    good = decode_ekf_status(193, 26, words(struct.pack('<5fHf', 0, 0, 0, 0, 0, 1 | 16 | 32, 0)))
+    assert ekf_status_values(good)[0] == 0
+    assert ekf_status_values(good)[2]['const_pos_mode'] == 'false'
+
+
+def test_high_flag_bits_use_the_ardupilot_names():
+    raw = struct.pack('<5fHf', 0, 0, 0, 0, 0, 1024 | 32768, 0)
+    status = decode_ekf_status(193, len(raw), words(raw))
+    assert status['names'] == ['UNINITIALIZED', 'GPS_GLITCHING']
