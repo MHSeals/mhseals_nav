@@ -244,8 +244,11 @@ class ZedDetectionsConverter(Node):
                     f"Dropped malformed {topic} from remote: {error}", throttle_duration_sec=5.0
                 )
                 continue
+            # On a shared ROS domain the remote packet holds our own stages: don't echo them.
+            own = {f"perception/{self.perception_source}/{n}" for n in ("bridge", "converter")}
             for item in items:
-                self.relayed[item.name] = (now, item)
+                if item.name not in own:
+                    self.relayed[item.name] = (now, item)
         logs = []
         while (packet := self.source.latest("/rosout")) is not None:
             logs.append(packet)

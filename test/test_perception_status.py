@@ -99,7 +99,10 @@ def test_converter_reports_stages_and_relogs_remote_warnings(monkeypatch):
         queues = node.source.queues
         queues["/objects"] += [zed_packet(now, 30.0), zed_packet(now, .1), dict(header=1)]
         queues["/perception/status"].append(dict(status=[
-            dict(name="detector", hardware_id="squirtle", level=0, values=[dict(key="hz", value="4")])]))
+            dict(name="detector", hardware_id="squirtle", level=0, values=[dict(key="hz", value="4")]),
+            # Same-domain echo of our own stages must not come back as duplicates.
+            dict(name="perception/legacy_zed/bridge", hardware_id="127.0.0.1", level=0, values=[]),
+            dict(name="perception/legacy_zed/converter", hardware_id="127.0.0.1", level=0, values=[])]))
         queues["/diagnostics"].append(dict(status=[
             dict(name="front: ZED", hardware_id="Stereolabs ZED 2i", level=0, values=[]),
             dict(name="other", hardware_id="x", level=0, values=[])]))
@@ -126,6 +129,7 @@ def test_converter_reports_stages_and_relogs_remote_warnings(monkeypatch):
         listener.destroy_node()
         rclpy.shutdown()
 
+    assert len(got[0].status) == len({s.name for s in got[0].status}) == 4
     assert {s.name for s in got[1].status} == {s.name for s in got[0].status}
     stages = {s.name: {v.key: v.value for v in s.values} for s in got[0].status}
     assert set(stages) == {"perception/legacy_zed/bridge", "perception/legacy_zed/converter",
