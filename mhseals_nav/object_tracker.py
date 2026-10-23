@@ -5,6 +5,7 @@ from copy import deepcopy
 import hashlib
 
 import rclpy
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.time import Time
 from rclpy.duration import Duration
@@ -237,7 +238,7 @@ def main(args=None):
     node = ObjectTracker()
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
         node.destroy_node()

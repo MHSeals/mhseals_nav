@@ -282,3 +282,25 @@ def test_converter_main_stops_cleanly_on_shutdown(monkeypatch, stop):
     monkeypatch.setattr(converter, "ZedDetectionsConverter", Node)
     converter.main()
     assert Node.destroyed
+
+
+@pytest.mark.parametrize("stop", [KeyboardInterrupt, ExternalShutdownException])
+def test_tracker_main_stops_cleanly_on_shutdown(monkeypatch, stop):
+    """SIGINT teardown must exit 0 so a restart_required restart is not a crash."""
+    import mhseals_nav.object_tracker as tracker
+
+    class Node:
+        destroyed = False
+
+        def destroy_node(self):
+            Node.destroyed = True
+
+    def interrupted(node):
+        raise stop()
+
+    monkeypatch.setattr(tracker.rclpy, "init", lambda args=None: None)
+    monkeypatch.setattr(tracker.rclpy, "try_shutdown", lambda: None)
+    monkeypatch.setattr(tracker.rclpy, "spin", interrupted)
+    monkeypatch.setattr(tracker, "ObjectTracker", Node)
+    tracker.main()
+    assert Node.destroyed
