@@ -31,9 +31,9 @@ def generate_launch_description():
                                           'aim it at the water band'),
         GroupAction(actions=[
             SetEnvironmentVariable('FASTRTPS_DEFAULT_PROFILES_FILE',
-                PathJoinSubstitution([share, 'config', 'legacy_camera_dds.xml'])),
+                PathJoinSubstitution([share, 'config', 'camera_dds.xml'])),
             SetEnvironmentVariable('FASTDDS_DEFAULT_PROFILES_FILE',
-                PathJoinSubstitution([share, 'config', 'legacy_camera_dds.xml'])),
+                PathJoinSubstitution([share, 'config', 'camera_dds.xml'])),
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(PathJoinSubstitution([
                     FindPackageShare('zed_wrapper'), 'launch', 'zed_camera.launch.py'])),

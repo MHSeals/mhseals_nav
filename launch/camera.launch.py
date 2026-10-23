@@ -1,0 +1,111 @@
+"""The only launch file the camera host runs: ZED wrapper plus its named, lazy relays."""
+
+import os
+import tempfile
+import xml.etree.ElementTree as ET
+
+from launch import LaunchDescription
+from launch.actions import (DeclareLaunchArgument, GroupAction, IncludeLaunchDescription,
+                            OpaqueFunction, SetEnvironmentVariable)
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch_ros.actions import Node
+from launch_ros.substitutions import FindPackageShare
+
+PREVIEW_HZ = 2.0
+FASTDDS_NS = 'http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles'
+
+
+def pinned_profile(profile, address):
+    """The profile itself, or a temp copy whose UDPv4 transport only uses `address`.
+
+    Same pin as ros_net in astro_dock's dev.bashrc: without it Fast DDS advertises
+    docker0 and other interfaces, and discovery works while data goes nowhere.
+    """
+    if not address:
+        return profile
+    ET.register_namespace('', FASTDDS_NS)
+    tree = ET.parse(profile)
+    for udp in tree.iter(f'{{{FASTDDS_NS}}}transport_descriptor'):
+        if udp.findtext(f'{{{FASTDDS_NS}}}type') == 'UDPv4':
+            allow = ET.SubElement(ET.SubElement(udp, f'{{{FASTDDS_NS}}}interfaceWhiteList'),
+                                  f'{{{FASTDDS_NS}}}address')
+            allow.text = address
+    descriptor, path = tempfile.mkstemp(prefix='camera_dds_', suffix='.xml')
+    os.close(descriptor)
+    tree.write(path, xml_declaration=True, encoding='UTF-8')
+    return path
+
+
+def dds_env(context):
+    profile = pinned_profile(
+        PathJoinSubstitution([FindPackageShare('mhseals_nav'), 'config',
+                              'camera_dds.xml']).perform(context),
+        os.environ.get('ASTRO_DDS_ADDRESS'))
+    return [SetEnvironmentVariable('FASTRTPS_DEFAULT_PROFILES_FILE', profile),
+            SetEnvironmentVariable('FASTDDS_DEFAULT_PROFILES_FILE', profile)]
+
+
+def relay(name, executable, arguments):
+    """Node arguments for a topic_tools relay that idles until someone subscribes."""
+    return dict(package='topic_tools', executable=executable, name=name,
+                arguments=arguments, parameters=[{'lazy': True}], output='screen')
+
+
+def relays(camera_name, slam):
+    zed = f'/{camera_name}/zed_node'
+    out = f'/{camera_name}_camera'
+    found = [
+        relay(f'{camera_name}_info_relay', 'relay',
+              [f'{zed}/rgb/color/rect/camera_info', f'{out}/camera_info']),
+        relay(f'{camera_name}_preview_throttle', 'throttle',
+              ['messages', f'{zed}/rgb/color/rect/image/compressed', str(PREVIEW_HZ),
+               f'{out}/preview/compressed']),
+    ]
+    if slam:
+        found += [
+            relay(f'{camera_name}_rgb_relay', 'relay',
+                  [f'{zed}/rgb/color/rect/image', f'{out}/rgb/image']),
+            relay(f'{camera_name}_depth_relay', 'relay',
+                  [f'{zed}/depth/depth_registered', f'{out}/depth/image']),
+        ]
+    return found
+
+
+def relay_nodes(context):
+    camera_name = LaunchConfiguration('camera_name').perform(context)
+    slam = LaunchConfiguration('slam').perform(context).lower() == 'true'
+    return [Node(**kwargs) for kwargs in relays(camera_name, slam)]
+
+
+def generate_launch_description():
+    share = FindPackageShare('mhseals_nav')
+    wrapper = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(PathJoinSubstitution([
+            FindPackageShare('zed_wrapper'), 'launch', 'zed_camera.launch.py'])),
+        launch_arguments={
+            'camera_model': LaunchConfiguration('camera_model'),
+            'camera_name': LaunchConfiguration('camera_name'),
+            # The EKFs and the robot description own every TF edge except the
+            # wrapper's static camera subtree.
+            'publish_tf': 'false', 'publish_map_tf': 'false', 'publish_imu_tf': 'false',
+            'publish_urdf': 'true',
+            'custom_object_detection_config_path': PathJoinSubstitution(
+                [share, 'config', 'custom_object_detection.yaml']),
+            'ros_params_override_path': PathJoinSubstitution(
+                [share, 'config', 'zed_boat.yaml']),
+        }.items())
+    return LaunchDescription([
+        DeclareLaunchArgument('camera_name', default_value='front',
+                              description='ZED namespace; topics are /<camera_name>/zed_node/*'),
+        DeclareLaunchArgument('camera_model', default_value='zed2i'),
+        DeclareLaunchArgument('slam', default_value='false',
+                              description='Also relay raw RGB and depth for RTAB-Map'),
+        # Large camera frames need this profile; it applies to this launch only and
+        # keeps the boat's interface pin and 1400-byte messages.
+        GroupAction([
+            OpaqueFunction(function=dds_env),
+            wrapper,
+            OpaqueFunction(function=relay_nodes),
+        ]),
+    ])
