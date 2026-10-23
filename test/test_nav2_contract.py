@@ -22,6 +22,8 @@ def test_omni_mppi_and_command_limits():
     assert 'CostCritic' in mppi['critics'] and mppi['CostCritic']['consider_footprint']
     # The camera looks forward: prefer facing along the path.
     assert mppi['PathAngleCritic']['mode'] == 0 and 'PreferForwardCritic' in mppi['critics']
+    # Sim: a weight of 2.0 reversed at vx_min for whole legs to a goal behind the boat.
+    assert mppi['PreferForwardCritic']['cost_weight'] >= 5.0
     smoother = config['velocity_smoother']['ros__parameters']
     # The smoother passes everything MPPI may command, sway included, and no more.
     assert smoother['max_velocity'] == [mppi['vx_max'], mppi['vy_max'], mppi['wz_max']]
