@@ -76,10 +76,23 @@ def derived(config, original=None):
     return result
 
 
+def warn_overridden(limits, result, path=()):
+    """Log each overlay value that the merge or derivation replaced with another."""
+    for key, value in limits.items():
+        if isinstance(value, dict):
+            warn_overridden(value, result.get(key, {}), path + (key,))
+        elif result.get(key) != value:
+            log.warning('Overlay %s = %r is overridden to %r (derived from other limits or capped by the base)',
+                        '.'.join(path + (key,)), value, result.get(key))
+
+
 def merge_limits(base, limits):
+    """Overlay limits onto base, recompute derived keys and warn about overlay values that did not stick."""
     result = deep_merge(deepcopy(base), limits)
     follow = result['controller_server']['ros__parameters']['FollowPath']
     original = base['controller_server']['ros__parameters']['FollowPath']
     if 'vx_min' in original and 'vx_min' in follow:
         follow['vx_min'] = max(original['vx_min'], follow['vx_min'])
-    return derived(result, base)
+    result = derived(result, base)
+    warn_overridden(limits, result)
+    return result

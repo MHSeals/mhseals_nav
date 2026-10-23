@@ -71,3 +71,15 @@ def test_navigation_launch_reads_the_overlay_through_load_overlay():
     source = launch.read_text()
     assert 'load_overlay(limits)' in source
     assert 'measured = yaml.safe_load' not in source
+
+
+def test_overlay_values_the_merge_overrides_are_warned_about(caplog):
+    base = {'controller_server': {'ros__parameters': {'FollowPath': {
+                'model_dt': .05, 'time_steps': 56, 'prune_distance': 3., 'vx_min': -.1}}}}
+    limits = {'controller_server': {'ros__parameters': {'FollowPath': {
+                'vx_max': .4, 'vx_min': -.9, 'prune_distance': 9.}}}}
+    with caplog.at_level('WARNING'):
+        merge_limits(base, limits)
+    assert 'FollowPath.vx_min' in caplog.text
+    assert 'FollowPath.prune_distance' in caplog.text
+    assert 'FollowPath.vx_max' not in caplog.text
