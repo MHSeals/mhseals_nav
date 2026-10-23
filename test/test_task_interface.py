@@ -84,3 +84,15 @@ def test_navigate_reports_goal_once_per_route():
     node.send()  # a retry
     assert len(sent) == 2
     assert events == [('goal', dict(x=4.0, y=5.0, yaw=1.5))]
+
+
+def test_navigate_on_an_empty_route_fails_without_raising():
+    from py_trees.common import Status
+    from mhseals_nav.tasks.behaviours import Navigate
+    events = []
+    node = Navigate('go', 'route')
+    node.navigator = SimpleNamespace(send=lambda route, precise=False: None)
+    node.report = lambda event, **d: events.append(event)
+    node.board = SimpleNamespace(get=lambda key: [], now=0.0)
+    node.initialise()
+    assert node.update() == Status.FAILURE and events == []

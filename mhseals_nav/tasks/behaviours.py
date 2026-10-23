@@ -209,8 +209,9 @@ class Navigate(Leaf):
     def initialise(self):
         self.tries = 0
         self.send()
-        if self.report is not None:  # once per route; retries stay quiet
-            x, y, yaw = self.board.get(self.key)[-1]
+        route = self.board.get(self.key)
+        if self.report is not None and route:  # once per route; retries stay quiet
+            x, y, yaw = route[-1]
             self.report('goal', x=round(x, 2), y=round(y, 2), yaw=round(yaw, 2))
 
     def send(self):
@@ -226,7 +227,7 @@ class Navigate(Leaf):
             self.goal.status == 'ABORTED' and self.board.now - self.sent < 1.0))
         if refused and self.tries < self.RETRIES:
             self.tries += 1
-            self.send()
+            self.send(retry=True)
             return Status.RUNNING
         if not self.goal.done:
             return Status.RUNNING
