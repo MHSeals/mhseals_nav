@@ -29,6 +29,14 @@ def test_fc_heading_not_magnetometer_free_reintegration():
     assert local['imu0_config'][5] and local['imu0_config'][11]
 
 
+def test_global_filter_fuses_the_raw_sources_not_the_local_filters_output():
+    config = params('ekf_global.yaml')
+    assert config['odom0'] == '/odom/mavros'
+    assert config['odom0_config'][6:9] == [True, True, False]
+    assert not config['odom0_config'][11]  # /odom/mavros does not measure yaw rate
+    assert config['imu0_config'][11]
+
+
 def test_no_duplicate_absolute_position_in_local_or_global_reference():
     for name in ('ekf_local.yaml', 'ekf_global.yaml'):
         assert not any(params(name)['odom0_config'][:3])

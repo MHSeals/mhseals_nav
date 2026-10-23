@@ -15,15 +15,15 @@
     base_link_frame: base_link
     world_frame: map
 
-    # === Local Odom Reference ===
-    # Velocities only: a pose from the odom frame reaches this filter through its own
-    # map->odom transform, so it always agrees with the estimate and never corrects it.
-    odom0: /odom/local
+    # === Body Velocity ===
+    # The same raw source as ekf_local, not its output: /odom/local is already filtered
+    # from this IMU and GPS, so re-fusing it double-counts them and adds a filter's lag.
+    odom0: /odom/mavros
     odom0_config: [
       false, false, false,   # position comes only from GPS; avoid double-counting
       false, false, false,   # roll, pitch, yaw: from the IMU below
       true,  true,  false,   # vx, vy, vz
-      false, false,  true,   # vroll, vpitch, vyaw
+      false, false, false,   # vroll, vpitch, vyaw: unmeasured here, from the IMU below
       false, false, false    # ax, ay, az
     ]
     odom0_differential: false
@@ -34,7 +34,7 @@
       false, false, false,   # position
       false, false,  true,   # roll, pitch, yaw: absolute heading
       false, false, false,   # vx, vy, vz
-      false, false, false,   # angular velocity: already in odom0
+      false, false,  true,   # vyaw
       false, false, false    # acceleration
     ]
     imu0_differential: false
