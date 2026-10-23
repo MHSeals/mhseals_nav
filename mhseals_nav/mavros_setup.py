@@ -106,6 +106,11 @@ def request_rates(rates, call, log, attempts=3, wait=8., sleep=time.sleep):
             log(f'message {message_id} at {hz:g} Hz: failed')
 
 
+def is_duplicate_trigger(last, now, window=5.):
+    """True when a reboot signal follows another within `window` s (state edge plus boot clock)."""
+    return last is not None and now - last < window
+
+
 def decode_ekf_status(msgid, length, payload64):
     """Raw MAVLink fields -> {flags, names, variances...}, or None for other messages.
 
@@ -151,10 +156,18 @@ def main(args=None):
     # Not set at start: the first connected /mavros/state is a False->True edge and asks.
     connected = [False]
     sent = [[]]  # last requested list, so dropped ids can be reset
+    last_reboot = [None]
+
+    def reboot_seen():
+        # One reboot shows as both a state edge and a boot-clock reset; ask once.
+        now = time.monotonic()
+        if not is_duplicate_trigger(last_reboot[0], now):
+            wanted.set()
+            last_reboot[0] = now
 
     def receive_state(state):
         if reconnected(connected[0], state.connected):
-            wanted.set()
+            reboot_seen()
         connected[0] = state.connected
 
     def call(message_id, hz):
@@ -186,7 +199,7 @@ def main(args=None):
         if now_ms is not None and from_fcu(msg.sysid, msg.compid, fcu_sysid):
             if rebooted(boot_ms[0], now_ms):
                 node.get_logger().info('FCU boot time went backwards; requesting rates again')
-                wanted.set()
+                reboot_seen()
             boot_ms[0] = now_ms
         status = decode_ekf_status(msg.msgid, msg.len, msg.payload64)
         if status is None:

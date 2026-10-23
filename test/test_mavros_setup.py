@@ -57,6 +57,13 @@ def test_rates_are_requested_again_only_on_reconnect():
     assert edges == [False, True, False, False, True]
 
 
+def test_one_reboot_seen_twice_asks_once():
+    from mhseals_nav.mavros_setup import is_duplicate_trigger
+    assert not is_duplicate_trigger(None, 10.)
+    assert is_duplicate_trigger(10., 10.01)
+    assert not is_duplicate_trigger(10., 16.)
+
+
 def test_rates_are_not_also_requested_unconditionally_at_start():
     import inspect
     from mhseals_nav import mavros_setup
