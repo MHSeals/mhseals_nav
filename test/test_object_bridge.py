@@ -8,13 +8,11 @@ import pytest
 
 pytest.importorskip("rclpy")
 pytest.importorskip("websocket")
-pytest.importorskip("websockets")
 import rclpy
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.qos import QoSProfile, DurabilityPolicy
 from vision_msgs.msg import Detection3DArray
 from tf2_msgs.msg import TFMessage
-from websockets.sync.server import serve
 
 from mhseals_nav.zed_detections_converter import ZedDetectionsConverter
 from ros_domain import require_isolated_domain
@@ -22,6 +20,7 @@ from ros_domain import require_isolated_domain
 
 @pytest.mark.parametrize("silent_failure", [False, True])
 def test_legacy_json_recovers_from_late_publisher_and_reconnects(silent_failure):
+    serve = pytest.importorskip("websockets.sync.server").serve
     require_isolated_domain()
     stop = Event()
     connections = []

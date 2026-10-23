@@ -7,6 +7,7 @@ import pytest
 
 pytest.importorskip("rclpy")
 import rclpy
+from rclpy.executors import ExternalShutdownException
 from builtin_interfaces.msg import Time
 from geometry_msgs.msg import TransformStamped
 from vision_msgs.msg import Detection3DArray, Detection3D, ObjectHypothesisWithPose
@@ -259,3 +260,25 @@ def test_outline_markers_use_acquisition_tf_and_delete_disappeared_boxes():
     assert sorted({p.z for p in box.points}) == pytest.approx([-.6, .6])
     assert {(m.ns, m.id) for m in markers if m.action == Marker.DELETE} == {
         ("confidence", 1), ("detection_boxes", 1)}
+
+
+@pytest.mark.parametrize("stop", [KeyboardInterrupt, ExternalShutdownException])
+def test_converter_main_stops_cleanly_on_shutdown(monkeypatch, stop):
+    """SIGINT teardown must exit 0 instead of printing a crash traceback."""
+    import mhseals_nav.zed_detections_converter as converter
+
+    class Node:
+        destroyed = False
+
+        def destroy_node(self):
+            Node.destroyed = True
+
+    def interrupted(node):
+        raise stop()
+
+    monkeypatch.setattr(converter.rclpy, "init", lambda args=None: None)
+    monkeypatch.setattr(converter.rclpy, "try_shutdown", lambda: None)
+    monkeypatch.setattr(converter.rclpy, "spin", interrupted)
+    monkeypatch.setattr(converter, "ZedDetectionsConverter", Node)
+    converter.main()
+    assert Node.destroyed
