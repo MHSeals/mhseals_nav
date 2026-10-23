@@ -170,6 +170,7 @@ class TaskRunner(Node):
         self.board.objects, self.board.pose, self.board.now = self.objects, pose, now
         if self.board.home is None:
             self.board.home = self.board.pose  # where the run started, for the return
+            self.report('home', x=round(pose[0], 2), y=round(pose[1], 2))
         self.tree.tick()
         status = self.tree.root.status.name
         if status in ('SUCCESS', 'FAILURE'):

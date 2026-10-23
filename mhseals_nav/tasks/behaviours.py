@@ -199,15 +199,19 @@ class Navigate(Leaf):
     def __init__(self, name, key, precise=False):
         super().__init__(name, reads=(key,))
         self.key, self.precise, self.navigator, self.goal = key, precise, None, None
+        self.report = None
 
     def setup(self, **kwargs):
-        self.navigator = kwargs['navigator']
+        self.navigator, self.report = kwargs['navigator'], kwargs.get('report')
 
     RETRIES = 30  # ticks: a goal just cancelled elsewhere can take a moment to clear
 
     def initialise(self):
         self.tries = 0
         self.send()
+        if self.report is not None:  # once per route; retries stay quiet
+            x, y, yaw = self.board.get(self.key)[-1]
+            self.report('goal', x=round(x, 2), y=round(y, 2), yaw=round(yaw, 2))
 
     def send(self):
         self.goal = self.navigator.send(self.board.get(self.key), precise=self.precise)

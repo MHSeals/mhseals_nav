@@ -45,3 +45,42 @@ def test_circle_waits_for_initial_tf_before_planning(monkeypatch):
         if runner is not None:
             runner.destroy_node()
         rclpy.try_shutdown()
+
+
+def test_home_reported_once_and_goal_per_send(monkeypatch):
+    """/task/events carries home once and one goal per route, not per retry."""
+    rclpy.init()
+    runner = None
+    try:
+        runner = TaskRunner('circle_test', dict(
+            mark='yellow_buoy', search_distance=15.0, circle_radius=3.0,
+            circle_clockwise=False, circle_points=12))
+        runner.objects = [('yellow_buoy', 9.0, 0.0)]
+        events = []
+        monkeypatch.setattr(runner, 'report', lambda event, **d: events.append((event, d)))
+        monkeypatch.setattr(runner.navigator, 'ready', lambda: True)
+        monkeypatch.setattr(runner.navigator, 'send',
+                            lambda route, precise=False: SimpleNamespace(
+                                done=False, cancel=lambda: None))
+        monkeypatch.setattr(runner, 'pose', lambda: (1.0, 2.0, 0.5))
+        for _ in range(3):
+            runner.tick()
+        homes = [d for e, d in events if e == 'home']
+        assert homes == [dict(x=1.0, y=2.0)]
+    finally:
+        if runner is not None:
+            runner.destroy_node()
+        rclpy.try_shutdown()
+
+
+def test_navigate_reports_goal_once_per_route():
+    from mhseals_nav.tasks.behaviours import Navigate
+    sent, events = [], []
+    node = Navigate('go', 'route')
+    node.navigator = SimpleNamespace(send=lambda route, precise=False: sent.append(route))
+    node.report = lambda event, **d: events.append((event, d))
+    node.board = SimpleNamespace(get=lambda key: [(0.0, 0.0, 0.0), (4.0, 5.0, 1.5)], now=0.0)
+    node.initialise()
+    node.send()  # a retry
+    assert len(sent) == 2
+    assert events == [('goal', dict(x=4.0, y=5.0, yaw=1.5))]

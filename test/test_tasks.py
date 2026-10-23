@@ -123,7 +123,8 @@ class World:
         return 'RUNNING'
 
     def names(self):
-        return [event for event, _ in self.events]
+        # Navigation goals are reported too, but these tests follow the task's own events.
+        return [event for event, _ in self.events if event != 'goal']
 
     def event(self, name):
         return next(details for event, details in self.events if event == name)
