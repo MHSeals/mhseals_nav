@@ -9,12 +9,13 @@ This package serves as the core navigation system for the ASV, interacting with 
 Launch files separate the main responsibilities:
 
 - `robot.launch.py` composes sensors, localization, navigation, and objects. `enable_slam:=true` additionally starts the lidar-cloud RTABMap mapper; navigation and EKF localization run either way. Generally used for simulation; on the boat, launch components on their respective hosts.
-- `sensors.launch.py` starts Velodyne/ZED drivers with `sim:=false`, or the ROS TCP endpoint with `sim:=true`. Use `sensors_ignore:=camera` on ODROID and `sensors_ignore:=lidar` on Jetson.
+- `sensors.launch.py` starts the Velodyne driver and lidar relay with `sim:=false`, or the ROS TCP endpoint with `sim:=true`. It never starts the camera.
+- `camera.launch.py` is the only launch file the camera host (Jetson Orin, JetPack 6, ZED SDK 5, domain 42) runs. It starts the ZED wrapper with `config/zed_boat.yaml` (HD720, positional tracking off, object detection on) and `config/custom_object_detection.yaml`, publishes no pose TF, and starts lazy relays: `/front_camera/camera_info` and a 2 Hz `/front_camera/preview/compressed`. `slam:=true` adds raw `/front_camera/rgb/image` and `/front_camera/depth/image`. Start it through the container (`docker exec roboboat_dev bash -c 'ros2 launch mhseals_nav camera.launch.py'`) so `ASTRO_DDS_ADDRESS` is set; the launch then pins its camera DDS profile (`config/camera_dds.xml`, 1400-byte messages) to that address.
 - `odom.launch.py` starts MAVROS and measurement relays (`fcu:=true`), robot TF, and `ekf.launch.py` (dual EKFs and Navsat; `start_ekf:=false` leaves them to a separate launch, and `~/.config/mhseals/ekf.yaml` overrides parameters per node).
 - `navigation.launch.py` starts Nav2 servers and lifecycle management. SLAM is optional.
 - `slam.launch.py` starts RTABMap mapping, leaving localization TF with the EKFs.
-- `objects.launch.py` always tracks `/detections`. With `sim:=false`, it also converts ZED objects into that interface, remapping the adapter input to `objects_topic`. Set `rosbridge_url` and `camera_root_frame` for a legacy ZED host; the boat `objects` component passes `rosbridge_url:=ws://192.168.0.153:9090 camera_root_frame:=front_camera_link`, otherwise it subscribes the JP6 topic that does not exist on the boat. JetPack 6 sets `prediction_timeout: 0` in `common_stereo.yaml` and `prediction_timeout_s: 0` per class in `custom_object_detection.yaml` so `/detections` stays raw.
-- `legacy_zed.launch.py` starts the JetPack 5 / ZED SDK 4 camera, TensorRT buoy detector, and rosbridge. Use it instead of the camera part of `sensors.launch.py`; start each camera only once.
+- `objects.launch.py` always tracks `/detections`. With `sim:=false`, it also converts ZED objects into that interface, remapping the adapter input to `objects_topic`. On the boat it takes no rosbridge arguments: the Orin's wrapper is on the same graph, so the converter subscribes `/front/zed_node/obj_det/objects` directly (`rosbridge_url` and `camera_root_frame` are only for the retiring JetPack 5 host). `config/zed_boat.yaml` sets `prediction_timeout: 0` and `custom_object_detection.yaml` sets `prediction_timeout_s: 0` per class, so `/detections` stays raw.
+- `legacy_zed.launch.py` starts the retiring JetPack 5 / ZED SDK 4 camera, TensorRT buoy detector, and rosbridge. Never run it together with `camera.launch.py`; start each camera only once.
 
 ```bash
 ros2 launch mhseals_nav <launch_name>.launch.py param1:=value1 param2:=value2
@@ -32,13 +33,14 @@ Start each component once. `robot` includes navigation, so running it also start
 | --- | --- | --- |
 | `sim` | `robot`, `sensors`, `odom`, `navigation`, `slam`, `objects` | `true`; simulation time requires `/clock`. In `objects`, also selects simulated detections rather than ZED input |
 | `use_lidar` | `robot`, `navigation` | `true`; require `/points` for obstacle avoidance. `false` disables both obstacle layers for supervised testing; cameras do not replace them |
-| `sensors_ignore` | `robot`, `sensors` | Empty; comma-separated local drivers to skip, e.g. `camera,lidar`. Does not disable Nav2 obstacle layers |
+| `sensors_ignore` | `robot`, `sensors` | Empty; comma-separated local drivers to skip, e.g. `lidar`. Does not disable Nav2 obstacle layers |
 | `enable_slam` | `robot` | `false`; include `slam.launch.py` for lidar-cloud RTABMap mapping from `/points`. It leaves TF ownership with the EKFs and does not change Nav2 localization |
 | `fcu` | `robot`, `odom` | `true`; start MAVROS and its relays. `false` when a simulator (crane_ml `--crane-roboboat-contract`) publishes `/odom/mavros`, `/imu/raw` and `/gps/fix` itself, so simulation needs no ArduPilot |
 | `fcu_url` | `robot`, `odom` | Empty selects SITL TCP in simulation or the Cube's `/dev/serial/by-id/usb-CubePilot_CubeOrange+_*-if00` on hardware |
-| `camera_name` | `robot`, `sensors`, `odom`, `slam` | `front`; camera namespace and topic prefix |
+| `camera_name` | `robot`, `camera`, `odom`, `slam` | `front`; camera namespace and topic prefix |
+| `camera_model`, `slam` | `camera` | `zed2i`, `false`; `slam:=true` also relays raw RGB and depth |
 | `detections_topic`, `objects_topic` | `objects` | `/detections`, `/front/zed_node/obj_det/objects`; tracker input and ZED source |
-| `rosbridge_url`, `camera_root_frame` | `objects` | Empty; with `sim:=false`, select legacy transport and its calibrated camera subtree root |
+| `rosbridge_url`, `camera_root_frame` | `objects` | Empty; with `sim:=false`, select the legacy JetPack 5 transport and its calibrated camera subtree root. Leave unset on the boat |
 
 Configuration paths, device addresses, and rate overrides are listed by `ros2 launch mhseals_nav <launch_name>.launch.py --show-args`. Keeping `use_lidar:=true` while skipping the local driver allows another host or simulator to supply `/points`. Disabling LiDAR is explicit; stale data never triggers an automatic fallback.
 
@@ -49,8 +51,7 @@ Configuration paths, device addresses, and rate overrides are listed by `ros2 la
 The architecture is deliberately topic based: simulated or physical sensors feed
 localization, object tracking, and navigation; the global EKF owns `map → odom`,
 the local EKF owns `odom → base_link`, and sensor mounts come from the robot
-description. Keep this graph in one ROS domain per ROS release and use the
-explicit camera bridge when the Jetson runs a different release.
+description. Keep the boat on one ROS domain; the Orin camera host joins it directly, so consumers bind only to the canonical names (`/detections`, `/front_camera/*`) and never to `/front/zed_node/*`, except the objects converter.
 
 Required interfaces depend on which components are running:
 
@@ -66,7 +67,7 @@ Navigation and tracking also require `/tf` and `/tf_static` with `map → odom �
 
 Navigation uses MPPI with the Omni model at 10 Hz (the boat can sway) and rolling costmaps of decaying voxels, fed by the LiDAR. Camera tracks retain class and position for task planning and RViz; they do not synthesize obstacle geometry. The characterization's Nav2 overlay gives MPPI the boat's measured limits at the tested effort. RTABMap mapping consumes the live lidar cloud and external EKF odometry; it does not publish a competing localization transform.
 
-On JetPack 5, SDK 4 cannot run `CUSTOM_YOLOLIKE_BOX_OBJECTS`. The legacy detector runs the checked-in 640-pixel ONNX model with TensorRT 8 and sends 2D boxes to the SDK 4 wrapper's `CUSTOM_BOX_OBJECTS` input. The JP5 image includes a wrapper patch that holds each grabbed frame until its matching inference arrives (up to 500 ms); the SDK supplies positions and eight 3D box corners in the reported camera frame. The bridge derives RViz extents from those corners, including depth; no surface-thickness estimate is added. Its first start compiles a GPU-specific FP16 engine; the ZED resources volume retains that cache across container rebuilds. TensorRT/CUDA come from JetPack; OpenCV, NumPy, and PyYAML are required.
+The rest of this section describes the retiring JetPack 5 host. On JetPack 5, SDK 4 cannot run `CUSTOM_YOLOLIKE_BOX_OBJECTS`. The legacy detector runs the checked-in 640-pixel ONNX model with TensorRT 8 and sends 2D boxes to the SDK 4 wrapper's `CUSTOM_BOX_OBJECTS` input. The JP5 image includes a wrapper patch that holds each grabbed frame until its matching inference arrives (up to 500 ms); the SDK supplies positions and eight 3D box corners in the reported camera frame. The bridge derives RViz extents from those corners, including depth; no surface-thickness estimate is added. Its first start compiles a GPU-specific FP16 engine; the ZED resources volume retains that cache across container rebuilds. TensorRT/CUDA come from JetPack; OpenCV, NumPy, and PyYAML are required.
 
 The legacy profile uses native 1080p, automatic exposure/white balance, and a camera-scoped 64 MiB DDS shared-memory transport. Alongside the full image, three overlapping 720-pixel crops preserve small buoys near the central water band; same-class duplicates are merged in original pixel coordinates. Use `tile_size:=0` to disable detail crops; `tile_count` sets how many and `tile_center` (fraction of image height, default 0.5) aims the row at the water band, since the horizon follows camera pitch. The optional JPEG preview is capped at 1280 pixels wide to keep it from delaying inference. Stereo settings in `config/legacy_zed.yaml` use a 0.5–20 m range and stricter confidence filtering; backlighting can still prevent reliable depth.
 
