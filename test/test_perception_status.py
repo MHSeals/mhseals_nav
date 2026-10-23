@@ -197,3 +197,18 @@ def test_native_converter_reports_its_converter_stage():
     (stage,) = got[0].status
     assert stage.name == "perception/zed_native/converter"
     assert {v.key: v.value for v in stage.values}["latency_ms"] == "50"
+
+
+def test_relayed_accepts_foxy_level_shapes():
+    packet = dict(status=[dict(name=f"n{i}", hardware_id="h", level=lv, values=[])
+                          for i, lv in enumerate([2, b"\x01", [1], "2", None])])
+    assert [s.level for s in perception_status.relayed(packet)] == [
+        b"\x02", b"\x01", b"\x01", b"\x02", b"\x00"]
+
+
+def test_relayed_skips_a_malformed_item_and_keeps_the_rest():
+    packet = dict(status=[
+        "junk", None, dict(name="bad", values=[dict(value="no key")]),
+        dict(name="detector", hardware_id="h", values=[])])
+    assert [s.name for s in perception_status.relayed(packet)] == ["perception/legacy_zed/detector"]
+    assert perception_status.relayed(dict(status=None)) == []

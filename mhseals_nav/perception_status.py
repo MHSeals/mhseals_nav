@@ -19,22 +19,48 @@ def status(name, host, values, level=DiagnosticStatus.OK, message="", source=SOU
     return out
 
 
+def _level(raw):
+    """DiagnosticStatus level as one byte from an int, bytes, one-item list or digit string.
+
+    Jazzy rosbridge sends an octet as int; Foxy 1.x may send bytes (unverified on squirtle).
+    """
+    if isinstance(raw, (bytes, bytearray)):
+        raw = raw[0] if raw else 0
+    elif isinstance(raw, (list, tuple)):
+        raw = raw[0] if raw else 0
+    try:
+        return (int(raw) & 0xFF).to_bytes(1, "little")
+    except (TypeError, ValueError):
+        return b"\x00"
+
+
 def relayed(packet, zed_only=False, source=SOURCE):
-    """Remote statuses to forward in the source namespace; /diagnostics keeps ZED only."""
-    prefix = f"perception/{source}/"
+    """Remote statuses to forward in the source namespace; /diagnostics keeps ZED only.
+
+    A malformed item is skipped so it cannot hide the other stages in the packet.
+    """
+    items = packet.get("status", [])
     out = []
-    for item in packet.get("status", []):
-        name, host = str(item.get("name", "")), str(item.get("hardware_id", ""))
-        if not name or (zed_only and not host.startswith("Stereolabs")):
+    for item in items if isinstance(items, list) else []:
+        try:
+            out.append(_relay_item(item, zed_only, source))
+        except (KeyError, TypeError, ValueError, OverflowError, AttributeError):
             continue
-        status_out = DiagnosticStatus(
-            name=prefix + (name[len(PREFIX):] if name.startswith(PREFIX) else name),
-            hardware_id=host, message=str(item.get("message", "")),
-            level=int(item.get("level", 0)).to_bytes(1, "little"),
-        )
-        status_out.values = [KeyValue(key=str(v["key"]), value=str(v["value"]))
-                             for v in item.get("values", [])]
-        out.append(status_out)
+    return [o for o in out if o is not None]
+
+
+def _relay_item(item, zed_only, source):
+    prefix = f"perception/{source}/"
+    name, host = str(item.get("name", "")), str(item.get("hardware_id", ""))
+    if not name or (zed_only and not host.startswith("Stereolabs")):
+        return None
+    out = DiagnosticStatus(
+        name=prefix + (name[len(PREFIX):] if name.startswith(PREFIX) else name),
+        hardware_id=host, message=str(item.get("message", "")),
+        level=_level(item.get("level", 0)),
+    )
+    out.values = [KeyValue(key=str(v["key"]), value=str(v["value"]))
+                  for v in item.get("values", [])]
     return out
 
 
