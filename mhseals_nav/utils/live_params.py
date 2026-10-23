@@ -71,14 +71,16 @@ class LiveParams:
     """Accepted values of the rule-covered parameters, refreshed by param sets.
 
     ``on_change(values, changed)`` runs after a set is accepted. The node must
-    have declared every parameter in ``rules`` first. ``restart_only`` names
-    declared parameters the node reads once at start: a set that would change
-    one is refused, so a read-back never reports a value the node is not using.
+    have declared every parameter in ``rules`` first. Any other parameter
+    declared by then is read once at start: a set that would change one is
+    refused ('restart required'), so a read-back never reports a value the node
+    is not using.
     """
 
-    def __init__(self, node, rules, on_change=None, joint=None, restart_only=()):
+    def __init__(self, node, rules, on_change=None, joint=None):
         self.rules, self.on_change, self.joint = rules, on_change, joint
-        self.startup = {name: node.get_parameter(name).value for name in restart_only}
+        self.startup = {name: p.value for name, p in node.get_parameters_by_prefix('').items()
+                        if name not in rules}
         self.values = check_changes(
             rules, {name: node.get_parameter(name).value for name in rules})
         if joint:

@@ -50,9 +50,8 @@ class ObjectTracker(Node):
             "max_detection_age")}
         live_rules.update(smoothing_alpha=fraction, confirmation_count=at_least(1),
                           confirmation_time=at_least(0))
-        # Frames are fixed at start; every other setting applies to the next detection.
-        self.live = LiveParams(self, live_rules, self.apply_live, joint=confirmable,
-                               restart_only=("tracking_frame", "map_frame"))
+        # Rule-less settings (the frames) are fixed at start; the rest apply to the next detection.
+        self.live = LiveParams(self, live_rules, self.apply_live, joint=confirmable)
         values.update(self.live.values)
         self.tracking_frame = values["tracking_frame"]
         self.map_frame = values["map_frame"]

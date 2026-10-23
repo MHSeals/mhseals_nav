@@ -17,6 +17,9 @@ class FakeNode:
     def get_parameter(self, name):
         return S(value=self.parameters[name])
 
+    def get_parameters_by_prefix(self, prefix):
+        return {name: S(value=value) for name, value in self.parameters.items()}
+
     def add_on_set_parameters_callback(self, callback):
         self.callback = callback
 
@@ -73,9 +76,9 @@ def test_message_rate_change_calls_set_message_interval():
     assert calls == [(33, 10.), (1, 2.)] and live['message_rates'] == calls
 
 
-def test_restart_only_names_are_refused_unless_unchanged():
+def test_rule_less_declared_names_are_refused_unless_unchanged():
     node = FakeNode(age=.5, frame='map')
-    live = LiveParams(node, {'age': positive}, restart_only=('frame',))
+    live = LiveParams(node, {'age': positive})
     result = node.set(frame='odom')
     assert not result.successful and result.reason == 'restart required: frame'
     assert node.set(frame='map', age=2.).successful      # same value, e.g. a param load
