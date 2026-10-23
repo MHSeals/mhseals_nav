@@ -33,9 +33,16 @@ def load_overlay(path):
     return data
 
 
+EKF_NODES = {'ekf_local', 'ekf_global', 'navsat_transform'}
+
+
 def ekf_overlay(path, node):
     """Parameters the overlay sets for one EKF/navsat node, flat or under ros__parameters."""
-    section = load_overlay(path).get(node) or {}
+    overlay = load_overlay(path)
+    for key in overlay.keys() - EKF_NODES:
+        log.warning('Ignoring overlay key %r in %s: use node-keyed sections (%s), not /**',
+                    key, path, ', '.join(sorted(EKF_NODES)))
+    section = overlay.get(node) or {}
     if not isinstance(section, dict):
         log.error('Ignoring overlay section %s in %s: not a mapping', node, path)
         return {}
@@ -86,7 +93,9 @@ def derived(config, original=None):
     smoother = result.get('velocity_smoother', {}).get('ros__parameters')
     if smoother is not None:
         for key, limits in (('max_velocity', ('vx_max', 'vy_max', 'wz_max')),
-                            ('min_velocity', ('vx_min', '-vy_max', '-wz_max'))):
+                            ('min_velocity', ('vx_min', '-vy_max', '-wz_max')),
+                            ('max_accel', ('ax_max', 'ay_max', 'az_max')),
+                            ('max_decel', ('ax_min', '-ay_max', '-az_max'))):
             for index, name in enumerate(limits):
                 sign, name = (-1, name[1:]) if name[0] == '-' else (1, name)
                 if name in follow and key in smoother:

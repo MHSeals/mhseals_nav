@@ -119,3 +119,11 @@ def test_ekf_delay_is_zero_standalone_and_six_seconds_from_odom():
     assert "DeclareLaunchArgument('ekf_delay', default_value='0.0'" in ekf
     assert 'period=6.0' not in ekf
     assert "'ekf_delay': '6.0'" in odom
+
+
+def test_wildcard_overlay_warns_instead_of_silently_applying_nothing(tmp_path, caplog):
+    from mhseals_nav.navigation_config import ekf_overlay
+    path = tmp_path / 'ekf.yaml'
+    path.write_text('/**:\n  ros__parameters:\n    frequency: 40.0\n')
+    assert ekf_overlay(str(path), 'ekf_local') == {}
+    assert '/**' in caplog.text

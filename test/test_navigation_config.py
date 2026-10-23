@@ -91,3 +91,13 @@ def test_non_numeric_or_zero_limits_are_reported_not_raised(caplog):
         with caplog.at_level('ERROR'):
             assert derived(config) == config
     assert 'is not a number' in caplog.text and 'must be positive' in caplog.text
+
+
+def test_derived_ties_smoother_accel_to_mppi():
+    config = {'controller_server': {'ros__parameters': {'FollowPath': {
+                  'ax_max': .1, 'ax_min': -.2, 'ay_max': .15, 'az_max': .4}}},
+              'velocity_smoother': {'ros__parameters': {
+                  'max_accel': [.3, .3, .5], 'max_decel': [-.3, -.3, -.5]}}}
+    smoother = derived(config)['velocity_smoother']['ros__parameters']
+    assert smoother['max_accel'] == [.1, .15, .4]
+    assert smoother['max_decel'] == [-.2, -.15, -.4]
