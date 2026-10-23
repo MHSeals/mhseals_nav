@@ -43,6 +43,22 @@ def ekf_overlay(path, node):
     return params if isinstance(params, dict) else {}
 
 
+def valid_numbers(controller, follow):
+    """True when the values derived() computes from are numbers and the frequency is positive."""
+    values = {'controller_frequency': controller.get('controller_frequency', 1)}
+    for key in ('vx_max', 'time_steps', 'model_dt', 'vx_std', 'vy_std', 'wz_std', 'vy_max', 'wz_max'):
+        if key in follow:
+            values[key] = follow[key]
+    for key, value in values.items():
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            log.error('Not deriving navigation limits: %s = %r is not a number', key, value)
+            return False
+    if values['controller_frequency'] <= 0:
+        log.error('Not deriving navigation limits: controller_frequency must be positive')
+        return False
+    return True
+
+
 def derived(config, original=None):
     """Return config with the values that follow from others recomputed.
 
@@ -56,6 +72,8 @@ def derived(config, original=None):
     if follow is None:
         return result
     original = (original or config)['controller_server']['ros__parameters']['FollowPath']
+    if not valid_numbers(controller, follow):
+        return result
     if 'controller_frequency' in controller:
         follow['model_dt'] = round(1 / controller['controller_frequency'], 6)
     # Sampling noise above an axis limit would clip most samples.

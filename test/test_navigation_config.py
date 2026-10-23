@@ -83,3 +83,11 @@ def test_overlay_values_the_merge_overrides_are_warned_about(caplog):
     assert 'FollowPath.vx_min' in caplog.text
     assert 'FollowPath.prune_distance' in caplog.text
     assert 'FollowPath.vx_max' not in caplog.text
+
+
+def test_non_numeric_or_zero_limits_are_reported_not_raised(caplog):
+    for follow, controller in (({'vx_max': '0.4'}, {}), ({'vx_max': .4}, {'controller_frequency': 0})):
+        config = {'controller_server': {'ros__parameters': {'FollowPath': follow, **controller}}}
+        with caplog.at_level('ERROR'):
+            assert derived(config) == config
+    assert 'is not a number' in caplog.text and 'must be positive' in caplog.text
