@@ -135,3 +135,19 @@ def test_non_finite_zero_and_negative_overlay_values_keep_the_base(caplog):
             base, merged = overlay_params(**params)
         assert merged == merge_limits(base, {}), params
         assert 'out of range' in caplog.text
+
+
+def follow_path(**params):
+    base, _ = overlay_params()
+    limits = {'controller_server': {'ros__parameters': {'FollowPath': params}}}
+    return merge_limits(base, limits)['controller_server']['ros__parameters']['FollowPath']
+
+
+def test_integral_float_for_an_integer_key_launches_as_int_and_others_keep_the_base(caplog):
+    steps = follow_path(time_steps=56.0)['time_steps']
+    assert steps == 56 and type(steps) is int
+    for value in (56.5, float('nan'), '56', True):
+        caplog.clear()
+        with caplog.at_level('ERROR'):
+            assert follow_path(time_steps=value)['time_steps'] == 40
+        assert 'not an integer' in caplog.text

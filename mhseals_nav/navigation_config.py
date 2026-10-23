@@ -131,6 +131,9 @@ def typed_like(base, limits, path=(), keep_sign=True):
 
     keep_sign=False skips the sign check for parameters that may be negative.
 
+    Where base holds an int, an integral float becomes an int and any other
+    non-integer is dropped.
+
     Nav2 rejects a params file whose parameter changes type, so a hand-edited
     `vx_max: 1` must not reach it as an integer.
     """
@@ -147,6 +150,13 @@ def typed_like(base, limits, path=(), keep_sign=True):
                 log.error('Ignoring overlay %s = %r: not finite or out of range', '.'.join(path + (key,)), value)
                 continue
             result[key] = float(value)
+        elif isinstance(default, int) and not isinstance(default, bool):
+            if isinstance(value, float) and isfinite(value) and value == int(value):
+                value = int(value)
+            if isinstance(value, bool) or not isinstance(value, int):
+                log.error('Ignoring overlay %s = %r: not an integer', '.'.join(path + (key,)), value)
+                continue
+            result[key] = value
         else:
             result[key] = value
     return result
