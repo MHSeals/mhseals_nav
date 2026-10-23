@@ -1,7 +1,6 @@
 """Loopback WebSocket -> real Jazzy Detection3DArray, no external network."""
 
 import json
-import os
 from threading import Event, Thread
 import time
 
@@ -18,11 +17,12 @@ from tf2_msgs.msg import TFMessage
 from websockets.sync.server import serve
 
 from mhseals_nav.zed_detections_converter import ZedDetectionsConverter
+from ros_domain import require_isolated_domain
 
 
 @pytest.mark.parametrize("silent_failure", [False, True])
 def test_legacy_json_recovers_from_late_publisher_and_reconnects(silent_failure):
-    assert os.environ.get("ROS_DOMAIN_ID") == "231"
+    require_isolated_domain()
     stop = Event()
     connections = []
     topic = "/zed/zed_node/obj_det/objects"

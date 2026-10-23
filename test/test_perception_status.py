@@ -1,6 +1,5 @@
 """Converter relay: /perception/status stages from a faked source."""
 
-import os
 import time
 from types import SimpleNamespace
 
@@ -12,6 +11,7 @@ from diagnostic_msgs.msg import DiagnosticArray
 from rclpy.executors import SingleThreadedExecutor
 
 from mhseals_nav import perception_status
+from ros_domain import require_isolated_domain
 
 
 def test_relayed_keeps_stereolabs_and_prefixes_names():
@@ -80,7 +80,7 @@ def zed_packet(now, age):
 
 
 def test_converter_reports_stages_and_relogs_remote_warnings(monkeypatch):
-    assert os.environ.get("ROS_DOMAIN_ID") == "231", "isolate ROS tests"
+    require_isolated_domain()
     monkeypatch.setattr("mhseals_nav.rosbridge_source.RosbridgeSource", FakeSource)
     from mhseals_nav.zed_detections_converter import ZedDetectionsConverter
 

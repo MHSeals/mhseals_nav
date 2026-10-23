@@ -1,7 +1,6 @@
 """Real Jazzy message/TF tests; run in a network-isolated ROS container."""
 
 import math
-import os
 from types import SimpleNamespace
 
 import pytest
@@ -19,6 +18,7 @@ from mhseals_nav.zed_detections_converter import (
 from mhseals_nav.object_tracker import ObjectTracker
 from mhseals_nav.camera_static_tf import CameraStaticTF
 from mhseals_nav.perception_status import StageClock
+from ros_domain import require_isolated_domain
 
 
 def packet(stamp=10):
@@ -138,7 +138,7 @@ def transform(parent, child, stamp, x=0.0, yaw=0.0):
 
 @pytest.fixture
 def tracker():
-    assert os.environ.get("ROS_DOMAIN_ID") == "231", "isolate ROS tests"
+    require_isolated_domain()
     rclpy.init()
     node = ObjectTracker()
     try:
