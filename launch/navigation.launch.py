@@ -10,7 +10,7 @@ from nav2_common.launch import RewrittenYaml
 import tempfile
 import os
 import yaml
-from mhseals_nav.navigation_config import merge_limits
+from mhseals_nav.navigation_config import load_overlay, merge_limits
 
 
 def navigation_nodes(context):
@@ -22,8 +22,7 @@ def navigation_nodes(context):
         from launch.event_handlers import OnShutdown
         with open(source) as stream:
             base = yaml.safe_load(stream)
-        with open(limits) as stream:
-            measured = yaml.safe_load(stream)
+        measured = load_overlay(limits)
         handle = tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False)
         with handle:
             yaml.safe_dump(merge_limits(base, measured), handle)

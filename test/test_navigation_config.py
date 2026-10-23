@@ -1,4 +1,6 @@
-from mhseals_nav.navigation_config import derived, merge_limits
+from pathlib import Path
+
+from mhseals_nav.navigation_config import derived, load_overlay, merge_limits
 
 
 def test_limits_use_current_planner_and_horizon_without_mutating_base():
@@ -52,3 +54,20 @@ def test_derived_ties_smoother_and_model_dt_to_mppi():
     assert smoother['max_velocity'] == [.5, .1, .3]
     assert smoother['min_velocity'] == [-.2, -.1, -.3]
     assert config['velocity_smoother']['ros__parameters']['max_velocity'] == [9., 9., 9.]
+
+
+def test_empty_and_comment_only_overlays_are_no_overlay(tmp_path):
+    base = {'controller_server': {'ros__parameters': {'FollowPath': {'vx_max': 1.0}}}}
+    for text in ('', '# nothing measured yet\n'):
+        overlay = tmp_path / 'nav2.yaml'
+        overlay.write_text(text)
+        assert load_overlay(overlay) == {}
+        merged = merge_limits(base, load_overlay(overlay))
+        assert merged['controller_server']['ros__parameters']['FollowPath']['vx_max'] == 1.0
+
+
+def test_navigation_launch_reads_the_overlay_through_load_overlay():
+    launch = Path(__file__).parents[1] / 'launch' / 'navigation.launch.py'
+    source = launch.read_text()
+    assert 'load_overlay(limits)' in source
+    assert 'measured = yaml.safe_load' not in source
