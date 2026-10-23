@@ -15,7 +15,7 @@ import py_trees
 import rclpy
 from rclpy.action import ActionClient
 from rclpy.node import Node
-from rclpy.qos import DurabilityPolicy, QoSProfile
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.signals import SignalHandlerOptions
 from rclpy.time import Time
 import yaml
@@ -28,6 +28,26 @@ from vision_msgs.msg import Detection3DArray
 
 from mhseals_nav.tasks import geometry
 from mhseals_nav.tasks.trees import TREES
+
+AUTHORITY_TOPIC = '/mhseals_testing/authority'
+
+
+HUMAN_OWNERS = ('rc', 'keyboard', 'hold')
+
+
+def claim_suspended(record):
+    """True when an authority record (JSON text) is owned by a human.
+
+    The arbiter never publishes a task claim: a running task is only a source,
+    so a human owner (rc, keyboard, hold) is what suspends it. A missing or
+    unparsable record, or owner none/unknown, leaves the task free to run so
+    it still works without an arbiter.
+    """
+    try:
+        return json.loads(record).get('owner') in HUMAN_OWNERS
+    except (ValueError, AttributeError, TypeError):
+        return False
+
 
 EXIT_CODES = {'SUCCESS': 0, 'FAILURE': 1, 'TIMEOUT': 2}
 
@@ -117,6 +137,13 @@ class TaskRunner(Node):
         self.status = self.create_publisher(
             String, '/task/status',
             QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
+        # Optional: a human override suspends the task (authority_hotreload.md).
+        self.suspended, self.suspended_at = False, None
+        self.create_subscription(
+            String, AUTHORITY_TOPIC,
+            lambda m: setattr(self, 'suspended', claim_suspended(m.data)),
+            QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL,
+                       reliability=ReliabilityPolicy.RELIABLE))
         self.board = py_trees.blackboard.Client(name='runner')
         for key in ('objects', 'pose', 'now', 'home'):
             self.board.register_key(key=key, access=py_trees.common.Access.WRITE)
@@ -160,6 +187,18 @@ class TaskRunner(Node):
         if self.outcome is not None:
             return
         now = self.now()
+        if self.suspended:
+            if self.suspended_at is None:
+                self.suspended_at = now
+                self.tree.root.stop(py_trees.common.Status.INVALID)  # cancels the Nav2 goal
+                if self.started is not None:
+                    self.report('task_suspended')
+            return
+        if self.suspended_at is not None:
+            if self.started is not None:  # the pause does not count against the timeout
+                self.started += now - self.suspended_at
+                self.report('task_resumed')
+            self.suspended_at = None
         pose = self.pose()
         if self.started is None:
             if now == 0:  # waiting for /clock

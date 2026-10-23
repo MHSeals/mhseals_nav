@@ -1,5 +1,6 @@
 """Task startup must wait for TF even when Nav2 and detections are ready."""
 
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -134,3 +135,54 @@ def test_pass_gates_through_a_gate_reports_one_goal(monkeypatch):
     monkeypatch.setattr(interface, 'NavigateThroughPoses', SimpleNamespace(Goal=lambda **k: None))
     navigator.send(geometry.through((10.0, 0.0, 0.0)))
     assert len(events) == 1 and events[0][0] == 'goal'
+
+
+def authority(owner):
+    """An authority record shaped like harness/authority.derive output."""
+    return json.dumps(dict(schema='mhseals.authority/1', owner=owner, source=None,
+                           claims=[], task=dict(state='RUNNING') if owner == 'task' else None))
+
+
+def test_suspended_claim_cancels_goal_and_stops_ticking(monkeypatch):
+    """A suspended task claim stops the tree and its Nav2 goal; resume re-sends."""
+    from mhseals_nav.tasks.interface import claim_suspended
+    assert claim_suspended(authority('rc')) and claim_suspended(authority('keyboard'))
+    assert claim_suspended(authority('hold'))
+    for owner in ('agent', 'task', 'none', 'unknown'):
+        assert not claim_suspended(authority(owner))
+    for bad in ('', 'not json', 'null', '[]', '{}'):
+        assert not claim_suspended(bad)
+
+    rclpy.init()
+    runner = None
+    goals, cancels, events = [], [], []
+
+    def send(route, precise=False, quiet=False):
+        goals.append(route)
+        return SimpleNamespace(done=False, cancel=lambda: cancels.append(1))
+
+    try:
+        runner = TaskRunner('circle_test', dict(
+            mark='yellow_buoy', search_distance=15.0, circle_radius=3.0,
+            circle_clockwise=False, circle_points=12))
+        runner.objects = [('yellow_buoy', 9.0, 0.0)]
+        monkeypatch.setattr(runner.navigator, 'ready', lambda: True)
+        monkeypatch.setattr(runner.navigator, 'send', send)
+        monkeypatch.setattr(runner, 'pose', lambda: (1.0, 0.0, 0.5))
+        monkeypatch.setattr(runner, 'report', lambda event, **d: events.append(event))
+        runner.tick()
+        assert len(goals) == 1 and not cancels
+        runner.suspended = True
+        runner.tick()
+        assert cancels and events[-1] == 'task_suspended'
+        sent = len(goals)
+        for _ in range(3):
+            runner.tick()
+        assert len(goals) == sent and len(cancels) == 1 and runner.outcome is None
+        runner.suspended = False
+        runner.tick()
+        assert events[-1] == 'task_resumed' and len(goals) == sent + 1
+    finally:
+        if runner is not None:
+            runner.destroy_node()
+        rclpy.try_shutdown()
