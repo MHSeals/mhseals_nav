@@ -4,11 +4,12 @@ MAVROS global_position/local labels its ENU velocity as base_link and uses
 [-1, 0, ...] for unknown covariance. Neither is a valid EKF twist input.
 Its pose already contains the FCU's ENU attitude; no compass offset belongs here.
 
-``velocity_source: gps`` takes the velocity from the GPS receiver's own ENU
-velocity (/mavros/global_position/raw/gps_vel) instead of the FCU EKF's. On
-Blastoise (2026-10-18) the EKF's velocity grew to 1.9 m/s during a yaw in place
-while the GPS read 0.1 m/s; the GPS velocity does not drift. Rotation into the
-body still uses the FCU attitude, so the compass must be right.
+``velocity_source: gps`` takes the velocity from the GPS receiver (GPS_RAW_INT
+via /mavros/gpsstatus/gps1/raw) instead of the FCU EKF's. On Blastoise
+(2026-10-18) the EKF's velocity grew to 1.9 m/s during a yaw in place while the
+GPS read 0.1 m/s; the GPS velocity does not drift. Each receiver sample is
+published once with its own accuracy as sigma. Rotation into the body still
+uses the FCU attitude, so the compass must be right.
 """
 from copy import deepcopy
 import math
@@ -53,12 +54,27 @@ def body_odometry(message, velocity_stddev):
     return result
 
 
-def with_velocity(message, velocity):
-    """The same odometry with its ENU velocity replaced and covariance unknown."""
+def gps_velocity(raw, min_stddev, nofix_stddev):
+    """ENU velocity and sigma from a GPSRAW sample (vel cm/s, cog cdeg, vel_acc mm/s).
+
+    Without a usable fix there is no measurement: a zero velocity with a wide
+    sigma is a weak slow-boat prior rather than fake precision.
+    """
+    if raw.fix_type < 3 or 65535 in (raw.vel, raw.cog):
+        return (0., 0., 0.), nofix_stddev
+    speed, course = raw.vel / 100, math.radians(raw.cog / 100)
+    return ((speed * math.sin(course), speed * math.cos(course), 0.),
+            max(raw.vel_acc / 1000, min_stddev))
+
+
+def with_velocity(message, velocity, stddev):
+    """The same odometry with its ENU velocity and diagonal sigma replaced."""
     result = deepcopy(message)
     out = result.twist.twist.linear
     out.x, out.y, out.z = (float(v) for v in velocity)
-    result.twist.covariance = [-1.] + [0.] * 35
+    result.twist.covariance = [0.] * 36
+    for i in range(3):
+        result.twist.covariance[7*i] = stddev ** 2
     return result
 
 
@@ -69,13 +85,17 @@ def main(args=None):
     from rclpy.qos import qos_profile_sensor_data
     from rclpy.executors import ExternalShutdownException
 
-    from geometry_msgs.msg import TwistStamped
+    from mavros_msgs.msg import GPSRAW
 
     rclpy.init(args=args)
     node = Node('mavros_odom_adapter')
-    stddev = node.declare_parameter('velocity_stddev', .2).value
-    source = node.declare_parameter('velocity_source', 'fcu').value
+    stddev = node.declare_parameter('velocity_stddev', .3).value
+    source = node.declare_parameter('velocity_source', 'gps').value
     max_age = node.declare_parameter('gps_velocity_max_age', .5).value
+    min_stddev = node.declare_parameter('gps_velocity_min_stddev', .05).value
+    nofix_stddev = node.declare_parameter('velocity_stddev_nofix', 1.).value
+    # The twist is the GPS antenna's: robot_localization removes the lever arm.
+    gps_frame = node.declare_parameter('gps_frame', 'gps_link').value
     if source not in ('fcu', 'gps'):
         raise ValueError('velocity_source must be fcu or gps')
     publisher = node.create_publisher(Odometry, '/odom/mavros', 10)
@@ -84,25 +104,34 @@ def main(args=None):
     def receive(message):
         try:
             if source == 'gps':
-                stamp = gps.get('stamp')
-                age = (node.get_clock().now().nanoseconds * 1e-9 - stamp) if stamp else None
+                arrival = gps.get('arrival')
+                age = (node.get_clock().now().nanoseconds * 1e-9 - arrival) if arrival else None
                 if age is None or not -.1 <= age <= max_age:
                     node.get_logger().warning('GPS velocity is stale; not publishing',
                                               throttle_duration_sec=5.)
                     return
-                message = with_velocity(message, gps['velocity'])
-            publisher.publish(body_odometry(message, stddev))
+                if not gps.pop('new', False):
+                    return  # fuse each receiver sample once, not at the 20 Hz FCU rate
+                message = with_velocity(message, gps['velocity'], gps['stddev'])
+                if gps['stamp_ok']:
+                    message.header.stamp = gps['stamp']
+            result = body_odometry(message, stddev)
+            result.child_frame_id = gps_frame if source == 'gps' else 'base_link'
+            publisher.publish(result)
         except ValueError as error:
             node.get_logger().warning(str(error), throttle_duration_sec=5.)
 
-    def receive_gps(message):
-        linear = message.twist.linear
-        # Arrival time, not the header: MAVROS stamps GPS with the FCU's clock.
-        gps.update(velocity=(linear.x, linear.y, linear.z),
-                   stamp=node.get_clock().now().nanoseconds * 1e-9)
+    def receive_gps(raw):
+        now = node.get_clock().now().nanoseconds * 1e-9
+        stamp = raw.header.stamp
+        velocity, sigma = gps_velocity(raw, min_stddev, nofix_stddev)
+        # Arrival time gates freshness since the header may carry FCU time; the
+        # header is only the output stamp when it agrees with arrival.
+        gps.update(velocity=velocity, stddev=sigma, arrival=now, new=True, stamp=stamp,
+                   stamp_ok=-.1 <= now - (stamp.sec + stamp.nanosec * 1e-9) <= max_age)
 
     if source == 'gps':
-        node.create_subscription(TwistStamped, '/mavros/global_position/raw/gps_vel',
+        node.create_subscription(GPSRAW, '/mavros/gpsstatus/gps1/raw',
                                  receive_gps, qos_profile_sensor_data)
 
     node.create_subscription(Odometry, '/mavros/global_position/local', receive,

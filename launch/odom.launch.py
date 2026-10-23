@@ -89,7 +89,7 @@ def generate_launch_description():
         ('gcs_url', 'udp://@127.0.0.1:14550', 'Ground control service connection URL'),
         ('mavros_params_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'mavros.yaml']), 'Path to MAVROS params'),
         ('mavros_odom_rate', '20.0', 'Requested MAVROS odometry rate'),
-        ('mavros_velocity_stddev', '0.3', 'Body velocity uncertainty in m/s (GPS velocity repeats at the FCU rate)'),
+        ('mavros_velocity_stddev', '0.3', 'Body velocity uncertainty in m/s (FCU mode; GPS mode uses the receiver vel_acc)'),
         ('mavros_velocity_source', 'gps', 'Body velocity from the GPS receiver (gps) or the FCU EKF (fcu)'),
         ('mavros_imu_rate', '20.0', 'Requested MAVROS IMU rate'),
         ('mavros_gps_rate', '5.0', 'Requested MAVROS GPS rate'),

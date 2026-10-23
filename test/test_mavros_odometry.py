@@ -5,7 +5,7 @@ from types import SimpleNamespace as S
 
 import pytest
 
-from mhseals_nav.mavros_odometry import body_odometry, with_velocity
+from mhseals_nav.mavros_odometry import body_odometry, gps_velocity, with_velocity
 
 
 def message(yaw, velocity, covariance=None):
@@ -47,7 +47,27 @@ def test_invalid_attitude_is_rejected(value):
 
 def test_gps_velocity_replaces_the_fcu_velocity_before_rotation():
     raw = message(math.pi / 2, (-1.1, -1.6))          # the FCU's drifting estimate
-    fixed = body_odometry(with_velocity(raw, (0., .5, 0.)), .3)
+    fixed = body_odometry(with_velocity(raw, (0., .5, 0.), .3), .3)
     assert (fixed.twist.twist.linear.x, fixed.twist.twist.linear.y) == pytest.approx((.5, 0.))
     assert fixed.twist.covariance[0] == pytest.approx(.09)
     assert raw.twist.twist.linear.x == -1.1           # the original message is untouched
+
+
+def sample(cog, vel=100, fix_type=3, vel_acc=210):
+    return S(fix_type=fix_type, vel=vel, cog=cog, vel_acc=vel_acc)
+
+
+@pytest.mark.parametrize('cog, east, north', [(0, 0., 1.), (9000, 1., 0.), (18000, 0., -1.)])
+def test_gps_course_is_converted_to_enu(cog, east, north):
+    velocity, _ = gps_velocity(sample(cog), .05, 1.)
+    assert velocity == pytest.approx((east, north, 0.), abs=1e-9)
+
+
+def test_gps_sigma_is_the_receivers_accuracy_with_a_floor():
+    assert gps_velocity(sample(0, vel_acc=210), .05, 1.)[1] == pytest.approx(.21)
+    assert gps_velocity(sample(0, vel_acc=10), .05, 1.)[1] == .05
+
+
+@pytest.mark.parametrize('raw', [sample(0, fix_type=2), sample(0, vel=65535), sample(65535)])
+def test_gps_without_a_usable_measurement_is_a_wide_zero_prior(raw):
+    assert gps_velocity(raw, .05, 1.) == ((0., 0., 0.), 1.)
