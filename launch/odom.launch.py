@@ -4,9 +4,10 @@ from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
-from launch.actions import ExecuteProcess, TimerAction
+from launch.actions import TimerAction
 from launch.conditions import IfCondition, UnlessCondition
 
+from glob import glob
 import xacro
 import os
 
@@ -43,7 +44,10 @@ def create_mavros_node(context):
     elif sim:
         fcu_url = 'tcp://127.0.0.1:5762'
     else:
-        fcu_url = 'serial:///dev/ttyACM0:57600'
+        # ttyACM numbering changes with USB enumeration order; by-id does not.
+        # The baud rate is ignored on USB CDC.
+        cube = sorted(glob('/dev/serial/by-id/usb-CubePilot_CubeOrange+_*-if00'))
+        fcu_url = f'serial://{cube[0] if cube else "/dev/ttyACM0"}:115200'
 
     return [Node(
         package='mavros',
@@ -57,6 +61,25 @@ def create_mavros_node(context):
                 'gcs_url': LaunchConfiguration('gcs_url')
             }
         ]
+    )]
+
+def create_mavros_setup_node(context):
+    # The FCU forgets message intervals when it reboots, so mavros_setup repeats
+    # them on reconnect. GPS_RTK (127) is never emitted by a DroneCAN Here4.
+    rates = [
+        (33, LaunchConfiguration('mavros_odom_rate').perform(context)),   # global_position/local
+        (30, LaunchConfiguration('mavros_imu_rate').perform(context)),    # ATTITUDE
+        (31, LaunchConfiguration('mavros_imu_rate').perform(context)),    # imu/data
+        (24, LaunchConfiguration('mavros_gps_rate').perform(context)),    # gps1/raw
+        (27, '10.0'),   # RAW_IMU: compass 1 as imu/mag; Rover's compass runs at 10 Hz
+        (1, '2.0'),     # SYS_STATUS: sensor health
+        (193, '2.0'),   # EKF_STATUS_REPORT: flags and compass variance
+    ]
+    return [Node(
+        package='mhseals_nav',
+        executable='mavros_setup',
+        parameters=[{'message_rates': [f'{i}:{hz}' for i, hz in rates]}],
+        output='screen'
     )]
 
 def create_rtabmap_odom_node(context):
@@ -238,68 +261,7 @@ def generate_launch_description():
         ),
     ]
 
-    set_mavros_message_rate = TimerAction(
-        period=5.0,
-        actions=[
-            OpaqueFunction(
-                function=lambda context: [
-                    # GLOBAL_POSITION_INT drives /mavros/global_position/local.
-                    # Request it at the same 20 Hz contract consumed by the
-                    # local EKF; MAVLink message 32 (LOCAL_POSITION_NED) is
-                    # not emitted by the current ArduPilot rover profile.
-                    ExecuteProcess(
-                        cmd=[
-                            'ros2', 'service', 'call',
-                            '/mavros/set_message_interval',
-                            'mavros_msgs/srv/MessageInterval',
-                            f'{{message_id: 33, message_rate: {LaunchConfiguration("mavros_odom_rate").perform(context)}}}'
-                        ],
-                        output='screen'
-                    ),
-                    # FCU-fused attitude + angular rates (/mavros/imu/data).
-                    # HIGHRES_IMU (105) alone only drives data_raw, not attitude.
-                    ExecuteProcess(
-                        cmd=[
-                            'ros2', 'service', 'call',
-                            '/mavros/set_message_interval',
-                            'mavros_msgs/srv/MessageInterval',
-                            f'{{message_id: 31, message_rate: {LaunchConfiguration("mavros_imu_rate").perform(context)}}}'
-                        ],
-                        output='screen'
-                    ),
-                    # GPS fix
-                    ExecuteProcess(
-                        cmd=[
-                            'ros2', 'service', 'call',
-                            '/mavros/set_message_interval',
-                            'mavros_msgs/srv/MessageInterval',
-                            f'{{message_id: 24, message_rate: {LaunchConfiguration("mavros_gps_rate").perform(context)}}}'
-                        ],
-                        output='screen'
-                    )
-                ]
-            )
-        ]
-    )
-
-    # mavros_node creates plugin nodes dynamically, after its parameter files
-    # and remapping rules have been consumed. Configure the local-position
-    # plugin through its runtime parameter service once it exists.
-    configure_mavros_frames = TimerAction(
-        period=5.0,
-        actions=[
-            ExecuteProcess(
-                cmd=['ros2', 'param', 'set', '/mavros/local_position',
-                     'frame_id', 'odom'],
-                output='screen'
-            ),
-            ExecuteProcess(
-                cmd=['ros2', 'param', 'set', '/mavros/local_position',
-                     'tf.frame_id', 'odom'],
-                output='screen'
-            ),
-        ]
-    )
+    set_mavros_message_rate = OpaqueFunction(function=create_mavros_setup_node)
 
     robot_state_publisher_node = OpaqueFunction(function=load_urdf)
 
@@ -307,8 +269,7 @@ def generate_launch_description():
     # topics, so a simulator can publish them and run without ArduPilot.
     flight_controller = GroupAction(
         condition=IfCondition(launch_configurations['fcu']),
-        actions=[mavros_node, *mavros_topic_relays, set_mavros_message_rate,
-                 configure_mavros_frames])
+        actions=[mavros_node, *mavros_topic_relays, set_mavros_message_rate])
 
     return LaunchDescription(
         declare_arguments + [

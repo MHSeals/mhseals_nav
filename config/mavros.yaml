@@ -2,3 +2,16 @@
   ros__parameters:
     system_id: 255
     component_id: 240
+    # Only what the stack consumes: the default loads every plugin (~60 nodes).
+    plugin_allowlist:
+      - sys_status
+      - sys_time
+      - command
+      - param
+      - imu
+      - global_position
+      - gps_status
+      - gps_rtk
+      - rc_io
+      - setpoint_velocity
+      - mag_calibration_status

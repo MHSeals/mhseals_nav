@@ -60,12 +60,20 @@ def test_mavros_relays_preserve_sensor_abstraction_at_safe_rates():
     ):
         assert f"arguments=['{source}', '{destination}']" in launch
     assert "executable='mavros_odometry'" in launch
-    assert "message_id: 33, message_rate" in launch
+    assert "executable='mavros_setup'" in launch
+    assert "(33, LaunchConfiguration('mavros_odom_rate')" in launch
+    assert "(127," not in launch and "(128," not in launch  # a Here4 never emits GPS_RTK
     assert "('mavros_odom_rate', '20.0'" in launch
     assert "('mavros_imu_rate', '20.0'" in launch
     assert "('mavros_gps_rate', '5.0'" in launch
     navsat_block = launch.split('navsat_transform_node = Node(', 1)[1].split(
         'ekf_local_node = Node(', 1)[0]
     assert "('odometry/filtered', '/odom/global')" in navsat_block
-    assert "'frame_id', 'odom'" in launch
-    assert "'tf.frame_id', 'odom'" in launch
+    assert '/dev/serial/by-id/usb-CubePilot_CubeOrange+_*-if00' in launch
+
+
+def test_mavros_loads_only_the_plugins_the_stack_uses():
+    config = yaml.safe_load((ROOT / 'config/mavros.yaml').read_text())
+    plugins = config['/**']['ros__parameters']['plugin_allowlist']
+    assert {'sys_status', 'imu', 'global_position', 'gps_status', 'rc_io',
+            'setpoint_velocity'} <= set(plugins)
