@@ -40,26 +40,27 @@ controller_server:
     FollowPath:
       plugin: nav2_mppi_controller::MPPIController
       motion_model: Omni
-      time_steps: 28
+      time_steps: 48
       model_dt: 0.1             # = 1 / controller_frequency
-      batch_size: 1000
+      batch_size: 600
       iteration_count: 1
       # Low temperature: commit to the best samples; a floating boat's odometry is
       # noisy (waves) and its response lags, which a high temperature averages away.
       temperature: 0.1
       gamma: 0.015
-      vx_std: 0.2
-      vy_std: 0.2
-      wz_std: 0.4
-      vx_max: 0.6
-      vx_min: -0.2
-      vy_max: 0.3
-      wz_max: 0.5
-      ax_max: 0.4
-      ax_min: -0.4
-      ay_max: 0.4
-      az_max: 0.6
-      prune_distance: 3.0       # at least vx_max x the horizon (0.6 m/s x 2.8 s), with margin
+      # Field-proven limits; sampling noise stays below each axis limit so samples are not clipped.
+      vx_std: 0.15
+      vy_std: 0.10
+      wz_std: 0.25
+      vx_max: 0.4
+      vx_min: -0.1
+      vy_max: 0.15
+      wz_max: 0.3
+      ax_max: 0.3
+      ax_min: -0.3
+      ay_max: 0.3
+      az_max: 0.5
+      prune_distance: 3.0       # at least vx_max x the horizon (0.4 m/s x 4.8 s), with margin
       transform_tolerance: 0.2
       retry_attempt_limit: 2
       enforce_path_inversion: false
@@ -92,7 +93,7 @@ controller_server:
       PathAlignCritic:
         enabled: true
         cost_power: 1
-        cost_weight: 14.0
+        cost_weight: 10.0
         max_path_occupancy_ratio: 0.05
         trajectory_point_step: 4
         threshold_to_consider: 0.5
@@ -116,7 +117,7 @@ controller_server:
       PreferForwardCritic:
         enabled: true
         cost_power: 1
-        cost_weight: 5.0
+        cost_weight: 2.0
         threshold_to_consider: 0.5
       TwirlingCritic:
         enabled: true
@@ -162,7 +163,7 @@ local_costmap:
           data_type: PointCloud2
           marking: true
           clearing: true
-          min_obstacle_height: -1.5
+          min_obstacle_height: -0.10       # waterline + 0.10: no spray or wave crests
           max_obstacle_height: 3.0
           obstacle_range: 20.0
           expected_update_rate: 0.5
@@ -223,12 +224,12 @@ global_costmap:
       rolling_window: true
       track_unknown_space: false
       # Mapless local-horizon planning assumes unobserved water is free, NOT verified safe.
-      update_frequency: 5.0
-      publish_frequency: 5.0
+      update_frequency: 2.0
+      publish_frequency: 1.0
       # A RoboBoat course spans about 100 m; plans reach any task area from anywhere.
       width: 100
       height: 100
-      resolution: 0.10
+      resolution: 0.20
       # Padding covers tracking error at speed and buoy position noise.
       footprint: "[[0.5315, 0.4475], [0.5315, -0.4475], [-0.5315, -0.4475], [-0.5315, 0.4475]]"
       footprint_padding: 0.1
@@ -240,7 +241,7 @@ global_costmap:
         enabled: true
         voxel_decay: 15.0
         decay_model: 0             # linear, seconds
-        voxel_size: 0.05
+        voxel_size: 0.10
         track_unknown_space: false
         mark_threshold: 0
         update_footprint_enabled: true
@@ -256,10 +257,10 @@ global_costmap:
           data_type: PointCloud2
           marking: true
           clearing: true
-          min_obstacle_height: -1.5
+          min_obstacle_height: -0.10       # waterline + 0.10: no spray or wave crests
           max_obstacle_height: 3.0
           obstacle_range: 20.0
-          expected_update_rate: 0.5
+          expected_update_rate: 1.0
           # Period in seconds, not Hz. Missing observations make the costmap stale.
           observation_persistence: 0.0
           inf_is_valid: false
@@ -296,7 +297,7 @@ behavior_server:
     robot_base_frame: base_link
     transform_tolerance: 0.2
     simulate_ahead_time: 2.0
-    max_rotational_vel: 0.5
+    max_rotational_vel: 0.3
     min_rotational_vel: 0.1
     rotational_acc_lim: 0.5
 
@@ -307,7 +308,7 @@ bt_navigator:
     robot_base_frame: base_link
     odom_topic: /odom/local
     bt_loop_duration: 10
-    default_server_timeout: 20
+    default_server_timeout: 250      # ms; 20 timed out acknowledging compute_path_to_pose
     wait_for_service_timeout: 1000
     action_server_result_timeout: 60.0
     navigators: [navigate_to_pose, navigate_through_poses]
@@ -316,13 +317,6 @@ bt_navigator:
     navigate_through_poses:
       plugin: nav2_bt_navigator::NavigateThroughPosesNavigator
     error_code_names: [compute_path_error_code, follow_path_error_code]
-
-smoother_server:
-  ros__parameters:
-    use_sim_time: false
-    smoother_plugins: [simple_smoother]
-    simple_smoother:
-      plugin: nav2_smoother::SimpleSmoother
 
 waypoint_follower:
   ros__parameters:
@@ -340,10 +334,10 @@ velocity_smoother:
     smoothing_frequency: 20.0
     scale_velocities: true
     feedback: OPEN_LOOP
-    max_velocity: [0.6, 0.3, 0.5]
-    min_velocity: [-0.2, -0.3, -0.5]
-    max_accel: [0.4, 0.4, 0.6]
-    max_decel: [-0.4, -0.4, -0.6]
+    max_velocity: [0.4, 0.15, 0.3]
+    min_velocity: [-0.1, -0.15, -0.3]
+    max_accel: [0.3, 0.3, 0.5]
+    max_decel: [-0.3, -0.3, -0.5]
     odom_topic: /odom/local
     odom_duration: 0.1
     deadband_velocity: [0.0, 0.0, 0.0]

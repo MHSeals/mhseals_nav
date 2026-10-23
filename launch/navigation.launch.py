@@ -49,7 +49,6 @@ def navigation_nodes(context):
     servers = [
         ('nav2_controller', 'controller_server'),
         ('nav2_planner', 'planner_server'),
-        ('nav2_smoother', 'smoother_server'),
         ('nav2_behaviors', 'behavior_server'),
         ('nav2_bt_navigator', 'bt_navigator'),
         ('nav2_waypoint_follower', 'waypoint_follower'),

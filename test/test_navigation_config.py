@@ -26,3 +26,14 @@ def test_current_reverse_cap_and_shorter_horizon_win_over_old_limits():
     assert follow['vx_min'] == -.1 and follow['prune_distance'] == 1.2
     assert result['velocity_smoother']['ros__parameters']['min_velocity'][0] == -.1
     assert limits['velocity_smoother']['ros__parameters']['min_velocity'][0] == -.2
+
+
+def test_sampling_noise_never_exceeds_a_measured_axis_limit():
+    base = {'controller_server': {'ros__parameters': {'FollowPath': {
+                'vx_std': .15, 'vy_std': .1, 'wz_std': .25, 'model_dt': .1, 'time_steps': 48,
+                'prune_distance': 3.}}}}
+    limits = {'controller_server': {'ros__parameters': {'FollowPath': {
+                  'vx_max': .3, 'vy_max': .05, 'wz_max': .4}}}}
+    follow = merge_limits(base, limits)['controller_server']['ros__parameters']['FollowPath']
+    assert (follow['vx_std'], follow['vy_std'], follow['wz_std']) == (.15, .05, .25)
+    assert follow['prune_distance'] == 3.0  # max(3.0, 1.2 x .3 x 4.8) keeps the base floor

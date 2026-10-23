@@ -106,7 +106,7 @@ ros2 topic echo /info --once
 
 RTABMap should report a live input frequency and publish `/map` while the boat moves. `slam.launch.py` disables RGB/depth synchronization because those camera topics live on the Jetson's separate ROS domain. Nav2 paths and costmaps remain independent of RTABMap and use the EKF `map → odom → base_link` tree.
 
-The checked-in Nav2 profile updates the local costmap at 10 Hz and the global costmap at 5 Hz, matching the `crane_ml` commissioning baseline. Restart `navigation.launch.py` after changing these parameters; an already active lifecycle node retains its previous values.
+The checked-in Nav2 profile updates the local costmap at 10 Hz and the global costmap at 2 Hz (published at 1 Hz) with 0.20 m cells, below the `crane_ml` baseline of 5 Hz, to spare the ODROID; planning runs at 1 Hz. Restart `navigation.launch.py` after changing these parameters; an already active lifecycle node retains its previous values.
 
 ### Tasks
 

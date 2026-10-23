@@ -27,6 +27,10 @@ def test_omni_mppi_and_command_limits():
     assert smoother['max_velocity'] == [mppi['vx_max'], mppi['vy_max'], mppi['wz_max']]
     assert smoother['min_velocity'] == [mppi['vx_min'], -mppi['vy_max'], -mppi['wz_max']]
     assert smoother['velocity_timeout'] > 0
+    assert all(mppi[f'{axis}_std'] <= mppi[f'{axis}_max'] for axis in ('vx', 'vy', 'wz'))
+    # Nav2's 20 ms default timed out acknowledging compute_path_to_pose in the field.
+    assert config['bt_navigator']['ros__parameters']['default_server_timeout'] >= 100
+    assert 'smoother_server' not in config  # no behavior tree uses SmoothPath
     assert controller['precise_goal_checker']['plugin'] == 'nav2_controller::StoppedGoalChecker'
     assert (controller['precise_goal_checker']['xy_goal_tolerance']
             < controller['general_goal_checker']['xy_goal_tolerance'])
@@ -64,14 +68,15 @@ def test_costmaps_do_not_require_slam_and_check_sensor_freshness():
         assert any(x > 0 for x, _ in footprint)
         assert any(x < 0 for x, _ in footprint)
         assert params['obstacle_layer']['pointcloud']['expected_update_rate'] > 0
+        assert params['obstacle_layer']['pointcloud']['min_obstacle_height'] >= -0.2  # no underwater marks
         assert params['obstacle_layer']['observation_sources'] == 'pointcloud'
         assert params['obstacle_layer']['pointcloud']['topic'] == '/points'
         if name == 'local_costmap':
             assert params['update_frequency'] >= 10.0
             assert params['publish_frequency'] >= 10.0
         else:
-            assert params['update_frequency'] >= 5.0
-            assert params['publish_frequency'] >= 5.0
+            assert params['update_frequency'] >= 1.0  # planning runs at 1 Hz
+            assert params['publish_frequency'] >= 1.0
 
 
 def test_recovery_trees_do_not_command_blind_motion():
