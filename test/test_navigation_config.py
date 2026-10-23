@@ -158,3 +158,16 @@ def test_integral_float_for_an_integer_key_launches_as_int_and_others_keep_the_b
         with caplog.at_level('ERROR'):
             assert follow_path(time_steps=value)['time_steps'] == 40
         assert 'not an integer' in caplog.text
+
+
+def test_zero_minimum_forbids_reversing_and_reaches_the_smoother(caplog):
+    base = {'controller_server': {'ros__parameters': {'FollowPath': {
+                'vx_min': -.1, 'model_dt': .1, 'time_steps': 10, 'prune_distance': 1.}}},
+            'velocity_smoother': {'ros__parameters': {'min_velocity': [-.1, -.5, -.5]}}}
+    for zero in (0, 0.):
+        limits = {'controller_server': {'ros__parameters': {'FollowPath': {'vx_min': zero}}}}
+        with caplog.at_level('ERROR'):
+            result = merge_limits(base, limits)
+        assert result['controller_server']['ros__parameters']['FollowPath']['vx_min'] == 0.
+        assert result['velocity_smoother']['ros__parameters']['min_velocity'][0] == 0.
+    assert 'out of range' not in caplog.text

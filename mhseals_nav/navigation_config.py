@@ -127,11 +127,16 @@ def warn_overridden(limits, result, path=()):
                         '.'.join(path + (key,)), value, result.get(key))
 
 
+def wrong_sign(default, value):
+    """True when value is on the other side of zero than default; zero only fits a default that is <= 0 (a minimum)."""
+    return value * default < 0 or (default > 0 and value == 0)
+
+
 def typed_like(base, limits, path=(), keep_sign=True):
     """Copy of limits with ints widened to float where base holds a float.
 
     Non-numbers, non-finite values and values whose sign differs from the base
-    (or is zero where the base is not) are dropped, so the base value stays.
+    (or is zero where the base is positive) are dropped, so the base value stays.
 
     keep_sign=False skips the sign check for parameters that may be negative.
 
@@ -150,7 +155,7 @@ def typed_like(base, limits, path=(), keep_sign=True):
             if isinstance(value, bool) or not isinstance(value, (int, float)):
                 log.error('Ignoring overlay %s = %r: not a number', '.'.join(path + (key,)), value)
                 continue
-            if not isfinite(value) or (keep_sign and default and value * default <= 0):
+            if not isfinite(value) or (keep_sign and wrong_sign(default, value)):
                 log.error('Ignoring overlay %s = %r: not finite or out of range', '.'.join(path + (key,)), value)
                 continue
             result[key] = float(value)
