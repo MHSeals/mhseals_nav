@@ -12,6 +12,11 @@ def parse_rates(entries):
     return [(int(i), float(hz)) for i, hz in (entry.split(':') for entry in entries)]
 
 
+def reconnected(was_connected, is_connected):
+    """True on the false->true edge, when the FCU has forgotten its intervals."""
+    return is_connected and not was_connected
+
+
 def request_rates(rates, call, log, attempts=3, wait=8., sleep=time.sleep):
     """Call (message id, Hz) until it succeeds; log one line per id."""
     for message_id, hz in rates:
@@ -41,7 +46,7 @@ def main(args=None):
     connected = [False]
 
     def receive_state(state):
-        if state.connected and not connected[0]:
+        if reconnected(connected[0], state.connected):
             wanted.set()
         connected[0] = state.connected
 

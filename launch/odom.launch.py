@@ -74,6 +74,7 @@ def create_mavros_setup_node(context):
         (27, '10.0'),   # RAW_IMU: compass 1 as imu/mag; Rover's compass runs at 10 Hz
         (1, '2.0'),     # SYS_STATUS: sensor health
         (193, '2.0'),   # EKF_STATUS_REPORT: flags and compass variance
+        (65, LaunchConfiguration('mavros_rc_rate').perform(context)),     # RC_CHANNELS: rc/in
     ]
     return [Node(
         package='mhseals_nav',
@@ -116,6 +117,7 @@ def generate_launch_description():
         ('mavros_velocity_source', 'gps', 'Body velocity from the GPS receiver (gps) or the FCU EKF (fcu)'),
         ('mavros_imu_rate', '20.0', 'Requested MAVROS IMU rate'),
         ('mavros_gps_rate', '5.0', 'Requested MAVROS GPS rate'),
+        ('mavros_rc_rate', '25.0', 'Requested MAVROS RC_CHANNELS rate'),
         ('rtabmap_params_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'rtabmap.yaml']), 'Path to RTABMap params'),
         ('navsat_transform_config_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'navsat_transform.yaml']), 'Path to navsat_transform params'),
         ('ekf_local_config_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'ekf_local.yaml']), 'Path to local EKF config'),
