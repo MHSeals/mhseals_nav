@@ -18,6 +18,7 @@ from mhseals_nav.zed_detections_converter import (
 )
 from mhseals_nav.object_tracker import ObjectTracker
 from mhseals_nav.camera_static_tf import CameraStaticTF
+from mhseals_nav.perception_status import StageClock
 
 
 def packet(stamp=10):
@@ -64,7 +65,7 @@ def test_delayed_duplicate_and_reordered_packets_do_not_replay_in_rviz():
     now = [100_000_000_000]
     node = SimpleNamespace(
         pub=SimpleNamespace(publish=published.append),
-        last_stamp=-1, display_stamp=None, max_age=1.,
+        last_stamp=-1, display_stamp=None, max_age=1., stage=StageClock(),
         get_clock=lambda: SimpleNamespace(now=lambda: SimpleNamespace(nanoseconds=now[0])),
     )
     ZedDetectionsConverter.publish_packet(node, packet(99))
@@ -85,7 +86,7 @@ def test_display_timeout_measures_silence_without_replaying_old_packets():
     now = [100_000_000_000]
     node = SimpleNamespace(
         pub=SimpleNamespace(publish=published.append),
-        last_stamp=-1, display_stamp=None, max_age=1.,
+        last_stamp=-1, display_stamp=None, max_age=1., stage=StageClock(),
         get_clock=lambda: SimpleNamespace(now=lambda: SimpleNamespace(nanoseconds=now[0])),
     )
     ZedDetectionsConverter.publish_packet(node, packet(99))

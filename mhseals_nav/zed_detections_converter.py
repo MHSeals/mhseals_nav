@@ -3,7 +3,9 @@
 import math
 from copy import deepcopy
 from itertools import product
+from time import monotonic
 
+from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus
 from geometry_msgs.msg import Point
 
 import rclpy
@@ -12,6 +14,10 @@ from rclpy.qos import qos_profile_sensor_data
 from rosidl_runtime_py.convert import message_to_ordereddict
 from vision_msgs.msg import Detection3DArray, Detection3D, ObjectHypothesisWithPose
 from visualization_msgs.msg import Marker, MarkerArray
+
+from mhseals_nav import perception_status
+
+RELAY_STALE = 3.0  # s without a remote update before its stage leaves /perception/status
 
 
 def convert_objects(message):
@@ -142,6 +148,7 @@ class ZedDetectionsConverter(Node):
         self.declare_parameter("objects_topic", "/front/zed_node/obj_det/objects")
         self.declare_parameter("rosbridge_url", "")
         self.declare_parameter("camera_root_frame", "")
+        self.declare_parameter("remote_name", "squirtle")
         self.declare_parameter("max_detection_age", 1.0)
         self.max_age = self.get_parameter("max_detection_age").value
         if not math.isfinite(self.max_age) or self.max_age <= 0:
@@ -154,6 +161,11 @@ class ZedDetectionsConverter(Node):
         self.expire_timer = self.create_timer(0.1, self.expire_display)
         self.source = None
         self.static_filter = None
+        self.stage = perception_status.StageClock()
+        self.remote_name = self.get_parameter("remote_name").value
+        self.relayed = {}
+        self.packets_seen = 0
+        self.last_report = monotonic()
         if url:
             from mhseals_nav.rosbridge_source import RosbridgeSource
 
@@ -164,8 +176,13 @@ class ZedDetectionsConverter(Node):
 
                 self.static_filter = CameraStaticTF(root)
                 self.static_pub = StaticTransformBroadcaster(self)
-            self.source = RosbridgeSource(url, topic, self.get_logger(), bool(root))
+            self.source = RosbridgeSource(
+                url, topic, self.get_logger(), bool(root), relay=True
+            )
+            self.status_pub = self.create_publisher(DiagnosticArray, "/perception/status", 1)
             self.timer = self.create_timer(0.05, self.poll)
+            self.report_timer = self.create_timer(1.0, self.report)
+            self.logged = {}
         else:
             try:
                 from zed_msgs.msg import ObjectsStamped
@@ -202,14 +219,73 @@ class ZedDetectionsConverter(Node):
         packet = self.source.latest()
         if packet is not None:
             self.publish_packet(packet)
+        self.collect_remote()
+
+    def collect_remote(self):
+        """Hold remote health until it goes stale; re-log remote warnings."""
+        now = monotonic()
+        for topic in ("/perception/status", "/diagnostics"):
+            packet = self.source.latest(topic)
+            if packet is None:
+                continue
+            try:
+                items = perception_status.relayed(packet, topic == "/diagnostics")
+            except (KeyError, TypeError, ValueError, OverflowError, AttributeError) as error:
+                self.get_logger().warning(
+                    f"Dropped malformed {topic} from remote: {error}", throttle_duration_sec=5.0
+                )
+                continue
+            for item in items:
+                self.relayed[item.name] = (now, item)
+        logs = []
+        while (packet := self.source.latest("/rosout")) is not None:
+            logs.append(packet)
+        try:
+            texts = perception_status.warnings(logs)
+        except (TypeError, AttributeError) as error:
+            self.get_logger().warning(
+                f"Dropped malformed /rosout from remote: {error}", throttle_duration_sec=5.0
+            )
+            texts = []
+        # One repeat per message every 5 s; the log pattern checks count them.
+        self.logged = {t: at for t, at in self.logged.items() if now - at < 5.0}
+        for text in texts:
+            if text not in self.logged:
+                self.logged[text] = now
+                self.get_logger().warning(f"{self.remote_name}: {text}")
+
+    def report(self):
+        """1 Hz /perception/status: remote stages plus bridge and converter."""
+        now = monotonic()
+        # Remote topics are throttled to 1 s: keep the last value until it is clearly stale.
+        self.relayed = {n: v for n, v in self.relayed.items() if now - v[0] <= RELAY_STALE}
+        seen = self.source.packets
+        host = perception_status.host(self.source.url)
+        bridge = perception_status.bridge_values(self.source)
+        bridge["hz"] = f"{(seen - self.packets_seen) / (now - self.last_report):.2f}"
+        self.packets_seen, self.last_report = seen, now
+        level = DiagnosticStatus.OK if self.source.connected else DiagnosticStatus.ERROR
+        array = DiagnosticArray()
+        array.header.stamp = self.get_clock().now().to_msg()
+        array.status = [
+            perception_status.status("bridge", host, bridge, level),
+            perception_status.status("converter", host, self.stage.values(now)),
+            *(item for _, item in self.relayed.values()),
+        ]
+        self.status_pub.publish(array)
 
     def publish_packet(self, packet):
         try:
             detections = convert_objects(packet)
             stamp = detections.header.stamp.sec * 1_000_000_000 + detections.header.stamp.nanosec
             now = self.get_clock().now().nanoseconds
-            if stamp <= self.last_stamp or not -.1 <= (now - stamp) * 1e-9 <= self.max_age:
+            if stamp <= self.last_stamp:
+                self.stage.drop("reorder")
                 return
+            if not -.1 <= (now - stamp) * 1e-9 <= self.max_age:
+                self.stage.drop("stale")
+                return
+            self.stage.accept(monotonic(), (now - stamp) * 1e-9)
             self.last_stamp = stamp
             self.display_stamp = now
             self.last_header = detections.header
@@ -221,6 +297,7 @@ class ZedDetectionsConverter(Node):
             OverflowError,
             AssertionError,
         ) as error:
+            self.stage.drop("malformed")
             self.get_logger().warning(
                 f"Dropped malformed ZED objects: {error}", throttle_duration_sec=5.0
             )
