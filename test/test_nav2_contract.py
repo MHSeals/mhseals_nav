@@ -25,7 +25,9 @@ def test_omni_mppi_and_command_limits():
     assert mppi['PathAngleCritic']['mode'] == 0 and 'PreferForwardCritic' in mppi['critics']
     # Sim: MPPI alone reverses to a goal behind the boat; the shim must turn it first.
     assert mppi['plugin'] == 'nav2_rotation_shim_controller::RotationShimController'
-    assert 0.5 < mppi['angular_dist_threshold'] <= 1.5
+    # Below ~1.6 the shim re-engages mid-route and near the goal (stop-and-turn cycles).
+    assert 1.6 <= mppi['angular_dist_threshold'] <= 2.2
+    assert mppi['rotate_to_heading_once'] is True
     assert mppi['rotate_to_heading_angular_vel'] <= mppi['wz_max']
     assert mppi['max_angular_accel'] <= mppi['az_max']
     assert mppi['rotate_to_goal_heading'] is False

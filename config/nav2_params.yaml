@@ -43,7 +43,10 @@ controller_server:
       # of turning (PreferForward 5.0 did not change that), and timed out near the goal.
       plugin: nav2_rotation_shim_controller::RotationShimController
       primary_controller: nav2_mppi_controller::MPPIController
-      angular_dist_threshold: 1.0           # rad between boat heading and path heading
+      # Sim: 1.0 re-armed the shim mid-route and near the goal (stop-and-turn cycles made
+      # lateral/forward legs slower than MPPI alone); 1.8 removed that. Once per approach.
+      angular_dist_threshold: 1.8           # rad between boat heading and path heading
+      rotate_to_heading_once: true
       forward_sampling_distance: 0.5
       rotate_to_heading_angular_vel: 0.3    # = wz_max
       max_angular_accel: 0.5                # = az_max
