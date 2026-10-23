@@ -13,7 +13,7 @@ Launch files separate the main responsibilities:
 - `odom.launch.py` starts MAVROS and measurement relays (`fcu:=true`), robot TF, and `ekf.launch.py` (dual EKFs and Navsat; `start_ekf:=false` leaves them to a separate launch, and `~/.config/mhseals/ekf.yaml` overrides parameters per node).
 - `navigation.launch.py` starts Nav2 servers and lifecycle management. SLAM is optional.
 - `slam.launch.py` starts RTABMap mapping, leaving localization TF with the EKFs.
-- `objects.launch.py` always tracks `/detections`. With `sim:=false`, it also converts ZED objects into that interface, remapping the adapter input to `objects_topic`. Set `rosbridge_url` and `camera_root_frame` for a legacy ZED host.
+- `objects.launch.py` always tracks `/detections`. With `sim:=false`, it also converts ZED objects into that interface, remapping the adapter input to `objects_topic`. Set `rosbridge_url` and `camera_root_frame` for a legacy ZED host; the boat `objects` component passes `rosbridge_url:=ws://192.168.0.153:9090 camera_root_frame:=front_camera_link`, otherwise it subscribes the JP6 topic that does not exist on the boat. JetPack 6 sets `prediction_timeout: 0` in `common_stereo.yaml` and `prediction_timeout_s: 0` per class in `custom_object_detection.yaml` so `/detections` stays raw.
 - `legacy_zed.launch.py` starts the JetPack 5 / ZED SDK 4 camera, TensorRT buoy detector, and rosbridge. Use it instead of the camera part of `sensors.launch.py`; start each camera only once.
 
 ```bash

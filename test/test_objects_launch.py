@@ -4,6 +4,7 @@ import ast
 from pathlib import Path
 
 import pytest
+import yaml
 
 
 def object_nodes(sim, url='', root=''):
@@ -63,3 +64,21 @@ def test_bridge_uses_remote_topic_name_rather_than_local_ros_remapping():
 def test_invalid_source_combinations_fail_before_nodes_start(sim, url, root):
     with pytest.raises(ValueError):
         object_nodes(sim, url, root)
+
+
+def test_bridge_arguments_are_declared_with_empty_defaults():
+    source = Path(__file__).parents[1] / 'launch/objects.launch.py'
+    text = source.read_text()
+    for name in ('rosbridge_url', 'camera_root_frame'):
+        assert f'DeclareLaunchArgument("{name}", default_value="")' in text
+
+
+def test_jp6_wrapper_disables_sdk_predictions():
+    config = Path(__file__).parents[1] / 'config'
+    common = yaml.safe_load((config / 'common_stereo.yaml').read_text())
+    assert common['/**']['ros__parameters']['object_detection']['prediction_timeout'] == 0
+
+    custom = yaml.safe_load((config / 'custom_object_detection.yaml').read_text())['object_detection']
+    classes = {key: value for key, value in custom.items() if key.startswith('class_')}
+    assert len(classes) == custom['custom_class_count']
+    assert all(value['prediction_timeout_s'] == 0 for value in classes.values())
