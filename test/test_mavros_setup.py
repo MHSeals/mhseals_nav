@@ -10,6 +10,19 @@ def test_rates_parse_to_id_and_hz():
     assert parse_rates(['33:20.0', '193:2']) == [(33, 20.), (193, 2.)]
 
 
+def test_a_raising_call_is_logged_and_does_not_stop_later_rates():
+    lines = []
+
+    def call(message_id, hz):
+        if message_id == 65:
+            raise RuntimeError('service call failed')
+        return True
+
+    request_rates([(65, 25.), (33, 20.)], call, lines.append, attempts=2, sleep=lambda _: None)
+    assert 'message 33 at 20 Hz: ok' in lines
+    assert 'message 65 at 25 Hz: failed' in lines
+
+
 def test_a_failed_request_is_retried_then_reported():
     calls, lines, waits = [], [], []
     replies = {33: [False, True], 24: [False, False, False]}

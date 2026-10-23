@@ -38,10 +38,18 @@ def reconnected(was_connected, is_connected):
 
 
 def request_rates(rates, call, log, attempts=3, wait=8., sleep=time.sleep):
-    """Call (message id, Hz) until it succeeds; log one line per id."""
+    """Call (message id, Hz) until it succeeds; log one line per id.
+
+    A call that raises counts as a failed attempt, so the worker thread survives it.
+    """
     for message_id, hz in rates:
         for attempt in range(attempts):
-            if call(message_id, hz):
+            try:
+                ok = call(message_id, hz)
+            except Exception as error:
+                log(f'message {message_id} at {hz:g} Hz: {error!r}')
+                ok = False
+            if ok:
                 log(f'message {message_id} at {hz:g} Hz: ok')
                 break
             if attempt < attempts - 1:
@@ -112,6 +120,8 @@ def main(args=None):
             wanted.clear()
             if client.wait_for_service(timeout_sec=10.):
                 request_rates(live['message_rates'], call, node.get_logger().info)
+            else:
+                wanted.set()  # the wait already took 10 s; try again rather than skip
 
     ekf_pub = node.create_publisher(DiagnosticStatus, '/fcu/ekf_status', 10)
 
