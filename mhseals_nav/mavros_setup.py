@@ -8,6 +8,7 @@ step in SYSTEM_TIME.time_boot_ms also counts as a reconnect.
 It also decodes EKF_STATUS_REPORT, which MAVROS has no plugin for, from the raw
 MAVLink stream onto /fcu/ekf_status for the health checks.
 """
+import math
 import struct
 import threading
 import time
@@ -31,9 +32,15 @@ EKF_FLAGS = {0: 'ATTITUDE', 1: 'VELOCITY_HORIZ', 2: 'VELOCITY_VERT', 3: 'POS_HOR
 def parse_rates(entries):
     """['33:20.0', ...] -> [(33, 20.0), ...]; ValueError for a bad entry."""
     rates = [(int(i), float(hz)) for i, hz in (entry.split(':') for entry in entries)]
-    if any(i < 0 or not hz >= 0 or hz == float('inf') for i, hz in rates):
-        raise ValueError('message ids and rates must be finite and not negative')
-    return rates
+    if any(i < 0 or not math.isfinite(hz) for i, hz in rates):
+        raise ValueError('message ids must not be negative and rates must be finite')
+    return rates  # MAVROS: rate < 0 disables a stream, 0 restores the FCU default
+
+
+def with_removed(previous, rates):
+    """rates plus rate 0 (FCU default) for ids in previous that rates dropped."""
+    kept = {i for i, _ in rates}
+    return rates + [(i, 0.) for i, _ in previous if i not in kept]
 
 
 def reconnected(was_connected, is_connected):
@@ -119,6 +126,7 @@ def main(args=None):
     wanted = threading.Event()
     # Not set at start: the first connected /mavros/state is a False->True edge and asks.
     connected = [False]
+    sent = [[]]  # last requested list, so dropped ids can be reset
 
     def receive_state(state):
         if reconnected(connected[0], state.connected):
@@ -137,7 +145,9 @@ def main(args=None):
             wanted.wait()
             wanted.clear()
             if client.wait_for_service(timeout_sec=10.):
-                request_rates(live['message_rates'], call, node.get_logger().info)
+                rates = live['message_rates']
+                request_rates(with_removed(sent[0], rates), call, node.get_logger().info)
+                sent[0] = rates
             else:
                 wanted.set()  # the wait already took 10 s; try again rather than skip
 

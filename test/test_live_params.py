@@ -67,7 +67,7 @@ def test_message_rate_change_calls_set_message_interval():
                           values['message_rates'], lambda i, hz: calls.append((i, hz)) or True,
                           lambda line: None))
     assert not node.set(message_rates=['33:fast']).successful
-    assert not node.set(message_rates=['33:-1.0']).successful
+    assert not node.set(message_rates=['33:nan']).successful
     assert calls == []
     assert node.set(message_rates=['33:10.0', '1:2.0']).successful
     assert calls == [(33, 10.), (1, 2.)] and live['message_rates'] == calls

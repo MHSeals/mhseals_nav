@@ -3,12 +3,24 @@ import struct
 
 from mhseals_nav.mavros_setup import (
     decode_boot_ms, decode_ekf_status, ekf_status_values, parse_rates, rebooted,
-    request_rates)
+    request_rates, with_removed)
 import pytest
 
 
 def test_rates_parse_to_id_and_hz():
     assert parse_rates(['33:20.0', '193:2']) == [(33, 20.), (193, 2.)]
+
+
+def test_negative_rate_disables_and_non_finite_is_refused():
+    assert parse_rates(['33:-1']) == [(33, -1.)]
+    for bad in ('33:nan', '33:inf', '-1:5'):
+        with pytest.raises(ValueError):
+            parse_rates([bad])
+
+
+def test_removed_ids_are_reset_to_the_fcu_default():
+    assert with_removed([(33, 20.), (1, 2.)], [(33, 10.)]) == [(33, 10.), (1, 0.)]
+    assert with_removed([], [(33, 10.)]) == [(33, 10.)]
 
 
 def test_a_raising_call_is_logged_and_does_not_stop_later_rates():
@@ -43,6 +55,12 @@ def test_rates_are_requested_again_only_on_reconnect():
     states = [False, True, True, False, True]
     edges = [reconnected(a, b) for a, b in zip([False] + states, states)]
     assert edges == [False, True, False, False, True]
+
+
+def test_rates_are_not_also_requested_unconditionally_at_start():
+    import inspect
+    from mhseals_nav import mavros_setup
+    assert 'wanted.set()  # once at start' not in inspect.getsource(mavros_setup.main)
 
 
 def test_rc_channels_is_requested_at_25_hz_by_default():
@@ -102,9 +120,3 @@ def test_a_time_boot_drop_means_the_fcu_rebooted_without_disconnecting():
     assert rebooted(90_000, 1_500)
     assert not rebooted(90_000, 91_000)
     assert not rebooted(None, 1_500)
-
-
-def test_rates_are_not_also_requested_unconditionally_at_start():
-    import inspect
-    from mhseals_nav import mavros_setup
-    assert 'wanted.set()  # once at start' not in inspect.getsource(mavros_setup.main)
