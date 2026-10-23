@@ -102,3 +102,12 @@ def test_overlay_overrides_one_node_and_a_missing_file_is_no_overlay(tmp_path):
     assert ekf_overlay(str(path), 'ekf_global') == {'two_d_mode': False}
     assert ekf_overlay(str(path), 'navsat_transform') == {}
     assert ekf_overlay(str(tmp_path / 'none.yaml'), 'ekf_local') == {}
+
+
+def test_bad_overlay_falls_back_to_packaged_configs(tmp_path, caplog):
+    from mhseals_nav.navigation_config import ekf_overlay
+    for text in ('ekf_local: [unclosed', '- a\n- b\n', 'ekf_local: 5\n', 'ekf_local:\n  ros__parameters: 3\n'):
+        path = tmp_path / 'ekf.yaml'
+        path.write_text(text)
+        assert ekf_overlay(str(path), 'ekf_local') == {}
+    assert 'Ignoring overlay' in caplog.text

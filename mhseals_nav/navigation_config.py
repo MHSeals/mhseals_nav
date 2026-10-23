@@ -1,8 +1,11 @@
 """Merge measured limits with the current navigation parameters at launch."""
+import logging
 from copy import deepcopy
 from pathlib import Path
 
 import yaml
+
+log = logging.getLogger(__name__)
 
 
 def deep_merge(dst, src):
@@ -16,17 +19,28 @@ def deep_merge(dst, src):
 
 
 def load_overlay(path):
-    """Read a user YAML overlay; a missing or empty file is no overlay."""
+    """Read a user YAML overlay; a missing, empty, unparsable or non-mapping file is no overlay."""
     try:
-        return yaml.safe_load(Path(path).expanduser().read_text()) or {}
+        data = yaml.safe_load(Path(path).expanduser().read_text()) or {}
     except FileNotFoundError:
         return {}
+    except (OSError, yaml.YAMLError, UnicodeDecodeError) as error:
+        log.error('Ignoring overlay %s: %s', path, error)
+        return {}
+    if not isinstance(data, dict):
+        log.error('Ignoring overlay %s: root is %s, not a mapping', path, type(data).__name__)
+        return {}
+    return data
 
 
 def ekf_overlay(path, node):
     """Parameters the overlay sets for one EKF/navsat node, flat or under ros__parameters."""
     section = load_overlay(path).get(node) or {}
-    return section.get('ros__parameters', section)
+    if not isinstance(section, dict):
+        log.error('Ignoring overlay section %s in %s: not a mapping', node, path)
+        return {}
+    params = section.get('ros__parameters', section)
+    return params if isinstance(params, dict) else {}
 
 
 def derived(config, original=None):
