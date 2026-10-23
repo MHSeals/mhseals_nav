@@ -3,7 +3,6 @@
 from collections import deque
 from copy import deepcopy
 import hashlib
-import math
 
 import rclpy
 from rclpy.node import Node
@@ -18,6 +17,14 @@ from tf2_geometry_msgs import do_transform_pose
 
 from mhseals_nav.object_tracks import ObjectTracks
 from mhseals_nav.zed_detections_converter import detection_markers
+from mhseals_nav.utils.live_params import LiveParams, at_least, fraction, positive
+
+
+def confirmable(values):
+    """A candidate must be able to confirm before its track would expire."""
+    if values["confirmation_time"] >= values["track_timeout"]:
+        raise ValueError("confirmation_time must be below track_timeout")
+
 
 class ObjectTracker(Node):
     """Track in odom so map->odom corrections move every landmark together."""
@@ -38,20 +45,14 @@ class ObjectTracker(Node):
         for key, value in defaults.items():
             self.declare_parameter(key, value)
         values = {key: self.get_parameter(key).value for key in defaults}
-        for key in (
-            "association_distance",
-            "track_timeout",
-            "candidate_timeout",
-            "max_detection_age",
-        ):
-            if not math.isfinite(values[key]) or values[key] <= 0:
-                raise ValueError(f"{key} must be finite and positive")
-        if not (
-            0 < values["smoothing_alpha"] <= 1
-            and values["confirmation_count"] >= 1
-            and 0 <= values["confirmation_time"] < values["track_timeout"]
-        ):
-            raise ValueError("invalid object confirmation/smoothing settings")
+        live_rules = {key: positive for key in (
+            "association_distance", "track_timeout", "candidate_timeout",
+            "max_detection_age")}
+        live_rules.update(smoothing_alpha=fraction, confirmation_count=at_least(1),
+                          confirmation_time=at_least(0))
+        # Frames are fixed at start; every other setting applies to the next detection.
+        self.live = LiveParams(self, live_rules, self.apply_live, joint=confirmable)
+        values.update(self.live.values)
         self.tracking_frame = values["tracking_frame"]
         self.map_frame = values["map_frame"]
         self.max_age = values["max_detection_age"]
@@ -82,6 +83,16 @@ class ObjectTracker(Node):
         self.detection_marker_pub = self.create_publisher(
             MarkerArray, self.detection_sub.topic_name + "/markers", 1)
         self.timer = self.create_timer(0.1, self.tick)
+
+    def apply_live(self, values, changed):
+        self.max_age = values["max_detection_age"]
+        tracks = self.tracks
+        tracks.distance = values["association_distance"]
+        tracks.timeout = values["track_timeout"]
+        tracks.candidate_timeout = values["candidate_timeout"]
+        tracks.confirmation_count = values["confirmation_count"]
+        tracks.confirmation_time = values["confirmation_time"]
+        tracks.alpha = values["smoothing_alpha"]
 
     def detections_callback(self, msg):
         if len(msg.detections) <= self.tracks.max_tracks:

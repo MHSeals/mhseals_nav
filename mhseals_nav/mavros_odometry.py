@@ -14,6 +14,8 @@ uses the FCU attitude, so the compass must be right.
 from copy import deepcopy
 import math
 
+from mhseals_nav.utils.live_params import LiveParams, positive
+
 
 def body_odometry(message, velocity_stddev):
     """Preserve pose/time, rotate linear velocity and covariance into child frame."""
@@ -89,15 +91,19 @@ def main(args=None):
 
     rclpy.init(args=args)
     node = Node('mavros_odom_adapter')
-    stddev = node.declare_parameter('velocity_stddev', .3).value
+    node.declare_parameter('velocity_stddev', .3)
     source = node.declare_parameter('velocity_source', 'gps').value
-    max_age = node.declare_parameter('gps_velocity_max_age', .5).value
-    min_stddev = node.declare_parameter('gps_velocity_min_stddev', .05).value
-    nofix_stddev = node.declare_parameter('velocity_stddev_nofix', 1.).value
+    node.declare_parameter('gps_velocity_max_age', .5)
+    node.declare_parameter('gps_velocity_min_stddev', .05)
+    node.declare_parameter('velocity_stddev_nofix', 1.)
     # The twist is the GPS antenna's: robot_localization removes the lever arm.
     gps_frame = node.declare_parameter('gps_frame', 'gps_link').value
     if source not in ('fcu', 'gps'):
         raise ValueError('velocity_source must be fcu or gps')
+    # Tuning applies live; the source and frame decide subscriptions, so they do not.
+    live = LiveParams(node, {name: positive for name in (
+        'velocity_stddev', 'gps_velocity_max_age', 'gps_velocity_min_stddev',
+        'velocity_stddev_nofix')})
     publisher = node.create_publisher(Odometry, '/odom/mavros', 10)
     gps = {}
 
@@ -106,7 +112,7 @@ def main(args=None):
             if source == 'gps':
                 arrival = gps.get('arrival')
                 age = (node.get_clock().now().nanoseconds * 1e-9 - arrival) if arrival else None
-                if age is None or not -.1 <= age <= max_age:
+                if age is None or not -.1 <= age <= live['gps_velocity_max_age']:
                     node.get_logger().warning('GPS velocity is stale; not publishing',
                                               throttle_duration_sec=5.)
                     return
@@ -115,7 +121,7 @@ def main(args=None):
                 message = with_velocity(message, gps['velocity'], gps['stddev'])
                 if gps['stamp_ok']:
                     message.header.stamp = gps['stamp']
-            result = body_odometry(message, stddev)
+            result = body_odometry(message, live['velocity_stddev'])
             result.child_frame_id = gps_frame if source == 'gps' else 'base_link'
             publisher.publish(result)
         except ValueError as error:
@@ -124,11 +130,13 @@ def main(args=None):
     def receive_gps(raw):
         now = node.get_clock().now().nanoseconds * 1e-9
         stamp = raw.header.stamp
-        velocity, sigma = gps_velocity(raw, min_stddev, nofix_stddev)
+        velocity, sigma = gps_velocity(raw, live['gps_velocity_min_stddev'],
+                                       live['velocity_stddev_nofix'])
         # Arrival time gates freshness since the header may carry FCU time; the
         # header is only the output stamp when it agrees with arrival.
+        age = now - (stamp.sec + stamp.nanosec * 1e-9)
         gps.update(velocity=velocity, stddev=sigma, arrival=now, new=True, stamp=stamp,
-                   stamp_ok=-.1 <= now - (stamp.sec + stamp.nanosec * 1e-9) <= max_age)
+                   stamp_ok=-.1 <= age <= live['gps_velocity_max_age'])
 
     if source == 'gps':
         node.create_subscription(GPSRAW, '/mavros/gpsstatus/gps1/raw',

@@ -10,6 +10,8 @@ import struct
 import threading
 import time
 
+from mhseals_nav.utils.live_params import LiveParams
+
 EKF_STATUS_REPORT = 193
 EKF_FIELDS = ('velocity_variance', 'pos_horiz_variance', 'pos_vert_variance',
               'compass_variance', 'terrain_alt_variance')
@@ -23,8 +25,11 @@ EKF_FLAGS = {0: 'ATTITUDE', 1: 'VELOCITY_HORIZ', 2: 'VELOCITY_VERT', 3: 'POS_HOR
 
 
 def parse_rates(entries):
-    """['33:20.0', ...] -> [(33, 20.0), ...]."""
-    return [(int(i), float(hz)) for i, hz in (entry.split(':') for entry in entries)]
+    """['33:20.0', ...] -> [(33, 20.0), ...]; ValueError for a bad entry."""
+    rates = [(int(i), float(hz)) for i, hz in (entry.split(':') for entry in entries)]
+    if any(i < 0 or not hz >= 0 or hz == float('inf') for i, hz in rates):
+        raise ValueError('message ids and rates must be finite and not negative')
+    return rates
 
 
 def reconnected(was_connected, is_connected):
@@ -80,7 +85,10 @@ def main(args=None):
 
     rclpy.init(args=args)
     node = Node('mavros_setup')
-    rates = parse_rates(node.declare_parameter('message_rates', ['33:20.0']).value)
+    node.declare_parameter('message_rates', ['33:20.0'])
+    # A changed list is requested at once; the FCU keeps the latest request.
+    live = LiveParams(node, {'message_rates': parse_rates},
+                      on_change=lambda values, changed: wanted.set())
     client = node.create_client(MessageInterval, '/mavros/set_message_interval')
     wanted = threading.Event()
     wanted.set()  # once at start
@@ -103,7 +111,7 @@ def main(args=None):
             wanted.wait()
             wanted.clear()
             if client.wait_for_service(timeout_sec=10.):
-                request_rates(rates, call, node.get_logger().info)
+                request_rates(live['message_rates'], call, node.get_logger().info)
 
     ekf_pub = node.create_publisher(DiagnosticStatus, '/fcu/ekf_status', 10)
 

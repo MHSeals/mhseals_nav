@@ -16,6 +16,7 @@ from vision_msgs.msg import Detection3DArray, Detection3D, ObjectHypothesisWithP
 from visualization_msgs.msg import Marker, MarkerArray
 
 from mhseals_nav import perception_status
+from mhseals_nav.utils.live_params import LiveParams, positive
 
 RELAY_STALE = 3.0  # s without a remote update before its stage leaves /perception/status
 
@@ -150,9 +151,10 @@ class ZedDetectionsConverter(Node):
         self.declare_parameter("camera_root_frame", "")
         self.declare_parameter("remote_name", "squirtle")
         self.declare_parameter("max_detection_age", 1.0)
-        self.max_age = self.get_parameter("max_detection_age").value
-        if not math.isfinite(self.max_age) or self.max_age <= 0:
-            raise ValueError("max_detection_age must be finite and positive")
+        self.live = LiveParams(
+            self, {"max_detection_age": positive},
+            lambda values, changed: setattr(self, "max_age", values["max_detection_age"]))
+        self.max_age = self.live["max_detection_age"]
         topic = self.get_parameter("objects_topic").value
         url = self.get_parameter("rosbridge_url").value
         self.pub = self.create_publisher(Detection3DArray, "detections", 1)

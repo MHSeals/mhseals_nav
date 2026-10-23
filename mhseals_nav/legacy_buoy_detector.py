@@ -13,6 +13,8 @@ import cv2
 import numpy as np
 import yaml
 
+from mhseals_nav.utils.live_params import LiveParams, at_least, positive, unit
+
 
 def prepare_image(image: np.ndarray, shape: tuple) -> tuple:
     """Letterbox BGR pixels to the engine's NCHW RGB input."""
@@ -194,7 +196,7 @@ class LegacyBuoyDetector:
                         class_config=str(share / 'custom_object_detection.yaml'),
                         engine_cache='/usr/local/zed/resources/astro_buoys',
                         camera_topic='/front/zed_node', tile_size=0,
-                        tile_count=3, tile_center=.5)
+                        tile_count=3, tile_center=.5, image_max_age=.5)
         for key, value in defaults.items():
             self.node.declare_parameter(key, value)
         values = {key: self.node.get_parameter(key).value for key in defaults}
@@ -209,8 +211,10 @@ class LegacyBuoyDetector:
                                    self.node.get_logger())
         cv2.setNumThreads(1)
         self.model.infer(np.zeros((1, 3, *self.model.shape), np.float32))
-        self.tile_size = int(values['tile_size'])
-        self.tile_count, self.tile_center = int(values['tile_count']), values['tile_center']
+        # Crops and the image age limit apply to the next frame; the model does not.
+        self.live = LiveParams(self.node, {
+            'tile_size': at_least(0), 'tile_count': at_least(1),
+            'tile_center': unit, 'image_max_age': positive})
         self.object_type, self.array_type = Object, ObjectsStamped
         self.jpeg_type = CompressedImage
         prefix = values['camera_topic'].rstrip('/')
@@ -226,7 +230,7 @@ class LegacyBuoyDetector:
         """Reply with 2D boxes for this exact image; the wrapper owns all 3D."""
         age = self.node.get_clock().now().nanoseconds * 1e-9 - (
             image.header.stamp.sec + image.header.stamp.nanosec * 1e-9)
-        if not -.1 <= age <= .5:
+        if not -.1 <= age <= self.live['image_max_age']:
             self.node.get_logger().warning(
                 'Dropping stale image (age %.3f s); check host clocks '
                 'and camera latency' % age, throttle_duration_sec=5.0)
@@ -239,8 +243,9 @@ class LegacyBuoyDetector:
                                   if channels == 3 else cv2.COLOR_RGBA2BGR)
         elif channels == 4:
             pixels = cv2.cvtColor(pixels, cv2.COLOR_BGRA2BGR)
-        boxes = detect_image(self.model, pixels, self.thresholds, self.tile_size,
-                             self.tile_count, self.tile_center)
+        boxes = detect_image(self.model, pixels, self.thresholds,
+                             int(self.live['tile_size']), int(self.live['tile_count']),
+                             self.live['tile_center'])
         array = self.array_type()
         array.header = image.header
         annotated = pixels.copy() if self.debug.get_subscription_count() else None
