@@ -101,3 +101,27 @@ def test_derived_ties_smoother_accel_to_mppi():
     smoother = derived(config)['velocity_smoother']['ros__parameters']
     assert smoother['max_accel'] == [.1, .15, .4]
     assert smoother['max_decel'] == [-.2, -.15, -.4]
+
+
+def overlay_params(**params):
+    base = {'controller_server': {'ros__parameters': {'controller_frequency': 10., 'FollowPath': {
+        'vx_max': .4, 'model_dt': .1, 'time_steps': 40, 'prune_distance': 3.}}},
+        'velocity_smoother': {'ros__parameters': {'max_velocity': [.4, .15, .3]}}}
+    controller = {k: v for k, v in params.items() if k != 'vx_max'}
+    follow = {'vx_max': params['vx_max']} if 'vx_max' in params else {}
+    limits = {'controller_server': {'ros__parameters': {**controller, 'FollowPath': follow}}}
+    return base, merge_limits(base, limits)
+
+
+def test_integer_overlay_values_launch_as_their_float_forms():
+    assert overlay_params(vx_max=1, controller_frequency=20) == overlay_params(vx_max=1., controller_frequency=20.)
+    merged = overlay_params(vx_max=1)[1]
+    assert merged['velocity_smoother']['ros__parameters']['max_velocity'] == [1., .15, .3]
+    assert type(merged['controller_server']['ros__parameters']['FollowPath']['vx_max']) is float
+
+
+def test_non_numeric_overlay_values_are_dropped_not_handed_to_nav2(caplog):
+    with caplog.at_level('ERROR'):
+        base, merged = overlay_params(vx_max='0.4', controller_frequency=True)
+    assert merged == merge_limits(base, {})
+    assert 'not a number' in caplog.text

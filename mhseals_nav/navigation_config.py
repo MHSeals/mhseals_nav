@@ -113,8 +113,30 @@ def warn_overridden(limits, result, path=()):
                         '.'.join(path + (key,)), value, result.get(key))
 
 
+def typed_like(base, limits, path=()):
+    """Copy of limits with ints widened to float where base holds a float; non-numbers there are dropped.
+
+    Nav2 rejects a params file whose parameter changes type, so a hand-edited
+    `vx_max: 1` must not reach it as an integer.
+    """
+    result = {}
+    for key, value in limits.items():
+        default = base.get(key) if isinstance(base, dict) else None
+        if isinstance(value, dict):
+            result[key] = typed_like(default, value, path + (key,))
+        elif isinstance(default, float) and not isinstance(default, bool):
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                log.error('Ignoring overlay %s = %r: not a number', '.'.join(path + (key,)), value)
+                continue
+            result[key] = float(value)
+        else:
+            result[key] = value
+    return result
+
+
 def merge_limits(base, limits):
     """Overlay limits onto base, recompute derived keys and warn about overlay values that did not stick."""
+    limits = typed_like(base, limits)
     result = deep_merge(deepcopy(base), limits)
     follow = result['controller_server']['ros__parameters']['FollowPath']
     original = base['controller_server']['ros__parameters']['FollowPath']
