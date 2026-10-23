@@ -103,7 +103,7 @@ def main(args=None):
     # Tuning applies live; the source and frame decide subscriptions, so they do not.
     live = LiveParams(node, {name: positive for name in (
         'velocity_stddev', 'gps_velocity_max_age', 'gps_velocity_min_stddev',
-        'velocity_stddev_nofix')})
+        'velocity_stddev_nofix')}, restart_only=('velocity_source', 'gps_frame'))
     publisher = node.create_publisher(Odometry, '/odom/mavros', 10)
     gps = {}
 

@@ -71,11 +71,14 @@ class LiveParams:
     """Accepted values of the rule-covered parameters, refreshed by param sets.
 
     ``on_change(values, changed)`` runs after a set is accepted. The node must
-    have declared every parameter in ``rules`` first.
+    have declared every parameter in ``rules`` first. ``restart_only`` names
+    declared parameters the node reads once at start: a set that would change
+    one is refused, so a read-back never reports a value the node is not using.
     """
 
-    def __init__(self, node, rules, on_change=None, joint=None):
+    def __init__(self, node, rules, on_change=None, joint=None, restart_only=()):
         self.rules, self.on_change, self.joint = rules, on_change, joint
+        self.startup = {name: node.get_parameter(name).value for name in restart_only}
         self.values = check_changes(
             rules, {name: node.get_parameter(name).value for name in rules})
         if joint:
@@ -87,6 +90,10 @@ class LiveParams:
 
     def _set(self, parameters):
         from rcl_interfaces.msg import SetParametersResult
+        for p in parameters:
+            if p.name in self.startup and p.value != self.startup[p.name]:
+                return SetParametersResult(
+                    successful=False, reason=f'restart required: {p.name}')
         try:
             changed = check_changes(self.rules, {p.name: p.value for p in parameters},
                                     self.values, self.joint)

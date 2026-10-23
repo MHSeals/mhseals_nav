@@ -71,3 +71,12 @@ def test_message_rate_change_calls_set_message_interval():
     assert calls == []
     assert node.set(message_rates=['33:10.0', '1:2.0']).successful
     assert calls == [(33, 10.), (1, 2.)] and live['message_rates'] == calls
+
+
+def test_restart_only_names_are_refused_unless_unchanged():
+    node = FakeNode(age=.5, frame='map')
+    live = LiveParams(node, {'age': positive}, restart_only=('frame',))
+    result = node.set(frame='odom')
+    assert not result.successful and result.reason == 'restart required: frame'
+    assert node.set(frame='map', age=2.).successful      # same value, e.g. a param load
+    assert live['age'] == 2.
