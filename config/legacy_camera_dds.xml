@@ -5,6 +5,8 @@
       <transport_descriptor>
         <transport_id>camera_udp</transport_id>
         <type>UDPv4</type>
+        <!-- Off-host camera subscribers would otherwise get 208 KiB sockets. -->
+        <receiveBufferSize>4194304</receiveBufferSize>
       </transport_descriptor>
       <transport_descriptor>
         <transport_id>camera_shm</transport_id>
