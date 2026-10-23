@@ -77,7 +77,7 @@ def test_gps_without_a_usable_measurement_is_a_wide_zero_prior(raw):
     assert gps_velocity(raw, .05, 1., .3) == ((0., 0., 0.), 1.)
 
 
-LIVE = dict(velocity_stddev=.3, gps_velocity_max_age=.5, gps_velocity_min_stddev=.05,
+LIVE = dict(velocity_stddev=.3, gps_velocity_max_age=1.5, gps_velocity_min_stddev=.05,
             velocity_stddev_nofix=1.)
 
 
@@ -101,12 +101,22 @@ def test_stale_gps_velocity_publishes_the_zero_prior_instead_of_going_silent():
     adapter.receive_gps(raw_sample(10), 10.)
     # Every FCU message after the receiver stops carries v=0 with the no-fix sigma,
     # so the EKF decays to rest instead of holding the last velocity.
-    for now in (10.6, 11., 40.):
+    for now in (11.6, 12., 40.):
         result = adapter.receive(message(0., (1., 0.)), now)
         assert result.child_frame_id == 'gps_link'
         assert result.twist.twist.linear.x == 0.
         assert result.twist.covariance[0] == pytest.approx(1.)
     assert adapter.receive(message(0., (1., 0.)), 5.).twist.covariance[0] == pytest.approx(1.)  # no sample yet
+
+
+def test_ordinary_gps_gaps_at_5_hz_send_no_zero_prior():
+    adapter = Adapter(LIVE, 'gps', 'gps_link')
+    adapter.receive_gps(raw_sample(10), 10.)
+    assert adapter.receive(message(0., (1., 0.)), 10.05) is not None
+    # Field gaps reach 1.13 s: every FCU message in one is skipped, not a phantom stop.
+    assert all(adapter.receive(message(0., (1., 0.)), 10.05 + .05 * i) is None for i in range(1, 22))
+    adapter.receive_gps(raw_sample(11, 130000000), 11.13)
+    assert adapter.receive(message(0., (1., 0.)), 11.15).twist.twist.linear.x == pytest.approx(1.)
 
 
 @pytest.mark.parametrize('header_sec, stamped', [(10, True), (500, False)])

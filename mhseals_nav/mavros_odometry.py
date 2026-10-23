@@ -146,7 +146,8 @@ def main(args=None):
     node = Node('mavros_odom_adapter')
     node.declare_parameter('velocity_stddev', .3)
     source = node.declare_parameter('velocity_source', 'gps').value
-    node.declare_parameter('gps_velocity_max_age', .5)
+    # Over a few samples of a 4-5 Hz receiver plus jitter: field gaps reach 1.1 s.
+    node.declare_parameter('gps_velocity_max_age', 1.5)
     node.declare_parameter('gps_velocity_min_stddev', .05)
     node.declare_parameter('velocity_stddev_nofix', 1.)
     # The twist is the GPS antenna's: robot_localization removes the lever arm.
