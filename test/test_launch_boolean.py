@@ -35,3 +35,9 @@ def test_velodyne_driver_and_transform_use_same_model():
     source = (Path(__file__).parents[1] / 'launch' /
               'sensors.launch.py').read_text()
     assert source.count("'model': 'VLP16'") == 2
+
+
+def test_imu_filter_is_opt_in():
+    source = (Path(__file__).parents[1] / 'launch' / 'odom.launch.py').read_text()
+    assert "('use_imu_filter', 'false'" in source
+    assert "condition=IfCondition(launch_configurations['use_imu_filter'])" in source

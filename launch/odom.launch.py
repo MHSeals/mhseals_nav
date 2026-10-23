@@ -108,6 +108,7 @@ def generate_launch_description():
         ('sim', 'true', 'Run in simulation mode'),
         ('fcu', 'true', 'Start MAVROS and its relays; false when a simulator publishes '
                         '/odom/mavros, /imu/raw and /gps/fix directly'),
+        ('use_imu_filter', 'false', 'Start imu_filter_madgwick (/imu/filtered); nothing consumes it'),
         ('robot_state_publish_frequency', '100.0', 'Rate at which robot state is published'),
         ('fcu_url', '', 'Flight control unit connection URL'),
         ('gcs_url', 'udp://@127.0.0.1:14550', 'Ground control service connection URL'),
@@ -168,6 +169,7 @@ def generate_launch_description():
         package="imu_filter_madgwick",
         executable="imu_filter_madgwick_node",
         name="imu_filter_madgwick",
+        condition=IfCondition(launch_configurations['use_imu_filter']),
         output="screen",
         parameters=[{"use_mag": False, "publish_tf": False, "use_sim_time": launch_configurations['sim']}],
         remappings=[
