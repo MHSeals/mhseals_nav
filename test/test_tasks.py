@@ -260,7 +260,8 @@ def test_task_labels_are_detector_or_course_classes():
     from pathlib import Path
     import yaml
     root = Path(__file__).parents[1]
-    classes = yaml.safe_load((root / 'config/custom_object_detection.yaml').read_text())
+    loaded = yaml.safe_load((root / 'config/custom_object_detection.yaml').read_text())
+    classes = loaded.get('/**', {}).get('ros__parameters', loaded)
     detector = {value['label'] for key, value in classes['object_detection'].items()
                 if key.startswith('class_')}
     banners = {f'{c}_{s}' for c in ('red', 'green', 'blue')

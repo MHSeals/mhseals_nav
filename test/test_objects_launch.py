@@ -78,7 +78,17 @@ def test_jp6_wrapper_disables_sdk_predictions():
     common = yaml.safe_load((config / 'common_stereo.yaml').read_text())
     assert common['/**']['ros__parameters']['object_detection']['prediction_timeout'] == 0
 
-    custom = yaml.safe_load((config / 'custom_object_detection.yaml').read_text())['object_detection']
+    loaded = yaml.safe_load((config / 'custom_object_detection.yaml').read_text())
+    custom = loaded.get('/**', {}).get('ros__parameters', loaded)['object_detection']
     classes = {key: value for key, value in custom.items() if key.startswith('class_')}
     assert len(classes) == custom['custom_class_count']
     assert all(value['prediction_timeout_s'] == 0 for value in classes.values())
+
+
+def test_custom_detection_file_is_a_ros_parameter_file():
+    """The wrapper appends this file to the node's parameter files; rcl rejects any other shape."""
+    path = Path(__file__).parents[1] / 'config/custom_object_detection.yaml'
+    loaded = yaml.safe_load(path.read_text())
+    assert list(loaded) == ['/**']
+    assert list(loaded['/**']) == ['ros__parameters']
+    assert loaded['/**']['ros__parameters']['object_detection']['od_enabled'] is True
