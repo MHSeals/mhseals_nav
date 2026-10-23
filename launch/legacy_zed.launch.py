@@ -24,6 +24,11 @@ def generate_launch_description():
                               default_value='/usr/local/zed/resources/astro_buoys'),
         DeclareLaunchArgument('tile_size', default_value='720',
                               description='Central detail crop size; 0 disables crops'),
+        DeclareLaunchArgument('tile_count', default_value='3',
+                              description='Detail crops across the image'),
+        DeclareLaunchArgument('tile_center', default_value='0.5',
+                              description='Crop row centre as a fraction of image height; '
+                                          'aim it at the water band'),
         GroupAction(actions=[
             SetEnvironmentVariable('FASTRTPS_DEFAULT_PROFILES_FILE',
                 PathJoinSubstitution([share, 'config', 'legacy_camera_dds.xml'])),
@@ -45,6 +50,8 @@ def generate_launch_description():
                      'engine_cache': LaunchConfiguration('engine_cache'),
                      'camera_topic': ['/', LaunchConfiguration('camera_name'), '/zed_node'],
                      'tile_size': LaunchConfiguration('tile_size'),
+                     'tile_count': LaunchConfiguration('tile_count'),
+                     'tile_center': LaunchConfiguration('tile_center'),
                  }], output='screen'),
             IncludeLaunchDescription(AnyLaunchDescriptionSource(PathJoinSubstitution([
                 FindPackageShare('rosbridge_server'), 'launch',

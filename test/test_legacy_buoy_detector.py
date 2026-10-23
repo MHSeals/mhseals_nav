@@ -5,6 +5,7 @@ import pytest
 
 from mhseals_nav.legacy_buoy_detector import (
     box_corners, decode_boxes, detect_image, prepare_image, suppress_boxes,
+    tile_origins,
 )
 
 
@@ -90,3 +91,9 @@ def test_crop_merging_keeps_distinct_colours_at_the_same_position():
     box = [100., 200., 20., 60.]
     found = suppress_boxes([(7, .8, box), (7, .7, box), (10, .6, box)])
     assert [item[0] for item in found] == [7, 10]
+
+
+@pytest.mark.parametrize('center,y', [(.5, 180), (.6, 288), (.05, 0), (.95, 360)])
+def test_crop_row_follows_the_water_band_and_stays_in_the_image(center, y):
+    origins = tile_origins(1080, 1920, 720, 3, center)
+    assert origins == [(0, y), (600, y), (1200, y)]
