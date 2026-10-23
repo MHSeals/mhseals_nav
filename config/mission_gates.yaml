@@ -1,0 +1,10 @@
+# Bounds for the four standard sim goals (test_sim_mission.py, run with $SIMRIG=<session dir>).
+# These are targets the current config does not yet meet. Reference, sim r3m4 (shim at 1.8 rad),
+# per goal in standard order (behind, behind+pi, lateral 3 m, forward 6 m), measured with this gate:
+#   duration 50 / 54 / 12 / 23 s, in-place rotation 25 / 15 / 0 / 0 s.
+# So r3m4 fails max_goal_s on goals 1-2 and max_rotate_s on goal 1.
+goals: 4
+max_goal_s: [45, 45, 25, 25]   # per goal, first to last /cmd_vel_nav, in standard goal order
+max_rotate_s: 12.0       # per goal, time commanded as pure rotation (|vx|,|vy| < 0.02, |wz| > 0.05)
+max_reverse_frac: 0.15   # per goal, share of time with vx < -0.02 (reversing to goals behind)
+max_total_s: 170.0
