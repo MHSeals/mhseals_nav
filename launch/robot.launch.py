@@ -30,15 +30,7 @@ def generate_launch_description():
         ('nav2_params_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'nav2_params.yaml']), 'Path to Nav2 parameters file'),
 
         # Sensors
-        ('zed_camera_name', 'zed2i', 'ZED camera model'),
-        ('camera_name', 'front', 'ZED camera link name'),
-        ('zed_config_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'zed2i.yaml']), 'Path to ZED config'),
-        ('virtual_config_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'virtual.yaml']), 'Virtual sensor config'),
-        ('common_stereo_config_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'common_stereo.yaml']), 'Common stereo config'),
-        ('common_mono_config_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'common_mono.yaml']), 'Common mono config'),
-        ('object_detection_config_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'object_detection.yaml']), 'Object detection config'),
-        ('custom_object_detection_config_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'custom_object_detection.yaml']), 'Custom object detection config'),
-        ('ffmpeg_config_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'ffmpeg.yaml']), 'FFMPEG config'),
+        ('camera_name', 'front', 'ZED camera namespace (see camera.launch.py)'),
         ('velodyne_ip', '192.168.1.201', 'Velodyne LiDAR IP address'),
         ('velodyne_port', '2368', 'Velodyne UDP port'),
         ('ros_ip', '127.0.0.1', 'ROS TCP Endpoint IP'),

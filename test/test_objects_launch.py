@@ -75,8 +75,8 @@ def test_bridge_arguments_are_declared_with_empty_defaults():
 
 def test_jp6_wrapper_disables_sdk_predictions():
     config = Path(__file__).parents[1] / 'config'
-    common = yaml.safe_load((config / 'common_stereo.yaml').read_text())
-    assert common['/**']['ros__parameters']['object_detection']['prediction_timeout'] == 0
+    boat = yaml.safe_load((config / 'zed_boat.yaml').read_text())
+    assert boat['/**']['ros__parameters']['object_detection']['prediction_timeout'] == 0
 
     loaded = yaml.safe_load((config / 'custom_object_detection.yaml').read_text())
     custom = loaded.get('/**', {}).get('ros__parameters', loaded)['object_detection']

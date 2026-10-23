@@ -130,9 +130,9 @@ def test_rtabmap_uses_the_live_lidar_contract():
 
 
 def test_camera_relay_keeps_sensor_msgs_image_type():
-    sensors = (ROOT / 'launch/sensors.launch.py').read_text()
-    assert '/rgb/color/rect/image/compressed' not in sensors
-    assert '/rgb/color/rect/image' in sensors
+    """RTAB-Map subscribes to sensor_msgs/Image, so its relay must read the raw image topic."""
+    camera = (ROOT / 'launch/camera.launch.py').read_text()
+    assert "[f'{zed}/rgb/color/rect/image', f'{out}/rgb/image']" in camera
 
 
 def test_behavior_trees_reload_for_each_goal():

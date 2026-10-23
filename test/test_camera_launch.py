@@ -136,3 +136,12 @@ def test_relay_names_are_unique_and_follow_camera_name():
 
 def test_every_relay_is_lazy():
     assert all(n['parameters'] == [{'lazy': True}] for n in camera.relays('front', True))
+
+
+def test_hardware_sensors_launch_starts_no_camera():
+    """The camera host runs camera.launch.py; sensors.launch.py is lidar and the sim endpoint."""
+    for name in ('sensors', 'robot'):
+        text = (ROOT / f'launch/{name}.launch.py').read_text()
+        for dead in ('zed_wrapper', 'common_config_path', 'zed_id_path', 'ffmpeg_config_path',
+                     'custom_onnx_file', 'common_stereo', 'ffmpeg.yaml', 'zed2i.yaml'):
+            assert dead not in text, (name, dead)

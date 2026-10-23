@@ -1,10 +1,9 @@
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, GroupAction, OpaqueFunction
-from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch.conditions import IfCondition, UnlessCondition
 
-from launch_ros.actions import Node, PushRosNamespace
+from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
 # Large-data transport for the lidar pair only; see config/fastdds_large_data.xml.
@@ -21,60 +20,14 @@ def sensor_ignore(sensor):
         )
     )
 
-def create_relays(context):
-    camera_name = LaunchConfiguration('camera_name').perform(context)
-    return [
-        Node(
-            package='topic_tools',
-            executable='relay',
-            # RTAB-Map subscribes to sensor_msgs/Image.  Relaying the ZED
-            # CompressedImage topic under an Image name leaves the mapper
-            # connected to the wrong type; use the raw image stream here.
-            arguments=[f'/{camera_name}/zed_node/rgb/color/rect/image', f'/{camera_name}_camera/rgb/image'],
-            output='screen'
-        ),
-        Node(
-            package='topic_tools',
-            executable='relay',
-            arguments=[f'/{camera_name}/zed_node/depth/depth_registered', f'/{camera_name}_camera/depth/image'],
-            output='screen'
-        ),
-        Node(
-            package='topic_tools',
-            executable='relay',
-            arguments=[f'/{camera_name}/zed_node/rgb/color/rect/image/camera_info', f'/{camera_name}_camera/camera_info'],
-            output='screen'
-        ),
-        Node(
-            package='topic_tools',
-            executable='relay',
-            arguments=[f'/{camera_name}/zed_node/odom', f'/{camera_name}_camera/odom'],
-            output='screen'
-        )
-    ]
-
 def generate_launch_description():
-    mhseals_nav_dir = FindPackageShare('mhseals_nav')
-    zed_wrapper_dir = FindPackageShare('zed_wrapper')
-
     launch_args = [
         ('sim', 'true', 'Run in simulation mode'),
         ('velodyne_ip', '192.168.0.201', 'IP address of the Velodyne LiDAR'),
         ('velodyne_port', '2368', 'UDP port for Velodyne LiDAR packets'),
-        ('zed_camera_name', 'zed2i', 'ZED camera model'),
-        ('camera_name', 'front', 'ZED camera link name'),
         ('ros_ip', '127.0.0.1', 'IP address of the Unity ROS TCP Endpoint'),
         ('ros_port', '6767', 'Port of the Unity ROS TCP Endpoint'),
-        ('sensors_ignore', '', 'Comma-separated list of sensors to ignore, e.g. "camera,lidar"'),
-
-        ('zed_config_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'zed2i.yaml']), 'ZED camera YAML config'),
-        ('virtual_config_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'virtual.yaml']), 'Virtual sensor config'),
-        ('common_mono_config_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'common_mono.yaml']), 'Common mono camera config'),
-        ('common_stereo_config_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'common_stereo.yaml']), 'Common stereo camera config'),
-        ('custom_object_detection_config_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'custom_object_detection.yaml']), 'Custom object detection config'),
-        ('custom_object_detection_model_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'epoch60.onnx']), 'Custom object detection model'),
-        ('object_detection_config_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'object_detection.yaml']), 'Object detection YAML config'),
-        ('ffmpeg_config_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'ffmpeg.yaml']), 'FFMPEG video config')
+        ('sensors_ignore', '', 'Comma-separated list of sensors to ignore, e.g. "lidar"'),
     ]
     
     launch_configurations = {}
@@ -84,26 +37,6 @@ def generate_launch_description():
         declare_arguments.append(
             DeclareLaunchArgument(name, default_value=default_value, description=description)
         )
-
-    zed_launch = IncludeLaunchDescription( 
-        PythonLaunchDescriptionSource(
-            PathJoinSubstitution([zed_wrapper_dir, 'launch', 'zed_camera.launch.py']) 
-        ), 
-        launch_arguments={ 'camera_model': launch_configurations['zed_camera_name'], 
-                           'camera_name': launch_configurations['camera_name'], 
-                           'publish_tf': 'false',
-                           'publish_map_tf': 'false',
-                           'common_config_path': launch_configurations['common_stereo_config_file'], 
-                           'zed_id_path': launch_configurations['zed_config_file'], 
-                           'ffmpeg_config_path': launch_configurations['ffmpeg_config_file'], 
-                           # 'object_detection_config_path': launch_configurations['object_detection_config_file'], 
-                           'custom_object_detection_config_path': launch_configurations['custom_object_detection_config_file'], 
-                           'custom_onnx_file': launch_configurations['custom_object_detection_model_file'] 
-                           }.items(), 
-        condition=sensor_ignore('camera') 
-    )
-    
-    relays = OpaqueFunction(function=create_relays, condition=sensor_ignore('camera'))
 
     # Velodyne driver (skip if "lidar" is in sensors_ignore)
     velodyne_driver_node = Node(
@@ -153,8 +86,6 @@ def generate_launch_description():
     )
 
     nodes = [ 
-        zed_launch, 
-        relays, 
         velodyne_driver_node, 
         velodyne_pointcloud_node, 
         Node(package='mhseals_nav', executable='lidar_relay',
