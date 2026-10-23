@@ -92,3 +92,26 @@ def test_custom_detection_file_is_a_ros_parameter_file():
     assert list(loaded) == ['/**']
     assert list(loaded['/**']) == ['ros__parameters']
     assert loaded['/**']['ros__parameters']['object_detection']['od_enabled'] is True
+
+
+def test_boat_wrapper_overrides_keep_zed_out_of_tf_and_odometry():
+    path = Path(__file__).parents[1] / 'config/zed_boat.yaml'
+    loaded = yaml.safe_load(path.read_text())
+    assert list(loaded) == ['/**'] and list(loaded['/**']) == ['ros__parameters']
+    params = loaded['/**']['ros__parameters']
+    assert params['pos_tracking']['pos_tracking_enabled'] is False
+    detection = params['object_detection']
+    assert detection['od_enabled'] is True
+    assert detection['enable_tracking'] is False
+    assert detection['prediction_timeout'] == 0
+    assert params['general']['pub_resolution'] == 'CUSTOM'
+    assert params['general']['pub_frame_rate'] <= params['general']['grab_frame_rate']
+
+
+def test_image_plugin_parameter_carries_the_node_name():
+    """image_transport strips only the namespace (/front), so the node name stays."""
+    path = Path(__file__).parents[1] / 'config/zed_boat.yaml'
+    params = yaml.safe_load(path.read_text())['/**']['ros__parameters']
+    assert params['zed_node.rgb.color.rect.image.enable_pub_plugins'] == [
+        'image_transport/compressed']
+    assert 'rgb.color.rect.image.enable_pub_plugins' not in params

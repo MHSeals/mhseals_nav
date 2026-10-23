@@ -1,0 +1,25 @@
+# Boat overrides for the ZED wrapper (86171bc), passed as ros_params_override_path
+# by camera.launch.py after the wrapper's common_stereo.yaml, zed2i.yaml and
+# custom_object_detection.yaml. Only values that differ from the wrapper are set.
+/**:
+  ros__parameters:
+    general:
+      grab_resolution: HD720
+      grab_frame_rate: 30
+      pub_resolution: CUSTOM         # image and depth published at HD720 / pub_downscale_factor
+      pub_downscale_factor: 2.0
+      pub_frame_rate: 15.0
+    depth:
+      depth_mode: NEURAL_LIGHT
+      min_depth: 0.3
+      max_depth: 20.0
+    pos_tracking:
+      pos_tracking_enabled: false    # nothing consumes ZED odometry; the EKFs own odom and map
+    object_detection:
+      od_enabled: true
+      enable_tracking: false         # object_tracker tracks in odom
+      prediction_timeout: 0.0        # raw detections only; classes also set prediction_timeout_s: 0
+      max_range: 20.0                # cannot exceed depth.max_depth
+    # The name carries the node name because image_transport strips only the namespace (/front).
+    # Publish only the compressed transport of the colour image: no theora or zstd encoding.
+    zed_node.rgb.color.rect.image.enable_pub_plugins: [image_transport/compressed]
