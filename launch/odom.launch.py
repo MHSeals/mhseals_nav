@@ -226,9 +226,10 @@ def generate_launch_description():
             PathJoinSubstitution([mhseals_nav_dir, 'launch', 'ekf.launch.py'])),
         condition=IfCondition(launch_configurations['start_ekf']),
         launch_arguments={
-            name: launch_configurations[name] for name in (
+            **{name: launch_configurations[name] for name in (
                 'sim', 'navsat_transform_config_file', 'ekf_local_config_file',
-                'ekf_global_config_file', 'ekf_overlay_file')
+                'ekf_global_config_file', 'ekf_overlay_file')},
+            'ekf_delay': '6.0',  # wait for MAVROS, unlike a standalone restart
         }.items())
 
     # Everything that talks to the flight controller. The EKFs only need the

@@ -37,13 +37,19 @@ def ekf_nodes(context):
                  [('odometry/filtered', '/odom/local')])
     global_ = node('ekf_global', 'ekf_node', 'ekf_global_config_file',
                    [('odometry/filtered', '/odom/global')])
-    return [navsat, TimerAction(period=6.0, actions=[local, global_])]
+    # odom.launch passes a delay so the EKFs wait for MAVROS; alone it is 0.
+    delay = float(LaunchConfiguration('ekf_delay').perform(context))
+    if delay <= 0:
+        return [navsat, local, global_]
+    return [navsat, TimerAction(period=delay, actions=[local, global_])]
 
 
 def generate_launch_description():
     config = PathJoinSubstitution([FindPackageShare('mhseals_nav'), 'config'])
     return LaunchDescription([
         DeclareLaunchArgument('sim', default_value='true', description='Use the simulation clock'),
+        DeclareLaunchArgument('ekf_delay', default_value='0.0',
+                              description='Seconds to hold the EKFs back (odom.launch sets 6 for MAVROS)'),
         DeclareLaunchArgument('ekf_overlay_file', default_value='~/.config/mhseals/ekf.yaml',
                               description='Per-node parameter overlay; ignored when missing'),
         DeclareLaunchArgument('navsat_transform_config_file',

@@ -111,3 +111,11 @@ def test_bad_overlay_falls_back_to_packaged_configs(tmp_path, caplog):
         path.write_text(text)
         assert ekf_overlay(str(path), 'ekf_local') == {}
     assert 'Ignoring overlay' in caplog.text
+
+
+def test_ekf_delay_is_zero_standalone_and_six_seconds_from_odom():
+    ekf = (ROOT / 'launch/ekf.launch.py').read_text()
+    odom = (ROOT / 'launch/odom.launch.py').read_text()
+    assert "DeclareLaunchArgument('ekf_delay', default_value='0.0'" in ekf
+    assert 'period=6.0' not in ekf
+    assert "'ekf_delay': '6.0'" in odom
