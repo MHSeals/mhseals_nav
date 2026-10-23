@@ -14,7 +14,7 @@ def test_omni_mppi_and_command_limits():
     mppi = controller['FollowPath']
     assert controller['odom_topic'] == '/odom/local'
     assert controller['progress_checker_plugins'] == ['progress_checker']
-    assert mppi['plugin'] == 'nav2_mppi_controller::MPPIController'
+    assert mppi['primary_controller'] == 'nav2_mppi_controller::MPPIController'
     assert mppi['motion_model'] == 'Omni'
     # MPPI advances its plan one model_dt per control cycle.
     assert mppi['model_dt'] == 1.0 / controller['controller_frequency']
@@ -22,8 +22,12 @@ def test_omni_mppi_and_command_limits():
     assert 'CostCritic' in mppi['critics'] and mppi['CostCritic']['consider_footprint']
     # The camera looks forward: prefer facing along the path.
     assert mppi['PathAngleCritic']['mode'] == 0 and 'PreferForwardCritic' in mppi['critics']
-    # Sim: a weight of 2.0 reversed at vx_min for whole legs to a goal behind the boat.
-    assert mppi['PreferForwardCritic']['cost_weight'] >= 5.0
+    # Sim: MPPI alone reverses to a goal behind the boat; the shim must turn it first.
+    assert mppi['plugin'] == 'nav2_controller::RotationShimController'
+    assert 0.5 < mppi['angular_dist_threshold'] <= 1.5
+    assert mppi['rotate_to_heading_angular_vel'] <= mppi['wz_max']
+    assert mppi['max_angular_accel'] <= mppi['az_max']
+    assert mppi['rotate_to_goal_heading'] is False
     smoother = config['velocity_smoother']['ros__parameters']
     # The smoother passes everything MPPI may command, sway included, and no more.
     assert smoother['max_velocity'] == [mppi['vx_max'], mppi['vy_max'], mppi['wz_max']]

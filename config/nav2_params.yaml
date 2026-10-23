@@ -38,7 +38,17 @@ controller_server:
       trans_stopped_velocity: 0.25    # gusts keep a berthed boat stirring
       rot_stopped_velocity: 0.25
     FollowPath:
-      plugin: nav2_mppi_controller::MPPIController
+      # The shim rotates in place when the path heading is far off, then hands over to
+      # MPPI (parameters below). Sim: MPPI alone reversed to goals behind the boat instead
+      # of turning (PreferForward 5.0 did not change that), and timed out near the goal.
+      plugin: nav2_controller::RotationShimController
+      primary_controller: nav2_mppi_controller::MPPIController
+      angular_dist_threshold: 1.0           # rad between boat heading and path heading
+      forward_sampling_distance: 0.5
+      rotate_to_heading_angular_vel: 0.3    # = wz_max
+      max_angular_accel: 0.5                # = az_max
+      simulate_ahead_time: 1.0
+      rotate_to_goal_heading: false         # the BT and goal checkers own final yaw
       motion_model: Omni
       time_steps: 48
       model_dt: 0.1             # = 1 / controller_frequency
@@ -117,7 +127,6 @@ controller_server:
       PreferForwardCritic:
         enabled: true
         cost_power: 1
-        # Sim: at 2.0 a goal behind was driven in reverse for the whole leg.
         cost_weight: 5.0
         threshold_to_consider: 0.5
       TwirlingCritic:
