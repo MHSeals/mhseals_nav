@@ -175,3 +175,9 @@ def test_plugin_names_are_declared_by_the_installed_nav2():
     config = yaml.safe_load((ROOT / 'config/nav2_params.yaml').read_text())
     missing = sorted(set(_plugin_strings(config)) - declared)
     assert not missing, f'not declared by any installed plugin XML: {missing}'
+
+
+def test_package_xml_depends_on_rotation_shim():
+    """The shim plugin ships in its own package, which the boat image must install."""
+    xml = (Path(__file__).resolve().parents[1] / 'package.xml').read_text()
+    assert '<exec_depend>nav2_rotation_shim_controller</exec_depend>' in xml
