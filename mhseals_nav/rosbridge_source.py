@@ -110,6 +110,7 @@ class RosbridgeSource:
                     self.logger.warning(f"Object bridge reconnecting: {error}")
             finally:
                 self.connected = False
+                self.remote = {}  # Facts about a gone peer must not read as current.
                 if self.socket is not None:
                     self.socket.close()
                     self.socket = None

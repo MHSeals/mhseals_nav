@@ -79,6 +79,7 @@ def test_source_subscribes_to_health_topics_and_measures_the_clock(fake_websocke
     source = RosbridgeSource("ws://squirtle:9090", "/objects", logging.getLogger(), relay=True)
     try:
         wait_for(lambda: {"clock_offset_ms", "remote_nodes"} <= source.remote.keys())
+        remote = dict(source.remote)  # Closing the link clears the facts.
     finally:
         source.close()
     sent = fake_websocket.sockets[0].sent
@@ -86,8 +87,8 @@ def test_source_subscribes_to_health_topics_and_measures_the_clock(fake_websocke
     assert subscribed["/rosout"]["throttle_rate"] == 0 and subscribed["/rosout"]["queue_length"] == 20
     assert subscribed["/diagnostics"]["throttle_rate"] == 1000
     assert "/perception/status" in subscribed
-    assert source.remote["clock_offset_ms"] == pytest.approx(2000, abs=100)
-    assert source.remote["remote_nodes"] == ["/front/zed_node", "/rosapi"]
+    assert remote["clock_offset_ms"] == pytest.approx(2000, abs=100)
+    assert remote["remote_nodes"] == ["/front/zed_node", "/rosapi"]
     assert not source.connected
 
 
@@ -128,3 +129,15 @@ def test_objects_subscription_error_still_reconnects(fake_websocket):
         wait_for(lambda: len(fake_websocket.sockets) == 1 and not source.connected)
     finally:
         source.close()
+
+
+def test_remote_facts_are_cleared_when_the_link_drops(fake_websocket):
+    source = RosbridgeSource("ws://squirtle:9090", "/objects", logging.getLogger(), relay=True)
+    try:
+        wait_for(lambda: "remote_nodes" in source.remote)
+        source.socket.close()  # Not a stop: the thread notices and reconnects.
+        source.stop.set()
+        source.thread.join(timeout=3.0)
+    finally:
+        source.close()
+    assert source.remote == {}
