@@ -79,7 +79,7 @@ def valid_numbers(controller, follow):
 def derived(config, original=None):
     """Return config with the values that follow from others recomputed.
 
-    The smoother passes what MPPI may command, MPPI advances one model_dt per
+    The smoother passes what MPPI may command, the rotation shim turns no faster than it, MPPI advances one model_dt per
     control cycle, and the plan must reach the whole horizon. original is the
     current tuning whose prune_distance is a floor.
     """
@@ -100,6 +100,10 @@ def derived(config, original=None):
     if 'vx_max' in follow:
         follow['prune_distance'] = max(original.get('prune_distance', 0.), round(
             1.2 * follow['vx_max'] * follow.get('time_steps', 56) * follow.get('model_dt', .05), 2))
+    # The shim's look-ahead and closed-loop accel assume the rates MPPI is held to.
+    for shim, limit in (('rotate_to_heading_angular_vel', 'wz_max'), ('max_angular_accel', 'az_max')):
+        if shim in follow and limit in follow:
+            follow[shim] = follow[limit]
     smoother = result.get('velocity_smoother', {}).get('ros__parameters')
     if smoother is not None:
         for key, limits in (('max_velocity', ('vx_max', 'vy_max', 'wz_max')),

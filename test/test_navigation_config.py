@@ -103,6 +103,13 @@ def test_derived_ties_smoother_accel_to_mppi():
     assert smoother['max_decel'] == [-.2, -.15, -.4]
 
 
+def test_derived_ties_shim_rotation_to_mppi():
+    follow = {'wz_max': .2, 'az_max': .3, 'rotate_to_heading_angular_vel': .3, 'max_angular_accel': .5}
+    config = {'controller_server': {'ros__parameters': {'FollowPath': follow}}}
+    shim = derived(config)['controller_server']['ros__parameters']['FollowPath']
+    assert (shim['rotate_to_heading_angular_vel'], shim['max_angular_accel']) == (.2, .3)
+
+
 def overlay_params(**params):
     base = {'controller_server': {'ros__parameters': {'controller_frequency': 10., 'FollowPath': {
         'vx_max': .4, 'model_dt': .1, 'time_steps': 40, 'prune_distance': 3.}}},
