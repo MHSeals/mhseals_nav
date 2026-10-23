@@ -2,7 +2,7 @@
 import struct
 
 from mhseals_nav.mavros_setup import (
-    decode_boot_ms, decode_ekf_status, ekf_status_values, parse_rates, rebooted,
+    decode_boot_ms, decode_ekf_status, ekf_status_values, from_fcu, parse_rates, rebooted,
     request_rates, with_removed)
 import pytest
 
@@ -120,6 +120,17 @@ def test_a_time_boot_drop_means_the_fcu_rebooted_without_disconnecting():
     assert rebooted(90_000, 1_500)
     assert not rebooted(90_000, 91_000)
     assert not rebooted(None, 1_500)
+
+
+def test_a_routed_gcs_system_time_is_not_taken_for_the_fcu_clock():
+    # Interleaved FCU (1, 1) and GCS (255, 190) SYSTEM_TIMEs must not look like reboots.
+    previous, reboots = None, 0
+    for sysid, compid, ms in [(1, 1, 90_000), (255, 190, 5_000), (1, 1, 90_500), (255, 190, 5_500)]:
+        if from_fcu(sysid, compid):
+            reboots += rebooted(previous, ms)
+            previous = ms
+    assert reboots == 0
+    assert not from_fcu(1, 191) and from_fcu(2, 1, fcu_sysid=2)
 
 
 def test_rc_at_the_fcu_default_rate_is_flagged_low_and_25_hz_is_not():

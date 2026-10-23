@@ -20,6 +20,7 @@ import time
 
 from mhseals_nav.utils.live_params import LiveParams
 
+MAV_COMP_ID_AUTOPILOT1 = 1
 SYSTEM_TIME = 2
 SYSTEM_TIME_BOOT = '<QI'  # time_unix_usec, time_boot_ms
 EKF_STATUS_REPORT = 193
@@ -68,6 +69,11 @@ def rc_rate_low(arrivals, now, window=5., min_hz=10., min_channels=8):
         arrivals.popleft()
     good = sum(1 for _, channels in arrivals if channels >= min_channels)
     return good / window < min_hz
+
+
+def from_fcu(sysid, compid, fcu_sysid=1):
+    """True for the autopilot's own messages, not a routed GCS or companion's."""
+    return sysid == fcu_sysid and compid == MAV_COMP_ID_AUTOPILOT1
 
 
 def decode_boot_ms(msgid, length, payload64):
@@ -136,6 +142,7 @@ def main(args=None):
     rclpy.init(args=args)
     node = Node('mavros_setup')
     node.declare_parameter('message_rates', ['33:20.0'])
+    node.declare_parameter('fcu_sysid', 1)  # MAVROS target system
     # A changed list is requested at once; the FCU keeps the latest request.
     live = LiveParams(node, {'message_rates': parse_rates},
                       on_change=lambda values, changed: wanted.set())
@@ -174,7 +181,9 @@ def main(args=None):
 
     def receive_mavlink(msg):
         now_ms = decode_boot_ms(msg.msgid, msg.len, msg.payload64)
-        if now_ms is not None:
+        # A routed GCS SYSTEM_TIME has its own boot clock and would look like a reboot.
+        fcu_sysid = node.get_parameter('fcu_sysid').value
+        if now_ms is not None and from_fcu(msg.sysid, msg.compid, fcu_sysid):
             if rebooted(boot_ms[0], now_ms):
                 node.get_logger().info('FCU boot time went backwards; requesting rates again')
                 wanted.set()
