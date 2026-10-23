@@ -124,3 +124,14 @@ def test_camera_relay_keeps_sensor_msgs_image_type():
     sensors = (ROOT / 'launch/sensors.launch.py').read_text()
     assert '/rgb/color/rect/image/compressed' not in sensors
     assert '/rgb/color/rect/image' in sensors
+
+
+def test_behavior_trees_reload_for_each_goal():
+    config = yaml.safe_load((ROOT / 'config/nav2_params.yaml').read_text())
+    assert config['bt_navigator']['ros__parameters']['always_reload_bt_xml'] is True
+
+
+def test_packaged_params_are_already_consistent_with_derived():
+    from mhseals_nav.navigation_config import derived
+    config = yaml.safe_load((ROOT / 'config/nav2_params.yaml').read_text())
+    assert derived(config) == config

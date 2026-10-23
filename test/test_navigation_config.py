@@ -1,4 +1,4 @@
-from mhseals_nav.navigation_config import merge_limits
+from mhseals_nav.navigation_config import derived, merge_limits
 
 
 def test_limits_use_current_planner_and_horizon_without_mutating_base():
@@ -37,3 +37,18 @@ def test_sampling_noise_never_exceeds_a_measured_axis_limit():
     follow = merge_limits(base, limits)['controller_server']['ros__parameters']['FollowPath']
     assert (follow['vx_std'], follow['vy_std'], follow['wz_std']) == (.15, .05, .25)
     assert follow['prune_distance'] == 3.0  # max(3.0, 1.2 x .3 x 4.8) keeps the base floor
+
+
+def test_derived_ties_smoother_and_model_dt_to_mppi():
+    config = {'controller_server': {'ros__parameters': {'controller_frequency': 20., 'FollowPath': {
+                  'model_dt': .1, 'time_steps': 10, 'vx_max': .5, 'vx_min': -.2,
+                  'vy_max': .1, 'wz_max': .3, 'prune_distance': 0.}}},
+              'velocity_smoother': {'ros__parameters': {
+                  'max_velocity': [9., 9., 9.], 'min_velocity': [-9., -9., -9.]}}}
+    result = derived(config)
+    follow = result['controller_server']['ros__parameters']['FollowPath']
+    assert follow['model_dt'] == .05 and follow['prune_distance'] == .3
+    smoother = result['velocity_smoother']['ros__parameters']
+    assert smoother['max_velocity'] == [.5, .1, .3]
+    assert smoother['min_velocity'] == [-.2, -.1, -.3]
+    assert config['velocity_smoother']['ros__parameters']['max_velocity'] == [9., 9., 9.]

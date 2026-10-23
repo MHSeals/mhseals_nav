@@ -74,9 +74,6 @@ def test_mavros_relays_preserve_sensor_abstraction_at_safe_rates():
     assert "('mavros_odom_rate', '20.0'" in launch
     assert "('mavros_imu_rate', '20.0'" in launch
     assert "('mavros_gps_rate', '5.0'" in launch
-    navsat_block = launch.split('navsat_transform_node = Node(', 1)[1].split(
-        'ekf_local_node = Node(', 1)[0]
-    assert "('odometry/filtered', '/odom/global')" in navsat_block
     assert '/dev/serial/by-id/usb-CubePilot_CubeOrange+_*-if00' in launch
 
 
@@ -85,3 +82,23 @@ def test_mavros_loads_only_the_plugins_the_stack_uses():
     plugins = config['/**']['ros__parameters']['plugin_allowlist']
     assert {'sys_status', 'imu', 'global_position', 'gps_status', 'rc_io',
             'setpoint_velocity'} <= set(plugins)
+
+
+def test_ekfs_launch_on_their_own_and_odom_includes_them_unless_disabled():
+    ekf = (ROOT / 'launch/ekf.launch.py').read_text()
+    assert "('odometry/filtered', '/odom/global')" in ekf.split('navsat =', 1)[1].split('local =', 1)[0]
+    assert "('odometry/filtered', '/odom/local')" in ekf
+    assert ekf.count("'ekf_node'") == 2
+    odom = (ROOT / 'launch/odom.launch.py').read_text()
+    assert "('start_ekf', 'true'" in odom and "'ekf.launch.py'" in odom
+    assert 'ekf_node' not in odom and 'navsat_transform_node' not in odom
+
+
+def test_overlay_overrides_one_node_and_a_missing_file_is_no_overlay(tmp_path):
+    from mhseals_nav.navigation_config import ekf_overlay
+    path = tmp_path / 'ekf.yaml'
+    path.write_text('ekf_local:\n  frequency: 40.0\nekf_global:\n  ros__parameters:\n    two_d_mode: false\n')
+    assert ekf_overlay(str(path), 'ekf_local') == {'frequency': 40.0}
+    assert ekf_overlay(str(path), 'ekf_global') == {'two_d_mode': False}
+    assert ekf_overlay(str(path), 'navsat_transform') == {}
+    assert ekf_overlay(str(tmp_path / 'none.yaml'), 'ekf_local') == {}

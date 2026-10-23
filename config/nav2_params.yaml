@@ -311,6 +311,7 @@ bt_navigator:
     default_server_timeout: 250      # ms; 20 timed out acknowledging compute_path_to_pose
     wait_for_service_timeout: 1000
     action_server_result_timeout: 60.0
+    always_reload_bt_xml: true       # a goal reads the tree file again, so edits apply per goal
     navigators: [navigate_to_pose, navigate_through_poses]
     navigate_to_pose:
       plugin: nav2_bt_navigator::NavigateToPoseNavigator

@@ -1,10 +1,10 @@
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, GroupAction, OpaqueFunction
+from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription, OpaqueFunction
+from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
-from launch.actions import TimerAction
 from launch.conditions import IfCondition, UnlessCondition
 
 from glob import glob
@@ -119,6 +119,8 @@ def generate_launch_description():
         ('mavros_gps_rate', '5.0', 'Requested MAVROS GPS rate'),
         ('mavros_rc_rate', '25.0', 'Requested MAVROS RC_CHANNELS rate'),
         ('rtabmap_params_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'rtabmap.yaml']), 'Path to RTABMap params'),
+        ('start_ekf', 'true', 'Start the EKFs and navsat_transform (false when ekf.launch.py runs on its own)'),
+        ('ekf_overlay_file', '~/.config/mhseals/ekf.yaml', 'Per-node EKF parameter overlay; ignored when missing'),
         ('navsat_transform_config_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'navsat_transform.yaml']), 'Path to navsat_transform params'),
         ('ekf_local_config_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'ekf_local.yaml']), 'Path to local EKF config'),
         ('ekf_global_config_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'ekf_global.yaml']), 'Path to global EKF config'),
@@ -174,58 +176,6 @@ def generate_launch_description():
         ],
     )
 
-    navsat_transform_node = Node(
-        package='robot_localization',
-        executable='navsat_transform_node',
-        name='navsat_transform',
-        parameters=[
-            launch_configurations['navsat_transform_config_file'],
-            {'use_sim_time': launch_configurations['sim']}
-        ],
-        remappings=[
-            ('imu', '/imu/raw'),  # robot_localization ROS 2 subscription name
-            ('imu/data', '/imu/raw'),
-            ('gps/fix', '/gps/fix'),
-            # Use the global EKF reference so odometry/gps is expressed in map.
-            # The global EKF can initialize from /odom/local before the first
-            # GPS correction; this is the standard dual-EKF data flow.
-            ('odometry/filtered', '/odom/global'),
-            ('odometry/gps', '/odom/gps')
-        ]
-    )
-    
-    ekf_local_node = Node(
-        package="robot_localization",
-        executable="ekf_node",
-        name="ekf_local",
-        output="screen",
-        parameters=[launch_configurations['ekf_local_config_file'], {'use_sim_time': launch_configurations['sim']}],
-        remappings=[
-            ('odometry/filtered', '/odom/local')
-        ]
-    )
-
-    ekf_global_node = Node(
-        package="robot_localization",
-        executable="ekf_node",
-        name="ekf_global",
-        output="screen",
-        parameters=[launch_configurations['ekf_global_config_file'], {'use_sim_time': launch_configurations['sim']}],
-        remappings=[
-            ('odometry/filtered', '/odom/global')
-        ]
-    )
-
-    ekf_local_node_delayed = TimerAction(
-        period=6.0,
-        actions=[ekf_local_node]
-    )
-    
-    ekf_global_node_delayed = TimerAction(
-        period=6.0,
-        actions=[ekf_global_node]
-    )
-    
     mavros_node = OpaqueFunction(function=create_mavros_node)
 
     # MAVROS plugins are dynamically-created nodes and do not inherit the
@@ -267,6 +217,18 @@ def generate_launch_description():
 
     robot_state_publisher_node = OpaqueFunction(function=load_urdf)
 
+    # The EKFs and navsat live in ekf.launch.py so they can be restarted alone,
+    # with MAVROS left up. start_ekf:=false leaves them to a separate launch.
+    ekf = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            PathJoinSubstitution([mhseals_nav_dir, 'launch', 'ekf.launch.py'])),
+        condition=IfCondition(launch_configurations['start_ekf']),
+        launch_arguments={
+            name: launch_configurations[name] for name in (
+                'sim', 'navsat_transform_config_file', 'ekf_local_config_file',
+                'ekf_global_config_file', 'ekf_overlay_file')
+        }.items())
+
     # Everything that talks to the flight controller. The EKFs only need the
     # topics, so a simulator can publish them and run without ArduPilot.
     flight_controller = GroupAction(
@@ -280,9 +242,7 @@ def generate_launch_description():
             # rtabmap_odom_node,
             flight_controller,
             imu_filter_node,
-            navsat_transform_node,
-            ekf_local_node_delayed,
-            ekf_global_node_delayed,
+            ekf,
             robot_state_publisher_node,
         ]
     )
