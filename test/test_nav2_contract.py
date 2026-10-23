@@ -3,6 +3,7 @@ import math
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
+import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -23,7 +24,7 @@ def test_omni_mppi_and_command_limits():
     # The camera looks forward: prefer facing along the path.
     assert mppi['PathAngleCritic']['mode'] == 0 and 'PreferForwardCritic' in mppi['critics']
     # Sim: MPPI alone reverses to a goal behind the boat; the shim must turn it first.
-    assert mppi['plugin'] == 'nav2_controller::RotationShimController'
+    assert mppi['plugin'] == 'nav2_rotation_shim_controller::RotationShimController'
     assert 0.5 < mppi['angular_dist_threshold'] <= 1.5
     assert mppi['rotate_to_heading_angular_vel'] <= mppi['wz_max']
     assert mppi['max_angular_accel'] <= mppi['az_max']
@@ -141,3 +142,36 @@ def test_packaged_params_are_already_consistent_with_derived():
     from mhseals_nav.navigation_config import derived
     config = yaml.safe_load((ROOT / 'config/nav2_params.yaml').read_text())
     assert derived(config) == config
+
+
+def _plugin_strings(node):
+    """Yield every value under a 'plugin' or 'primary_controller' key."""
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key in ('plugin', 'primary_controller') and isinstance(value, str):
+                yield value
+            else:
+                yield from _plugin_strings(value)
+    elif isinstance(node, list):
+        for value in node:
+            yield from _plugin_strings(value)
+
+
+def test_plugin_names_are_declared_by_the_installed_nav2():
+    """A renamed class only fails when controller_server starts, so resolve it here."""
+    ament_index = pytest.importorskip('ament_index_python.packages')
+    declared = set()
+    for package in ament_index.get_packages_with_prefixes():
+        prefix = Path(ament_index.get_package_prefix(package))
+        for xml in (prefix / 'share' / package).glob('*.xml'):
+            try:
+                root = ET.parse(xml).getroot()
+            except ET.ParseError:
+                continue
+            for cls in root.iter('class'):
+                declared.update(filter(None, (cls.get('name'), cls.get('type'))))
+    if not any(name.startswith('nav2_') for name in declared):
+        pytest.skip('Nav2 plugin XML is not installed')
+    config = yaml.safe_load((ROOT / 'config/nav2_params.yaml').read_text())
+    missing = sorted(set(_plugin_strings(config)) - declared)
+    assert not missing, f'not declared by any installed plugin XML: {missing}'

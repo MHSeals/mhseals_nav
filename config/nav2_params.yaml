@@ -41,7 +41,7 @@ controller_server:
       # The shim rotates in place when the path heading is far off, then hands over to
       # MPPI (parameters below). Sim: MPPI alone reversed to goals behind the boat instead
       # of turning (PreferForward 5.0 did not change that), and timed out near the goal.
-      plugin: nav2_controller::RotationShimController
+      plugin: nav2_rotation_shim_controller::RotationShimController
       primary_controller: nav2_mppi_controller::MPPIController
       angular_dist_threshold: 1.0           # rad between boat heading and path heading
       forward_sampling_distance: 0.5
