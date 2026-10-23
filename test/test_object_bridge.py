@@ -7,7 +7,6 @@ import time
 import pytest
 
 pytest.importorskip("rclpy")
-pytest.importorskip("websocket")
 import rclpy
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.qos import QoSProfile, DurabilityPolicy
@@ -20,6 +19,7 @@ from ros_domain import require_isolated_domain
 
 @pytest.mark.parametrize("silent_failure", [False, True])
 def test_legacy_json_recovers_from_late_publisher_and_reconnects(silent_failure):
+    pytest.importorskip("websocket")
     serve = pytest.importorskip("websockets.sync.server").serve
     require_isolated_domain()
     stop = Event()
