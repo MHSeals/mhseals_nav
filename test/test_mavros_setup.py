@@ -120,3 +120,20 @@ def test_a_time_boot_drop_means_the_fcu_rebooted_without_disconnecting():
     assert rebooted(90_000, 1_500)
     assert not rebooted(90_000, 91_000)
     assert not rebooted(None, 1_500)
+
+
+def test_rc_at_the_fcu_default_rate_is_flagged_low_and_25_hz_is_not():
+    from collections import deque
+    from mhseals_nav.mavros_setup import rc_rate_low
+    slow = deque((t * 0.5, 16) for t in range(11))
+    fast = deque((t * 0.04, 16) for t in range(126))
+    assert rc_rate_low(slow, 5.)
+    assert not rc_rate_low(fast, 5.)
+
+
+def test_rc_frames_without_channels_do_not_count_and_silence_is_low():
+    from collections import deque
+    from mhseals_nav.mavros_setup import rc_rate_low
+    empty = deque((t * 0.04, 0) for t in range(126))
+    assert rc_rate_low(empty, 5.)
+    assert rc_rate_low(deque(), 100.)

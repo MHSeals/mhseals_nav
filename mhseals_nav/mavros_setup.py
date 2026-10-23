@@ -7,7 +7,12 @@ step in SYSTEM_TIME.time_boot_ms also counts as a reconnect.
 
 It also decodes EKF_STATUS_REPORT, which MAVROS has no plugin for, from the raw
 MAVLink stream onto /fcu/ekf_status for the health checks.
+
+RC arbitration treats rc/in frames older than 0.3 s as lost, so at the FCU default of
+2 Hz MANUAL is choppy and no stick takeover latches. It therefore watches the real
+/mavros/rc/in rate and logs when it is low instead of leaving the mux to flap silently.
 """
+import collections
 import math
 import struct
 import threading
@@ -51,6 +56,18 @@ def reconnected(was_connected, is_connected):
 def rebooted(previous_ms, boot_ms):
     """True when the FCU's time since boot went backwards, i.e. it restarted."""
     return previous_ms is not None and boot_ms < previous_ms
+
+
+def rc_rate_low(arrivals, now, window=5., min_hz=10., min_channels=8):
+    """True when rc/in has been too slow or too empty over the last window seconds.
+
+    arrivals is a deque of (receive time, channel count); old entries are dropped.
+    The 25 Hz request lands well above min_hz, the 2 Hz FCU default well below.
+    """
+    while arrivals and arrivals[0][0] < now - window:
+        arrivals.popleft()
+    good = sum(1 for _, channels in arrivals if channels >= min_channels)
+    return good / window < min_hz
 
 
 def decode_boot_ms(msgid, length, payload64):
@@ -110,7 +127,7 @@ def ekf_status_values(status):
 def main(args=None):
     import rclpy
     from diagnostic_msgs.msg import DiagnosticStatus, KeyValue
-    from mavros_msgs.msg import Mavlink, State
+    from mavros_msgs.msg import Mavlink, RCIn, State
     from mavros_msgs.srv import MessageInterval
     from rclpy.executors import ExternalShutdownException
     from rclpy.node import Node
@@ -173,6 +190,34 @@ def main(args=None):
     node.create_subscription(Mavlink, '/uas1/mavlink_source', receive_mavlink,
                              qos_profile_sensor_data)
     node.create_subscription(State, '/mavros/state', receive_state, 10)
+
+    # Checked only while connected and after a full window, so start-up and reboots
+    # do not warn before the rate request has had time to take effect.
+    rc_arrivals = collections.deque()
+    rc_low = [False]
+    rc_since = [None]
+
+    def check_rc_rate():
+        now = time.monotonic()
+        if not connected[0]:
+            rc_since[0] = None
+            return
+        rc_since[0] = rc_since[0] or now
+        if now - rc_since[0] < 10.:
+            return
+        low = rc_rate_low(rc_arrivals, now)
+        if low != rc_low[0]:
+            rc_low[0] = low
+            (node.get_logger().warning if low else node.get_logger().info)(
+                'rc rate low: /mavros/rc/in under 10 Hz or under 8 channels; '
+                'MANUAL will be choppy and stick takeover impossible' if low else
+                'rc rate ok')
+
+    node.create_subscription(
+        RCIn, '/mavros/rc/in',
+        lambda msg: rc_arrivals.append((time.monotonic(), len(msg.channels))),
+        qos_profile_sensor_data)
+    node.create_timer(1., check_rc_rate)
     threading.Thread(target=work, daemon=True).start()
     try:
         rclpy.spin(node)
