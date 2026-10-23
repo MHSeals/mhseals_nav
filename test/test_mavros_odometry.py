@@ -59,15 +59,19 @@ def sample(cog, vel=100, fix_type=3, vel_acc=210):
 
 @pytest.mark.parametrize('cog, east, north', [(0, 0., 1.), (9000, 1., 0.), (18000, 0., -1.)])
 def test_gps_course_is_converted_to_enu(cog, east, north):
-    velocity, _ = gps_velocity(sample(cog), .05, 1.)
+    velocity, _ = gps_velocity(sample(cog), .05, 1., .3)
     assert velocity == pytest.approx((east, north, 0.), abs=1e-9)
 
 
 def test_gps_sigma_is_the_receivers_accuracy_with_a_floor():
-    assert gps_velocity(sample(0, vel_acc=210), .05, 1.)[1] == pytest.approx(.21)
-    assert gps_velocity(sample(0, vel_acc=10), .05, 1.)[1] == .05
+    assert gps_velocity(sample(0, vel_acc=210), .05, 1., .3)[1] == pytest.approx(.21)
+    assert gps_velocity(sample(0, vel_acc=10), .05, 1., .3)[1] == .05
+
+
+def test_gps_zero_accuracy_means_unknown_not_perfect():
+    assert gps_velocity(sample(0, vel_acc=0), .05, 1., .3)[1] == .3
 
 
 @pytest.mark.parametrize('raw', [sample(0, fix_type=2), sample(0, vel=65535), sample(65535)])
 def test_gps_without_a_usable_measurement_is_a_wide_zero_prior(raw):
-    assert gps_velocity(raw, .05, 1.) == ((0., 0., 0.), 1.)
+    assert gps_velocity(raw, .05, 1., .3) == ((0., 0., 0.), 1.)

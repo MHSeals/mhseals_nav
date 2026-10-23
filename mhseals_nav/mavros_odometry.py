@@ -56,17 +56,18 @@ def body_odometry(message, velocity_stddev):
     return result
 
 
-def gps_velocity(raw, min_stddev, nofix_stddev):
+def gps_velocity(raw, min_stddev, nofix_stddev, unknown_stddev):
     """ENU velocity and sigma from a GPSRAW sample (vel cm/s, cog cdeg, vel_acc mm/s).
 
     Without a usable fix there is no measurement: a zero velocity with a wide
-    sigma is a weak slow-boat prior rather than fake precision.
+    sigma is a weak slow-boat prior rather than fake precision. A vel_acc of 0
+    means the receiver gave no accuracy, so it falls back to unknown_stddev.
     """
     if raw.fix_type < 3 or 65535 in (raw.vel, raw.cog):
         return (0., 0., 0.), nofix_stddev
     speed, course = raw.vel / 100, math.radians(raw.cog / 100)
     return ((speed * math.sin(course), speed * math.cos(course), 0.),
-            max(raw.vel_acc / 1000, min_stddev))
+            max(raw.vel_acc / 1000, min_stddev) if raw.vel_acc else unknown_stddev)
 
 
 def with_velocity(message, velocity, stddev):
@@ -131,7 +132,8 @@ def main(args=None):
         now = node.get_clock().now().nanoseconds * 1e-9
         stamp = raw.header.stamp
         velocity, sigma = gps_velocity(raw, live['gps_velocity_min_stddev'],
-                                       live['velocity_stddev_nofix'])
+                                       live['velocity_stddev_nofix'],
+                                       live['velocity_stddev'])
         # Arrival time gates freshness since the header may carry FCU time; the
         # header is only the output stamp when it agrees with arrival.
         age = now - (stamp.sec + stamp.nanosec * 1e-9)
