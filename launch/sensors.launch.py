@@ -5,6 +5,8 @@ from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
+from mhseals_nav.endpoint_configuration import (
+    from_launch as endpoint_from_launch, LAYER_ARGUMENTS as ENDPOINT_LAYERS, UNSET_GCS)
 from mhseals_nav.lidar_configuration import resolve_lidar
 
 # Large-data transport for the lidar pair only; see config/fastdds_large_data.xml.
@@ -22,15 +24,12 @@ def launch_boolean(value):
 
 
 def sensor_nodes(context):
+    endpoints = endpoint_from_launch(context)
     sim = launch_boolean(LaunchConfiguration('sim').perform(context))
     ignored = LaunchConfiguration('sensors_ignore').perform(context).split(',')
-    launch_configurations = {name: LaunchConfiguration(name) for name in (
-        'ros_ip', 'ros_port')}
     if sim:
         return [Node(package='ros_tcp_endpoint', executable='default_server_endpoint',
-                     output='screen', parameters=[{
-                         'ROS_IP': launch_configurations['ros_ip'],
-                         'ROS_TCP_PORT': launch_configurations['ros_port']}])]
+                     output='screen', parameters=[endpoints.unity_parameters])]
     if 'lidar' in [name.strip() for name in ignored]:
         return []
     selected = LaunchConfiguration('lidar_params_file').perform(context)
@@ -73,11 +72,16 @@ def generate_launch_description():
         ('lidar_required_frame', '', 'Internal full-robot fixed frame contract'),
         ('velodyne_ip', '', 'Explicit device IP override; empty inherits YAML'),
         ('velodyne_port', '', 'Explicit UDP port override; empty inherits YAML'),
-        ('ros_ip', '127.0.0.1', 'IP address of the Unity ROS TCP Endpoint'),
-        ('ros_port', '6767', 'Port of the Unity ROS TCP Endpoint'),
+        ('ros_ip', '', 'IP address of the Unity ROS TCP Endpoint'),
+        ('ros_port', '', 'Port of the Unity ROS TCP Endpoint'),
         ('sensors_ignore', '', 'Comma-separated list of sensors to ignore, e.g. "lidar"'),
     ]
     
+    launch_args += [(name, '', 'Selected endpoint startup YAML layer') for name in ENDPOINT_LAYERS]
+    launch_args += [('endpoint_context', 'standalone', 'Endpoint defaults context'),
+                    ('fcu_url', '', 'Shared explicit FCU override'),
+                    ('gcs_url', UNSET_GCS, 'Shared explicit GCS override')]
+
     launch_configurations = {}
     declare_arguments = []
     for name, default_value, description in launch_args:

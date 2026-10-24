@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 from types import SimpleNamespace
 
+from mhseals_nav.endpoint_configuration import LAYER_ARGUMENTS as ENDPOINT_LAYERS, UNSET_GCS
 from mhseals_nav.navigation_config import persistent_limits_path
 from mhseals_nav.odometry_configuration import ALIASES, LAYER_ARGUMENTS
 from mhseals_nav.startup_snapshot import snapshot_root, snapshot_scope
@@ -21,13 +22,15 @@ def robot_factory():
 
     def record(*args, **kwargs): return SimpleNamespace(args=args, **kwargs)
     ns = {name: record for name in (
-        'DeclareLaunchArgument', 'IncludeLaunchDescription', 'TimerAction',
+        'DeclareLaunchArgument', 'IncludeLaunchDescription', 'TimerAction', 'OpaqueFunction',
         'PythonLaunchDescriptionSource', 'IfCondition')}
     ns.update(LaunchConfiguration=Configuration, LaunchDescription=lambda x: x,
               PathJoinSubstitution=lambda x: '/'.join(map(str, x)),
               FindPackageShare=lambda x: x, persistent_limits_path=persistent_limits_path,
               snapshot_root=snapshot_root, snapshot_scope=snapshot_scope,
-              ALIASES=ALIASES, LAYER_ARGUMENTS=LAYER_ARGUMENTS)
+              ALIASES=ALIASES, LAYER_ARGUMENTS=LAYER_ARGUMENTS,
+              ENDPOINT_LAYERS=ENDPOINT_LAYERS, UNSET_GCS=UNSET_GCS,
+              endpoint_preflight=lambda context: [])
     exec(compile(ast.Module(body=[function], type_ignores=[]), str(source), 'exec'), ns)
     return ns['generate_launch_description']()
 

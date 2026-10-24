@@ -3,6 +3,8 @@ import ast
 from pathlib import Path
 from types import SimpleNamespace
 
+from mhseals_nav.endpoint_configuration import (
+    boolean as endpoint_boolean, LAYER_ARGUMENTS as ENDPOINT_LAYERS, resolve_endpoints, UNSET_GCS)
 from mhseals_nav.mavros_configuration import ALIASES, resolve_setup
 from mhseals_nav.odometry_configuration import (
     ALIASES as ODOMETRY_ALIASES, LAYER_ARGUMENTS, resolve_odometry)
@@ -35,7 +37,10 @@ def factory():
               PathJoinSubstitution=lambda x: '/'.join(map(str, x)),
               FindPackageShare=lambda x: str(ROOT), ALIASES=ODOMETRY_ALIASES,
               LAYER_ARGUMENTS=LAYER_ARGUMENTS,
-              resolve_setup=resolve_setup,
+              resolve_setup=resolve_setup, ENDPOINT_LAYERS=ENDPOINT_LAYERS,
+              UNSET_GCS=UNSET_GCS, endpoint_boolean=endpoint_boolean,
+              endpoint_from_launch=lambda context: resolve_endpoints(
+                  ROOT / 'config/endpoint_startup.yaml'),
               from_launch=lambda context: resolve_odometry(
                   ROOT / 'config/odometry_startup.yaml',
                   deployment_file=context['odometry_deployment_file'],

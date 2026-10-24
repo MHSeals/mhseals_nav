@@ -1,9 +1,13 @@
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, TimerAction
+from launch.actions import (
+    DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction, TimerAction)
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.substitutions import FindPackageShare
 from launch.conditions import IfCondition
+from mhseals_nav.endpoint_configuration import (
+    boolean as endpoint_boolean,
+    from_launch as endpoint_from_launch, LAYER_ARGUMENTS as ENDPOINT_LAYERS, UNSET_GCS)
 from mhseals_nav.navigation_config import persistent_limits_path
 from mhseals_nav.odometry_configuration import ALIASES, LAYER_ARGUMENTS
 from mhseals_nav.startup_snapshot import snapshot_root, snapshot_scope
@@ -23,7 +27,7 @@ def generate_launch_description():
         # MAVROS / FCU
         ('fcu', 'true', 'Start MAVROS; false when the simulator publishes the FCU topics'),
         ('fcu_url', '', 'Flight control unit connection URL'),
-        ('gcs_url', 'udp://127.0.0.1:14550', 'Ground control station connection URL'),
+        ('gcs_url', UNSET_GCS, 'Ground control station connection URL'),
         ('mavros_params_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'mavros.yaml']), 'Path to MAVROS parameters file'),
 
         ('mavros_setup_params_file',
@@ -54,8 +58,8 @@ def generate_launch_description():
          'Explicit historical full-robot endpoint deployment layer'),
         ('velodyne_ip', '', 'Explicit device IP override; empty inherits YAML'),
         ('velodyne_port', '', 'Explicit UDP port override; empty inherits YAML'),
-        ('ros_ip', '127.0.0.1', 'ROS TCP Endpoint IP'),
-        ('ros_port', '6767', 'ROS TCP Endpoint port'),
+        ('ros_ip', '', 'ROS TCP Endpoint IP'),
+        ('ros_port', '', 'ROS TCP Endpoint port'),
         ('sensors_ignore', '', 'Comma-separated list of sensors to ignore, e.g. "camera,lidar"')
     ]
 
@@ -68,6 +72,9 @@ def generate_launch_description():
          PathJoinSubstitution([mhseals_nav_dir, 'config', 'navsat_transform.yaml']),
          'Navsat parameters'),
     ]
+
+    launch_args += [(name, '', 'Selected endpoint startup YAML layer') for name in ENDPOINT_LAYERS]
+    launch_args.append(('endpoint_context', 'full_robot', 'Endpoint defaults context'))
 
     launch_configurations = {}
     declare_arguments = []
@@ -96,6 +103,7 @@ def generate_launch_description():
             **{name: launch_configurations[name] for name in (
                 'mavros_setup_params_file', 'mavros_odom_rate', 'mavros_imu_rate',
                 'mavros_gps_rate', 'mavros_rc_rate', *LAYER_ARGUMENTS, *ALIASES,
+                *ENDPOINT_LAYERS, 'endpoint_context', 'ros_ip', 'ros_port',
                 'ekf_startup_context', 'ekf_overlay_file', 'navsat_transform_config_file')},
             'rtabmap_params_file': launch_configurations['rtabmap_params_file'],
             'ekf_local_config_file': launch_configurations['ekf_local_config_file'],
@@ -140,9 +148,18 @@ def generate_launch_description():
         }.items())
 
     return LaunchDescription(declare_arguments + [
+        OpaqueFunction(function=endpoint_preflight),
         sensors_launch,
         delayed_odom_launch,
         TimerAction(period=5.0, actions=[navigation_launch]),
         slam_launch,
         objects_launch,
     ])
+
+
+def endpoint_preflight(context):
+    """Validate endpoint closure before any included launch can create a child."""
+    endpoint_from_launch(context)
+    endpoint_boolean(LaunchConfiguration('sim').perform(context))
+    endpoint_boolean(LaunchConfiguration('fcu').perform(context))
+    return []

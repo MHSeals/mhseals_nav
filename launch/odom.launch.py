@@ -6,9 +6,12 @@ from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 from launch.conditions import IfCondition, UnlessCondition
 
-from glob import glob
 import xacro
 import os
+
+from mhseals_nav.endpoint_configuration import (
+    boolean as endpoint_boolean,
+    from_launch as endpoint_from_launch, LAYER_ARGUMENTS as ENDPOINT_LAYERS, UNSET_GCS)
 
 from mhseals_nav.odometry_configuration import ALIASES, from_launch, LAYER_ARGUMENTS
 
@@ -37,18 +40,9 @@ def load_urdf(context):
     )]
 
 def create_mavros_node(context):
-    sim = LaunchConfiguration('sim').perform(context).lower() == 'true'
-    fcu_url_override = LaunchConfiguration('fcu_url').perform(context)
-
-    if fcu_url_override != '':
-        fcu_url = fcu_url_override
-    elif sim:
-        fcu_url = 'tcp://127.0.0.1:5762'
-    else:
-        # ttyACM numbering changes with USB enumeration order; by-id does not.
-        # The baud rate is ignored on USB CDC.
-        cube = sorted(glob('/dev/serial/by-id/usb-CubePilot_CubeOrange+_*-if00'))
-        fcu_url = f'serial://{cube[0] if cube else "/dev/ttyACM0"}:115200'
+    endpoints = endpoint_from_launch(context)
+    sim = endpoint_boolean(LaunchConfiguration('sim').perform(context))
+    parameters, observation = endpoints.mavros_parameters(sim)
 
     return [Node(
         package='mavros',
@@ -57,9 +51,7 @@ def create_mavros_node(context):
         parameters=[
             LaunchConfiguration('mavros_params_file'),
             {
-                'use_sim_time': sim,
-                'fcu_url': fcu_url,
-                'gcs_url': LaunchConfiguration('gcs_url')
+                **parameters
             }
         ]
     )]
@@ -105,7 +97,7 @@ def generate_launch_description():
         ('use_imu_filter', 'false', 'Start imu_filter_madgwick (/imu/filtered); nothing consumes it'),
         ('robot_state_publish_frequency', '', 'Rate at which robot state is published'),
         ('fcu_url', '', 'Flight control unit connection URL'),
-        ('gcs_url', 'udp://@127.0.0.1:14550', 'Ground control service connection URL'),
+        ('gcs_url', UNSET_GCS, 'Ground control service connection URL'),
         ('mavros_params_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'mavros.yaml']), 'Path to MAVROS params'),
         ('mavros_setup_params_file',
          PathJoinSubstitution([mhseals_nav_dir, 'config', 'mavros_setup.yaml']),
@@ -134,6 +126,11 @@ def generate_launch_description():
                     if name not in {item[0] for item in launch_args}]
     launch_args.append(('ekf_startup_context', 'included', 'EKF startup delay context'))
 
+    launch_args += [(name, '', 'Selected endpoint startup YAML layer') for name in ENDPOINT_LAYERS]
+    launch_args += [(name, '', 'Explicit endpoint alias; empty inherits YAML')
+                    for name in ('ros_ip', 'ros_port')]
+    launch_args.append(('endpoint_context', 'standalone', 'Historical endpoint defaults context'))
+
     launch_configurations = {}
     declare_arguments = []
     for name, default_value, description in launch_args:
@@ -147,6 +144,9 @@ def generate_launch_description():
 
 def odometry_nodes(context):
     settings = from_launch(context)  # fail every selected startup layer before Node construction
+    endpoint_from_launch(context)
+    endpoint_boolean(LaunchConfiguration('sim').perform(context))
+    endpoint_boolean(LaunchConfiguration('fcu').perform(context))
     mhseals_nav_dir = FindPackageShare('mhseals_nav')
     launch_configurations = {name: LaunchConfiguration(name) for name in (
         'sim', 'fcu', 'use_imu_filter', 'start_ekf', 'dlio_params_file',

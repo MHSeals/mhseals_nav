@@ -2,6 +2,8 @@
 import ast
 from pathlib import Path
 
+from mhseals_nav.endpoint_configuration import (
+    boolean as endpoint_boolean, LAYER_ARGUMENTS as ENDPOINT_LAYERS, resolve_endpoints, UNSET_GCS)
 from mhseals_nav.localization_configuration import compile_localization, simulation_clock
 from mhseals_nav.odometry_configuration import ALIASES, LAYER_ARGUMENTS, resolve_odometry
 import pytest
@@ -41,6 +43,10 @@ def factories(filename, settings, calls):
         'simulation_clock': simulation_clock,
         'ALIASES': ALIASES,
         'LAYER_ARGUMENTS': LAYER_ARGUMENTS,
+        'ENDPOINT_LAYERS': ENDPOINT_LAYERS, 'UNSET_GCS': UNSET_GCS,
+        'endpoint_boolean': endpoint_boolean,
+        'endpoint_from_launch': lambda context: resolve_endpoints(
+            ROOT / 'config/endpoint_startup.yaml'),
     }
     exec(compile(ast.Module(body=nodes, type_ignores=[]), str(source), 'exec'), namespace)
     return namespace
@@ -48,7 +54,8 @@ def factories(filename, settings, calls):
 
 def context():
     return {**{name: '' for name in (*ALIASES, *LAYER_ARGUMENTS)},
-            'sim': 'true', 'ekf_overlay_file': '', 'ekf_startup_context': 'included',
+            'sim': 'true', 'fcu': 'true', 'ekf_overlay_file': '',
+            'ekf_startup_context': 'included',
             'navsat_transform_config_file': str(ROOT / 'config/navsat_transform.yaml'),
             'ekf_local_config_file': str(ROOT / 'config/ekf_local.yaml'),
             'ekf_global_config_file': str(ROOT / 'config/ekf_global.yaml')}

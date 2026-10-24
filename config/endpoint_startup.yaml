@@ -1,0 +1,17 @@
+fcu_url: ''
+simulation_fcu_url: tcp://127.0.0.1:5762
+serial_fallback: /dev/ttyACM0
+unity: {ip: 127.0.0.1, port: 6767}
+contexts:
+  standalone:
+    discovery: odom_cube_if00
+    baud: 115200
+    gcs_url: udp://@127.0.0.1:14550
+  full_robot:
+    discovery: odom_cube_if00
+    baud: 115200
+    gcs_url: udp://@127.0.0.1:14550
+  tui:
+    discovery: tui_stable_hints
+    baud: 57600
+    gcs_url: udp://@127.0.0.1:14550

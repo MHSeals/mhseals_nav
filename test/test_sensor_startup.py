@@ -2,6 +2,8 @@
 import ast
 from pathlib import Path
 
+from mhseals_nav.endpoint_configuration import (
+    LAYER_ARGUMENTS as ENDPOINT_LAYERS, resolve_endpoints, UNSET_GCS)
 from mhseals_nav.lidar_configuration import resolve_lidar
 
 import pytest
@@ -23,6 +25,9 @@ def factory(lidar_resolver=resolve_lidar):
     namespace = {'LaunchConfiguration': Configuration, 'Node': lambda **kw: kw,
                  'PathJoinSubstitution': lambda x: x, 'FindPackageShare': lambda x: x,
                  'large_data_env': {}, 'resolve_lidar': lidar_resolver,
+                 'endpoint_from_launch': lambda context: resolve_endpoints(
+                     Path(__file__).parents[1] / 'config/endpoint_startup.yaml'),
+                 'ENDPOINT_LAYERS': ENDPOINT_LAYERS, 'UNSET_GCS': UNSET_GCS,
                  'DeclareLaunchArgument': lambda name, **kw: dict(name=name, **kw),
                  'OpaqueFunction': lambda **kw: kw, 'LaunchDescription': list}
     exec(compile(ast.Module(body=functions, type_ignores=[]), str(path), 'exec'), namespace)
