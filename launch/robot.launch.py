@@ -47,8 +47,12 @@ def generate_launch_description():
 
         # Sensors
         ('camera_name', 'front', 'ZED camera namespace (see camera.launch.py)'),
-        ('velodyne_ip', '192.168.1.201', 'Velodyne LiDAR IP address'),
-        ('velodyne_port', '2368', 'Velodyne UDP port'),
+        ('lidar_params_file', '', 'Optional selected lidar YAML over package/deployment defaults'),
+        ('lidar_deployment_file',
+         PathJoinSubstitution([mhseals_nav_dir, 'config', 'lidar_robot.yaml']),
+         'Explicit historical full-robot endpoint deployment layer'),
+        ('velodyne_ip', '', 'Explicit device IP override; empty inherits YAML'),
+        ('velodyne_port', '', 'Explicit UDP port override; empty inherits YAML'),
         ('ros_ip', '127.0.0.1', 'ROS TCP Endpoint IP'),
         ('ros_port', '6767', 'ROS TCP Endpoint port'),
         ('sensors_ignore', '', 'Comma-separated list of sensors to ignore, e.g. "camera,lidar"')
@@ -65,7 +69,7 @@ def generate_launch_description():
         PythonLaunchDescriptionSource([
             PathJoinSubstitution([mhseals_nav_dir, 'launch', 'sensors.launch.py'])
         ]),
-        launch_arguments={k: v for k, v in launch_configurations.items()}.items()
+        launch_arguments={**launch_configurations, 'lidar_required_frame': 'lidar_link'}.items()
     )
 
     odom_launch = IncludeLaunchDescription(
