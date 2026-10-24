@@ -9,6 +9,7 @@ from hashlib import sha256
 from mhseals_config.catalog import DescriptorBundle
 import yaml
 
+from .mavros_configuration import rates_from_yaml, resolve_setup, validate_rates
 from .navigation_config import (LOWERING_INPUTS, mppi_controller, StrictOverlayLoader,
                                 validate_navigation_base, validated_merge_limits)
 
@@ -19,6 +20,10 @@ RECIPE = 'navigation.compiler-parity'
 REGISTRY = {COMPILER: validated_merge_limits, VALIDATOR: validate_navigation_base}
 # Recipe checks compilation only; upstream plugin behavior requires separate evidence.
 REGISTRY[RECIPE] = validated_merge_limits
+MAVROS_REVISION = '79992f4'
+REGISTRY.update({'mavros.validate_rates': validate_rates,
+                 'mavros.resolve_setup': resolve_setup,
+                 'mavros.selected-rate-validation': rates_from_yaml})
 
 
 def _pointer(parts):
@@ -150,3 +155,48 @@ def navigation_catalog(raw, *, resource, policy_raw, consumer_versions=None):
                                  'sha256': digest}],
             'leaves': leaves}
     return DescriptorBundle.read(data, {'selected-nav2': raw}, REGISTRY, versions)
+
+
+def mavros_catalog(raw, *, resource, policy_raw, consumer_versions=None):
+    """Describe selected rate bytes, with requested/unverified evidence only."""
+    rates_from_yaml(raw)
+    policy = yaml.load(policy_raw, Loader=StrictOverlayLoader)
+    if (not isinstance(policy, dict) or set(policy) != {
+            'schema_version', 'owner_package', 'revision', 'consumer_version',
+            'authoring', 'consumer', 'safety', 'evidence'} or policy['schema_version'] != 1):
+        raise ValueError('unknown MAVROS catalog policy')
+    # Keep the existing package policy shape and unknown safety/version blockers.
+    pointer = '/mavros_setup/ros__parameters/message_rates'
+    digest = sha256(raw).hexdigest()
+    validator = 'mavros.validate_rates'
+    compiler = 'mavros.resolve_setup'
+    recipe = 'mavros.selected-rate-validation'
+    source = 'selected-mavros-setup'
+    consumer = 'mavros_setup'
+    version = 'unknown'
+    leaf = {
+        'canonical_key': 'mavros.intervals', 'aliases': [],
+        'default_ref': {'source_id': source, 'yaml_pointer': pointer, 'path': resource,
+                        'line': _locations(raw)[pointer], 'source_hash': digest},
+        'value': {'type': 'sequence', 'dimensions': [len(rates_from_yaml(raw))],
+                  'units': 'ID:Hz; positive=request, 0=reset, -1=disable',
+                  'constraint_ref': validator, 'validator_ref': validator, 'inputs': [pointer]},
+        'authoring': dict(policy['authoring'], destination=resource, pointer=pointer,
+                          layers=['package', 'deployment', 'profile', 'session'],
+                          absence='required', scopes=['baseline', 'session'], controlling_keys=[]),
+        'consumers': [dict(policy['consumer'], id=consumer, version=version,
+                           parameters=[pointer], compiler_ref=compiler, inputs=[pointer],
+                           outputs=['/mavros/set_message_interval'],
+                           dependencies=['selected-mavros-setup-yaml', 'FCU-target-system-1',
+                                         'autopilot-component-1', 'connection-and-boot-epoch'])],
+        'safety': policy['safety'],
+        'evidence': [dict(policy['evidence'], recipe_ref=recipe, consumer=consumer,
+                          version=version, required_type='requested/unverified')],
+        'coverage': [{'source': source, 'consumer': consumer, 'status': 'startup-supported',
+                      'revision': MAVROS_REVISION, 'path': 'launch/odom.launch.py',
+                      'line': 71, 'consume_site': 'create_mavros_setup_node; reconnect request_rates'}]}
+    data = {'schema_version': 1, 'owner_package': 'mhseals_nav', 'revision': MAVROS_REVISION,
+            'consumer_versions': {consumer: version},
+            'default_sources': [{'id': source, 'resource': resource, 'sha256': digest}],
+            'leaves': [leaf]}
+    return DescriptorBundle.read(data, {source: raw}, REGISTRY, dict(consumer_versions or {}))
