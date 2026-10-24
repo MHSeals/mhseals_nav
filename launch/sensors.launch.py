@@ -1,5 +1,5 @@
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
+from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch.conditions import IfCondition, UnlessCondition
 
@@ -12,13 +12,63 @@ LARGE_DATA_PROFILE = PathJoinSubstitution(
 large_data_env = {'FASTRTPS_DEFAULT_PROFILES_FILE': LARGE_DATA_PROFILE,
                   'FASTDDS_DEFAULT_PROFILES_FILE': LARGE_DATA_PROFILE}
 
-def sensor_ignore(sensor):
-    return UnlessCondition(
-        PythonExpression(
-            ["'true' == '", LaunchConfiguration('sim'), "' or '", sensor, 
-             "' in [s.strip() for s in '", LaunchConfiguration('sensors_ignore'), "'.split(',')]"]
-        )
+def launch_boolean(value):
+    """ROS launch boolean vocabulary, validated before constructing nodes."""
+    normalized = value.strip().lower()
+    if normalized not in ('true', '1', 'false', '0'):
+        raise ValueError(f'Invalid sim boolean: {value!r}')
+    return normalized in ('true', '1')
+
+
+def sensor_nodes(context):
+    sim = launch_boolean(LaunchConfiguration('sim').perform(context))
+    ignored = LaunchConfiguration('sensors_ignore').perform(context).split(',')
+    launch_configurations = {name: LaunchConfiguration(name) for name in (
+        'velodyne_ip', 'velodyne_port', 'ros_ip', 'ros_port')}
+    if sim:
+        return [Node(package='ros_tcp_endpoint', executable='default_server_endpoint',
+                     output='screen', parameters=[{
+                         'ROS_IP': launch_configurations['ros_ip'],
+                         'ROS_TCP_PORT': launch_configurations['ros_port']}])]
+    if 'lidar' in [name.strip() for name in ignored]:
+        return []
+    # Velodyne driver (skip if "lidar" is in sensors_ignore)
+    velodyne_driver_node = Node(
+        package='velodyne_driver',
+        executable='velodyne_driver_node',
+        name='velodyne_driver',
+        output='screen',
+        # The lidar pair uses the large-data transport; TF and odometry stay on
+        # the default transport. See config/fastdds_large_data.xml.
+        additional_env=large_data_env,
+        parameters=[{
+            'model': 'VLP16',
+            'frame_id': 'lidar_link',
+            'device_ip': launch_configurations['velodyne_ip'],
+            'port': launch_configurations['velodyne_port'],
+            'rpm': 600.0
+        }]
     )
+
+    velodyne_pointcloud_node = Node(
+        package='velodyne_pointcloud',
+        executable='velodyne_transform_node',
+        name='velodyne_transform',
+        output='screen',
+        additional_env=large_data_env,
+        parameters=[{
+            'model': 'VLP16',
+            'frame_id': 'lidar_link',
+            'calibration': PathJoinSubstitution([
+                FindPackageShare('velodyne_pointcloud'), 'params', 'VLP16db.yaml'
+            ])
+        }],
+        remappings=[('velodyne_points', '/points')]
+    )
+
+    return [velodyne_driver_node, velodyne_pointcloud_node,
+            Node(package='mhseals_nav', executable='lidar_relay', output='screen')]
+
 
 def generate_launch_description():
     launch_args = [
@@ -38,59 +88,4 @@ def generate_launch_description():
             DeclareLaunchArgument(name, default_value=default_value, description=description)
         )
 
-    # Velodyne driver (skip if "lidar" is in sensors_ignore)
-    velodyne_driver_node = Node(
-        package='velodyne_driver',
-        executable='velodyne_driver_node',
-        name='velodyne_driver',
-        output='screen',
-        # The lidar pair uses the large-data transport; TF and odometry stay on
-        # the default transport. See config/fastdds_large_data.xml.
-        additional_env=large_data_env,
-        parameters=[{
-            'model': 'VLP16',
-            'frame_id': 'lidar_link',
-            'device_ip': launch_configurations['velodyne_ip'],
-            'port': launch_configurations['velodyne_port'],
-            'rpm': 600.0
-        }],
-        condition=sensor_ignore('lidar')
-    )
-
-    velodyne_pointcloud_node = Node(
-        package='velodyne_pointcloud',
-        executable='velodyne_transform_node',
-        name='velodyne_transform',
-        output='screen',
-        additional_env=large_data_env,
-        parameters=[{
-            'model': 'VLP16',
-            'frame_id': 'lidar_link',
-            'calibration': PathJoinSubstitution([
-                FindPackageShare('velodyne_pointcloud'), 'params', 'VLP16db.yaml'
-            ])
-        }],
-        remappings=[('velodyne_points', '/points')],
-        condition=sensor_ignore('lidar')
-    )
-
-    ros_tcp_endpoint = Node(
-        package='ros_tcp_endpoint',
-        executable='default_server_endpoint',
-        output='screen',
-        parameters=[{
-            'ROS_IP': launch_configurations['ros_ip'],
-            'ROS_TCP_PORT': launch_configurations['ros_port']
-        }],
-        condition=IfCondition(launch_configurations['sim'])
-    )
-
-    nodes = [ 
-        velodyne_driver_node, 
-        velodyne_pointcloud_node, 
-        Node(package='mhseals_nav', executable='lidar_relay',
-             output='screen', condition=sensor_ignore('lidar')),
-        ros_tcp_endpoint
-    ]
-
-    return LaunchDescription(declare_arguments + nodes)
+    return LaunchDescription(declare_arguments + [OpaqueFunction(function=sensor_nodes)])
