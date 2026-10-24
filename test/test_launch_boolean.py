@@ -31,10 +31,19 @@ def test_sim_clock_is_boolean(filename, function, sim):
     assert nodes[0]['parameters'][1]['use_sim_time'] is (sim == 'true')
 
 
-def test_velodyne_driver_and_transform_use_same_model():
-    source = (Path(__file__).parents[1] / 'launch' /
-              'sensors.launch.py').read_text()
-    assert source.count("'model': 'VLP16'") == 2
+def test_velodyne_driver_and_transform_use_same_model(tmp_path):
+    from mhseals_nav.lidar_configuration import resolve_lidar
+    from test_lidar_configuration import share as calibration_share
+    from test_lidar_startup import context, sensor_factory
+
+    share = calibration_share.__wrapped__(tmp_path)
+    resolved = resolve_lidar(share=share)  # authoritative package YAML + validated calibration
+    nodes = sensor_factory(share)['sensor_nodes'](context())
+    driver, transform = [node['parameters'][0] for node in nodes[:2]]
+    assert driver == resolved['driver']
+    assert transform == resolved['transform']
+    assert driver['model'] == transform['model'] == 'VLP16'
+    assert driver['frame_id'] == transform['frame_id'] == 'lidar_link'
 
 
 def test_imu_filter_is_opt_in():

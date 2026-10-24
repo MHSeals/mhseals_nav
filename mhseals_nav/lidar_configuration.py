@@ -1,8 +1,8 @@
 """Resolve startup-only lidar layers and paired driver/transform projections."""
-import math
 from collections.abc import Mapping
 from hashlib import sha256
 from ipaddress import IPv4Address
+import math
 from pathlib import Path
 
 from mhseals_config.resolver import Field, parse, resolve
