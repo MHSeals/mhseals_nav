@@ -9,34 +9,34 @@ from launch_ros.substitutions import FindPackageShare
 from nav2_common.launch import RewrittenYaml
 import tempfile
 import os
+
+from mhseals_nav.startup_snapshot import snapshot_root, snapshot_scope
 import yaml
-from mhseals_nav.navigation_config import load_overlay, validated_merge_limits
 
 
 def navigation_nodes(context):
-    source = LaunchConfiguration('params_file').perform(context)
-    limits = os.path.expanduser(LaunchConfiguration('limits_file').perform(context))
-    # A missing overlay (~/.config/mhseals/nav2.yaml before the first edit) is no overlay.
-    measured = load_overlay(limits, strict=True) if limits else {}
-    if measured:
-        from launch.actions import RegisterEventHandler
-        from launch.event_handlers import OnShutdown
-        with open(source) as stream:
-            base = yaml.safe_load(stream)
-        merged = validated_merge_limits(base, measured)
-        handle = tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False)
-        with handle:
-            yaml.safe_dump(merged, handle)
-        source = handle.name
-        cleanup = RegisterEventHandler(OnShutdown(on_shutdown=[OpaqueFunction(
-            function=lambda _: os.unlink(source) if os.path.exists(source) else None)]))
-    else:
-        cleanup = None
+    from mhseals_nav.startup_snapshot import select_snapshot
+    from launch.actions import RegisterEventHandler
+    from launch.event_handlers import OnShutdown
+    selection = select_snapshot(
+        LaunchConfiguration('config_root').perform(context),
+        LaunchConfiguration('config_scope').perform(context),
+        LaunchConfiguration('params_file').perform(context),
+        LaunchConfiguration('limits_file').perform(context),
+        sim=LaunchConfiguration('sim').perform(context),
+        use_lidar=LaunchConfiguration('use_lidar').perform(context))
+    handle = tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False)
+    with handle:
+        yaml.safe_dump(selection['parameters'], handle)
+    source = handle.name
+    cleanup = RegisterEventHandler(OnShutdown(on_shutdown=[OpaqueFunction(
+        function=lambda _: os.unlink(source) if os.path.exists(source) else None)]))
+    invocation = selection['invocation']
 
     share = FindPackageShare('mhseals_nav')
     rewrites = {
         f'{name}.{name}.ros__parameters.obstacle_layer.enabled':
-            LaunchConfiguration('use_lidar')
+            str(invocation['use_lidar']).lower()
         for name in ('local_costmap', 'global_costmap')}
     for key, filename in (
             ('default_nav_to_pose_bt_xml', 'nav_to_pose.xml'),
@@ -55,7 +55,7 @@ def navigation_nodes(context):
         ('nav2_waypoint_follower', 'waypoint_follower'),
         ('nav2_velocity_smoother', 'velocity_smoother'),
     ]
-    clock = ParameterValue(LaunchConfiguration('sim'), value_type=bool)
+    clock = ParameterValue(invocation['sim'], value_type=bool)
     nodes = []
     for package, executable in servers:
         remaps = []
@@ -86,6 +86,9 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument('params_file', default_value=PathJoinSubstitution(
             [share, 'config', 'nav2_params.yaml'])),
+        DeclareLaunchArgument('config_root', default_value=snapshot_root()),
+        DeclareLaunchArgument('config_scope', default_value=snapshot_scope(),
+                             description='Reuse for an exact partial restart'),
         DeclareLaunchArgument('sim', default_value='true'),
         DeclareLaunchArgument('limits_file', default_value='',
                              description='Overlay (measured limits, ~/.config/mhseals/nav2.yaml) merged with params_file'),

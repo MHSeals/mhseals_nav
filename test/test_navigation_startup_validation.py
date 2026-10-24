@@ -53,7 +53,10 @@ def test_actual_navigation_factory_fails_before_node(base, tmp_path):
     overlay.write_text('controller_server: []')
     class Configuration:
         def __init__(self, name): self.name = name
-        def perform(self, context): return context[self.name]
+        def perform(self, context):
+            defaults = {'config_root': str(Path(context['params_file']).parent / 'snapshots'),
+                        'config_scope': 'test', 'sim': 'true', 'use_lidar': 'true'}
+            return context.get(self.name, defaults.get(self.name))
     # Inert imports used by the actual factory; never load launch or rclpy.
     import sys
     import types
@@ -120,15 +123,33 @@ def inert_navigation_factory():
     function = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'navigation_nodes')
     class Configuration:
         def __init__(self, name): self.name = name
-        def perform(self, context): return context[self.name]
+        def perform(self, context):
+            defaults = {'config_root': str(Path(context['params_file']).parent / 'snapshots'),
+                        'config_scope': 'test', 'sim': 'true', 'use_lidar': 'true'}
+            return context.get(self.name, defaults.get(self.name))
     import os
     import tempfile
+    import sys
+    import types
+    actions = types.ModuleType('launch.actions')
+    actions.RegisterEventHandler = lambda *a, **kw: None
+    events = types.ModuleType('launch.event_handlers')
+    events.OnShutdown = lambda **kw: None
     ns = dict(LaunchConfiguration=Configuration, os=os, yaml=yaml, tempfile=tempfile,
               load_overlay=load_overlay, validated_merge_limits=validated_merge_limits,
               FindPackageShare=lambda name: name, PathJoinSubstitution=lambda parts: parts,
               RewrittenYaml=lambda **kw: kw, ParameterValue=lambda *a, **kw: a,
-              Node=lambda **kw: kw)
+              Node=lambda **kw: kw, OpaqueFunction=lambda **kw: kw)
     exec(compile(ast.Module(body=[function], type_ignores=[]), str(source), 'exec'), ns)
+    factory = ns['navigation_nodes']
+    from unittest.mock import patch
+
+    def run(context):
+        with patch.dict(sys.modules, {
+                'launch.actions': actions, 'launch.event_handlers': events}):
+            return factory(context)
+
+    ns['navigation_nodes'] = run
     return ns
 
 
@@ -142,7 +163,8 @@ def test_absent_optional_overlay_preserves_custom_controller_base(base, tmp_path
     nodes = ns['navigation_nodes']({'params_file': str(path),
                                    'limits_file': str(tmp_path / 'absent.yaml')})
     assert len(nodes) == 7
-    assert all(node['parameters'][0]['source_file'] == str(path) for node in nodes[:6])
+    assert all(yaml.safe_load(Path(node['parameters'][0]['source_file']).read_text()) == base
+               for node in nodes[:6])
     # A real overlay on this selected base must not require a FollowPath mapping.
     merged = validated_merge_limits(base, {'controller_server': {'ros__parameters': {
         'CustomController': {'vx_max': 0.3}}}})
@@ -173,3 +195,32 @@ def test_review_reproductions_fail_before_node(base, tmp_path, patch):
     with patch_modules.dict(sys.modules, {'launch.actions': actions, 'launch.event_handlers': events}):
         with pytest.raises(ValueError):
             ns['navigation_nodes']({'params_file': str(base_path), 'limits_file': str(overlay)})
+
+
+def test_actual_factory_adopts_exact_scope_and_corruption_stops_nodes(base, tmp_path):
+    from test_robot_overlay import robot_factory
+    entities = robot_factory()
+    timer = next(e for e in entities if getattr(e, 'period', None) == 5.0)
+    forwarded = dict(timer.actions[0].launch_arguments)
+    assert forwarded['config_scope'].name == 'config_scope'
+    assert forwarded['config_root'].name == 'config_root'
+    path = tmp_path / 'base.yaml'
+    path.write_text(yaml.safe_dump(base))
+    overlay = tmp_path / 'limits.yaml'
+    overlay.write_text('controller_server:\n  ros__parameters:\n'
+                       '    controller_frequency: 20\n    FollowPath:\n'
+                       '      vx_max: 0.6\n      vy_max: 0.12\n      wz_max: 0.2\n')
+    context = {'params_file': str(path), 'limits_file': str(overlay),
+               'config_root': str(tmp_path / 'snapshots'), 'config_scope': 'shared'}
+    ns = inert_navigation_factory()
+    first = ns['navigation_nodes'](context)
+    emitted = yaml.safe_load(Path(first[0]['parameters'][0]['source_file']).read_text())
+    assert emitted['controller_server']['ros__parameters']['FollowPath']['model_dt'] == .05
+    assert emitted['velocity_smoother']['ros__parameters']['max_velocity'] == [.6, .12, .2]
+    overlay.write_text('invalid: authoring edit')
+    second = ns['navigation_nodes'](context)
+    assert yaml.safe_load(Path(second[0]['parameters'][0]['source_file']).read_text()) == emitted
+    (tmp_path / 'snapshots/shared/initializing/nav2-compiler.json').unlink()
+    ns['Node'] = lambda **kw: pytest.fail('constructed node after snapshot corruption')
+    with pytest.raises(FileNotFoundError):
+        ns['navigation_nodes'](context)

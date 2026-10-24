@@ -5,12 +5,15 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.substitutions import FindPackageShare
 from launch.conditions import IfCondition
+from mhseals_nav.startup_snapshot import snapshot_root, snapshot_scope
 
 def generate_launch_description():
     mhseals_nav_dir = FindPackageShare('mhseals_nav')
 
     launch_args = [
         # General
+        ('config_root', snapshot_root(), 'Local immutable startup artifact root'),
+        ('config_scope', snapshot_scope(), 'Session identity; reuse for partial restart'),
         ('sim', 'true', 'Use simulation time'),
         ('use_lidar', 'true', 'Enable lidar costmap; false requires supervised operation'),
         ('enable_slam', 'false', 'Enable optional RTABMap lidar-cloud mapping'),
@@ -80,6 +83,8 @@ def generate_launch_description():
             [mhseals_nav_dir, 'launch', 'navigation.launch.py'])),
         launch_arguments={
             'sim': launch_configurations['sim'],
+            'config_root': launch_configurations['config_root'],
+            'config_scope': launch_configurations['config_scope'],
             'params_file': launch_configurations['nav2_params_file'],
             'limits_file': launch_configurations['limits_file'],
             'use_lidar': launch_configurations['use_lidar'],

@@ -66,10 +66,11 @@ def test_empty_and_comment_only_overlays_are_no_overlay(tmp_path):
         assert merged['controller_server']['ros__parameters']['FollowPath']['vx_max'] == 1.0
 
 
-def test_navigation_launch_reads_the_overlay_through_load_overlay():
+def test_navigation_launch_uses_required_shared_selection():
     launch = Path(__file__).parents[1] / 'launch' / 'navigation.launch.py'
     source = launch.read_text()
-    assert 'load_overlay(limits, strict=True)' in source
+    assert 'selection = select_snapshot(' in source
+    assert "selection['parameters']" in source
     assert 'measured = yaml.safe_load' not in source
 
 

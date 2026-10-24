@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 import pytest
 from mhseals_nav.navigation_config import persistent_limits_path
+from mhseals_nav.startup_snapshot import snapshot_root, snapshot_scope
 
 
 def robot_factory():
@@ -20,7 +21,8 @@ def robot_factory():
         'PythonLaunchDescriptionSource', 'IfCondition')}
     ns.update(LaunchConfiguration=Configuration, LaunchDescription=lambda x: x,
               PathJoinSubstitution=lambda x: '/'.join(map(str, x)),
-              FindPackageShare=lambda x: x, persistent_limits_path=persistent_limits_path)
+              FindPackageShare=lambda x: x, persistent_limits_path=persistent_limits_path,
+              snapshot_root=snapshot_root, snapshot_scope=snapshot_scope)
     exec(compile(ast.Module(body=[function], type_ignores=[]), str(source), 'exec'), ns)
     return ns['generate_launch_description']()
 
