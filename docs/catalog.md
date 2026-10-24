@@ -168,3 +168,12 @@ or complete Nav2/EKF/TF fan-out is rewritten. Full-stack shared-frame migration
 remains M06; a standalone custom frame requires a separately coherent external
 TF/downstream setup. These tests prove requested node inputs only, not driver
 startup, scan delivery, calibration accuracy, TF behavior or live reconfiguration.
+
+MAVROS startup always validates complete installed `config/mavros_setup.yaml`
+before applying a selected partial file, then explicit aliases. Rate-only files
+remain supported; a supplied rates sequence replaces the sequence in full.
+Policy-only files inherit rates. Missing selected files still refuse. Direct
+startup declares that same validated baseline before final ROS overrides and
+validates the resulting complete map before resources. Arbitrary ROS argument
+files parsed by ROS are not claimed as independently inspected raw layers;
+the supported selected-file resolver validates raw bytes before precedence.

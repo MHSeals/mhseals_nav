@@ -67,7 +67,8 @@ def validate_setup(params, *, complete=True):
     allowed = {'message_rates', *POLICY_FIELDS}
     if not isinstance(params, dict) or set(params) - allowed or (complete and set(params) != allowed):
         raise ValueError('invalid or incomplete MAVROS setup parameters')
-    validate_rates(params.get('message_rates'))
+    if 'message_rates' in params:
+        validate_rates(params['message_rates'])
     for key, rule in POLICY_FIELDS.items():
         if key not in params:
             continue
@@ -97,7 +98,9 @@ def resolve_setup(path, overrides=None):
     """Resolve selected bytes then explicit aliases, validating before construction."""
     if not path:
         raise ValueError('mavros_setup_params_file must select an existing file')
-    params = parameters_from_yaml(Path(path).expanduser().read_text())
+    params = installed_setup_defaults()
+    selected = parameters_from_yaml(Path(path).expanduser().read_text())
+    params.update(selected)
     validate_setup(params)
     rates = dict(validate_rates(params['message_rates']))
     for alias, text in (overrides or {}).items():
@@ -110,12 +113,15 @@ def resolve_setup(path, overrides=None):
         for message_id in ALIASES[alias]:
             rates[message_id] = validate_rates([f'{message_id}:{text}'])[0][1]
     entries = [f'{message_id}:{hz:g}' for message_id, hz in rates.items()]
-    validate_rates(entries)
-    return dict(params, message_rates=entries)
+    params['message_rates'] = entries
+    validate_setup(params)
+    return params
 
 
 def installed_setup_defaults():
     """Load the same package authority for direct executable startup."""
     from ament_index_python.packages import get_package_share_directory
-    return resolve_setup(Path(get_package_share_directory('mhseals_nav')) /
-                         'config' / 'mavros_setup.yaml')
+    path = Path(get_package_share_directory('mhseals_nav')) / 'config' / 'mavros_setup.yaml'
+    params = parameters_from_yaml(path.read_text())
+    validate_setup(params)
+    return params

@@ -11,9 +11,8 @@ import yaml
 def selected(tmp_path, entries):
     """Write an explicitly selected test parameter file."""
     path = tmp_path / 'rates.yaml'
-    data = yaml.safe_load((Path(__file__).parents[1] / 'config/mavros_setup.yaml').read_text())
-    data['mavros_setup']['ros__parameters']['message_rates'] = entries
-    path.write_text(yaml.safe_dump(data))
+    path.write_text(yaml.safe_dump({'mavros_setup': {
+        'ros__parameters': {'message_rates': entries}}}))
     return str(path)
 
 
@@ -80,7 +79,9 @@ def test_installed_default_loader_is_actual_main_seam(tmp_path, monkeypatch):
     monkeypatch.setitem(sys.modules, 'ament_index_python.packages', packages)
     (tmp_path / 'config').mkdir()
     path = tmp_path / 'config/mavros_setup.yaml'
-    path.write_text(Path(selected(tmp_path, ['31:17'])).read_text())
+    data = yaml.safe_load((Path(__file__).parents[1] / 'config/mavros_setup.yaml').read_text())
+    data['mavros_setup']['ros__parameters']['message_rates'] = ['31:17']
+    path.write_text(yaml.safe_dump(data))
     assert installed_setup_defaults()['message_rates'] == ['31:17']
     path.unlink()
     with pytest.raises(OSError):
