@@ -65,6 +65,15 @@ def test_complete_deterministic_installed_provider(installed):
     assert first.field('localization.ekf_local.frequency').default == 30.0
     guide = installed / 'docs/startup-catalog-constraints.md'
     assert guide.is_file() and 'exactly 15 actual booleans' in guide.read_text()
+    assert '| Units | Compiler constraint |' in guide.read_text()
+    for key, units in (('odometry.mavros_velocity_stddev', 'm/s'),
+                       ('localization.ekf_local.frequency', 'Hz'),
+                       ('localization.ekf_global.sensor_timeout', 's'),
+                       ('localization.navsat_transform.yaw_offset', 'rad')):
+        assert first.field(key).descriptor['value']['units'] == units
+        line = next(line for line in guide.read_text().splitlines()
+                    if line.startswith(f'| `{key}` |'))
+        assert line.split(' | ')[2] == units
     for key in ('odometry.mavros_velocity_source', 'localization.navsat_transform.map_frame'):
         row = first.field(key)
         ref = row.descriptor['default_ref']

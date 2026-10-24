@@ -41,13 +41,43 @@ def test_every_default_exact_source_pointer_type_and_shared_rule(resources):
         assert descriptor['default_ref']['source_hash'] == sha256(resources[path]).hexdigest()
         assert descriptor['default_ref']['line'] == catalog._locations(resources[path])[pointer]
         assert descriptor['value']['type'] == rule.kind
-        assert descriptor['value']['units'] == 'unknown'
+        assert descriptor['value']['units'] == catalog.field_units(key)
         assert catalog.constraint_details(descriptor['value']['constraint_ref']) == rule.describe()
         assert not row.writable and 'runtime-authority-not-provided' in row.blockers
         assert descriptor['consumers'][0]['candidate_tier'] == 'unsupported'
         assert any('restart-required' in dep for dep in
                    descriptor['consumers'][0]['dependencies'])
     assert catalog.audit_startup_catalog(resources, leaves(resources))
+
+
+def test_semantic_units_separate_from_constraints_and_present_in_guide(resources):
+    expected = {
+        'odometry.robot_state_publish_frequency': 'Hz',
+        'odometry.mavros_velocity_stddev': 'm/s',
+        'odometry.mavros_velocity_max_age': 's',
+        'odometry.ekf_delay_included': 's',
+        'odometry.mavros_velocity_source': 'dimensionless',
+        'localization.ekf_local.frequency': 'Hz',
+        'localization.ekf_global.sensor_timeout': 's',
+        'localization.ekf_local.transform_time_offset': 's',
+        'localization.navsat_transform.delay': 's',
+        'localization.navsat_transform.yaw_offset': 'rad',
+        'localization.navsat_transform.magnetic_declination_radians': 'rad',
+        'localization.ekf_local.base_link_frame': 'frame',
+        'localization.ekf_local.odom0': 'topic',
+        'localization.ekf_local.odom0_queue_size': 'count',
+        'localization.ekf_local.odom0_config': 'dimensionless',
+        'localization.ekf_local.publish_tf': 'dimensionless',
+    }
+    rows = {leaf['canonical_key']: leaf for leaf in leaves(resources)}
+    guide = catalog.constraint_markdown(resources)
+    assert '| Units | Compiler constraint |' in guide
+    for key, units in expected.items():
+        assert rows[key]['value']['units'] == units
+        line = next(line for line in guide.splitlines() if line.startswith(f'| `{key}` |'))
+        assert line.split(' | ')[2] == units
+    assert {row['value']['units'] for row in rows.values()} == {
+        'Hz', 's', 'm/s', 'rad', 'frame', 'topic', 'count', 'dimensionless'}
 
 
 def test_known_constraints_and_unverified_consumer_claims(resources):
