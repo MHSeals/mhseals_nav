@@ -19,6 +19,9 @@ from mhseals_config._evidence import Recipe
 from mhseals_nav.navigation_config import (
     StrictOverlayLoader, validate_navigation_base, validated_merge_limits,
 )
+from mhseals_nav.startup_projection import (
+    project_launch, resource_identity, resource_paths,
+)
 import yaml
 
 RECIPE = 'nav-compiler-serialization/1'
@@ -47,9 +50,9 @@ def snapshot_scope():
 
 def compiler_identity():
     """Pin both the domain compiler and this startup adapter."""
-    from mhseals_nav import navigation_config
+    from mhseals_nav import navigation_config, startup_projection
     return digest({str(Path(p).name): hashlib.sha256(Path(p).read_bytes()).hexdigest()
-                   for p in (__file__, navigation_config.__file__)})
+                   for p in (__file__, navigation_config.__file__, startup_projection.__file__)})
 
 
 def _source(path, *, optional=False):
@@ -93,7 +96,7 @@ def _serialized(document, evidence):
 EVALUATORS = {RECIPE: Recipe(RECIPE, _serialized)}
 
 
-def select_snapshot(root, scope, params_file, limits_file, *, sim, use_lidar):
+def select_snapshot(root, scope, params_file, limits_file, *, sim, use_lidar, resources=None):
     """Adopt an exact scope or bootstrap a fresh, domain-validated selection."""
     def mutable(value):
         from collections.abc import Mapping
@@ -103,12 +106,15 @@ def select_snapshot(root, scope, params_file, limits_file, *, sim, use_lidar):
             return [mutable(item) for item in value]
         return value
 
+    resources = resource_identity(resources or resource_paths())
     try:
         selected = read_selected_inputs(root, scope, evaluators=EVALUATORS)
     except NoActiveSelection:
         pass
     else:
         document = mutable(selected.documents[PARTICIPANT])
+        if document['resources'] != resources:
+            raise ValueError('navigation launch resources changed; reconcile scope')
         if document['compiler'] != compiler_identity():
             raise ValueError('navigation compiler identity changed; reconcile scope')
         return document
@@ -121,8 +127,11 @@ def select_snapshot(root, scope, params_file, limits_file, *, sim, use_lidar):
     # B contains persistent inputs only. Invocation flags belong to S.
     baseline = {'parameters': parameters, 'sources': [defaults, operator]}
     revision = digest(baseline)
-    document = {'parameters': parameters, 'baseline': baseline,
-                'invocation': {'sim': _boolean(sim), 'use_lidar': _boolean(use_lidar)},
+    invocation = {'sim': _boolean(sim), 'use_lidar': _boolean(use_lidar)}
+    effective, projection = project_launch(parameters, invocation, resources)
+    document = {'parameters': effective, 'baseline': baseline,
+                'invocation': invocation, 'resources': resources,
+                'projection': projection,
                 'compiler': compiler_identity(), 'scope': scope,
                 'verification': 'pure-compiler-output; ROS unobserved'}
     documents = {PARTICIPANT: document, 'nav2-baseline': baseline}
@@ -138,12 +147,15 @@ def select_snapshot(root, scope, params_file, limits_file, *, sim, use_lidar):
     candidate = read_bootstrap_inputs(root, ticket)
     if mutable(candidate.documents) != documents:
         raise ValueError('materialized navigation inputs differ')
-    observation = {'scope': scope, 'candidate': ticket.candidate, 'source': source,
-                   'identity': identity, 'recipe': RECIPE,
-                   'evidence': {'yaml': yaml.safe_dump(parameters),
-                                'kind': 'pure-compiler-output'}}
+    observations = {}
+    for name, inputs in documents.items():
+        observations[name] = {
+            'scope': scope, 'candidate': ticket.candidate, 'source': source,
+            'identity': identity, 'recipe': RECIPE,
+            'evidence': {'yaml': yaml.safe_dump(inputs['parameters']),
+                         'kind': 'pure-compiler-output'}}
     receipt = finish_bootstrap(root, ticket,
-                               {name: observation for name in documents},
+                               observations,
                                evaluators=EVALUATORS)
     if receipt['status'] != 'verified_startup':
         raise ValueError('navigation compiler serialization unverified')

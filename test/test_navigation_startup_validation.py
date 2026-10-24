@@ -44,36 +44,14 @@ def test_absent_optional_file_and_valid_overlay(base, tmp_path):
 
 
 def test_actual_navigation_factory_fails_before_node(base, tmp_path):
-    source = ROOT / 'launch/navigation.launch.py'
-    tree = ast.parse(source.read_text())
-    function = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'navigation_nodes')
     base_path = tmp_path / 'base.yaml'
     base_path.write_text(yaml.safe_dump(base))
     overlay = tmp_path / 'bad.yaml'
     overlay.write_text('controller_server: []')
-    class Configuration:
-        def __init__(self, name): self.name = name
-        def perform(self, context):
-            defaults = {'config_root': str(Path(context['params_file']).parent / 'snapshots'),
-                        'config_scope': 'test', 'sim': 'true', 'use_lidar': 'true'}
-            return context.get(self.name, defaults.get(self.name))
-    # Inert imports used by the actual factory; never load launch or rclpy.
-    import sys
-    import types
-    from unittest.mock import patch
-    actions = types.ModuleType('launch.actions')
-    actions.RegisterEventHandler = lambda *a, **kw: None
-    events = types.ModuleType('launch.event_handlers')
-    events.OnShutdown = lambda **kw: None
-    import os
-    import tempfile
-    ns = dict(LaunchConfiguration=Configuration, os=os, yaml=yaml, tempfile=tempfile,
-              load_overlay=load_overlay, validated_merge_limits=validated_merge_limits,
-              Node=lambda **kw: pytest.fail('Node constructed before validation'))
-    exec(compile(ast.Module(body=[function], type_ignores=[]), str(source), 'exec'), ns)
-    with patch.dict(sys.modules, {'launch.actions': actions, 'launch.event_handlers': events}):
-        with pytest.raises(ValueError):
-            ns['navigation_nodes']({'params_file': str(base_path), 'limits_file': str(overlay)})
+    ns = inert_navigation_factory()
+    ns['Node'] = lambda **kw: pytest.fail('Node constructed before validation')
+    with pytest.raises(ValueError):
+        ns['navigation_nodes']({'params_file': str(base_path), 'limits_file': str(overlay)})
 
 
 @pytest.mark.parametrize('patch', [
@@ -135,9 +113,16 @@ def inert_navigation_factory():
     actions.RegisterEventHandler = lambda *a, **kw: None
     events = types.ModuleType('launch.event_handlers')
     events.OnShutdown = lambda **kw: None
+    import shutil
+    from types import SimpleNamespace
+    share = Path(tempfile.mkdtemp())
+    shutil.copytree(ROOT / 'mhseals_nav/behavior_trees', share / 'behavior_trees')
+    (share / 'launch').mkdir()
+    shutil.copyfile(ROOT / 'launch/navigation.launch.py', share / 'launch/navigation.launch.py')
     ns = dict(LaunchConfiguration=Configuration, os=os, yaml=yaml, tempfile=tempfile,
               load_overlay=load_overlay, validated_merge_limits=validated_merge_limits,
-              FindPackageShare=lambda name: name, PathJoinSubstitution=lambda parts: parts,
+              FindPackageShare=lambda name: SimpleNamespace(perform=lambda _: str(share)),
+              PathJoinSubstitution=lambda parts: parts,
               RewrittenYaml=lambda **kw: kw, ParameterValue=lambda *a, **kw: a,
               Node=lambda **kw: kw, OpaqueFunction=lambda **kw: kw)
     exec(compile(ast.Module(body=[function], type_ignores=[]), str(source), 'exec'), ns)
@@ -149,6 +134,7 @@ def inert_navigation_factory():
                 'launch.actions': actions, 'launch.event_handlers': events}):
             return factory(context)
 
+    ns['share'] = share
     ns['navigation_nodes'] = run
     return ns
 
@@ -163,8 +149,10 @@ def test_absent_optional_overlay_preserves_custom_controller_base(base, tmp_path
     nodes = ns['navigation_nodes']({'params_file': str(path),
                                    'limits_file': str(tmp_path / 'absent.yaml')})
     assert len(nodes) == 7
-    assert all(yaml.safe_load(Path(node['parameters'][0]['source_file']).read_text()) == base
-               for node in nodes[:6])
+    emitted = yaml.safe_load(Path(nodes[0]['parameters'][0]).read_text())
+    emitted_controller = emitted['controller_server']['ros__parameters']
+    assert emitted_controller['CustomController'] == controller['CustomController']
+    assert 'FollowPath' not in emitted['controller_server']['ros__parameters']
     # A real overlay on this selected base must not require a FollowPath mapping.
     merged = validated_merge_limits(base, {'controller_server': {'ros__parameters': {
         'CustomController': {'vx_max': 0.3}}}})
@@ -214,13 +202,79 @@ def test_actual_factory_adopts_exact_scope_and_corruption_stops_nodes(base, tmp_
                'config_root': str(tmp_path / 'snapshots'), 'config_scope': 'shared'}
     ns = inert_navigation_factory()
     first = ns['navigation_nodes'](context)
-    emitted = yaml.safe_load(Path(first[0]['parameters'][0]['source_file']).read_text())
+    emitted = yaml.safe_load(Path(first[0]['parameters'][0]).read_text())
     assert emitted['controller_server']['ros__parameters']['FollowPath']['model_dt'] == .05
     assert emitted['velocity_smoother']['ros__parameters']['max_velocity'] == [.6, .12, .2]
     overlay.write_text('invalid: authoring edit')
     second = ns['navigation_nodes'](context)
-    assert yaml.safe_load(Path(second[0]['parameters'][0]['source_file']).read_text()) == emitted
+    assert yaml.safe_load(Path(second[0]['parameters'][0]).read_text()) == emitted
     (tmp_path / 'snapshots/shared/initializing/nav2-compiler.json').unlink()
     ns['Node'] = lambda **kw: pytest.fail('constructed node after snapshot corruption')
     with pytest.raises(FileNotFoundError):
         ns['navigation_nodes'](context)
+
+
+def test_actual_factory_consumes_final_projection_and_records_requests(base, tmp_path):
+    import json
+    params = base['controller_server']['ros__parameters']
+    params['enable_stamped_cmd_vel'] = True
+    params['publish_tf'] = False
+    base['bt_navigator']['ros__parameters']['default_nav_to_pose_bt_xml'] = '/chosen/tree.xml'
+    path = tmp_path / 'base.yaml'
+    path.write_text(yaml.safe_dump(base))
+    context = {'params_file': str(path), 'limits_file': '', 'sim': 'true',
+               'use_lidar': 'false', 'config_scope': 'final',
+               'config_root': str(tmp_path / 'snapshots')}
+    ns = inert_navigation_factory()
+    nodes = ns['navigation_nodes'](context)
+    snapshot = tmp_path / 'snapshots/final/initializing/nav2-compiler.json'
+    document = json.loads(snapshot.read_text())
+    effective = document['parameters']
+    assert all(yaml.safe_load(Path(n['parameters'][0]).read_text()) == effective for n in nodes)
+    emitted = effective['controller_server']['ros__parameters']
+    assert emitted['enable_stamped_cmd_vel'] is False
+    assert emitted['use_sim_time'] is True
+    assert emitted['publish_tf'] is False
+    for name in ('local_costmap', 'global_costmap'):
+        costmap = effective[name][name]['ros__parameters']
+        assert costmap['use_sim_time'] is True
+        assert costmap['obstacle_layer']['enabled'] is False
+    tree = str(ns['share'] / 'behavior_trees/nav_to_pose.xml')
+    assert effective['bt_navigator']['ros__parameters']['default_nav_to_pose_bt_xml'] == tree
+    requested = document['baseline']['parameters']
+    assert requested['controller_server']['ros__parameters']['enable_stamped_cmd_vel'] is True
+    assert (requested['bt_navigator']['ros__parameters']['default_nav_to_pose_bt_xml']
+            == '/chosen/tree.xml')
+    changes = {change['key']: change for change in document['projection']}
+    key = 'bt_navigator.ros__parameters.default_nav_to_pose_bt_xml'
+    assert changes[key]['requested'] == '/chosen/tree.xml'
+    assert changes[key]['effective'] == tree
+    assert document['resources']['default_nav_to_pose_bt_xml']['sha256']
+    assert effective['lifecycle_manager_navigation']['ros__parameters']['use_sim_time'] is True
+
+
+@pytest.mark.parametrize('relative', [
+    'behavior_trees/nav_to_pose.xml', 'launch/navigation.launch.py'])
+def test_same_scope_resource_change_refuses_before_node(base, tmp_path, relative):
+    path = tmp_path / 'base.yaml'
+    path.write_text(yaml.safe_dump(base))
+    context = {'params_file': str(path), 'limits_file': ''}
+    ns = inert_navigation_factory()
+    ns['navigation_nodes'](context)
+    resource = ns['share'] / relative
+    resource.write_text(resource.read_text() + '\n<!-- changed resource -->\n')
+    ns['Node'] = lambda **kw: pytest.fail('Node constructed after resource drift')
+    with pytest.raises(ValueError, match='resources changed'):
+        ns['navigation_nodes'](context)
+
+
+def test_same_scope_relocated_installed_resources_refuse(base, tmp_path):
+    path = tmp_path / 'base.yaml'
+    path.write_text(yaml.safe_dump(base))
+    context = {'params_file': str(path), 'limits_file': ''}
+    first = inert_navigation_factory()
+    first['navigation_nodes'](context)
+    relocated = inert_navigation_factory()
+    relocated['Node'] = lambda **kw: pytest.fail('Node constructed after installed path drift')
+    with pytest.raises(ValueError, match='resources changed'):
+        relocated['navigation_nodes'](context)
