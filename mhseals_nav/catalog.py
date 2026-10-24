@@ -1,14 +1,15 @@
-"""Read-only Nav2 inventory from explicitly selected installed parameter bytes.
+"""
+Read-only Nav2 inventory from explicitly selected installed parameter bytes.
 
 Plugin build contracts are unresolved; no ROS discovery or live authority.
 The existing navigation compiler is the sole validator/lowering implementation.
 """
 from hashlib import sha256
 
-import yaml
 from mhseals_config.catalog import DescriptorBundle
+import yaml
 
-from .navigation_config import (LOWERING_INPUTS, StrictOverlayLoader, mppi_controller,
+from .navigation_config import (LOWERING_INPUTS, mppi_controller, StrictOverlayLoader,
                                 validate_navigation_base, validated_merge_limits)
 
 REVISION = 'fbebfbc83148da71b08d420e0ab21def6883e852'
@@ -37,7 +38,8 @@ def _locations(raw):
 
 
 def navigation_catalog(raw, *, resource, policy_raw, consumer_versions=None):
-    """Resolve catalog defaults from selected installed bytes, never source-tree paths.
+    """
+    Resolve catalog defaults from selected installed bytes, never source-tree paths.
 
     ``resource`` is package-relative (e.g. config/nav2_params.yaml). Version IDs
     are checked against declared pins; no upstream build has yet been qualified.
@@ -45,8 +47,9 @@ def navigation_catalog(raw, *, resource, policy_raw, consumer_versions=None):
     belongs to the existing compiler/snapshot, not to descriptor defaults.
     """
     policy = yaml.load(policy_raw, Loader=StrictOverlayLoader)
-    if set(policy) != {'schema_version', 'owner_package', 'revision', 'consumer_version',
-                       'authoring', 'consumer', 'safety', 'evidence'} or policy['schema_version'] != 1:
+    if (set(policy) != {'schema_version', 'owner_package', 'revision', 'consumer_version',
+                        'authoring', 'consumer', 'safety', 'evidence'}
+            or policy['schema_version'] != 1):
         raise ValueError('unknown navigation catalog policy')
     base = yaml.load(raw, Loader=StrictOverlayLoader)
     validate_navigation_base(base)
@@ -89,32 +92,35 @@ def navigation_catalog(raw, *, resource, policy_raw, consumer_versions=None):
         value = base
         for part in parts:
             value = value[part]
-        kind = 'sequence' if isinstance(value, list) else 'integer' if type(value) is int else 'number'
+        kind = ('sequence' if isinstance(value, list) else
+                'integer' if type(value) is int else 'number')
         independent = parts[0] == 'behavior_server'
         closure_in = [pointer] if independent else inputs
         closure_out = [pointer] if independent else outputs
-        leaves.append(dict(
-            canonical_key='navigation' + pointer, aliases=[],
-            default_ref=dict(source_id='selected-nav2', yaml_pointer=pointer,
-                             path=resource, line=locations[pointer], source_hash=digest),
-            value=dict(type=kind, dimensions=[len(value)] if isinstance(value, list) else [],
-                       units='domain-defined', constraint_ref=VALIDATOR,
-                       validator_ref=COMPILER, inputs=closure_in),
-            authoring=dict(policy['authoring'], pointer=pointer,
-                           layers=['derived'] if controlling else ['package', 'operator', 'session'],
-                           scopes=[] if controlling else ['baseline', 'session'],
-                           controlling_keys=list(controlling)),
-            consumers=[dict(policy['consumer'], id=cid, version=pins[cid], parameters=[pointer],
-                            compiler_ref=COMPILER, inputs=closure_in, outputs=closure_out,
-                            dependencies=['selected-nav2-yaml']) for cid in consumers],
-            safety=policy['safety'],
-            evidence=[dict(policy['evidence'], consumer=cid, version=pins[cid])
-                      for cid in consumers],
-            coverage=[dict(source='selected-nav2', consumer=cid, status='traced',
-                           revision=REVISION, path='mhseals_nav/navigation_config.py',
-                           line=346 if independent else 133,
-                           consume_site='independent behavior_server' if independent else 'derived/lower_navigation')
-                      for cid in consumers]))
+        leaves.append({
+            'canonical_key': 'navigation' + pointer, 'aliases': [],
+            'default_ref': {'source_id': 'selected-nav2', 'yaml_pointer': pointer,
+                             'path': resource, 'line': locations[pointer], 'source_hash': digest},
+            'value': {'type': kind, 'dimensions': [len(value)] if isinstance(value, list) else [],
+                      'units': 'domain-defined', 'constraint_ref': VALIDATOR,
+                      'validator_ref': COMPILER, 'inputs': closure_in},
+            'authoring': dict(policy['authoring'], pointer=pointer,
+                              layers=(['derived'] if controlling else
+                                      ['package', 'operator', 'session']),
+                              scopes=[] if controlling else ['baseline', 'session'],
+                              controlling_keys=list(controlling)),
+            'consumers': [dict(policy['consumer'], id=cid, version=pins[cid], parameters=[pointer],
+                               compiler_ref=COMPILER, inputs=closure_in, outputs=closure_out,
+                               dependencies=['selected-nav2-yaml']) for cid in consumers],
+            'safety': policy['safety'],
+            'evidence': [dict(policy['evidence'], consumer=cid, version=pins[cid])
+                         for cid in consumers],
+            'coverage': [{'source': 'selected-nav2', 'consumer': cid, 'status': 'traced',
+                          'revision': REVISION, 'path': 'mhseals_nav/navigation_config.py',
+                          'line': 346 if independent else 133,
+                          'consume_site': ('independent behavior_server' if independent else
+                                           'derived/lower_navigation')}
+                         for cid in consumers]})
 
     add((*cp, 'controller_frequency'), ['controller_server'])
     if name:
@@ -132,8 +138,10 @@ def navigation_catalog(raw, *, resource, policy_raw, consumer_versions=None):
     for key in ('max_rotational_vel', 'min_rotational_vel', 'rotational_acc_lim'):
         if key in behavior:
             add(('behavior_server', 'ros__parameters', key), ['behavior_server'])
-    data = dict(schema_version=1, owner_package=policy['owner_package'], revision=policy['revision'],
-                consumer_versions=pins,
-                default_sources=[dict(id='selected-nav2', resource=resource, sha256=digest)],
-                leaves=leaves)
+    data = {'schema_version': 1, 'owner_package': policy['owner_package'],
+            'revision': policy['revision'],
+            'consumer_versions': pins,
+            'default_sources': [{'id': 'selected-nav2', 'resource': resource,
+                                 'sha256': digest}],
+            'leaves': leaves}
     return DescriptorBundle.read(data, {'selected-nav2': raw}, REGISTRY, versions)
