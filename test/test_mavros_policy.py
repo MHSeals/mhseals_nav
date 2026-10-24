@@ -6,7 +6,7 @@ import sys
 from types import SimpleNamespace as NS
 
 from mhseals_nav import mavros_setup as setup
-from mhseals_nav.mavros_configuration import resolve_setup, validate_setup
+from mhseals_nav.mavros_configuration import resolve_setup, validate_rates, validate_setup
 import pytest
 
 ROOT = Path(__file__).parents[1]
@@ -186,3 +186,33 @@ def test_ekf_source_filter_applies_before_observation(monkeypatch):
     assert seen.published == []
     receive(NS(sysid=7, compid=1, msgid=193, len=0, payload64=[]))
     assert len(seen.published) == 1
+
+
+def rates_setter(monkeypatch):
+    monkeypatch.setitem(sys.modules, 'rcl_interfaces', NS())
+    monkeypatch.setitem(sys.modules, 'rcl_interfaces.msg', NS(SetParametersResult=NS))
+    return inert_main(monkeypatch)
+
+
+@pytest.mark.parametrize('bad', [[], ['33:5', '33:6'], ['33:-5'], ['-1:5']])
+def test_actual_setter_refuses_invalid_rates_and_requests_nothing(monkeypatch, bad):
+    seen = rates_setter(monkeypatch)
+    startup = validate_rates(list(seen.params['message_rates']))
+    result = seen.setter([NS(name='message_rates', value=bad)])
+    assert not result.successful and result.reason.startswith('message_rates ')
+    assert seen.sets == []  # the worker is never woken, so no request goes out
+    requested = []
+    seen.worker.__globals__['request_rates'] = lambda rates, *a, **kw: requested.append(rates)
+    seen.worker()
+    assert requested == [startup]  # read-back: the accepted value is unchanged
+
+
+def test_actual_setter_accepts_valid_rates_and_drops_nothing_implicitly(monkeypatch):
+    seen = rates_setter(monkeypatch)
+    result = seen.setter([NS(name='message_rates', value=['33:10', '31:0'])])
+    assert result.successful and seen.sets == [True]
+    requested = []
+    seen.worker.__globals__['request_rates'] = lambda rates, *a, **kw: requested.append(rates)
+    seen.worker()
+    # Exactly the new list: ids the default set had but this one omits get no implicit 0.
+    assert requested == [[(33, 10.), (31, 0.)]]

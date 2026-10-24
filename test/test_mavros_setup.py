@@ -1,26 +1,39 @@
 """Message rates must be requested again whenever the FCU forgets them."""
 import struct
 
+from mhseals_nav.mavros_configuration import validate_rates
 from mhseals_nav.mavros_setup import (
-    decode_boot_ms, decode_ekf_status, ekf_status_values, from_fcu, parse_rates, rebooted,
-    request_rates, with_removed)
+    decode_boot_ms, decode_ekf_status, ekf_status_values, from_fcu, rates_rule, rebooted,
+    request_rates)
 import pytest
 
 
-def test_rates_parse_to_id_and_hz():
-    assert parse_rates(['33:20.0', '193:2']) == [(33, 20.), (193, 2.)]
+def test_rates_rule_is_the_startup_validator():
+    assert rates_rule(['33:20.0', '193:2']) == [(33, 20.), (193, 2.)]
+    assert rates_rule(('33:20',)) == [(33, 20.)]
+    assert rates_rule(['33:-1', '31:0']) == [(33, -1.), (31, 0.)]
 
 
-def test_negative_rate_disables_and_non_finite_is_refused():
-    assert parse_rates(['33:-1']) == [(33, -1.)]
-    for bad in ('33:nan', '33:inf', '-1:5'):
-        with pytest.raises(ValueError):
-            parse_rates([bad])
+@pytest.mark.parametrize('bad', [
+    [], ['33:5', '33:6'], ['33:-5'], ['33:nan'], ['33:inf'], ['-1:5'], ['033:5'],
+    ['16777216:5'], ['33'], ['33:5:6'], ['33:fast'], [33], '33:5', None])
+def test_rates_rule_refuses_what_startup_refuses(bad):
+    with pytest.raises(ValueError):
+        rates_rule(bad)
+    with pytest.raises(ValueError):
+        validate_rates(bad)
 
 
-def test_removed_ids_are_reset_to_the_fcu_default():
-    assert with_removed([(33, 20.), (1, 2.)], [(33, 10.)]) == [(33, 10.), (1, 0.)]
-    assert with_removed([], [(33, 10.)]) == [(33, 10.)]
+def test_rule_and_startup_agree_on_every_case():
+    cases = [[], ['1:2'], ['1:2', '1:3'], ['1:-5'], ['1:-1'], ['1:0'], ['01:2']]
+    for case in cases:
+        outcomes = []
+        for check in (rates_rule, validate_rates):
+            try:
+                outcomes.append(check(case))
+            except ValueError:
+                outcomes.append(ValueError)
+        assert outcomes[0] == outcomes[1], case
 
 
 def test_a_raising_call_is_logged_and_does_not_stop_later_rates():

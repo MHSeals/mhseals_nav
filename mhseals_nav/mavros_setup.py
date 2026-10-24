@@ -13,12 +13,12 @@ RC arbitration treats rc/in frames older than 0.3 s as lost, so at the FCU defau
 /mavros/rc/in rate and logs when it is low instead of leaving the mux to flap silently.
 """
 import collections
-import math
 import struct
 import threading
 import time
 
-from mhseals_nav.mavros_configuration import installed_setup_defaults, validate_setup
+from mhseals_nav.mavros_configuration import (
+    installed_setup_defaults, validate_rates, validate_setup)
 from mhseals_nav.utils.live_params import LiveParams
 
 MAV_COMP_ID_AUTOPILOT1 = 1
@@ -36,18 +36,13 @@ EKF_FLAGS = {0: 'ATTITUDE', 1: 'VELOCITY_HORIZ', 2: 'VELOCITY_VERT', 3: 'POS_HOR
              15: 'GPS_GLITCHING'}
 
 
-def parse_rates(entries):
-    """['33:20.0', ...] -> [(33, 20.0), ...]; ValueError for a bad entry."""
-    rates = [(int(i), float(hz)) for i, hz in (entry.split(':') for entry in entries)]
-    if any(i < 0 or not math.isfinite(hz) for i, hz in rates):
-        raise ValueError('message ids must not be negative and rates must be finite')
-    return rates  # MAVROS: rate < 0 disables a stream, 0 restores the FCU default
+def rates_rule(value):
+    """LiveParams rule: the startup contract, so a live set cannot be looser than a launch.
 
-
-def with_removed(previous, rates):
-    """rates plus rate 0 (FCU default) for ids in previous that rates dropped."""
-    kept = {i for i, _ in rates}
-    return rates + [(i, 0.) for i, _ in previous if i not in kept]
+    A dropped id is not reset implicitly; removal is an explicit id:0 (FCU default) or
+    id:-1 (disable) entry. An empty list, duplicate ids and rates below -1 are refused.
+    """
+    return validate_rates(list(value) if isinstance(value, (list, tuple)) else value)
 
 
 def reconnected(was_connected, is_connected):
@@ -176,13 +171,12 @@ def main(args=None):
         node.declare_parameter(name, value)
     policy = validate_setup({name: node.get_parameter(name).value for name in defaults})
     # A changed list is requested at once; the FCU keeps the latest request.
-    live = LiveParams(node, {'message_rates': parse_rates},
+    live = LiveParams(node, {'message_rates': rates_rule},
                       on_change=lambda values, changed: wanted.set())
     client = node.create_client(MessageInterval, '/mavros/set_message_interval')
     wanted = threading.Event()
     # Not set at start: the first connected /mavros/state is a False->True edge and asks.
     connected = [False]
-    sent = [[]]  # last requested list, so dropped ids can be reset
     last_reboot = [None]
 
     def reboot_seen():
@@ -209,10 +203,8 @@ def main(args=None):
             wanted.wait()
             wanted.clear()
             if client.wait_for_service(timeout_sec=policy['service_wait']):
-                rates = live['message_rates']
-                request_rates(with_removed(sent[0], rates), call, node.get_logger().info,
+                request_rates(live['message_rates'], call, node.get_logger().info,
                               attempts=policy['retry_attempts'], wait=policy['retry_delay'])
-                sent[0] = rates
             else:
                 wanted.set()  # the wait already took 10 s; try again rather than skip
 

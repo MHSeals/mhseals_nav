@@ -3,7 +3,7 @@ from types import SimpleNamespace as S
 
 import pytest
 
-from mhseals_nav.mavros_setup import parse_rates, request_rates
+from mhseals_nav.mavros_setup import rates_rule, request_rates
 from mhseals_nav.utils.live_params import (
     LiveParams, at_least, fraction, one_of, positive, unit)
 
@@ -65,7 +65,7 @@ def test_invalid_start_value_raises():
 
 def test_message_rate_change_calls_set_message_interval():
     calls, node = [], FakeNode(message_rates=['33:20.0'])
-    live = LiveParams(node, {'message_rates': parse_rates},
+    live = LiveParams(node, {'message_rates': rates_rule},
                       lambda values, changed: request_rates(
                           values['message_rates'], lambda i, hz: calls.append((i, hz)) or True,
                           lambda line: None))
@@ -74,6 +74,16 @@ def test_message_rate_change_calls_set_message_interval():
     assert calls == []
     assert node.set(message_rates=['33:10.0', '1:2.0']).successful
     assert calls == [(33, 10.), (1, 2.)] and live['message_rates'] == calls
+
+
+@pytest.mark.parametrize('bad', [[], ['33:5', '33:6'], ['33:-5'], ['-1:5'], ['33:fast']])
+def test_invalid_message_rates_are_refused_without_a_request(bad):
+    calls, node = [], FakeNode(message_rates=['33:20.0'])
+    live = LiveParams(node, {'message_rates': rates_rule},
+                      lambda values, changed: calls.append(values['message_rates']))
+    result = node.set(message_rates=bad)
+    assert not result.successful and result.reason.startswith('message_rates ')
+    assert calls == [] and live['message_rates'] == [(33, 20.)]
 
 
 def test_rule_less_declared_names_are_refused_unless_unchanged():
