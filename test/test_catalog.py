@@ -123,5 +123,5 @@ def test_consumer_credit_per_key():
 
     assert ids('rotate_to_heading_angular_vel') == ['rotation_shim']
     assert ids('vx_max') == ['mppi']
-    assert not any('behavior_server/ros__parameters/max_rotational_vel' in r.descriptor['canonical_key']
-                   for r in inventory.rows)
+    spin = 'behavior_server/ros__parameters/max_rotational_vel'
+    assert not any(spin in r.descriptor['canonical_key'] for r in inventory.rows)
