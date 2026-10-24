@@ -72,6 +72,7 @@ controller_server:
       ax_max: 0.3
       ax_min: -0.3
       ay_max: 0.3
+      ay_min: -0.3
       az_max: 0.5
       prune_distance: 3.0       # at least vx_max x the horizon (0.4 m/s x 4.8 s), with margin
       transform_tolerance: 0.2
@@ -134,8 +135,8 @@ controller_server:
         threshold_to_consider: 0.5
       TwirlingCritic:
         enabled: true
-        twirling_cost_power: 1
-        twirling_cost_weight: 10.0
+        cost_power: 1
+        cost_weight: 10.0
 
 local_costmap:
   local_costmap:
@@ -165,7 +166,6 @@ local_costmap:
         mark_threshold: 0
         update_footprint_enabled: true
         combination_method: 1
-        origin_z: 0.0
         publish_voxel_map: false
         transform_tolerance: 0.2
         mapping_mode: false
@@ -183,11 +183,9 @@ local_costmap:
           # Period in seconds, not Hz. Missing observations make the costmap stale.
           observation_persistence: 0.0
           inf_is_valid: false
-          voxel_filter: false
           clear_after_reading: true
           model_type: 1            # 3-D LiDAR frustum: VLP-16, 360 by +-15 degrees
           vertical_fov_angle: 0.52
-          vertical_fov_offset: 0.0
           horizontal_fov_angle: 6.28
           decay_acceleration: 5.0
       # Past the hull's padded circumscribed radius (0.84 m), so MPPI knows when
@@ -259,7 +257,6 @@ global_costmap:
         mark_threshold: 0
         update_footprint_enabled: true
         combination_method: 1
-        origin_z: 0.0
         publish_voxel_map: false
         transform_tolerance: 0.2
         mapping_mode: false
@@ -277,11 +274,9 @@ global_costmap:
           # Period in seconds, not Hz. Missing observations make the costmap stale.
           observation_persistence: 0.0
           inf_is_valid: false
-          voxel_filter: false
           clear_after_reading: true
           model_type: 1            # 3-D LiDAR frustum: VLP-16, 360 by +-15 degrees
           vertical_fov_angle: 0.52
-          vertical_fov_offset: 0.0
           horizontal_fov_angle: 6.28
           decay_acceleration: 5.0
       # Past the hull's padded circumscribed radius (0.84 m), so MPPI knows when

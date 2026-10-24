@@ -36,6 +36,8 @@ def test_omni_mppi_and_command_limits():
     assert smoother['max_velocity'] == [mppi['vx_max'], mppi['vy_max'], mppi['wz_max']]
     assert smoother['min_velocity'] == [mppi['vx_min'], -mppi['vy_max'], -mppi['wz_max']]
     assert smoother['velocity_timeout'] > 0
+    assert smoother['max_decel'][1] == mppi['ay_min']
+    assert mppi['TwirlingCritic']['cost_weight'] > 0
     assert all(mppi[f'{axis}_std'] <= mppi[f'{axis}_max'] for axis in ('vx', 'vy', 'wz'))
     # Nav2's 20 ms default timed out acknowledging compute_path_to_pose in the field.
     assert config['bt_navigator']['ros__parameters']['default_server_timeout'] >= 100

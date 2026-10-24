@@ -57,7 +57,8 @@ def lidar_catalog(raw, *, resource, policy_raw, consumer_versions=None):
 
     pair = ['velodyne_driver', 'velodyne_transform']
     add('model', 'string', 'supported-model-enum', pair, ['model'])
-    add('frame', 'string', 'ROS-frame; standalone-local/full-robot-fixed', pair, ['frame_id'])
+    add('frame', 'string', 'ROS-frame; standalone-local/full-robot-fixed',
+        ['velodyne_driver'], ['frame_id'])
     add('rpm', 'number', 'revolutions/minute', ['velodyne_driver'], ['rpm'])
     add('calibration', 'mapping', 'package-or-file-ref; resolved-path-and-sha256',
         ['velodyne_transform'], ['calibration'])
