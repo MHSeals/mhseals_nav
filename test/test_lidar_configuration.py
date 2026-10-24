@@ -29,7 +29,7 @@ def overlay(tmp_path, data):
 
 
 def test_defaults_deployment_selection_and_explicit_aliases(share, tmp_path):
-    """Preserve both historical endpoints as visible, separately hashed layers."""
+    """Resolve the single authoritative endpoint plus an explicit deployment overlay."""
     standalone = resolve_lidar(share=share)
     deployment = overlay(tmp_path, {'endpoint': {'ip': '192.168.7.9'}})
     robot = resolve_lidar(deployment=deployment, share=share)
