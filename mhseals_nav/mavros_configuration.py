@@ -63,7 +63,7 @@ def validate_policy_value(key, value):
             or (rule == 'sysid' and value > 255)
             or value < 0 or (rule != 'nonnegative' and value == 0)):
         raise ValueError('invalid policy: ' + key)
-    return value
+    return value if rule in ('integer', 'sysid') else float(value)
 
 
 def validate_setup(params, *, complete=True):
@@ -78,8 +78,9 @@ def validate_setup(params, *, complete=True):
         if key not in params:
             continue
         validate_policy_value(key, params[key])
-    return MappingProxyType({k: tuple(v) if k == 'message_rates' else v
-                             for k, v in params.items()})
+    return MappingProxyType({
+        key: tuple(value) if key == 'message_rates' else validate_policy_value(key, value)
+        for key, value in params.items()})
 
 
 def parameters_from_yaml(raw):
@@ -119,8 +120,9 @@ def resolve_setup(path, overrides=None):
             rates[message_id] = validate_rates([f'{message_id}:{text}'])[0][1]
     entries = [f'{message_id}:{hz:g}' for message_id, hz in rates.items()]
     params['message_rates'] = entries
-    validate_setup(params)
-    return params
+    normalized = validate_setup(params)
+    return {key: list(value) if key == 'message_rates' else value
+            for key, value in normalized.items()}
 
 
 def installed_setup_defaults():
@@ -128,5 +130,6 @@ def installed_setup_defaults():
     from ament_index_python.packages import get_package_share_directory
     path = Path(get_package_share_directory('mhseals_nav')) / 'config' / 'mavros_setup.yaml'
     params = parameters_from_yaml(path.read_text())
-    validate_setup(params)
-    return params
+    normalized = validate_setup(params)
+    return {key: list(value) if key == 'message_rates' else value
+            for key, value in normalized.items()}
