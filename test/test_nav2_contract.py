@@ -102,9 +102,6 @@ def test_launch_responsibilities_and_velocity_output():
     assert "('cmd_vel', 'cmd_vel_nav')" in launch
     assert "twist_converter" not in launch
     assert "enable_mavros_velocity" not in launch
-    assert 'default_nav_to_pose_bt_xml' in launch
-    assert 'default_nav_through_poses_bt_xml' in launch
-    assert 'obstacle_layer.enabled' in launch
     assert "LaunchConfiguration('use_lidar')" in launch
     assert "('received_global_plan', 'local_plan')" in launch
     assert "'object_tracker'" not in (ROOT / 'launch/odom.launch.py').read_text()
@@ -183,3 +180,29 @@ def test_package_xml_depends_on_rotation_shim():
     """The shim plugin ships in its own package, which the boat image must install."""
     xml = (Path(__file__).resolve().parents[1] / 'package.xml').read_text()
     assert '<exec_depend>nav2_rotation_shim_controller</exec_depend>' in xml
+
+
+@pytest.mark.parametrize('use_lidar', [True, False])
+def test_factory_emits_captured_behavior_trees_and_lidar(use_lidar, tmp_path):
+    from test_navigation_startup_validation import inert_navigation_factory
+
+    factory = inert_navigation_factory()
+    nodes = factory['navigation_nodes']({
+        'params_file': str(ROOT / 'config/nav2_params.yaml'), 'limits_file': '',
+        'config_root': str(tmp_path / 'snapshots'), 'config_scope': 'contract',
+        'sim': 'false', 'use_lidar': str(use_lidar).lower()})
+    emitted = yaml.safe_load(Path(nodes[0]['parameters'][0]).read_text())
+    navigator = emitted['bt_navigator']['ros__parameters']
+    expected = {'default_nav_to_pose_bt_xml': 'nav_to_pose.xml',
+                'default_nav_through_poses_bt_xml': 'nav_replan_recov.xml'}
+    for key, name in expected.items():
+        artifact = Path(navigator[key])
+        assert artifact.is_relative_to(tmp_path / 'snapshots/contract/nav2-bt')
+        assert artifact.read_bytes() == (ROOT / 'mhseals_nav/behavior_trees' / name).read_bytes()
+        tree = ET.fromstring(artifact.read_bytes())
+        assert not any(node.tag in ['Spin', 'BackUp', 'ClearEntireCostmap']
+                       for node in tree.iter())
+        assert tree.find('.//FollowPath') is not None
+    for name in ('local_costmap', 'global_costmap'):
+        params = emitted[name][name]['ros__parameters']
+        assert params['obstacle_layer']['enabled'] is use_lidar

@@ -7,10 +7,9 @@ from mhseals_config._bootstrap import begin_bootstrap, finish_bootstrap, read_bo
 from mhseals_config._evidence import Recipe
 from mhseals_nav.startup_snapshot import EVALUATORS, observe_inputs, prepare_inputs
 import pytest
-import yaml
-
 from test_navigation_startup_validation import inert_navigation_factory
 from test_robot_overlay import robot_factory
+import yaml
 
 ROOT = Path(__file__).parents[1]
 
@@ -76,7 +75,8 @@ def test_managed_real_navigation_factory(tmp_path, fault):
     assert document['invocation'] == {'sim': False, 'use_lidar': False}
     for resource in document['resources'].values():
         if 'content_hex' in resource:
-            assert Path(resource['artifact']).read_bytes() == bytes.fromhex(resource['content_hex'])
+            assert (Path(resource['artifact']).read_bytes()
+                    == bytes.fromhex(resource['content_hex']))
 
 
 def test_managed_absence_does_not_bootstrap(tmp_path):
