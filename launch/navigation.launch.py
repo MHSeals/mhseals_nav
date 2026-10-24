@@ -55,6 +55,8 @@ def navigation_nodes(context):
         ('nav2_waypoint_follower', 'waypoint_follower'),
         ('nav2_velocity_smoother', 'velocity_smoother'),
     ]
+    servers = [(package, name) for package, name in servers
+               if name in selection['parameters']]
     clock = ParameterValue(invocation['sim'], value_type=bool)
     nodes = []
     for package, executable in servers:

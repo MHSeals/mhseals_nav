@@ -17,7 +17,7 @@ from mhseals_config._bootstrap import (
 )
 from mhseals_config._evidence import Recipe
 from mhseals_nav.navigation_config import (
-    StrictOverlayLoader, validated_merge_limits,
+    StrictOverlayLoader, validate_navigation_base, validated_merge_limits,
 )
 import yaml
 
@@ -116,7 +116,8 @@ def select_snapshot(root, scope, params_file, limits_file, *, sim, use_lidar):
     base, defaults = _source(params_file)
     limits, operator = _source(limits_file, optional=True) if limits_file else (
         {}, {'path': None, 'sha256': None, 'origins': []})
-    parameters = validated_merge_limits(base, limits) if limits else base
+    validate_navigation_base(base)
+    parameters = validated_merge_limits(base, limits)
     # B contains persistent inputs only. Invocation flags belong to S.
     baseline = {'parameters': parameters, 'sources': [defaults, operator]}
     revision = digest(baseline)

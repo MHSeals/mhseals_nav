@@ -124,9 +124,9 @@ def derived(config, original=None):
     for axis in ('vx', 'vy', 'wz'):
         if f'{axis}_std' in follow and f'{axis}_max' in follow:
             follow[f'{axis}_std'] = min(follow[f'{axis}_std'], follow[f'{axis}_max'])
-    if 'vx_max' in follow:
+    if all(key in follow for key in ('vx_max', 'time_steps', 'model_dt')):
         follow['prune_distance'] = max(original.get('prune_distance', 0.), round(
-            1.2 * follow['vx_max'] * follow.get('time_steps', 56) * follow.get('model_dt', .05), 2))
+            1.2 * follow['vx_max'] * follow['time_steps'] * follow['model_dt'], 2))
     # The shim's look-ahead and closed-loop accel assume the rates MPPI is held to.
     for shim, limit in (('rotate_to_heading_angular_vel', 'wz_max'), ('max_angular_accel', 'az_max')):
         if shim in follow and limit in follow:
@@ -261,6 +261,33 @@ def validate_navigation_overlay(base, overlay, path=()):
                 raise ValueError(f'{location}: expected OPEN_LOOP or CLOSED_LOOP')
 
 
+def validate_navigation_base(base):
+    """Validate required controller structure before compiling a new scope."""
+    controller = base.get('controller_server')
+    if not isinstance(controller, dict):
+        raise ValueError('controller_server: required mapping')
+    controller = controller.get('ros__parameters')
+    if not isinstance(controller, dict):
+        raise ValueError('controller_server.ros__parameters: required mapping')
+    frequency = controller.get('controller_frequency')
+    if (isinstance(frequency, bool) or not isinstance(frequency, (int, float))
+            or not isfinite(frequency) or frequency <= 0):
+        raise ValueError('controller_frequency: required positive finite number')
+    validate_navigation_overlay(base, base)
+    follow = controller.get('FollowPath')
+    if follow is not None:
+        if not isinstance(follow, dict):
+            raise ValueError('FollowPath: expected mapping')
+        for key in ('vx_max', 'vy_max', 'wz_max', 'vx_std', 'vy_std', 'wz_std',
+                    'time_steps', 'model_dt'):
+            value = follow.get(key)
+            if (isinstance(value, bool) or not isinstance(value, (int, float))
+                    or not isfinite(value) or value < 0):
+                raise ValueError(f'FollowPath.{key}: required nonnegative finite number')
+        if follow['time_steps'] <= 0 or int(follow['time_steps']) != follow['time_steps']:
+            raise ValueError('FollowPath.time_steps: required positive integer')
+
+
 def validated_merge_limits(base, limits):
     validate_navigation_overlay(base, limits)
     def normalized(template, value):
@@ -274,7 +301,41 @@ def validated_merge_limits(base, limits):
         if isinstance(template, int) and not isinstance(template, bool):
             return int(value)
         return value
-    return merge_limits(base, normalized(base, limits))
+    return lower_navigation(base, normalized(base, limits))
+
+
+# The selected domain parameter file owns values; these declare relationships,
+# not a second set of defaults. Behavior-server limits remain independent.
+LOWERING_INPUTS = ('controller_frequency', 'vx_max', 'vy_max', 'wz_max',
+                   'vx_min', 'time_steps', 'vx_std', 'vy_std', 'wz_std',
+                   'ax_max', 'ay_max', 'az_max', 'ax_min', 'prune_distance')
+INDEPENDENT_FIELDS = ('behavior_server',)
+
+
+def lower_navigation(base, explicit):
+    """
+    Pure canonical lowering; explicit derived assignments must agree.
+
+    Optional smoother sections and plugin maps retain the selected base shape.
+    Only the supported FollowPath closure is bound; unrelated plugin maps and
+    behavior-server rotational limits are independent inputs.
+    """
+    result = merge_limits(base, explicit)
+    controller = explicit.get('controller_server', {}).get('ros__parameters', {})
+    follow = controller.get('FollowPath', {})
+    lowered = result.get('controller_server', {}).get('ros__parameters', {}).get(
+        'FollowPath', {})
+    bound = ('model_dt', 'vx_std', 'vy_std', 'wz_std', 'prune_distance',
+             'rotate_to_heading_angular_vel', 'max_angular_accel')
+    for key in bound:
+        if key in follow and follow[key] != lowered.get(key):
+            raise ValueError(f'FollowPath.{key}: conflicts with canonical lowering')
+    smoother = explicit.get('velocity_smoother', {}).get('ros__parameters', {})
+    output = result.get('velocity_smoother', {}).get('ros__parameters', {})
+    for key in ('max_velocity', 'min_velocity', 'max_accel', 'max_decel'):
+        if key in smoother and smoother[key] != output.get(key):
+            raise ValueError(f'velocity_smoother.{key}: conflicts with canonical lowering')
+    return result
 
 
 def persistent_limits_path():
