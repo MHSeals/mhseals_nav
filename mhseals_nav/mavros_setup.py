@@ -166,11 +166,12 @@ def main(args=None):
     from mavros_msgs.msg import Mavlink, RCIn, State
     from mavros_msgs.srv import MessageInterval
     from rclpy.node import Node
+    from rclpy.parameter import Parameter
     from rclpy.qos import qos_profile_sensor_data
 
     rclpy.init(args=args)
     node = Node('mavros_setup')
-    node.declare_parameter('message_rates', ['33:20.0'])
+    node.declare_parameter('message_rates', Parameter.Type.STRING_ARRAY)
     node.declare_parameter('fcu_sysid', 1)  # MAVROS target system
     # A changed list is requested at once; the FCU keeps the latest request.
     live = LiveParams(node, {'message_rates': parse_rates},

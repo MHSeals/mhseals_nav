@@ -1,3 +1,5 @@
+from mhseals_nav.mavros_configuration import ALIASES, resolve_setup
+
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription, OpaqueFunction
 from launch.launch_description_sources import PythonLaunchDescriptionSource
@@ -64,22 +66,14 @@ def create_mavros_node(context):
     )]
 
 def create_mavros_setup_node(context):
-    # The FCU forgets message intervals when it reboots, so mavros_setup repeats
-    # them on reconnect. GPS_RTK (127) is never emitted by a DroneCAN Here4.
-    rates = [
-        (33, LaunchConfiguration('mavros_odom_rate').perform(context)),   # global_position/local
-        (30, LaunchConfiguration('mavros_imu_rate').perform(context)),    # ATTITUDE
-        (31, LaunchConfiguration('mavros_imu_rate').perform(context)),    # imu/data
-        (24, LaunchConfiguration('mavros_gps_rate').perform(context)),    # gps1/raw
-        (27, '10.0'),   # RAW_IMU: compass 1 as imu/mag; Rover's compass runs at 10 Hz
-        (1, '2.0'),     # SYS_STATUS: sensor health
-        (193, '2.0'),   # EKF_STATUS_REPORT: flags and compass variance
-        (65, LaunchConfiguration('mavros_rc_rate').perform(context)),     # RC_CHANNELS: rc/in
-    ]
+    path = LaunchConfiguration('mavros_setup_params_file').perform(context)
+    overrides = {name: LaunchConfiguration(name).perform(context) for name in ALIASES}
+    parameters = resolve_setup(path, overrides)
     return [Node(
         package='mhseals_nav',
         executable='mavros_setup',
-        parameters=[{'message_rates': [f'{i}:{hz}' for i, hz in rates]}],
+        name='mavros_setup',
+        parameters=[path, parameters],
         output='screen'
     )]
 
@@ -113,12 +107,15 @@ def generate_launch_description():
         ('fcu_url', '', 'Flight control unit connection URL'),
         ('gcs_url', 'udp://@127.0.0.1:14550', 'Ground control service connection URL'),
         ('mavros_params_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'mavros.yaml']), 'Path to MAVROS params'),
-        ('mavros_odom_rate', '20.0', 'Requested MAVROS odometry rate'),
+        ('mavros_setup_params_file', PathJoinSubstitution([mhseals_nav_dir, 'config',
+                                                        'mavros_setup.yaml']),
+         'Selected desired message-rate startup parameters'),
+        ('mavros_odom_rate', '', 'Requested MAVROS odometry rate'),
         ('mavros_velocity_stddev', '0.3', 'Body velocity uncertainty in m/s (FCU mode; GPS mode uses the receiver vel_acc)'),
         ('mavros_velocity_source', 'gps', 'Body velocity from the GPS receiver (gps) or the FCU EKF (fcu)'),
-        ('mavros_imu_rate', '20.0', 'Requested MAVROS IMU rate'),
-        ('mavros_gps_rate', '5.0', 'Requested MAVROS GPS rate'),
-        ('mavros_rc_rate', '25.0', 'Requested MAVROS RC_CHANNELS rate'),
+        ('mavros_imu_rate', '', 'Requested MAVROS IMU rate'),
+        ('mavros_gps_rate', '', 'Requested MAVROS GPS rate'),
+        ('mavros_rc_rate', '', 'Requested MAVROS RC_CHANNELS rate'),
         ('rtabmap_params_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'rtabmap.yaml']), 'Path to RTABMap params'),
         ('start_ekf', 'true', 'Start the EKFs and navsat_transform (false when ekf.launch.py runs on its own)'),
         ('ekf_overlay_file', '~/.config/mhseals/ekf.yaml', 'Per-node EKF parameter overlay; ignored when missing'),

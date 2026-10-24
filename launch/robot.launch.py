@@ -25,6 +25,14 @@ def generate_launch_description():
         ('gcs_url', 'udp://127.0.0.1:14550', 'Ground control station connection URL'),
         ('mavros_params_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'mavros.yaml']), 'Path to MAVROS parameters file'),
 
+        ('mavros_setup_params_file', PathJoinSubstitution([mhseals_nav_dir, 'config',
+                                                        'mavros_setup.yaml']),
+         'Selected desired message-rate startup parameters'),
+        ('mavros_odom_rate', '', 'Explicit odometry rate override; empty uses YAML'),
+        ('mavros_imu_rate', '', 'Explicit attitude rate override for IDs 30 and 31'),
+        ('mavros_gps_rate', '', 'Explicit GPS rate override; empty uses YAML'),
+        ('mavros_rc_rate', '', 'Explicit RC rate override; empty uses YAML'),
+
         # Localization / Odometry
         ('ekf_local_config_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'ekf_local.yaml']), 'Local EKF config'),
         ('ekf_global_config_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'ekf_global.yaml']), 'Global EKF config'),
@@ -70,6 +78,9 @@ def generate_launch_description():
             'fcu_url': launch_configurations['fcu_url'],
             'gcs_url': launch_configurations['gcs_url'],
             'mavros_params_file': launch_configurations['mavros_params_file'],
+            **{name: launch_configurations[name] for name in (
+                'mavros_setup_params_file', 'mavros_odom_rate', 'mavros_imu_rate',
+                'mavros_gps_rate', 'mavros_rc_rate')},
             'rtabmap_params_file': launch_configurations['rtabmap_params_file'],
             'ekf_local_config_file': launch_configurations['ekf_local_config_file'],
             'ekf_global_config_file': launch_configurations['ekf_global_config_file'],
