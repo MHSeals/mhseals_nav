@@ -202,9 +202,9 @@ def merge_limits(base, limits):
     """Overlay limits onto base, recompute derived keys and warn about overlay values that did not stick."""
     limits = typed_like(base, limits)
     result = deep_merge(deepcopy(base), limits)
-    follow = result['controller_server']['ros__parameters']['FollowPath']
-    original = base['controller_server']['ros__parameters']['FollowPath']
-    if 'vx_min' in original and 'vx_min' in follow:
+    follow = result.get('controller_server', {}).get('ros__parameters', {}).get('FollowPath')
+    original = base.get('controller_server', {}).get('ros__parameters', {}).get('FollowPath')
+    if isinstance(original, dict) and isinstance(follow, dict) and 'vx_min' in original and 'vx_min' in follow:
         follow['vx_min'] = max(original['vx_min'], follow['vx_min'])
     result = derived(result, base)
     warn_overridden(limits, result)

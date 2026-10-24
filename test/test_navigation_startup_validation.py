@@ -111,3 +111,65 @@ def test_unrelated_zero_default_can_remain_signed(base):
     base['Extension'] = {'signed_offset': 0.0}
     result = validated_merge_limits(base, {'Extension': {'signed_offset': -1.0}})
     assert result['Extension']['signed_offset'] == -1.0
+
+
+def inert_navigation_factory():
+    """Compile the real factory with only inert launch dependencies."""
+    source = ROOT / 'launch/navigation.launch.py'
+    tree = ast.parse(source.read_text())
+    function = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'navigation_nodes')
+    class Configuration:
+        def __init__(self, name): self.name = name
+        def perform(self, context): return context[self.name]
+    import os
+    import tempfile
+    ns = dict(LaunchConfiguration=Configuration, os=os, yaml=yaml, tempfile=tempfile,
+              load_overlay=load_overlay, validated_merge_limits=validated_merge_limits,
+              FindPackageShare=lambda name: name, PathJoinSubstitution=lambda parts: parts,
+              RewrittenYaml=lambda **kw: kw, ParameterValue=lambda *a, **kw: a,
+              Node=lambda **kw: kw)
+    exec(compile(ast.Module(body=[function], type_ignores=[]), str(source), 'exec'), ns)
+    return ns
+
+
+def test_absent_optional_overlay_preserves_custom_controller_base(base, tmp_path):
+    controller = base['controller_server']['ros__parameters']
+    controller['CustomController'] = controller.pop('FollowPath')
+    controller['controller_plugins'] = ['CustomController']
+    path = tmp_path / 'custom.yaml'
+    path.write_text(yaml.safe_dump(base))
+    ns = inert_navigation_factory()
+    nodes = ns['navigation_nodes']({'params_file': str(path),
+                                   'limits_file': str(tmp_path / 'absent.yaml')})
+    assert len(nodes) == 7
+    assert all(node['parameters'][0]['source_file'] == str(path) for node in nodes[:6])
+    # A real overlay on this selected base must not require a FollowPath mapping.
+    merged = validated_merge_limits(base, {'controller_server': {'ros__parameters': {
+        'CustomController': {'vx_max': 0.3}}}})
+    assert merged['controller_server']['ros__parameters']['CustomController']['vx_max'] == 0.3
+    assert 'FollowPath' not in merged['controller_server']['ros__parameters']
+
+
+@pytest.mark.parametrize('patch', [
+    {'waypoint_follower': {'ros__parameters': {'wait_at_waypoint': {'waypoint_pause_duration': -1}}}},
+    {'velocity_smoother': {'ros__parameters': {'deadband_velocity': [-1.0, 0.0, 0.0]}}},
+    {'controller_server': {'ros__parameters': {'FollowPath': {'PathAngleCritic': {'mode': -1}}}}},
+    None,
+])
+def test_review_reproductions_fail_before_node(base, tmp_path, patch):
+    import sys
+    import types
+    from unittest.mock import patch as patch_modules
+    base_path = tmp_path / 'base.yaml'
+    base_path.write_text(yaml.safe_dump(base))
+    overlay = tmp_path / 'overlay.yaml'
+    overlay.write_text(yaml.safe_dump(patch))
+    ns = inert_navigation_factory()
+    ns['Node'] = lambda **kw: pytest.fail('constructed node with invalid requested configuration')
+    actions = types.ModuleType('launch.actions')
+    actions.RegisterEventHandler = lambda *a, **kw: None
+    events = types.ModuleType('launch.event_handlers')
+    events.OnShutdown = lambda **kw: None
+    with patch_modules.dict(sys.modules, {'launch.actions': actions, 'launch.event_handlers': events}):
+        with pytest.raises(ValueError):
+            ns['navigation_nodes']({'params_file': str(base_path), 'limits_file': str(overlay)})
