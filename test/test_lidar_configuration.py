@@ -69,3 +69,41 @@ def test_calibration_schema_refuses_incompatible_shape():
     for raw in ('[]', '{}', 'num_lasers: 32', 'num_lasers: 16\nnum_lasers: 16'):
         with pytest.raises(ValueError):
             validate_calibration(raw)
+
+
+def test_custom_calibration_relative_origin_and_content_identity(share, tmp_path):
+    """Relative calibration follows its authoring layer and records exact bytes."""
+    from hashlib import sha256
+    raw = (share('velodyne_pointcloud') / 'params/VLP16db.yaml').read_bytes()
+    path = tmp_path / 'custom.yaml'
+    path.write_bytes(raw)
+    selected = overlay(tmp_path, {'calibration': {'file': 'custom.yaml'}})
+    result = resolve_lidar(selected, overrides={'velodyne_port': '1234'}, share=share)
+    assert result['transform']['calibration'] == str(path)
+    assert result['calibration'] == {'path': str(path), 'sha256': sha256(raw).hexdigest()}
+    origins = result['resolution'].origins
+    assert origins['lidar.calibration'][-1].source == selected
+    assert origins['lidar.endpoint.port'][-1].layer == 'session'
+    path.write_bytes(raw.replace(b'distance_resolution: 0.002', b'distance_resolution: 0.003'))
+    assert resolve_lidar(selected, share=share)['calibration']['sha256'] != sha256(raw).hexdigest()
+
+
+@pytest.mark.parametrize('alias,value', [('velodyne_port', '1.5'), ('velodyne_port', '-1'),
+    ('velodyne_port', '65536'), ('velodyne_ip', 'not-an-IP'), ('unknown', '')])
+def test_invalid_explicit_endpoint_refuses(share, alias, value):
+    """Explicit aliases share the final typed endpoint validator."""
+    with pytest.raises(ValueError):
+        resolve_lidar(overrides={alias: value}, share=share)
+
+
+def test_calibration_duplicate_laser_and_nonfinite_refuse(share):
+    """A readable YAML calibration must still satisfy the bounded structural contract."""
+    path = share('velodyne_pointcloud') / 'params/VLP16db.yaml'
+    data = yaml.safe_load(path.read_bytes())
+    data['lasers'][1]['laser_id'] = 0
+    with pytest.raises(ValueError):
+        validate_calibration(yaml.safe_dump(data))
+    data['lasers'][1]['laser_id'] = 1
+    data['lasers'][0]['vert_correction'] = float('inf')
+    with pytest.raises(ValueError):
+        validate_calibration(yaml.safe_dump(data))

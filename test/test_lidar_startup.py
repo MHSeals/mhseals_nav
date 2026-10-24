@@ -90,3 +90,22 @@ def test_unused_lidar_selection_does_not_resolve(share, sim, ignored):
     nodes = namespace['sensor_nodes'](dict(context(), sim=sim, sensors_ignore=ignored,
                                           lidar_params_file='/missing'))
     assert [n['package'] for n in nodes] == (['ros_tcp_endpoint'] if sim == 'true' else [])
+
+
+def test_actual_standalone_argument_defaults_are_unset():
+    """Standalone launch declaration does not insert endpoint values over YAML."""
+    entities = factory()['generate_launch_description']()
+    defaults = {e['name']: e['default_value'] for e in entities if 'name' in e}
+    assert all(defaults[key] == '' for key in (
+        'lidar_params_file', 'lidar_deployment_file', 'lidar_required_frame',
+        'velodyne_ip', 'velodyne_port'))
+
+
+def test_corrupt_calibration_refuses_before_nodes(share):
+    """Validate consumed calibration bytes before constructing the physical pair."""
+    path = share('velodyne_pointcloud') / 'params/VLP16db.yaml'
+    path.write_text('lasers: []')
+    namespace = sensor_factory(share)
+    namespace['Node'] = lambda **kwargs: pytest.fail('constructed unvalidated calibration node')
+    with pytest.raises(ValueError):
+        namespace['sensor_nodes'](context())

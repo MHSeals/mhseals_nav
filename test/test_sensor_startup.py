@@ -22,7 +22,9 @@ def factory(lidar_resolver=resolve_lidar):
             return context[self.name]
     namespace = {'LaunchConfiguration': Configuration, 'Node': lambda **kw: kw,
                  'PathJoinSubstitution': lambda x: x, 'FindPackageShare': lambda x: x,
-                 'large_data_env': {}, 'resolve_lidar': lidar_resolver}
+                 'large_data_env': {}, 'resolve_lidar': lidar_resolver,
+                 'DeclareLaunchArgument': lambda name, **kw: dict(name=name, **kw),
+                 'OpaqueFunction': lambda **kw: kw, 'LaunchDescription': list}
     exec(compile(ast.Module(body=functions, type_ignores=[]), str(path), 'exec'), namespace)
     return namespace
 
