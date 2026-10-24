@@ -87,3 +87,12 @@ def test_changed_selected_base_cannot_redefine_graph(tmp_path):
     paths['ekf_global'] = selected
     with pytest.raises(ValueError):
         compile_localization(paths)
+
+
+@pytest.mark.parametrize('field', ['odom0_queue_size', 'imu0_queue_size'])
+@pytest.mark.parametrize('value', [1, 2**63 - 1])
+def test_queue_signed_int64_boundaries_preserve_integers(tmp_path, field, value):
+    path = tmp_path / 'overlay.yaml'
+    path.write_text(yaml.safe_dump({'ekf_local': {field: value}}))
+    actual = compile_localization(bases(), str(path)).parameters('ekf_local')[field]
+    assert actual == value and type(actual) is int

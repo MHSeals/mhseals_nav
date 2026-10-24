@@ -114,3 +114,15 @@ def test_installed_share_defaults_outside_cwd(tmp_path, monkeypatch):
     factory['ekf_nodes'](supplied)
     assert len([c for c in calls if 'parameters' in c]) == 3
     assert all(c['parameters'][0]['use_sim_time'] is True for c in calls if 'parameters' in c)
+
+
+@pytest.mark.parametrize('field', ['odom0_queue_size', 'imu0_queue_size'])
+@pytest.mark.parametrize('value', [2**63, 2**100, 0, True, 1.0])
+def test_invalid_queue_constructs_nothing(tmp_path, field, value):
+    import yaml
+    overlay = tmp_path / 'overlay.yaml'
+    overlay.write_text(yaml.safe_dump({'ekf_local': {field: value}}))
+    calls = []
+    with pytest.raises(ValueError, match='positive signed int64'):
+        launch(calls)['ekf_nodes'](dict(context(), ekf_overlay_file=str(overlay)))
+    assert calls == []  # both Node and TimerAction use this collector

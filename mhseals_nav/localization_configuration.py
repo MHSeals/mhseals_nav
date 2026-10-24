@@ -69,8 +69,8 @@ def validate(name, params):
                 raise ValueError('fusion vector must contain exactly 15 actual booleans: ' + key)
             value = tuple(value)
         elif key in QUEUES[name]:
-            if type(value) is not int or value <= 0:
-                raise ValueError('queue size must be a positive integer: ' + key)
+            if type(value) is not int or not 0 < value <= 2**63 - 1:
+                raise ValueError('queue size must be a positive signed int64: ' + key)
         else:
             try:
                 valid = type(value) in (int, float) and math.isfinite(value)
