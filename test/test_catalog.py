@@ -88,3 +88,26 @@ def test_unknown_versions_and_non_mppi():
     effective = REGISTRY[COMPILER](base, explicit)
     assert (effective['controller_server']['ros__parameters']['FollowPath'] ==
             base['controller_server']['ros__parameters']['FollowPath'])
+
+
+@pytest.mark.parametrize('name', ['FollowPath', 'Renamed'])
+def test_always_derived_shim_metadata(name):
+    """Match shim authoring relationships to canonical compiler conflicts."""
+    base = yaml.safe_load(RESOURCE.read_bytes())
+    controller = base['controller_server']['ros__parameters']
+    controller[name] = controller.pop('FollowPath')
+    controller['controller_plugins'] = [name]
+    inventory = bundle(base)
+    prefix = 'navigation/controller_server/ros__parameters/' + name + '/'
+    for output, source in [('rotate_to_heading_angular_vel', 'wz_max'),
+                           ('max_angular_accel', 'az_max')]:
+        authoring = inventory.field(prefix + output).descriptor['authoring']
+        assert authoring['layers'] == ('derived',)
+        assert authoring['scopes'] == ()
+        assert authoring['controlling_keys'] == (prefix + source,)
+        explicit = {'controller_server': {'ros__parameters': {name: {source: 0.2}}}}
+        effective = REGISTRY[COMPILER](base, explicit)
+        assert effective['controller_server']['ros__parameters'][name][output] == 0.2
+        explicit['controller_server']['ros__parameters'][name][output] = 0.1
+        with pytest.raises(ValueError, match='conflicts with canonical lowering'):
+            REGISTRY[COMPILER](base, explicit)

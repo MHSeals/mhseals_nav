@@ -127,7 +127,12 @@ def navigation_catalog(raw, *, resource, policy_raw, consumer_versions=None):
         consumers = ['mppi'] + (['rotation_shim'] if 'rotation_shim' in ids else [])
         for key in dict.fromkeys((*LOWERING_INPUTS[1:], *derived)):
             if key in controller[name]:
-                controlling = ['navigation' + inputs[0]] if key == 'model_dt' else []
+                controls = {
+                    'model_dt': (*cp, 'controller_frequency'),
+                    'rotate_to_heading_angular_vel': (*fp, 'wz_max'),
+                    'max_angular_accel': (*fp, 'az_max'),
+                }
+                controlling = ['navigation' + _pointer(controls[key])] if key in controls else []
                 add((*fp, key), consumers, controlling=controlling)
         if 'velocity_smoother' in ids:
             for key in smoother_keys:
