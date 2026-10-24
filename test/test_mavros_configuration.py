@@ -54,3 +54,30 @@ def test_nondefault_and_explicit_alias(tmp_path):
 def test_no_fallback(path):
     with pytest.raises((ValueError, OSError)):
         resolve_setup(path)
+
+
+def test_installed_default_loader_is_actual_main_seam(tmp_path, monkeypatch):
+    import ast
+    import sys
+    from types import ModuleType
+    from mhseals_nav.mavros_configuration import installed_setup_defaults
+
+    package = ModuleType('ament_index_python')
+    packages = ModuleType('ament_index_python.packages')
+    packages.get_package_share_directory = lambda name: str(tmp_path)
+    monkeypatch.setitem(sys.modules, 'ament_index_python', package)
+    monkeypatch.setitem(sys.modules, 'ament_index_python.packages', packages)
+    (tmp_path / 'config').mkdir()
+    path = tmp_path / 'config/mavros_setup.yaml'
+    path.write_text('mavros_setup: {ros__parameters: {message_rates: ["31:17"]}}')
+    assert installed_setup_defaults() == {'message_rates': ['31:17']}
+    path.unlink()
+    with pytest.raises(OSError):
+        installed_setup_defaults()
+    source = Path(__file__).parents[1] / 'mhseals_nav/mavros_setup.py'
+    tree = ast.parse(source.read_text())
+    main = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'main')
+    calls = [ast.unparse(n) for n in ast.walk(main) if isinstance(n, ast.Call)]
+    assert 'installed_setup_defaults()' in calls
+    assert "node.declare_parameter('message_rates', defaults['message_rates'])" in calls
+    assert "validate_rates(node.get_parameter('message_rates').value)" in calls

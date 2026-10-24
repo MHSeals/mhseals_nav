@@ -72,3 +72,10 @@ def resolve_setup(path, overrides=None):
     entries = [f'{message_id}:{hz:g}' for message_id, hz in rates.items()]
     validate_rates(entries)
     return {'message_rates': entries}
+
+
+def installed_setup_defaults():
+    """Load the same package authority for direct executable startup."""
+    from ament_index_python.packages import get_package_share_directory
+    return resolve_setup(Path(get_package_share_directory('mhseals_nav')) /
+                         'config' / 'mavros_setup.yaml')
