@@ -1,13 +1,13 @@
 """Pure, startup-only odometry layers; identities describe inputs, never live state."""
 from dataclasses import dataclass
 from hashlib import sha256
-import math
 from pathlib import Path
 from types import MappingProxyType
 
 import yaml
 
 from .navigation_config import StrictOverlayLoader
+from .startup_rules import Rule
 
 ALIASES = ('robot_state_publish_frequency', 'mavros_velocity_source',
            'mavros_velocity_stddev', 'mavros_velocity_max_age',
@@ -38,17 +38,20 @@ class OdometryConfiguration:
         return {target: self.values[key] for target, key in ADAPTER_PARAMETERS.items()}
 
 
+def field_rule(key):
+    """The owned schema rule, shared by validation and catalog presentation."""
+    if key not in KEYS:
+        raise ValueError('unknown odometry startup field: ' + key)
+    return (Rule('string', choices=('gps', 'fcu')) if key == 'mavros_velocity_source' else
+            Rule('number', minimum=0, exclusive=not key.startswith('ekf_delay_')))
+
+
 def validate(values):
+    """Validate every supplied startup field before precedence."""
     if not isinstance(values, dict) or set(values) - KEYS:
         raise ValueError('unsupported odometry startup mapping')
     for key, value in values.items():
-        if key == 'mavros_velocity_source':
-            if type(value) is not str or value not in ('gps', 'fcu'):
-                raise ValueError('velocity source must be gps or fcu')
-        elif (type(value) not in (int, float) or not math.isfinite(value) or
-              value < 0 or (value == 0 and not key.startswith('ekf_delay_'))):
-            raise ValueError(f'{key} must be finite and ' +
-                             ('nonnegative' if key.startswith('ekf_delay_') else 'positive'))
+        field_rule(key).check(value)
 
 
 def resolve_odometry(package_file=None, deployment_file='', operator_file='',

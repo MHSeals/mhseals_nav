@@ -188,3 +188,7 @@ ros2 run tf2_ros tf2_echo map base_link
 `setup.py` registers `console_scripts` for `ros2 run mhseals_nav <executable>` and installs launch files, configurations, robot descriptions, and behavior trees. Register new runnable nodes there, declare dependencies in `package.xml`, and rebuild/source after installed assets change. Tuning lives in `config/`, physical frames in `description/`, and navigation behavior in `mhseals_nav/behavior_trees/`.
 
 Keep changes lean and scoped. Open a pull request explaining what changed, why, and how it was tested, including any interface changes. Update the README when usage or architecture changes. Run ROS runtime probes in an isolated container/domain without boat hardware.
+
+Read-only odometry/localization catalog constraints are generated from the compiler's
+rules and package YAML: [startup catalog guide](docs/startup-catalog-constraints.md).
+The installed copy is under `share/mhseals_nav/docs/`; it grants no runtime authority.

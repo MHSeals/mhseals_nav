@@ -6,13 +6,13 @@ velocities, accelerations. Covariance and additional sensor slots are unsupporte
 """
 from dataclasses import dataclass
 from hashlib import sha256
-import math
 from pathlib import Path
 from types import MappingProxyType
 
 import yaml
 
 from .navigation_config import StrictOverlayLoader
+from .startup_rules import Rule
 
 NODES = ('ekf_local', 'ekf_global', 'navsat_transform')
 FRAMES = {'map_frame': 'map', 'odom_frame': 'odom', 'base_link_frame': 'base_link'}
@@ -50,38 +50,28 @@ class Loader(StrictOverlayLoader):
         return super().construct_mapping(node, deep=deep)
 
 
+def field_rule(name, key):
+    """Rules are the compiler schema and the catalog constraint authority."""
+    if key in GRAPH[name]:
+        return Rule('string', choices=(GRAPH[name][key],))
+    if key in BOOLEANS[name]:
+        return Rule('boolean')
+    if key in VECTORS[name]:
+        return Rule('sequence', size=15)
+    if key in QUEUES[name]:
+        return Rule('integer', minimum=1, maximum=2**63 - 1)
+    if key in DOUBLES[name]:
+        return Rule('number', minimum=0 if key in ('frequency', 'delay', 'sensor_timeout') else None,
+                    exclusive=key == 'frequency')
+    raise ValueError('unsupported localization field: ' + name + '.' + key)
+
+
 def validate(name, params):
     """Validate supplied fields independently before precedence can mask a fault."""
     allowed = set(GRAPH[name]) | BOOLEANS[name] | DOUBLES[name] | VECTORS[name] | QUEUES[name]
     if not isinstance(params, dict) or set(params) - allowed:
         raise ValueError('unsupported localization fields for ' + name)
-    checked = {}
-    for key, value in params.items():
-        if key in GRAPH[name]:
-            if type(value) is not str or value != GRAPH[name][key]:
-                raise ValueError('unsupported fixed graph identity: ' + name + '.' + key)
-        elif key in BOOLEANS[name]:
-            if type(value) is not bool:
-                raise ValueError('expected actual boolean: ' + key)
-        elif key in VECTORS[name]:
-            if (type(value) is not list or len(value) != 15
-                    or any(type(v) is not bool for v in value)):
-                raise ValueError('fusion vector must contain exactly 15 actual booleans: ' + key)
-            value = tuple(value)
-        elif key in QUEUES[name]:
-            if type(value) is not int or not 0 < value <= 2**63 - 1:
-                raise ValueError('queue size must be a positive signed int64: ' + key)
-        else:
-            try:
-                valid = type(value) in (int, float) and math.isfinite(value)
-            except OverflowError:
-                valid = False
-            if (not valid or key == 'frequency' and value <= 0
-                    or key in ('delay', 'sensor_timeout') and value < 0):
-                raise ValueError('invalid localization double: ' + key)
-            value = float(value)
-        checked[key] = value
-    return checked
+    return {key: field_rule(name, key).check(value) for key, value in params.items()}
 
 
 def parse_base(raw, name):

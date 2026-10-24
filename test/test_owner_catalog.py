@@ -32,6 +32,11 @@ def families(share):
         bundle = loader(raw, resource='config/' + filename, policy_raw=policy)
         source = bundle.descriptor['default_sources'][0]['id']
         result[name] = (bundle, {source: raw}, dict(bindings))
+    from mhseals_nav.startup_catalog import (
+        startup_catalogs, ODOMETRY_RESOURCE, LOCALIZATION_RESOURCES)
+    resources = {path: (share / path).read_bytes()
+                 for path in (ODOMETRY_RESOURCE, *LOCALIZATION_RESOURCES.values())}
+    result.update(startup_catalogs(resources, policy_raw=policy))
     return result
 
 
@@ -55,7 +60,15 @@ def test_complete_deterministic_installed_provider(installed):
     assert first.field('navigation/controller_server/ros__parameters/controller_frequency')
     for family, (bundle, _, _) in inputs.items():
         assert family + '@' + bundle.descriptor['revision'] in first.descriptor['revision']
-    assert len(first.descriptor['default_sources']) == 3
+    assert len(first.descriptor['default_sources']) == 7
+    assert first.field('odometry.ekf_delay_included').default == 6.0
+    assert first.field('localization.ekf_local.frequency').default == 30.0
+    guide = installed / 'docs/startup-catalog-constraints.md'
+    assert guide.is_file() and 'exactly 15 actual booleans' in guide.read_text()
+    for key in ('odometry.mavros_velocity_source', 'localization.navsat_transform.map_frame'):
+        row = first.field(key)
+        ref = row.descriptor['default_ref']
+        assert ref['source_hash'] == sha256((installed / ref['path']).read_bytes()).hexdigest()
     assert all(not row.writable for row in first.rows)
     assert all('runtime-authority-not-provided' in row.blockers for row in first.rows)
 
@@ -119,7 +132,8 @@ def test_conflicting_identities_refuse(installed, kind):
 
 
 @pytest.mark.parametrize('filename', [
-    'catalog.yaml', 'nav2_params.yaml', 'mavros_setup.yaml', 'lidar.yaml'])
+    'catalog.yaml', 'nav2_params.yaml', 'mavros_setup.yaml', 'lidar.yaml', 'odometry_startup.yaml',
+    'ekf_local.yaml', 'ekf_global.yaml', 'navsat_transform.yaml'])
 def test_missing_malformed_and_invalid_family_fail_visibly(
         installed, monkeypatch, tmp_path, filename):
     """Required family failures cannot return a partial inventory labeled complete."""
@@ -144,7 +158,9 @@ def test_missing_malformed_and_invalid_family_fail_visibly(
             owner.combine_catalogs(inputs)
     config = tmp_path / 'config'
     config.mkdir()
-    for name in ('catalog.yaml', 'nav2_params.yaml', 'mavros_setup.yaml', 'lidar.yaml'):
+    for name in ('catalog.yaml', 'nav2_params.yaml', 'mavros_setup.yaml', 'lidar.yaml',
+                 'odometry_startup.yaml', 'ekf_local.yaml', 'ekf_global.yaml',
+                 'navsat_transform.yaml'):
         if name != filename:
             (config / name).write_bytes((installed / 'config' / name).read_bytes())
     monkeypatch.setattr(owner, 'package_share', lambda package: tmp_path)
@@ -153,3 +169,22 @@ def test_missing_malformed_and_invalid_family_fail_visibly(
     (config / filename).write_text('[]')
     with pytest.raises(ValueError):
         owner.load_catalog()
+
+
+def test_installed_nondefault_compiler_evidence_does_not_replace_raw_defaults(installed, tmp_path, monkeypatch):
+    from mhseals_nav.odometry_configuration import resolve_odometry
+    from mhseals_nav.localization_configuration import compile_localization, NODES
+    monkeypatch.setenv('HOME', str(tmp_path))
+    operator, overlay = tmp_path / 'startup.yaml', tmp_path / 'overlay.yaml'
+    operator.write_text('ekf_delay_included: 9.0\n')
+    overlay.write_text('ekf_local: {frequency: 37}\n')
+    selected = resolve_odometry(installed / 'config/odometry_startup.yaml',
+                                operator_file=operator, context='included')
+    projected = compile_localization({name: installed / ('config/' + name + '.yaml')
+                                      for name in NODES}, str(overlay))
+    assert selected.delay == 9.0 and projected.parameters('ekf_local')['frequency'] == 37.0
+    assert selected.inputs[-1]['sha256'] == sha256(operator.read_bytes()).hexdigest()
+    assert projected.inputs[-1]['sha256'] == sha256(overlay.read_bytes()).hexdigest()
+    baseline = owner.load_catalog()
+    assert baseline.field('odometry.ekf_delay_included').default == 6.0
+    assert baseline.field('localization.ekf_local.frequency').default == 30.0
