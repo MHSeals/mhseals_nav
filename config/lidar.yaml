@@ -1,0 +1,11 @@
+# Canonical startup defaults. Deployment and explicit selection layer over these.
+lidar:
+  model: VLP16
+  frame: lidar_link
+  rpm: 600.0
+  calibration:
+    package: velodyne_pointcloud
+    path: params/VLP16db.yaml
+  endpoint:
+    ip: 192.168.0.201
+    port: 2368
