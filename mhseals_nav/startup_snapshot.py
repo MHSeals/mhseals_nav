@@ -16,6 +16,7 @@ from mhseals_config._bootstrap import (
     read_bootstrap_inputs, read_selected_inputs,
 )
 from mhseals_config._evidence import Recipe
+from mhseals_nav.bt_artifacts import materialize_trees
 from mhseals_nav.navigation_config import (
     StrictOverlayLoader, validate_navigation_base, validated_merge_limits,
 )
@@ -50,9 +51,10 @@ def snapshot_scope():
 
 def compiler_identity():
     """Pin both the domain compiler and this startup adapter."""
-    from mhseals_nav import navigation_config, startup_projection
+    from mhseals_nav import bt_artifacts, navigation_config, startup_projection
     return digest({str(Path(p).name): hashlib.sha256(Path(p).read_bytes()).hexdigest()
-                   for p in (__file__, navigation_config.__file__, startup_projection.__file__)})
+                   for p in (__file__, navigation_config.__file__, startup_projection.__file__,
+                             bt_artifacts.__file__)})
 
 
 def _source(path, *, optional=False):
@@ -106,17 +108,23 @@ def select_snapshot(root, scope, params_file, limits_file, *, sim, use_lidar, re
             return [mutable(item) for item in value]
         return value
 
-    resources = resource_identity(resources or resource_paths())
+    paths = resources or resource_paths()
     try:
         selected = read_selected_inputs(root, scope, evaluators=EVALUATORS)
     except NoActiveSelection:
         pass
     else:
         document = mutable(selected.documents[PARTICIPANT])
-        if document['resources'] != resources:
+        pinned = document['resources']
+        if (set(paths) != set(pinned)
+                or any(str(Path(path).absolute()) != pinned[key]['path']
+                       for key, path in paths.items())
+                or hashlib.sha256(Path(paths['launch']).read_bytes()).hexdigest()
+                != pinned['launch']['sha256']):
             raise ValueError('navigation launch resources changed; reconcile scope')
         if document['compiler'] != compiler_identity():
             raise ValueError('navigation compiler identity changed; reconcile scope')
+        materialize_trees(root, scope, pinned)
         return document
 
     base, defaults = _source(params_file)
@@ -128,6 +136,8 @@ def select_snapshot(root, scope, params_file, limits_file, *, sim, use_lidar, re
     baseline = {'parameters': parameters, 'sources': [defaults, operator]}
     revision = digest(baseline)
     invocation = {'sim': _boolean(sim), 'use_lidar': _boolean(use_lidar)}
+    resources = resource_identity(paths)
+    materialize_trees(root, scope, resources)
     effective, projection = project_launch(parameters, invocation, resources)
     document = {'parameters': effective, 'baseline': baseline,
                 'invocation': invocation, 'resources': resources,

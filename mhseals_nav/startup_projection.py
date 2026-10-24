@@ -27,10 +27,15 @@ def resource_identity(paths):
     """Pin content plus installed and resolved paths of all selected resources."""
     if set(paths) != {'launch', *BT_FILES}:
         raise ValueError('incomplete navigation launch resource closure')
-    return {key: {'path': str(Path(path).absolute()),
-                  'resolved': str(Path(path).resolve(strict=True)),
-                  'sha256': hashlib.sha256(Path(path).read_bytes()).hexdigest()}
-            for key, path in paths.items()}
+    result = {}
+    for key, path in paths.items():
+        content = Path(path).read_bytes()
+        result[key] = {'path': str(Path(path).absolute()),
+                       'resolved': str(Path(path).resolve(strict=True)),
+                       'sha256': hashlib.sha256(content).hexdigest()}
+        if key in BT_FILES:
+            result[key]['content_hex'] = content.hex()
+    return result
 
 
 def project_launch(parameters, invocation, resources):
@@ -67,8 +72,8 @@ def project_launch(parameters, invocation, resources):
     if 'bt_navigator' in result:
         params = result['bt_navigator']['ros__parameters']
         for key in BT_FILES:
-            assign(params, key, resources[key]['path'], ('bt_navigator', 'ros__parameters'),
-                   'pinned installed behavior tree')
+            assign(params, key, resources[key]['artifact'], ('bt_navigator', 'ros__parameters'),
+                   'snapshot-owned behavior tree bytes')
     lifecycle = {'autostart': True, 'use_sim_time': invocation['sim'],
                  'node_names': [name for _, name in selected]}
     result['lifecycle_manager_navigation'] = {'ros__parameters': lifecycle}
