@@ -28,6 +28,8 @@ def lidar_catalog(raw, *, resource, policy_raw, consumer_versions=None):
     consumers = ('velodyne_driver', 'velodyne_transform', 'sensor_factory')
     pins = dict.fromkeys(consumers, 'unknown')
     leaves = []
+    dependencies = ['installed-lidar-defaults', 'selected-deployment-and-operator-layers',
+                    'validated-calibration-path-and-sha256', 'TF-URDF-contract-pending-M06']
 
     def add(key, kind, units, consumers, outputs):
         pointer = '/lidar/' + key
@@ -43,10 +45,7 @@ def lidar_catalog(raw, *, resource, policy_raw, consumer_versions=None):
                               controlling_keys=[]),
             'consumers': [dict(policy['consumer'], id=cid, version=pins[cid],
                                parameters=outputs, compiler_ref=COMPILER, inputs=closure,
-                               outputs=outputs, dependencies=['installed-lidar-defaults',
-                                   'selected-deployment-and-operator-layers',
-                                             'validated-calibration-path-and-sha256',
-                                             'TF-URDF-contract-pending-M06']) for cid in consumers],
+                               outputs=outputs, dependencies=dependencies) for cid in consumers],
             'safety': policy['safety'],
             'evidence': [dict(policy['evidence'], recipe_ref=VALIDATOR, consumer=cid,
                               version=pins[cid], required_type='startup-inputs/unverified')

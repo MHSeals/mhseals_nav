@@ -39,6 +39,7 @@ def validate_values(values):
     if not frame or frame.strip() != frame or any(char.isspace() for char in frame):
         raise ValueError('lidar frame must be nonempty and contain no whitespace')
     positive(values['lidar.rpm'], 'rpm')
+    validate_reference(values['lidar.calibration'])
     IPv4Address(values['lidar.endpoint.ip'])
     port = values['lidar.endpoint.port']
     if type(port) is not int or not 1 <= port <= 65535:
@@ -91,22 +92,29 @@ def _layer(path, layer):
     return parse_lidar(raw, str(path), layer), identity
 
 
-def _calibration(reference, source, share):
+def validate_reference(reference):
+    """Validate the finite calibration reference schema without reading a file."""
     if not isinstance(reference, Mapping):
         raise ValueError('calibration must be a file or package/path mapping')
     if set(reference) == {'package', 'path'}:
         package, relative = reference['package'], reference['path']
         if (not isinstance(package, str) or not package or '/' in package or
-                not isinstance(relative, str) or Path(relative).is_absolute() or
+                not isinstance(relative, str) or not relative or Path(relative).is_absolute() or
                 '..' in Path(relative).parts):
             raise ValueError('invalid package calibration reference')
-        path = Path(share(package)) / relative
-    elif set(reference) == {'file'} and isinstance(reference['file'], str) and reference['file']:
+    elif (set(reference) != {'file'} or not isinstance(reference['file'], str) or
+          not reference['file']):
+        raise ValueError('unsupported calibration reference')
+
+
+def _calibration(reference, source, share):
+    validate_reference(reference)
+    if 'package' in reference:
+        path = Path(share(reference['package'])) / reference['path']
+    else:
         path = Path(reference['file']).expanduser()
         if not path.is_absolute():
             path = Path(source).parent / path
-    else:
-        raise ValueError('unsupported calibration reference')
     path = path.resolve(strict=True)
     raw = path.read_bytes()
     validate_calibration(raw)

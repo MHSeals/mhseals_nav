@@ -95,8 +95,8 @@ def test_frame_is_sensor_local_but_full_robot_refuses(share, tmp_path):
 def test_unused_lidar_selection_does_not_resolve(share, sim, ignored):
     """Simulation and ignored lidar retain their bounded previous closure."""
     namespace = factory(lambda *args, **kwargs: pytest.fail('resolved unused physical lidar'))
-    nodes = namespace['sensor_nodes'](dict(context(), sim=sim, sensors_ignore=ignored,
-                                         lidar_params_file='/missing'))
+    values = dict(context(), sim=sim, sensors_ignore=ignored, lidar_params_file='/missing')
+    nodes = namespace['sensor_nodes'](values)
     assert [n['package'] for n in nodes] == (['ros_tcp_endpoint'] if sim == 'true' else [])
 
 
