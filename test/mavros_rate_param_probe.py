@@ -46,7 +46,8 @@ def call(client, request):
 
 
 def read():
-    return list(call(get, GetParameters.Request(names=['message_rates'])).values[0].string_array_value)
+    reply = call(get, GetParameters.Request(names=['message_rates']))
+    return list(reply.values[0].string_array_value)
 
 
 def write(entries):
