@@ -75,3 +75,13 @@ def test_partial_layer_remains_strict(tmp_path, raw):
     path.write_text(raw)
     with pytest.raises((ValueError, yaml.YAMLError)):
         resolve_setup(path)
+
+
+@pytest.mark.parametrize('key', ['retry_attempts', 'retry_delay', 'rc_min_channels', 'fcu_sysid'])
+def test_oversized_policy_integer_refuses_before_resources(monkeypatch, key):
+    """A numeric denial remains a field-specific ValueError, never OverflowError."""
+    from mhseals_nav.mavros_configuration import validate_policy_value
+    with pytest.raises(ValueError, match='invalid policy: ' + key):
+        validate_policy_value(key, 10 ** 400)
+    with pytest.raises(ValueError, match='invalid policy: ' + key):
+        inert_main(monkeypatch, {key: 10 ** 400})

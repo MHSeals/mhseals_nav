@@ -54,7 +54,11 @@ POLICY_FIELDS = {
 
 def validate_policy_value(key, value):
     rule = POLICY_FIELDS[key]
-    if (type(value) not in (int, float) or not math.isfinite(value)
+    try:
+        finite = type(value) in (int, float) and math.isfinite(value)
+    except OverflowError:
+        finite = False
+    if (not finite
             or (rule in ('integer', 'sysid') and type(value) is not int)
             or (rule == 'sysid' and value > 255)
             or value < 0 or (rule != 'nonnegative' and value == 0)):
