@@ -83,6 +83,8 @@ def resolve_odometry(package_file=None, deployment_file='', operator_file='',
         validate({target: value})
         values[target] = value
     validate(values)
+    values = {key: value if key == 'mavros_velocity_source' else float(value)
+              for key, value in values.items()}
     return OdometryConfiguration(MappingProxyType(values), tuple(inputs), context)
 
 

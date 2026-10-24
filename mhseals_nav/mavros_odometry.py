@@ -142,10 +142,10 @@ def main(args=None):
 
     from mavros_msgs.msg import GPSRAW
 
-    rclpy.init(args=args)
-    node = Node('mavros_odom_adapter')
     from .odometry_configuration import resolve_odometry
     defaults = resolve_odometry().adapter_parameters
+    rclpy.init(args=args)
+    node = Node('mavros_odom_adapter')
     node.declare_parameter('velocity_stddev', defaults['velocity_stddev'])
     source = node.declare_parameter('velocity_source', defaults['velocity_source']).value
     # Over a few samples of a 4-5 Hz receiver plus jitter: field gaps reach 1.1 s.

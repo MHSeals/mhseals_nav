@@ -115,3 +115,24 @@ def test_full_robot_forwards_startup_and_localization_selections():
     required = (*ALIASES, *LAYER_ARGUMENTS, 'ekf_startup_context', 'ekf_overlay_file',
                 'navsat_transform_config_file', 'ekf_local_config_file', 'ekf_global_config_file')
     assert all(selected[name].name == name for name in required)
+
+
+@pytest.mark.parametrize('alias', [False, True])
+def test_integer_spelled_frequency_projects_as_double(tmp_path, alias):
+    selected = tmp_path / 'operator.yaml'
+    selected.write_text('robot_state_publish_frequency: 50\nmavros_velocity_stddev: 1\n')
+    urdf = tmp_path / 'robot.urdf'
+    urdf.write_text('<robot/>')
+    settings = lambda: resolve_odometry(ROOT / 'config/odometry_startup.yaml',
+        operator_file=selected, aliases={'robot_state_publish_frequency': 60,
+                                        'mavros_velocity_stddev': 2} if alias else {})
+    calls = []
+    namespace = factories('odom.launch.py', settings, calls)
+    import os
+    namespace['os'] = os
+    robot = namespace['load_urdf']({**context(), 'urdf_file': str(urdf)})[0]
+    assert type(robot['parameters'][0]['publish_frequency']) is float
+    namespace['odometry_nodes'](context())
+    adapter = next(x for x in calls if x.get('name') == 'mavros_odom_adapter')
+    assert type(adapter['parameters'][0]['velocity_stddev']) is float
+    assert adapter['parameters'][0]['velocity_stddev'] == (2. if alias else 1.)
