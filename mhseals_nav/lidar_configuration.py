@@ -31,19 +31,36 @@ def positive(value, name):
         raise ValueError(f'{name} must be finite positive numeric')
 
 
+def validate_present(values):
+    """Reject every supplied leaf before precedence can hide invalid input."""
+    for key, value in values.items():
+        if key == 'lidar.model':
+            if value != 'VLP16':
+                raise ValueError('only the VLP16 model is supported')
+        elif key == 'lidar.frame':
+            if (not isinstance(value, str) or not value or value.strip() != value or
+                    any(char.isspace() for char in value)):
+                raise ValueError('lidar frame must be nonempty and contain no whitespace')
+        elif key == 'lidar.rpm':
+            positive(value, 'rpm')
+        elif key == 'lidar.calibration':
+            validate_reference(value)
+        elif key == 'lidar.endpoint.ip':
+            if not isinstance(value, str):
+                raise ValueError('lidar IP must be an IPv4 string')
+            IPv4Address(value)
+        elif key == 'lidar.endpoint.port':
+            if type(value) is not int or not 1 <= value <= 65535:
+                raise ValueError('lidar UDP port must be an integer in 1..65535')
+        else:
+            raise ValueError(f'unsupported lidar leaf: {key}')
+
+
 def validate_values(values):
-    """Validate the finite supported VLP16 projection, not firmware qualification."""
-    if set(values) != set(FIELDS) or values['lidar.model'] != 'VLP16':
+    """Validate the complete supported projection after all layers resolve."""
+    if set(values) != set(FIELDS):
         raise ValueError('complete VLP16 lidar configuration required')
-    frame = values['lidar.frame']
-    if not frame or frame.strip() != frame or any(char.isspace() for char in frame):
-        raise ValueError('lidar frame must be nonempty and contain no whitespace')
-    positive(values['lidar.rpm'], 'rpm')
-    validate_reference(values['lidar.calibration'])
-    IPv4Address(values['lidar.endpoint.ip'])
-    port = values['lidar.endpoint.port']
-    if type(port) is not int or not 1 <= port <= 65535:
-        raise ValueError('lidar UDP port must be an integer in 1..65535')
+    validate_present(values)
 
 
 def validate_calibration(raw):
@@ -82,7 +99,9 @@ def parse_lidar(raw, source, layer):
     if rpm is not None:
         positive(rpm, 'rpm')
         fields['lidar.rpm'] = Field(type(rpm))
-    return parse(raw.decode(), source, layer, fields)
+    assignments = parse(raw.decode(), source, layer, fields)
+    validate_present({item.key: item.value for item in assignments})
+    return assignments
 
 
 def _layer(path, layer):
@@ -146,8 +165,8 @@ def resolve_lidar(selected='', deployment='', overrides=None, *, share=package_s
         else:
             endpoint['ip'] = value
     if endpoint:
-        layers.append(parse(yaml.safe_dump({'lidar': {'endpoint': endpoint}}),
-                            '<explicit-endpoint-aliases>', 'session', FIELDS))
+        layers.append(parse_lidar(yaml.safe_dump({'lidar': {'endpoint': endpoint}}).encode(),
+                                  '<explicit-endpoint-aliases>', 'session'))
     resolution = resolve(layers)
     values = resolution.effective
     validate_values(values)

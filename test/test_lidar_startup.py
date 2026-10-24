@@ -117,3 +117,17 @@ def test_corrupt_calibration_refuses_before_nodes(share):
     namespace['Node'] = lambda **kwargs: pytest.fail('constructed unvalidated calibration node')
     with pytest.raises(ValueError):
         namespace['sensor_nodes'](context())
+
+
+@pytest.mark.parametrize('patch', [
+    {'endpoint': {'port': 0}}, {'endpoint': {'ip': 'invalid'}}, {'model': 'HDL64'},
+    {'frame': ''}, {'calibration': {'file': 17}}])
+def test_masked_invalid_deployment_fails_before_node(share, tmp_path, patch):
+    """Actual sensor construction refuses invalid inputs in overridden layers."""
+    deployment = overlay(tmp_path, patch)
+    values = dict(context(), lidar_deployment_file=deployment,
+                  lidar_params_file=str(ROOT / 'config/lidar.yaml'))
+    namespace = sensor_factory(share)
+    namespace['Node'] = lambda **kwargs: pytest.fail('constructed Node before layer validation')
+    with pytest.raises(ValueError):
+        namespace['sensor_nodes'](values)

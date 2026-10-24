@@ -109,3 +109,30 @@ def test_calibration_duplicate_laser_and_nonfinite_refuse(share):
     data['lasers'][0]['vert_correction'] = float('inf')
     with pytest.raises(ValueError):
         validate_calibration(yaml.safe_dump(data))
+
+
+@pytest.mark.parametrize('patch', [
+    {'endpoint': {'port': 0}}, {'endpoint': {'ip': 'invalid'}}, {'model': 'HDL64'},
+    {'frame': ''}, {'calibration': {'file': 17}}])
+def test_invalid_deployment_is_not_hidden_by_valid_selection(share, tmp_path, patch):
+    """Every present lower-layer leaf must be valid even when it loses precedence."""
+    deployment = overlay(tmp_path, patch)
+    with pytest.raises(ValueError):
+        resolve_lidar(ROOT / 'config/lidar.yaml', deployment, share=share)
+
+
+@pytest.mark.parametrize('endpoint,aliases', [
+    ({'ip': 'invalid'}, {'velodyne_ip': '10.1.2.3'}),
+    ({'port': 0}, {'velodyne_port': '1234'})])
+def test_invalid_operator_endpoint_is_not_hidden_by_alias(share, tmp_path, endpoint, aliases):
+    """Explicit valid aliases cannot conceal malformed selected YAML."""
+    selected = overlay(tmp_path, {'endpoint': endpoint})
+    with pytest.raises(ValueError):
+        resolve_lidar(selected, overrides=aliases, share=share)
+
+
+def test_unused_shadowed_calibration_only_requires_valid_reference(share, tmp_path):
+    """Validate shadowed reference schema without reading an unconsumed file."""
+    deployment = overlay(tmp_path, {'calibration': {'file': '/missing/unused-calibration'}})
+    result = resolve_lidar(ROOT / 'config/lidar.yaml', deployment, share=share)
+    assert result['transform']['calibration'].endswith('/params/VLP16db.yaml')
