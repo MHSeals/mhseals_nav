@@ -2,10 +2,9 @@
 from hashlib import sha256
 from pathlib import Path
 
+from mhseals_nav.localization_configuration import compile_localization, NODES
 import pytest
 import yaml
-
-from mhseals_nav.localization_configuration import compile_localization, NODES
 
 ROOT = Path(__file__).parents[1]
 

@@ -1,4 +1,5 @@
-"""Strict fresh-start inputs for the shipped robot_localization 3.8.3 graph.
+"""
+Strict fresh-start inputs for the shipped robot_localization 3.8.3 graph.
 
 Fusion vectors follow x/y/z, roll/pitch/yaw, linear velocities, angular
 velocities, accelerations. Covariance and additional sensor slots are unsupported.
@@ -29,12 +30,13 @@ BOOLEANS = {
                    'predict_to_current_time', 'odom0_differential', 'odom1_differential',
                    'imu0_differential', 'imu0_relative', 'imu0_remove_gravitational_acceleration'},
     'navsat_transform': {'zero_altitude', 'broadcast_utm_transform', 'publish_filtered_gps',
-                        'use_odometry_yaw', 'wait_for_datum'},
+                         'use_odometry_yaw', 'wait_for_datum'},
 }
 DOUBLES = {name: {'frequency', 'sensor_timeout', 'transform_time_offset'} for name in NODES[:2]}
 DOUBLES['navsat_transform'] = {'frequency', 'delay', 'magnetic_declination_radians', 'yaw_offset'}
 VECTORS = {'ekf_local': {'odom0_config', 'imu0_config'},
-           'ekf_global': {'odom0_config', 'imu0_config', 'odom1_config'}, 'navsat_transform': set()}
+           'ekf_global': {'odom0_config', 'imu0_config', 'odom1_config'},
+           'navsat_transform': set()}
 QUEUES = {'ekf_local': {'odom0_queue_size', 'imu0_queue_size'},
           'ekf_global': set(), 'navsat_transform': set()}
 
@@ -62,7 +64,8 @@ def validate(name, params):
             if type(value) is not bool:
                 raise ValueError('expected actual boolean: ' + key)
         elif key in VECTORS[name]:
-            if type(value) is not list or len(value) != 15 or any(type(v) is not bool for v in value):
+            if (type(value) is not list or len(value) != 15
+                    or any(type(v) is not bool for v in value)):
                 raise ValueError('fusion vector must contain exactly 15 actual booleans: ' + key)
             value = tuple(value)
         elif key in QUEUES[name]:
@@ -94,7 +97,7 @@ def parse_base(raw, name):
 
 
 def parse_overlay(raw):
-    """An empty document inherits; node nulls and mixed wrappers do not."""
+    """Inherit for empty documents; reject node nulls and mixed wrappers."""
     data = yaml.load(raw, Loader=Loader)
     if data is None and yaml.compose(raw) is None:
         return {}
@@ -123,7 +126,7 @@ class LocalizationConfiguration:
         'ekf_global.predict_to_current_time')
 
     def parameters(self, name):
-        """A fresh ROS-compatible projection, never the original mutable YAML file."""
+        """Return a fresh ROS-compatible projection, never the mutable YAML file."""
         return dict({k: list(v) if isinstance(v, tuple) else v
                      for k, v in self.nodes[name].items()}, use_sim_time=self.use_sim_time)
 
@@ -145,22 +148,24 @@ def compile_localization(base_paths, overlay_selection='', use_sim_time=False):
         selection = str(path)
         path = Path(path).expanduser().resolve(strict=True)
         raw = path.read_bytes()
-        inputs.append(MappingProxyType(dict(path=str(path), sha256=sha256(raw).hexdigest(),
-                                             kind=kind, explicit=explicit, selection=selection)))
+        inputs.append(MappingProxyType({
+            'path': str(path), 'sha256': sha256(raw).hexdigest(),
+            'kind': kind, 'explicit': explicit, 'selection': selection}))
         return raw
 
     for name in NODES:
         nodes[name] = parse_base(read(base_paths[name], name), name)
     explicit = overlay_selection != ''
-    path = Path(overlay_selection).expanduser() if explicit else Path.home() / '.config/mhseals/ekf.yaml'
+    path = (Path(overlay_selection).expanduser() if explicit else
+            Path.home() / '.config/mhseals/ekf.yaml')
     try:
         raw = read(path, 'overlay', explicit)
     except FileNotFoundError:
         if explicit or path.is_symlink():
             raise
         raw = b''
-        inputs.append(MappingProxyType(dict(path=str(path), sha256=None,
-                                             kind='overlay-absent', explicit=False)))
+        inputs.append(MappingProxyType({
+            'path': str(path), 'sha256': None, 'kind': 'overlay-absent', 'explicit': False}))
     for name, values in parse_overlay(raw).items():
         nodes[name].update(values)
     return LocalizationConfiguration(

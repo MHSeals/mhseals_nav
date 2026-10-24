@@ -4,6 +4,7 @@ from pathlib import Path
 
 from mhseals_nav.localization_configuration import compile_localization, simulation_clock
 from mhseals_nav.odometry_configuration import ALIASES, LAYER_ARGUMENTS, resolve_odometry
+import pytest
 
 import pytest
 

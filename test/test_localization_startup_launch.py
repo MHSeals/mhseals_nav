@@ -1,12 +1,12 @@
 """Actual launch bodies, inert constructors and installed-share selection."""
-import pytest
-
 from mhseals_nav.odometry_configuration import resolve_odometry
+import pytest
 from test_odometry_startup_launch import context, factories, ROOT
 
 
 def launch(calls):
-    settings = lambda: resolve_odometry(ROOT / 'config/odometry_startup.yaml')
+    def settings():
+        return resolve_odometry(ROOT / 'config/odometry_startup.yaml')
     return factories('ekf.launch.py', settings, calls)
 
 
@@ -55,7 +55,8 @@ def test_factory_parameters_are_validated_copies_and_fresh_changes_propagate(tmp
     assert old['frequency'] == 37.  # Node is not handed a path that re-reads new bytes
     calls = []
     launch(calls)['ekf_nodes'](supplied)
-    assert next(c for c in calls if c.get('name') == 'ekf_global')['parameters'][0]['frequency'] == 43.
+    assert next(c for c in calls if c.get('name') == 'ekf_global')[
+        'parameters'][0]['frequency'] == 43.
 
 
 def test_full_robot_forwards_empty_default_and_selected_inputs(tmp_path):
@@ -63,8 +64,10 @@ def test_full_robot_forwards_empty_default_and_selected_inputs(tmp_path):
     robot = factories('robot.launch.py', lambda: None, calls)
     declared = {}
     robot.update(LaunchDescription=lambda x: x,
-                 DeclareLaunchArgument=lambda name, **kw: declared.update({name: kw['default_value']}),
-                 persistent_limits_path=lambda: '', snapshot_root=lambda: '', snapshot_scope=lambda: '')
+                 DeclareLaunchArgument=lambda name, **kw: declared.update(
+                     {name: kw['default_value']}),
+                 persistent_limits_path=lambda: '', snapshot_root=lambda: '',
+                 snapshot_scope=lambda: '')
     robot['generate_launch_description']()
     assert declared['ekf_overlay_file'] == ''
     odom = next(dict(c['launch_arguments']) for c in calls if 'launch_arguments' in c
@@ -77,7 +80,8 @@ def test_full_robot_forwards_empty_default_and_selected_inputs(tmp_path):
                  if key in supplied}
     calls = []
     launch(calls)['ekf_nodes'](dict(supplied, **forwarded))
-    assert next(c for c in calls if c.get('name') == 'navsat_transform')['parameters'][0]['delay'] == 4.
+    assert next(c for c in calls if c.get('name') == 'navsat_transform')[
+        'parameters'][0]['delay'] == 4.
 
 
 def test_installed_share_defaults_outside_cwd(tmp_path, monkeypatch):
@@ -90,14 +94,17 @@ def test_installed_share_defaults_outside_cwd(tmp_path, monkeypatch):
 
     class Join:
         def __init__(self, parts): self.parts = parts
+
         def perform(self, ctx):
-            return '/'.join(p.perform(ctx) if hasattr(p, 'perform') else str(p) for p in self.parts)
+            return '/'.join(p.perform(ctx) if hasattr(p, 'perform') else str(p)
+                            for p in self.parts)
 
     declared = {}
     calls = []
     factory = launch(calls)
     factory.update(FindPackageShare=lambda name: str(share), PathJoinSubstitution=Join,
-                   DeclareLaunchArgument=lambda name, **kw: declared.update({name: kw['default_value']}),
+                   DeclareLaunchArgument=lambda name, **kw: declared.update(
+                     {name: kw['default_value']}),
                    LaunchDescription=lambda x: x)
     factory['generate_launch_description']()
     assert declared['ekf_overlay_file'] == ''
