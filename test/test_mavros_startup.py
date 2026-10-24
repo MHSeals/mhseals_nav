@@ -125,3 +125,17 @@ def test_actual_main_declaration_and_pre_worker_validation(rates):
         ns['main']()
     assert declarations['message_rates'] == rates
     assert ('fcu_sysid' in declarations) == (rates != ['31:nan'])
+
+
+@pytest.mark.parametrize('alias,ids', list(ALIASES.items()))
+def test_every_explicit_alias_overrides_and_unset_preserves(tmp_path, alias, ids):
+    ns = factory()
+    context = defaults(ns['generate_launch_description']())
+    context['mavros_setup_params_file'] = selected(tmp_path, ['33:7', '30:8', '31:9',
+                                                              '24:4', '65:6'])
+    original = ns['create_mavros_setup_node'](context)[0].parameters[1]
+    context[alias] = '13.5'
+    effective = ns['create_mavros_setup_node'](context)[0].parameters[1]
+    before = dict(e.split(':') for e in original['message_rates'])
+    after = dict(e.split(':') for e in effective['message_rates'])
+    assert after == dict(before, **{str(i): '13.5' for i in ids})
