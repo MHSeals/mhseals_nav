@@ -50,9 +50,11 @@ def test_policy_catalog_uses_selected_consumed_values():
     ('mavros.rc_monitor.rc_min_hz', 'rc-rate-diagnostic-log', '/mavros/rc/in', 260),
     ('mavros.connection_identity.fcu_sysid', '/fcu/ekf_status', '/uas1/mavlink_source', 224),
 ])
-def test_policy_family_closure_and_exact_implementation_provenance(identity, output, dependency, line):
+def test_policy_family_closure_and_exact_implementation_provenance(
+        identity, output, dependency, line):
     raw = (ROOT / 'config/mavros_setup.yaml').read_bytes()
-    row = mavros_catalog(raw, resource='config/mavros_setup.yaml', policy_raw=POLICY).field(identity)
+    row = mavros_catalog(
+        raw, resource='config/mavros_setup.yaml', policy_raw=POLICY).field(identity)
     consumer = row.descriptor['consumers'][0]
     assert output in consumer['outputs']
     assert dependency in consumer['dependencies']

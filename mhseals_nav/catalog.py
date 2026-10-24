@@ -12,8 +12,8 @@ from mhseals_config.catalog import DescriptorBundle
 import yaml
 
 from .mavros_configuration import (
-    POLICY_FIELDS, parameters_from_yaml, rates_from_yaml, resolve_setup, validate_rates,
-    validate_policy_value, validate_setup)
+    parameters_from_yaml, POLICY_FIELDS, rates_from_yaml, resolve_setup, validate_policy_value,
+    validate_rates, validate_setup)
 from .navigation_config import (LOWERING_INPUTS, mppi_controller, StrictOverlayLoader,
                                 validate_navigation_base, validated_merge_limits)
 
@@ -194,7 +194,8 @@ def mavros_catalog(raw, *, resource, policy_raw, consumer_versions=None):
         'consumers': [dict(policy['consumer'], id=consumer, version=version,
                            parameters=[pointer], compiler_ref=compiler, inputs=[pointer],
                            outputs=['/mavros/set_message_interval'],
-                           dependencies=['selected-mavros-setup-yaml', 'MAVROS-request-target-external',
+                           dependencies=['selected-mavros-setup-yaml',
+                                         'MAVROS-request-target-external',
                                          'autopilot-component-1', 'connection-and-boot-epoch'])],
         'safety': policy['safety'],
         'evidence': [dict(policy['evidence'], recipe_ref=recipe, consumer=consumer,
@@ -215,11 +216,13 @@ def mavros_catalog(raw, *, resource, policy_raw, consumer_versions=None):
         item['canonical_key'] = family + '.' + key
         item['default_ref'].update(yaml_pointer=path, line=_locations(raw)[path])
         item['value'].update(type='integer' if rule in ('integer', 'sysid') else 'number',
-                             dimensions=[], units=('system ID' if key == 'fcu_sysid' else 'channels' if key == 'rc_min_channels'
-                                    else 'Hz' if key == 'rc_min_hz' else
+                             dimensions=[],
+                             units=('system ID' if key == 'fcu_sysid' else
+                                    'channels' if key == 'rc_min_channels' else
+                                    'Hz' if key == 'rc_min_hz' else
                                     'attempts' if key == 'retry_attempts' else 'seconds'),
-                             constraint_ref='mavros.policy.' + key, validator_ref='mavros.policy.' + key,
-                             inputs=[path])
+                             constraint_ref='mavros.policy.' + key,
+                             validator_ref='mavros.policy.' + key, inputs=[path])
         item['authoring'].update(pointer=path)
         lines = {'retry_attempts': 214, 'retry_delay': 214, 'response_timeout': 205,
                  'service_wait': 211, 'reboot_dedupe_window': 191, 'rc_window': 259,

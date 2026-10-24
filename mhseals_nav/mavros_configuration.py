@@ -4,10 +4,10 @@ Strict, pure startup selection of MAVROS desired message rates.
 MAVROS MessageInterval uses Hz: zero restores the FCU default and -1 disables.
 No request result or observed delivery is inferred by this resolver.
 """
-from types import MappingProxyType
 import math
 from pathlib import Path
 import re
+from types import MappingProxyType
 
 import yaml
 
@@ -69,7 +69,8 @@ def validate_policy_value(key, value):
 def validate_setup(params, *, complete=True):
     """Validate every supplied layer before overrides; no Python policy defaults."""
     allowed = {'message_rates', *POLICY_FIELDS}
-    if not isinstance(params, dict) or set(params) - allowed or (complete and set(params) != allowed):
+    if (not isinstance(params, dict) or set(params) - allowed
+            or (complete and set(params) != allowed)):
         raise ValueError('invalid or incomplete MAVROS setup parameters')
     if 'message_rates' in params:
         validate_rates(params['message_rates'])

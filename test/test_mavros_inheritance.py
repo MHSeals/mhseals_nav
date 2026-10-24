@@ -3,9 +3,8 @@ from pathlib import Path
 
 from mhseals_nav.mavros_configuration import installed_setup_defaults, resolve_setup
 import pytest
-import yaml
-
 from test_mavros_policy import inert_main
+import yaml
 
 ROOT = Path(__file__).parents[1]
 
@@ -59,7 +58,8 @@ def test_bad_installed_baseline_cannot_be_masked(tmp_path, monkeypatch, change):
         del params['retry_attempts']
     if change != 'missing':
         baseline.write_text(yaml.safe_dump(data))
-    monkeypatch.setattr(packages, 'get_package_share_directory', lambda name: str(baseline.parents[1]))
+    monkeypatch.setattr(packages, 'get_package_share_directory',
+                        lambda name: str(baseline.parents[1]))
     with pytest.raises((ValueError, OSError)):
         resolve_setup(selected)
 

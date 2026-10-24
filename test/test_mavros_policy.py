@@ -1,13 +1,13 @@
 """Execute actual main closures with inert node, clock, service and worker."""
 import ast
-import sys
-import struct
 from pathlib import Path
+import struct
+import sys
 from types import SimpleNamespace as NS
 
-import pytest
 from mhseals_nav import mavros_setup as setup
 from mhseals_nav.mavros_configuration import resolve_setup, validate_setup
+import pytest
 
 ROOT = Path(__file__).parents[1]
 
@@ -15,32 +15,45 @@ ROOT = Path(__file__).parents[1]
 def inert_main(monkeypatch, overrides=None):
     params = resolve_setup(ROOT / 'config/mavros_setup.yaml')
     params.update(overrides or {})
-    seen = NS(params={}, callbacks={}, waits=[], retries=[], timers=[], logs=[], sets=[], published=[])
+    seen = NS(params={}, callbacks={}, waits=[], retries=[], timers=[], logs=[],
+              sets=[], published=[])
 
     class Event:
-        def set(self): seen.sets.append(True)
+        def set(self): seen.sets.append(True)  # noqa: A003 (threading.Event API)
+
         def clear(self): pass
+
         def wait(self, timeout=None):
             seen.waits.append(timeout)
             return True
 
     class Node:
         def __init__(self, name): pass
+
         def declare_parameter(self, name, value): seen.params[name] = params.get(name, value)
+
         def get_parameter(self, name): return NS(value=seen.params[name])
+
         def get_parameters_by_prefix(self, prefix):
             return {k: NS(value=v) for k, v in seen.params.items()}
+
         def add_on_set_parameters_callback(self, callback): seen.setter = callback
+
         def create_client(self, *args):
             def call_async(request):
                 return NS(add_done_callback=lambda callback: callback(None),
                           result=lambda: NS(success=False))
             return NS(wait_for_service=lambda **kw: seen.waits.append(kw) or True,
                       call_async=call_async)
+
         def create_publisher(self, *args): return NS(publish=seen.published.append)
+
         def create_subscription(self, kind, topic, callback, qos): seen.callbacks[topic] = callback
+
         def create_timer(self, period, callback): seen.timers.append((period, callback))
+
         def get_logger(self): return NS(info=seen.logs.append, warning=seen.logs.append)
+
         def destroy_node(self): pass
 
     def thread(**kwargs):
@@ -52,8 +65,8 @@ def inert_main(monkeypatch, overrides=None):
     main.body = [n for n in main.body if not isinstance(n, (ast.Import, ast.ImportFrom))]
     active = iter([True, False])
     ns = dict(vars(setup), Node=Node, installed_setup_defaults=lambda: resolve_setup(
-        ROOT / 'config/mavros_setup.yaml'), rclpy=NS(init=lambda **kw: None,
-        ok=lambda: next(active), try_shutdown=lambda: None),
+        ROOT / 'config/mavros_setup.yaml'),
+        rclpy=NS(init=lambda **kw: None, ok=lambda: next(active), try_shutdown=lambda: None),
         threading=NS(Event=Event, Thread=thread), time=NS(monotonic=lambda: seen.now),
         MessageInterval=NS(Request=lambda **kw: NS(**kw)), DiagnosticStatus=NS,
         KeyValue=NS, Mavlink=NS, RCIn=NS, State=NS, qos_profile_sensor_data=None,
@@ -65,9 +78,9 @@ def inert_main(monkeypatch, overrides=None):
 
 
 def test_actual_worker_uses_captured_request_policy(monkeypatch):
-    seen = inert_main(monkeypatch, dict(retry_attempts=2, retry_delay=.25,
-                                     response_timeout=.75, service_wait=1.5,
-                                     reboot_dedupe_window=2.))
+    seen = inert_main(monkeypatch, {'retry_attempts': 2, 'retry_delay': .25,
+                                    'response_timeout': .75, 'service_wait': 1.5,
+                                    'reboot_dedupe_window': 2.})
     monkeypatch.setattr(setup.time, 'sleep', lambda _: pytest.fail('real sleep'))
     # request_rates defaults to the real sleep: substitute only the sleep seam.
     original = setup.request_rates
@@ -82,8 +95,9 @@ def test_actual_worker_uses_captured_request_policy(monkeypatch):
         cells['policy'].cell_contents['retry_attempts'] = 99
 
 
-@pytest.mark.parametrize('key,value', [('retry_attempts', True), ('retry_attempts', 1.5),
-    ('retry_delay', -1), ('response_timeout', 0), ('service_wait', float('nan')),
+@pytest.mark.parametrize('key,value', [
+    ('retry_attempts', True), ('retry_attempts', 1.5), ('retry_delay', -1),
+    ('response_timeout', 0), ('service_wait', float('nan')),
     ('reboot_dedupe_window', float('inf'))])
 def test_policy_invalid_before_resources(monkeypatch, key, value):
     with pytest.raises(ValueError):
@@ -96,8 +110,8 @@ def test_policy_validation_has_no_defaults():
 
 
 def test_actual_rc_callbacks_use_diagnostic_policy(monkeypatch):
-    seen = inert_main(monkeypatch, dict(rc_window=2., rc_min_hz=1., rc_min_channels=2,
-                                     rc_grace=3., rc_timer=.2))
+    seen = inert_main(monkeypatch, {'rc_window': 2., 'rc_min_hz': 1., 'rc_min_channels': 2,
+                                    'rc_grace': 3., 'rc_timer': .2})
     assert seen.timers[0][0] == .2
     seen.callbacks['/mavros/state'](NS(connected=True))
     check = seen.timers[0][1]
@@ -119,8 +133,9 @@ def test_actual_rc_callbacks_use_diagnostic_policy(monkeypatch):
 
 
 def test_actual_source_filter_and_dedupe_window(monkeypatch):
-    seen = inert_main(monkeypatch, dict(fcu_sysid=7, reboot_dedupe_window=2.))
+    seen = inert_main(monkeypatch, {'fcu_sysid': 7, 'reboot_dedupe_window': 2.})
     receive = seen.callbacks['/uas1/mavlink_source']
+
     def boot(sysid, boot_ms):
         raw = struct.pack('<QI', 0, boot_ms).ljust(16, b'\0')
         receive(NS(sysid=sysid, compid=1, msgid=2, len=12,
@@ -147,9 +162,10 @@ def test_startup_policy_live_changes_refused(monkeypatch):
         assert not result.successful and 'restart required' in result.reason
 
 
-@pytest.mark.parametrize('key,value', [('rc_window', 0), ('rc_min_hz', True),
-    ('rc_min_channels', 1.5), ('rc_grace', -1), ('rc_timer', float('inf')),
-    ('fcu_sysid', True), ('fcu_sysid', 0), ('fcu_sysid', 256)])
+@pytest.mark.parametrize('key,value', [
+    ('rc_window', 0), ('rc_min_hz', True), ('rc_min_channels', 1.5),
+    ('rc_grace', -1), ('rc_timer', float('inf')), ('fcu_sysid', True),
+    ('fcu_sysid', 0), ('fcu_sysid', 256)])
 def test_monitor_identity_invalid_before_resources(monkeypatch, key, value):
     with pytest.raises(ValueError):
         inert_main(monkeypatch, {key: value})
