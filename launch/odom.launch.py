@@ -3,9 +3,10 @@ from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDesc
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
-from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 from launch.conditions import IfCondition, UnlessCondition
+
+from mhseals_nav.odometry_configuration import ALIASES, LAYER_ARGUMENTS, from_launch
 
 from glob import glob
 import xacro
@@ -31,7 +32,7 @@ def load_urdf(context):
         parameters=[{
             'robot_description': robot_description,
             'use_sim_time': LaunchConfiguration('sim'),
-            'publish_frequency': float(LaunchConfiguration('robot_state_publish_frequency').perform(context))
+            'publish_frequency': from_launch(context).values['robot_state_publish_frequency']
         }],
     )]
 
@@ -102,7 +103,7 @@ def generate_launch_description():
         ('fcu', 'true', 'Start MAVROS and its relays; false when a simulator publishes '
                         '/odom/mavros, /imu/raw and /gps/fix directly'),
         ('use_imu_filter', 'false', 'Start imu_filter_madgwick (/imu/filtered); nothing consumes it'),
-        ('robot_state_publish_frequency', '100.0', 'Rate at which robot state is published'),
+        ('robot_state_publish_frequency', '', 'Rate at which robot state is published'),
         ('fcu_url', '', 'Flight control unit connection URL'),
         ('gcs_url', 'udp://@127.0.0.1:14550', 'Ground control service connection URL'),
         ('mavros_params_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'mavros.yaml']), 'Path to MAVROS params'),
@@ -110,8 +111,8 @@ def generate_launch_description():
          PathJoinSubstitution([mhseals_nav_dir, 'config', 'mavros_setup.yaml']),
          'Selected desired message-rate startup parameters'),
         ('mavros_odom_rate', '', 'Requested MAVROS odometry rate'),
-        ('mavros_velocity_stddev', '0.3', 'Body velocity uncertainty in m/s (FCU mode; GPS mode uses the receiver vel_acc)'),
-        ('mavros_velocity_source', 'gps', 'Body velocity from the GPS receiver (gps) or the FCU EKF (fcu)'),
+        ('mavros_velocity_stddev', '', 'Body velocity uncertainty in m/s (FCU mode; GPS mode uses the receiver vel_acc)'),
+        ('mavros_velocity_source', '', 'Body velocity from the GPS receiver (gps) or the FCU EKF (fcu)'),
         ('mavros_imu_rate', '', 'Requested MAVROS IMU rate'),
         ('mavros_gps_rate', '', 'Requested MAVROS GPS rate'),
         ('mavros_rc_rate', '', 'Requested MAVROS RC_CHANNELS rate'),
@@ -126,6 +127,11 @@ def generate_launch_description():
         ('camera_name', 'front', 'Name of camera')
     ]
 
+    launch_args += [(name, '', 'Explicit startup override; empty inherits YAML')
+                    for name in (*LAYER_ARGUMENTS, *ALIASES)
+                    if name not in {item[0] for item in launch_args}]
+    launch_args.append(('ekf_startup_context', 'included', 'EKF startup delay context'))
+
     launch_configurations = {}
     declare_arguments = []
     for name, default_value, description in launch_args:
@@ -134,6 +140,16 @@ def generate_launch_description():
             DeclareLaunchArgument(name, default_value=default_value, description=description)
         )
 
+    return LaunchDescription(declare_arguments + [OpaqueFunction(function=odometry_nodes)])
+
+
+def odometry_nodes(context):
+    settings = from_launch(context)  # fail every selected startup layer before Node construction
+    mhseals_nav_dir = FindPackageShare('mhseals_nav')
+    launch_configurations = {name: LaunchConfiguration(name) for name in (
+        'sim', 'fcu', 'use_imu_filter', 'start_ekf', 'dlio_params_file',
+        'navsat_transform_config_file', 'ekf_local_config_file', 'ekf_global_config_file',
+        'ekf_overlay_file', *LAYER_ARGUMENTS, *ALIASES, 'ekf_startup_context')}
     dlio_odom_node = Node(
         package='direct_lidar_inertial_odometry',
         executable='dlio_odom_node',
@@ -190,9 +206,7 @@ def generate_launch_description():
             # leaves the EKF predicting without fresh translational motion.
             # This source carries ENU velocity despite its base_link child label.
             # Rotate with its own FCU attitude and replace unknown covariance.
-            parameters=[{'velocity_stddev': ParameterValue(
-                LaunchConfiguration('mavros_velocity_stddev'), value_type=float),
-                'velocity_source': LaunchConfiguration('mavros_velocity_source')}],
+            parameters=[settings.adapter_parameters],
             output='screen'
         ),
         Node(
@@ -225,7 +239,8 @@ def generate_launch_description():
             **{name: launch_configurations[name] for name in (
                 'sim', 'navsat_transform_config_file', 'ekf_local_config_file',
                 'ekf_global_config_file', 'ekf_overlay_file')},
-            'ekf_delay': '6.0',  # wait for MAVROS, unlike a standalone restart
+            **{name: launch_configurations[name] for name in
+               (*LAYER_ARGUMENTS, *ALIASES, 'ekf_startup_context')},
         }.items())
 
     # Everything that talks to the flight controller. The EKFs only need the
@@ -234,14 +249,4 @@ def generate_launch_description():
         condition=IfCondition(launch_configurations['fcu']),
         actions=[mavros_node, *mavros_topic_relays, set_mavros_message_rate])
 
-    return LaunchDescription(
-        declare_arguments + [
-            # dlio_map_node,
-            # dlio_odom_node,
-            # rtabmap_odom_node,
-            flight_controller,
-            imu_filter_node,
-            ekf,
-            robot_state_publisher_node,
-        ]
-    )
+    return [flight_controller, imu_filter_node, ekf, robot_state_publisher_node]

@@ -5,6 +5,7 @@ from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.substitutions import FindPackageShare
 from launch.conditions import IfCondition
 from mhseals_nav.navigation_config import persistent_limits_path
+from mhseals_nav.odometry_configuration import ALIASES, LAYER_ARGUMENTS
 from mhseals_nav.startup_snapshot import snapshot_root, snapshot_scope
 
 def generate_launch_description():
@@ -58,6 +59,15 @@ def generate_launch_description():
         ('sensors_ignore', '', 'Comma-separated list of sensors to ignore, e.g. "camera,lidar"')
     ]
 
+    launch_args += [(name, '', 'Explicit startup selection; empty inherits YAML')
+                    for name in (*LAYER_ARGUMENTS, *ALIASES)]
+    launch_args += [
+        ('ekf_startup_context', 'included', 'EKF startup delay context'),
+        ('ekf_overlay_file', '~/.config/mhseals/ekf.yaml', 'Localization overlay'),
+        ('navsat_transform_config_file', PathJoinSubstitution([mhseals_nav_dir, 'config',
+          'navsat_transform.yaml']), 'Navsat parameters'),
+    ]
+
     launch_configurations = {}
     declare_arguments = []
     for name, default_value, description in launch_args:
@@ -84,7 +94,8 @@ def generate_launch_description():
             'mavros_params_file': launch_configurations['mavros_params_file'],
             **{name: launch_configurations[name] for name in (
                 'mavros_setup_params_file', 'mavros_odom_rate', 'mavros_imu_rate',
-                'mavros_gps_rate', 'mavros_rc_rate')},
+                'mavros_gps_rate', 'mavros_rc_rate', *LAYER_ARGUMENTS, *ALIASES,
+                'ekf_startup_context', 'ekf_overlay_file', 'navsat_transform_config_file')},
             'rtabmap_params_file': launch_configurations['rtabmap_params_file'],
             'ekf_local_config_file': launch_configurations['ekf_local_config_file'],
             'ekf_global_config_file': launch_configurations['ekf_global_config_file'],

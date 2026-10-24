@@ -1,0 +1,8 @@
+robot_state_publish_frequency: 100.0
+mavros_velocity_source: gps
+mavros_velocity_stddev: 0.3
+mavros_velocity_max_age: 1.5
+mavros_velocity_min_stddev: 0.05
+mavros_velocity_no_fix_stddev: 1.0
+ekf_delay_standalone: 0.0
+ekf_delay_included: 6.0

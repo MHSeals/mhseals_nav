@@ -1,0 +1,96 @@
+"""Pure, startup-only odometry layers; identities describe inputs, never live state."""
+from dataclasses import dataclass
+from hashlib import sha256
+import math
+from pathlib import Path
+from types import MappingProxyType
+
+import yaml
+
+from .navigation_config import StrictOverlayLoader
+
+ALIASES = ('robot_state_publish_frequency', 'mavros_velocity_source',
+           'mavros_velocity_stddev', 'mavros_velocity_max_age',
+           'mavros_velocity_min_stddev', 'mavros_velocity_no_fix_stddev', 'ekf_delay')
+LAYER_ARGUMENTS = ('odometry_deployment_file', 'odometry_startup_file')
+KEYS = frozenset(ALIASES[:-1]) | {'ekf_delay_standalone', 'ekf_delay_included'}
+ADAPTER_PARAMETERS = {
+    'velocity_source': 'mavros_velocity_source',
+    'velocity_stddev': 'mavros_velocity_stddev',
+    'gps_velocity_max_age': 'mavros_velocity_max_age',
+    'gps_velocity_min_stddev': 'mavros_velocity_min_stddev',
+    'velocity_stddev_nofix': 'mavros_velocity_no_fix_stddev',
+}
+
+
+@dataclass(frozen=True)
+class OdometryConfiguration:
+    values: object
+    inputs: tuple
+    context: str
+
+    @property
+    def delay(self):
+        return self.values['ekf_delay_' + self.context]
+
+    @property
+    def adapter_parameters(self):
+        return {target: self.values[key] for target, key in ADAPTER_PARAMETERS.items()}
+
+
+def validate(values):
+    if not isinstance(values, dict) or set(values) - KEYS:
+        raise ValueError('unsupported odometry startup mapping')
+    for key, value in values.items():
+        if key == 'mavros_velocity_source':
+            if type(value) is not str or value not in ('gps', 'fcu'):
+                raise ValueError('velocity source must be gps or fcu')
+        elif (type(value) not in (int, float) or not math.isfinite(value) or
+              value < 0 or (value == 0 and not key.startswith('ekf_delay_'))):
+            raise ValueError(f'{key} must be finite and ' +
+                             ('nonnegative' if key.startswith('ekf_delay_') else 'positive'))
+
+
+def resolve_odometry(package_file=None, deployment_file='', operator_file='',
+                     aliases=None, context='standalone'):
+    """Resolve package < deployment < operator < explicitly supplied aliases."""
+    if context not in ('standalone', 'included'):
+        raise ValueError('EKF startup context must be standalone or included')
+    if package_file is None:
+        from ament_index_python.packages import get_package_share_directory
+        package_file = Path(get_package_share_directory('mhseals_nav')) / 'config/odometry_startup.yaml'
+    values, inputs = {}, []
+    for label, selected in (('package', package_file), ('deployment', deployment_file),
+                            ('operator', operator_file)):
+        if not selected:
+            continue
+        path = Path(selected).expanduser().resolve(strict=True)
+        raw = path.read_bytes()
+        layer = yaml.load(raw, Loader=StrictOverlayLoader)
+        validate(layer)
+        if label == 'package' and set(layer) != KEYS:
+            raise ValueError('package odometry startup mapping must be complete')
+        values.update(layer)
+        inputs.append(MappingProxyType(dict(path=str(path), sha256=sha256(raw).hexdigest(), layer=label)))
+    for key, raw in (aliases or {}).items():
+        if key not in ALIASES:
+            raise ValueError(f'unknown odometry alias: {key}')
+        if raw == '' or raw is None:
+            continue
+        target = 'ekf_delay_' + context if key == 'ekf_delay' else key
+        value = raw if key == 'mavros_velocity_source' else (
+            float(raw) if isinstance(raw, str) else raw)
+        validate({target: value})
+        values[target] = value
+    validate(values)
+    return OdometryConfiguration(MappingProxyType(values), tuple(inputs), context)
+
+
+def from_launch(context):
+    """Thin launch adapter; keep the resolver independent of ROS imports."""
+    from launch.substitutions import LaunchConfiguration
+    get = lambda name: LaunchConfiguration(name).perform(context)
+    return resolve_odometry(deployment_file=get('odometry_deployment_file'),
+                            operator_file=get('odometry_startup_file'),
+                            aliases={key: get(key) for key in ALIASES},
+                            context=get('ekf_startup_context'))
