@@ -1,11 +1,12 @@
-"""Strict, pure startup selection of MAVROS desired message rates.
+"""
+Strict, pure startup selection of MAVROS desired message rates.
 
 MAVROS MessageInterval uses Hz: zero restores the FCU default and -1 disables.
 No request result or observed delivery is inferred by this resolver.
 """
 import math
-import re
 from pathlib import Path
+import re
 
 import yaml
 

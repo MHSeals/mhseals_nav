@@ -69,11 +69,16 @@ def test_mavros_relays_preserve_sensor_abstraction_at_safe_rates():
         assert f"arguments=['{source}', '{destination}']" in launch
     assert "executable='mavros_odometry'" in launch
     assert "executable='mavros_setup'" in launch
-    assert "(33, LaunchConfiguration('mavros_odom_rate')" in launch
-    assert "(127," not in launch and "(128," not in launch  # a Here4 never emits GPS_RTK
-    assert "('mavros_odom_rate', '20.0'" in launch
-    assert "('mavros_imu_rate', '20.0'" in launch
-    assert "('mavros_gps_rate', '5.0'" in launch
+    from mhseals_nav.mavros_configuration import ALIASES, resolve_setup
+    parameters = resolve_setup(ROOT / 'config/mavros_setup.yaml')
+    rates = {int(message_id): float(hz)
+             for message_id, hz in (entry.split(':') for entry in parameters['message_rates'])}
+    assert rates == {33: 20., 30: 50., 31: 50., 24: 5., 27: 10., 1: 2., 193: 2., 65: 25.}
+    assert 127 not in rates and 128 not in rates  # a Here4 never emits GPS_RTK
+    assert ALIASES == {'mavros_odom_rate': (33,), 'mavros_imu_rate': (30, 31),
+                       'mavros_gps_rate': (24,), 'mavros_rc_rate': (65,)}
+    for alias in ALIASES:
+        assert f"('{alias}', ''" in launch  # absence must preserve the YAML authority
     assert '/dev/serial/by-id/usb-CubePilot_CubeOrange+_*-if00' in launch
 
 
