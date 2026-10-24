@@ -72,9 +72,10 @@ def test_rates_are_not_also_requested_unconditionally_at_start():
 
 def test_rc_channels_is_requested_at_25_hz_by_default():
     from pathlib import Path
-    launch = (Path(__file__).parents[1] / 'launch' / 'odom.launch.py').read_text()
-    assert "(65, LaunchConfiguration('mavros_rc_rate')" in launch
-    assert "('mavros_rc_rate', '25.0'" in launch
+    from mhseals_nav.mavros_configuration import resolve_setup
+    selected = Path(__file__).parents[1] / 'config/mavros_setup.yaml'
+    rates = dict(entry.split(':') for entry in resolve_setup(selected)['message_rates'])
+    assert rates['65'] == '25'
 
 
 # EKF_STATUS_REPORT as sent on the boat: flags 167 = ATT|VEL_H|VEL_V|POS_V_ABS|CONST_POS_MODE.

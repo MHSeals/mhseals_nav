@@ -92,3 +92,36 @@ def test_fcu_gate_still_contains_setup_and_sim_default():
     assert group.condition.args[0].name == 'fcu'
     assert group.actions[-1].function is ns['create_mavros_setup_node']
     assert defaults(entities)['sim'] == 'true'
+
+
+@pytest.mark.parametrize('rates', [['31:17'], ['31:nan']])
+def test_actual_main_declaration_and_pre_worker_validation(rates):
+    from mhseals_nav import mavros_setup
+    from mhseals_nav.mavros_configuration import validate_rates
+
+    tree = ast.parse((ROOT / 'mhseals_nav/mavros_setup.py').read_text())
+    main = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'main')
+    # Bind imports to inert objects, retaining the actual executable body.
+    main.body = [n for n in main.body if not isinstance(n, (ast.Import, ast.ImportFrom))]
+    declarations = {}
+
+    class ReachedLegacyBoundary(Exception):
+        pass
+
+    class InertNode:
+        def __init__(self, name): assert name == 'mavros_setup'
+        def declare_parameter(self, name, value): declarations[name] = value
+        def get_parameter(self, name): return SimpleNamespace(value=declarations[name])
+
+    def legacy_boundary(*args, **kwargs):
+        raise ReachedLegacyBoundary
+
+    ns = dict(vars(mavros_setup), Node=InertNode,
+              rclpy=SimpleNamespace(init=lambda **kwargs: None),
+              installed_setup_defaults=lambda: {'message_rates': rates},
+              validate_rates=validate_rates, LiveParams=legacy_boundary)
+    exec(compile(ast.Module(body=[main], type_ignores=[]), '<actual main>', 'exec'), ns)
+    with pytest.raises(ValueError if rates == ['31:nan'] else ReachedLegacyBoundary):
+        ns['main']()
+    assert declarations['message_rates'] == rates
+    assert ('fcu_sysid' in declarations) == (rates != ['31:nan'])
