@@ -64,8 +64,9 @@ def generate_launch_description():
     launch_args += [
         ('ekf_startup_context', 'included', 'EKF startup delay context'),
         ('ekf_overlay_file', '~/.config/mhseals/ekf.yaml', 'Localization overlay'),
-        ('navsat_transform_config_file', PathJoinSubstitution([mhseals_nav_dir, 'config',
-          'navsat_transform.yaml']), 'Navsat parameters'),
+        ('navsat_transform_config_file',
+         PathJoinSubstitution([mhseals_nav_dir, 'config', 'navsat_transform.yaml']),
+         'Navsat parameters'),
     ]
 
     launch_configurations = {}

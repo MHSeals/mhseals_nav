@@ -1,9 +1,9 @@
 """ROS-free startup layer boundary and immutable input identity."""
 from pathlib import Path
 
-import pytest
-
 from mhseals_nav.odometry_configuration import resolve_odometry
+
+import pytest
 
 BASE = Path(__file__).parents[1] / 'config/odometry_startup.yaml'
 
@@ -18,19 +18,21 @@ def test_defaults_and_precedence(tmp_path, monkeypatch):
     assert result.values['mavros_velocity_stddev'] == .9
     assert result.delay == 0
     assert resolve_odometry(BASE, context='included').delay == 6
-    assert resolve_odometry(BASE, deployment, operator,
-                            {'mavros_velocity_stddev': '1.2'}).adapter_parameters['velocity_stddev'] == 1.2
+    explicit = resolve_odometry(BASE, deployment, operator,
+                                {'mavros_velocity_stddev': '1.2'})
+    assert explicit.adapter_parameters['velocity_stddev'] == 1.2
     assert [x['layer'] for x in result.inputs] == ['package', 'deployment', 'operator']
     assert all(len(x['sha256']) == 64 and Path(x['path']).is_absolute() for x in result.inputs)
     with pytest.raises(TypeError):
         result.values['mavros_velocity_stddev'] = 4
 
 
-@pytest.mark.parametrize('raw', ['mavros_velocity_stddev: true', 'mavros_velocity_stddev: .nan',
-                               'mavros_velocity_stddev: 0', 'ekf_delay_included: -1',
-                               'mavros_velocity_source: other', 'unknown: 1', '[]',
-                               'mavros_velocity_stddev: 1\nmavros_velocity_stddev: 2',
-                               'mavros_velocity_stddev: &x 1\nekf_delay_included: *x'])
+@pytest.mark.parametrize('raw', [
+    'mavros_velocity_stddev: true', 'mavros_velocity_stddev: .nan',
+    'mavros_velocity_stddev: 0', 'ekf_delay_included: -1',
+    'mavros_velocity_source: other', 'unknown: 1', '[]',
+    'mavros_velocity_stddev: 1\nmavros_velocity_stddev: 2',
+    'mavros_velocity_stddev: &x 1\nekf_delay_included: *x'])
 def test_every_layer_validated_before_precedence(tmp_path, raw):
     selected = tmp_path / 'bad.yaml'
     selected.write_text(raw)

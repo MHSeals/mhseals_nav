@@ -6,11 +6,11 @@ from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 from launch.conditions import IfCondition, UnlessCondition
 
-from mhseals_nav.odometry_configuration import ALIASES, LAYER_ARGUMENTS, from_launch
-
 from glob import glob
 import xacro
 import os
+
+from mhseals_nav.odometry_configuration import ALIASES, from_launch, LAYER_ARGUMENTS
 
 def load_urdf(context):
     urdf_path = LaunchConfiguration('urdf_file').perform(context)
@@ -111,8 +111,10 @@ def generate_launch_description():
          PathJoinSubstitution([mhseals_nav_dir, 'config', 'mavros_setup.yaml']),
          'Selected desired message-rate startup parameters'),
         ('mavros_odom_rate', '', 'Requested MAVROS odometry rate'),
-        ('mavros_velocity_stddev', '', 'Body velocity uncertainty in m/s (FCU mode; GPS mode uses the receiver vel_acc)'),
-        ('mavros_velocity_source', '', 'Body velocity from the GPS receiver (gps) or the FCU EKF (fcu)'),
+        ('mavros_velocity_stddev', '',
+         'Body velocity uncertainty in m/s (FCU mode; GPS mode uses the receiver vel_acc)'),
+        ('mavros_velocity_source', '',
+         'Body velocity from the GPS receiver (gps) or the FCU EKF (fcu)'),
         ('mavros_imu_rate', '', 'Requested MAVROS IMU rate'),
         ('mavros_gps_rate', '', 'Requested MAVROS GPS rate'),
         ('mavros_rc_rate', '', 'Requested MAVROS RC_CHANNELS rate'),

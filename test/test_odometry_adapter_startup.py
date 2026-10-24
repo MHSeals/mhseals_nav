@@ -4,9 +4,9 @@ from pathlib import Path
 import sys
 from types import ModuleType, SimpleNamespace
 
-import pytest
-
 from mhseals_nav import odometry_configuration
+
+import pytest
 
 ROOT = Path(__file__).parents[1]
 
@@ -16,16 +16,22 @@ def adapter_main(monkeypatch, declarations, events):
         value = ModuleType(name)
         value.__dict__.update(members)
         monkeypatch.setitem(sys.modules, name, value)
+
     class Node:
+
         def __init__(self, name):
             events.append('node')
+
         def declare_parameter(self, name, value):
             declarations[name] = value
             return SimpleNamespace(value=value)
+
         def create_publisher(self, *args):
             return object()
+
         def create_subscription(self, *args):
             pass
+
         def destroy_node(self):
             events.append('destroy')
     module('rclpy', init=lambda **kw: events.append('init'),

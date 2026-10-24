@@ -2,9 +2,9 @@
 import ast
 from pathlib import Path
 
-import pytest
-
 from mhseals_nav.odometry_configuration import ALIASES, LAYER_ARGUMENTS, resolve_odometry
+
+import pytest
 
 ROOT = Path(__file__).parents[1]
 
@@ -21,17 +21,26 @@ def factories(filename, settings, calls):
     source = ROOT / 'launch' / filename
     tree = ast.parse(source.read_text())
     nodes = [x for x in tree.body if isinstance(x, ast.FunctionDef)]
+
     def collect(*args, **kwargs):
         calls.append(kwargs)
         return kwargs
-    namespace = dict(LaunchConfiguration=Configuration, Node=collect,
-                     TimerAction=collect, IncludeLaunchDescription=collect,
-                     GroupAction=collect, OpaqueFunction=collect,
-                     PythonLaunchDescriptionSource=lambda x: x,
-                     PathJoinSubstitution=lambda x: x, FindPackageShare=lambda x: x,
-                     IfCondition=lambda x: x, from_launch=lambda context: settings(),
-                     ekf_overlay=lambda *args: {}, ALIASES=ALIASES,
-                     LAYER_ARGUMENTS=LAYER_ARGUMENTS)
+    namespace = {
+        'LaunchConfiguration': Configuration,
+        'Node': collect,
+        'TimerAction': collect,
+        'IncludeLaunchDescription': collect,
+        'GroupAction': collect,
+        'OpaqueFunction': collect,
+        'PythonLaunchDescriptionSource': lambda x: x,
+        'PathJoinSubstitution': lambda x: x,
+        'FindPackageShare': lambda x: x,
+        'IfCondition': lambda x: x,
+        'from_launch': lambda context: settings(),
+        'ekf_overlay': lambda *args: {},
+        'ALIASES': ALIASES,
+        'LAYER_ARGUMENTS': LAYER_ARGUMENTS,
+    }
     exec(compile(ast.Module(body=nodes, type_ignores=[]), str(source), 'exec'), namespace)
     return namespace
 
@@ -53,7 +62,9 @@ def context():
 def test_actual_adapter_factory_uses_each_yaml_field(tmp_path, key, value, target):
     selected = tmp_path / 'operator.yaml'
     selected.write_text(f'{key}: {value}\n')
-    settings = lambda: resolve_odometry(ROOT / 'config/odometry_startup.yaml', operator_file=selected)
+
+    def settings():
+        return resolve_odometry(ROOT / 'config/odometry_startup.yaml', operator_file=selected)
     calls = []
     launch = factories('odom.launch.py', settings, calls)
     result = launch['odometry_nodes'](context())
@@ -61,7 +72,7 @@ def test_actual_adapter_factory_uses_each_yaml_field(tmp_path, key, value, targe
     assert adapter['parameters'][0][target] == value
     included = next(x for x in calls if 'launch_arguments' in x)
     forwarded = dict(included['launch_arguments'])
-    assert set((*ALIASES, *LAYER_ARGUMENTS, 'ekf_startup_context')) <= set(forwarded)
+    assert {*ALIASES, *LAYER_ARGUMENTS, 'ekf_startup_context'} <= set(forwarded)
     assert result
 
 
@@ -70,8 +81,10 @@ def test_actual_ekf_factory_uses_context_delay(tmp_path, startup_context, delay)
     selected = tmp_path / 'operator.yaml'
     selected.write_text('ekf_delay_standalone: 1.2\nekf_delay_included: 7.8\n')
     calls = []
-    settings = lambda: resolve_odometry(ROOT / 'config/odometry_startup.yaml',
-                                       operator_file=selected, context=startup_context)
+
+    def settings():
+        return resolve_odometry(ROOT / 'config/odometry_startup.yaml',
+                                operator_file=selected, context=startup_context)
     result = factories('ekf.launch.py', settings, calls)['ekf_nodes'](context())
     assert result[1]['period'] == delay
 
@@ -80,8 +93,11 @@ def test_invalid_layers_fail_before_any_constructor(tmp_path):
     selected = tmp_path / 'operator.yaml'
     selected.write_text('mavros_velocity_stddev: false\n')
     calls = []
-    settings = lambda: resolve_odometry(ROOT / 'config/odometry_startup.yaml', operator_file=selected)
-    for filename, function in [('odom.launch.py', 'odometry_nodes'), ('ekf.launch.py', 'ekf_nodes')]:
+
+    def settings():
+        return resolve_odometry(ROOT / 'config/odometry_startup.yaml', operator_file=selected)
+    routes = [('odom.launch.py', 'odometry_nodes'), ('ekf.launch.py', 'ekf_nodes')]
+    for filename, function in routes:
         with pytest.raises(ValueError):
             factories(filename, settings, calls)[function](context())
     assert calls == []
@@ -93,7 +109,9 @@ def test_robot_state_frequency(tmp_path):
     urdf = tmp_path / 'robot.urdf'
     urdf.write_text('<robot/>')
     calls = []
-    settings = lambda: resolve_odometry(ROOT / 'config/odometry_startup.yaml', operator_file=selected)
+
+    def settings():
+        return resolve_odometry(ROOT / 'config/odometry_startup.yaml', operator_file=selected)
     namespace = factories('odom.launch.py', settings, calls)
     import os
     namespace['os'] = os
@@ -123,9 +141,12 @@ def test_integer_spelled_frequency_projects_as_double(tmp_path, alias):
     selected.write_text('robot_state_publish_frequency: 50\nmavros_velocity_stddev: 1\n')
     urdf = tmp_path / 'robot.urdf'
     urdf.write_text('<robot/>')
-    settings = lambda: resolve_odometry(ROOT / 'config/odometry_startup.yaml',
-        operator_file=selected, aliases={'robot_state_publish_frequency': 60,
-                                        'mavros_velocity_stddev': 2} if alias else {})
+
+    def settings():
+        return resolve_odometry(
+            ROOT / 'config/odometry_startup.yaml', operator_file=selected,
+            aliases={'robot_state_publish_frequency': 60,
+                     'mavros_velocity_stddev': 2} if alias else {})
     calls = []
     namespace = factories('odom.launch.py', settings, calls)
     import os

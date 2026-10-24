@@ -58,7 +58,8 @@ def resolve_odometry(package_file=None, deployment_file='', operator_file='',
         raise ValueError('EKF startup context must be standalone or included')
     if package_file is None:
         from ament_index_python.packages import get_package_share_directory
-        package_file = Path(get_package_share_directory('mhseals_nav')) / 'config/odometry_startup.yaml'
+        package_file = (Path(get_package_share_directory('mhseals_nav')) /
+                        'config/odometry_startup.yaml')
     values, inputs = {}, []
     for label, selected in (('package', package_file), ('deployment', deployment_file),
                             ('operator', operator_file)):
@@ -71,7 +72,8 @@ def resolve_odometry(package_file=None, deployment_file='', operator_file='',
         if label == 'package' and set(layer) != KEYS:
             raise ValueError('package odometry startup mapping must be complete')
         values.update(layer)
-        inputs.append(MappingProxyType(dict(path=str(path), sha256=sha256(raw).hexdigest(), layer=label)))
+        inputs.append(MappingProxyType({
+            'path': str(path), 'sha256': sha256(raw).hexdigest(), 'layer': label}))
     for key, raw in (aliases or {}).items():
         if key not in ALIASES:
             raise ValueError(f'unknown odometry alias: {key}')
@@ -91,7 +93,9 @@ def resolve_odometry(package_file=None, deployment_file='', operator_file='',
 def from_launch(context):
     """Thin launch adapter; keep the resolver independent of ROS imports."""
     from launch.substitutions import LaunchConfiguration
-    get = lambda name: LaunchConfiguration(name).perform(context)
+
+    def get(name):
+        return LaunchConfiguration(name).perform(context)
     return resolve_odometry(deployment_file=get('odometry_deployment_file'),
                             operator_file=get('odometry_startup_file'),
                             aliases={key: get(key) for key in ALIASES},

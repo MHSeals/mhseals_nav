@@ -10,7 +10,7 @@ from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
 from mhseals_nav.navigation_config import ekf_overlay
-from mhseals_nav.odometry_configuration import ALIASES, LAYER_ARGUMENTS, from_launch
+from mhseals_nav.odometry_configuration import ALIASES, from_launch, LAYER_ARGUMENTS
 
 
 def ekf_nodes(context):
