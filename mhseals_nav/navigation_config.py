@@ -1,8 +1,8 @@
 """Merge measured limits with the current navigation parameters at launch."""
-import logging
-import os
 from copy import deepcopy
+import logging
 from math import isfinite
+import os
 from pathlib import Path
 
 import yaml
@@ -22,6 +22,7 @@ def deep_merge(dst, src):
 
 class StrictOverlayLoader(yaml.SafeLoader):
     """Do not discard ambiguous user assignments during dictionary construction."""
+
     def construct_mapping(self, node, deep=False):
         result = {}
         for key_node, value_node in node.value:
@@ -241,7 +242,8 @@ def merge_limits(base, limits):
 
 
 def validate_navigation_overlay(base, overlay, path=()):
-    """Reject malformed requested values before deriving or constructing Nav2 nodes.
+    """
+    Reject malformed requested values before deriving or constructing Nav2 nodes.
 
     The selected base is the supported parameter structure. This does not claim
     upstream dynamic-parameter support or infer undocumented enum options.
@@ -281,7 +283,8 @@ def validate_navigation_overlay(base, overlay, path=()):
             if default:
                 for index, item in enumerate(value):
                     template = default[min(index, len(default) - 1)]
-                    validate_navigation_overlay({'item': template}, {'item': item}, (*path, str(key), str(index)))
+                    validate_navigation_overlay(
+                        {'item': template}, {'item': item}, (*path, str(key), str(index)))
         elif isinstance(default, str):
             if not isinstance(value, str):
                 raise ValueError(f'{location}: expected string')
@@ -320,6 +323,7 @@ def validate_navigation_base(base):
 
 def validated_merge_limits(base, limits):
     validate_navigation_overlay(base, limits)
+
     def normalized(template, value):
         if isinstance(value, dict):
             return {key: normalized(template[key], item) for key, item in value.items()}

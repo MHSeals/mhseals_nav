@@ -1,9 +1,10 @@
 """Actual validation and startup factory failures, without ROS imports."""
 import ast
 from pathlib import Path
+
+from mhseals_nav.navigation_config import load_overlay, validated_merge_limits
 import pytest
 import yaml
-from mhseals_nav.navigation_config import load_overlay, validated_merge_limits
 
 ROOT = Path(__file__).parents[1]
 
@@ -55,7 +56,8 @@ def test_actual_navigation_factory_fails_before_node(base, tmp_path):
 
 
 @pytest.mark.parametrize('patch', [
-    {'waypoint_follower': {'ros__parameters': {'wait_at_waypoint': {'waypoint_pause_duration': -1}}}},
+    {'waypoint_follower': {'ros__parameters': {
+        'wait_at_waypoint': {'waypoint_pause_duration': -1}}}},
     {'velocity_smoother': {'ros__parameters': {'deadband_velocity': [-1.0, 0.0, 0.0]}}},
     {'controller_server': {'ros__parameters': {'FollowPath': {'PathAngleCritic': {'mode': -1}}}}},
     {'controller_server': {'ros__parameters': {'FollowPath': {'PathAngleCritic': {'mode': 3}}}}},
@@ -70,7 +72,8 @@ def test_emitted_deadband_vector_has_selected_base_float_type(base, vector):
     result = validated_merge_limits(base, {'velocity_smoother': {'ros__parameters': {
         'deadband_velocity': vector}}})
     emitted = yaml.safe_load(yaml.safe_dump(result))
-    assert all(type(v) is float for v in emitted['velocity_smoother']['ros__parameters']['deadband_velocity'])
+    assert all(type(v) is float for v in
+               emitted['velocity_smoother']['ros__parameters']['deadband_velocity'])
 
 
 @pytest.mark.parametrize('text', ['null', '~', '---\nnull\n'])
@@ -98,7 +101,9 @@ def inert_navigation_factory():
     """Compile the real factory with only inert launch dependencies."""
     source = ROOT / 'launch/navigation.launch.py'
     tree = ast.parse(source.read_text())
-    function = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'navigation_nodes')
+    function = next(n for n in tree.body
+                    if isinstance(n, ast.FunctionDef) and n.name == 'navigation_nodes')
+
     class Configuration:
         def __init__(self, name): self.name = name
         def perform(self, context):
@@ -119,12 +124,18 @@ def inert_navigation_factory():
     shutil.copytree(ROOT / 'mhseals_nav/behavior_trees', share / 'behavior_trees')
     (share / 'launch').mkdir()
     shutil.copyfile(ROOT / 'launch/navigation.launch.py', share / 'launch/navigation.launch.py')
-    ns = dict(LaunchConfiguration=Configuration, os=os, yaml=yaml, tempfile=tempfile,
-              load_overlay=load_overlay, validated_merge_limits=validated_merge_limits,
-              FindPackageShare=lambda name: SimpleNamespace(perform=lambda _: str(share)),
-              PathJoinSubstitution=lambda parts: parts,
-              RewrittenYaml=lambda **kw: kw, ParameterValue=lambda *a, **kw: a,
-              Node=lambda **kw: kw, OpaqueFunction=lambda **kw: kw)
+    ns = {'LaunchConfiguration': Configuration,
+          'os': os,
+          'yaml': yaml,
+          'tempfile': tempfile,
+          'load_overlay': load_overlay,
+          'validated_merge_limits': validated_merge_limits,
+          'FindPackageShare': lambda name: SimpleNamespace(perform=lambda _: str(share)),
+          'PathJoinSubstitution': lambda parts: parts,
+          'RewrittenYaml': lambda **kw: kw,
+          'ParameterValue': lambda *a, **kw: a,
+          'Node': lambda **kw: kw,
+          'OpaqueFunction': lambda **kw: kw}
     exec(compile(ast.Module(body=[function], type_ignores=[]), str(source), 'exec'), ns)
     factory = ns['navigation_nodes']
     from unittest.mock import patch
@@ -161,7 +172,8 @@ def test_absent_optional_overlay_preserves_custom_controller_base(base, tmp_path
 
 
 @pytest.mark.parametrize('patch', [
-    {'waypoint_follower': {'ros__parameters': {'wait_at_waypoint': {'waypoint_pause_duration': -1}}}},
+    {'waypoint_follower': {'ros__parameters': {
+        'wait_at_waypoint': {'waypoint_pause_duration': -1}}}},
     {'velocity_smoother': {'ros__parameters': {'deadband_velocity': [-1.0, 0.0, 0.0]}}},
     {'controller_server': {'ros__parameters': {'FollowPath': {'PathAngleCritic': {'mode': -1}}}}},
     None,
@@ -180,7 +192,8 @@ def test_review_reproductions_fail_before_node(base, tmp_path, patch):
     actions.RegisterEventHandler = lambda *a, **kw: None
     events = types.ModuleType('launch.event_handlers')
     events.OnShutdown = lambda **kw: None
-    with patch_modules.dict(sys.modules, {'launch.actions': actions, 'launch.event_handlers': events}):
+    with patch_modules.dict(sys.modules, {
+            'launch.actions': actions, 'launch.event_handlers': events}):
         with pytest.raises(ValueError):
             ns['navigation_nodes']({'params_file': str(base_path), 'limits_file': str(overlay)})
 

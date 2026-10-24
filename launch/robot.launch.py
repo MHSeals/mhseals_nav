@@ -1,10 +1,10 @@
-from mhseals_nav.navigation_config import persistent_limits_path
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, TimerAction
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.substitutions import FindPackageShare
 from launch.conditions import IfCondition
+from mhseals_nav.navigation_config import persistent_limits_path
 from mhseals_nav.startup_snapshot import snapshot_root, snapshot_scope
 
 def generate_launch_description():
@@ -34,7 +34,8 @@ def generate_launch_description():
         ('rtabmap_params_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'rtabmap.yaml']), 'Path to RTAB-Map parameters file'),
         ('nav2_params_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'nav2_params.yaml']), 'Path to Nav2 parameters file'),
 
-        ('limits_file', persistent_limits_path(), 'Persistent Nav2 overlay; empty disables overlay'),
+        ('limits_file', persistent_limits_path(),
+         'Persistent Nav2 overlay; empty disables overlay'),
 
         # Sensors
         ('camera_name', 'front', 'ZED camera namespace (see camera.launch.py)'),
