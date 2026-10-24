@@ -4,10 +4,12 @@ from hashlib import sha256
 import json
 
 from mhseals_config.catalog import DescriptorBundle
+import yaml
 
 from .catalog import mavros_catalog, navigation_catalog, REGISTRY
 from .lidar_catalog import lidar_catalog, REGISTRY as LIDAR_REGISTRY
 from .lidar_configuration import package_share
+from .navigation_config import StrictOverlayLoader
 
 FAMILIES = ('nav2', 'mavros', 'lidar')
 
@@ -67,6 +69,15 @@ def combine_catalogs(families, *, consumer_versions=None):
     return DescriptorBundle.read(data, resources, registry, versions)
 
 
+def _require_mapping(raw, label):
+    try:
+        value = yaml.load(raw, Loader=StrictOverlayLoader)
+    except yaml.YAMLError as exc:
+        raise ValueError('malformed catalog input: ' + label) from exc
+    if not isinstance(value, Mapping):
+        raise ValueError('catalog input must be a mapping: ' + label)
+
+
 def load_catalog(*, nav2=None, mavros=None, consumer_versions=None):
     """
     Load required installed families, optionally selecting named Nav2/MAVROS bytes.
@@ -80,6 +91,7 @@ def load_catalog(*, nav2=None, mavros=None, consumer_versions=None):
     """
     share = package_share('mhseals_nav')
     policy = (share / 'config/catalog.yaml').read_bytes()
+    _require_mapping(policy, 'config/catalog.yaml')
     families = {}
     for family, selection, filename, loader, bindings in (
             ('nav2', nav2, 'nav2_params.yaml', navigation_catalog, REGISTRY),
@@ -88,6 +100,7 @@ def load_catalog(*, nav2=None, mavros=None, consumer_versions=None):
         resource, raw = (selection if selection is not None else
                          ('config/' + filename,
                           (share / 'config' / filename).read_bytes()))
+        _require_mapping(raw, resource)
         bundle = loader(raw, resource=resource, policy_raw=policy,
                         consumer_versions=consumer_versions)
         source = bundle.descriptor['default_sources'][0]['id']

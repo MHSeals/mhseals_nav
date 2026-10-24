@@ -118,7 +118,10 @@ def test_conflicting_identities_refuse(installed, kind):
         owner.combine_catalogs(inputs)
 
 
-def test_missing_malformed_and_invalid_family_fail_visibly(installed, monkeypatch, tmp_path):
+@pytest.mark.parametrize('filename', [
+    'catalog.yaml', 'nav2_params.yaml', 'mavros_setup.yaml', 'lidar.yaml'])
+def test_missing_malformed_and_invalid_family_fail_visibly(
+        installed, monkeypatch, tmp_path, filename):
     """Required family failures cannot return a partial inventory labeled complete."""
     inputs = families(installed)
     del inputs['lidar']
@@ -141,11 +144,12 @@ def test_missing_malformed_and_invalid_family_fail_visibly(installed, monkeypatc
             owner.combine_catalogs(inputs)
     config = tmp_path / 'config'
     config.mkdir()
-    for name in ('catalog.yaml', 'nav2_params.yaml', 'mavros_setup.yaml'):
-        (config / name).write_bytes((installed / 'config' / name).read_bytes())
+    for name in ('catalog.yaml', 'nav2_params.yaml', 'mavros_setup.yaml', 'lidar.yaml'):
+        if name != filename:
+            (config / name).write_bytes((installed / 'config' / name).read_bytes())
     monkeypatch.setattr(owner, 'package_share', lambda package: tmp_path)
     with pytest.raises(FileNotFoundError):
         owner.load_catalog()
-    (config / 'lidar.yaml').write_text('lidar: {rpm: false}')
+    (config / filename).write_text('[]')
     with pytest.raises(ValueError):
         owner.load_catalog()
