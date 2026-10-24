@@ -42,9 +42,8 @@ def test_robot_selected_layer_and_direct_equivalent(share, tmp_path, explicit):
     entities = robot_factory()
     values = {e.args[0]: e.default_value for e in entities if hasattr(e, 'default_value')}
     assert values['velodyne_ip'] == values['velodyne_port'] == ''
-    assert values['lidar_params_file'] == ''
+    assert values['lidar_params_file'] == values['lidar_deployment_file'] == ''
     values.update(lidar_params_file=selected, velodyne_ip=explicit, sim='false')
-    values['lidar_deployment_file'] = str(ROOT / 'config/lidar_robot.yaml')
     include = next(e for e in entities if hasattr(e, 'launch_arguments'))
     forwarded = {key: value.perform(values) if hasattr(value, 'perform') else value
                  for key, value in include.launch_arguments}
@@ -131,3 +130,19 @@ def test_masked_invalid_deployment_fails_before_node(share, tmp_path, patch):
     namespace['Node'] = lambda **kwargs: pytest.fail('constructed Node before layer validation')
     with pytest.raises(ValueError):
         namespace['sensor_nodes'](values)
+
+
+def test_robot_and_sensors_default_lidar_projection_equal(share):
+    """Plain robot and standalone sensors launch produce identical lidar parameters."""
+    entities = robot_factory()
+    values = {e.args[0]: e.default_value for e in entities if hasattr(e, 'default_value')}
+    values.update(sim='false')
+    include = next(e for e in entities if hasattr(e, 'launch_arguments'))
+    forwarded = {key: value.perform(values) if hasattr(value, 'perform') else value
+                 for key, value in include.launch_arguments}
+    namespace = sensor_factory(share)
+    robot = namespace['sensor_nodes'](forwarded)
+    direct = namespace['sensor_nodes'](dict(context(), lidar_required_frame='lidar_link'))
+    assert robot == direct
+    assert robot[0]['parameters'][0]['device_ip'] == '192.168.0.201'
+    assert not (ROOT / 'config/lidar_robot.yaml').exists()

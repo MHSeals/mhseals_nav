@@ -53,9 +53,7 @@ def generate_launch_description():
         # Sensors
         ('camera_name', 'front', 'ZED camera namespace (see camera.launch.py)'),
         ('lidar_params_file', '', 'Optional selected lidar YAML over package/deployment defaults'),
-        ('lidar_deployment_file',
-         PathJoinSubstitution([mhseals_nav_dir, 'config', 'lidar_robot.yaml']),
-         'Explicit historical full-robot endpoint deployment layer'),
+        ('lidar_deployment_file', '', 'Optional deployment lidar YAML layer'),
         ('velodyne_ip', '', 'Explicit device IP override; empty inherits YAML'),
         ('velodyne_port', '', 'Explicit UDP port override; empty inherits YAML'),
         ('ros_ip', '', 'ROS TCP Endpoint IP'),

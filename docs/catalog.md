@@ -127,13 +127,13 @@ it never falls back. Partial YAML overlays use the `lidar` shape of the baseline
 unknown keys/nulls refuse. RPM permits finite positive integer/float values;
 port is an integer1..65535; IP is IPv4; model/frame are exact strings.
 
-The historical address conflict is preserved as explicit deployment selection:
-standalone sensors use the canonical endpoint, while full robot selects
-`config/lidar_robot.yaml`, which contains only its historical IP override.
-Neither address was inferred from current boat networking. A custom selected
-file overrides that deployment layer, and an explicit alias overrides both.
-There is one common defaults table and one visible deployment value, not
-conflicting launcher constants. Resolver output includes every source path/hash
+`config/lidar.yaml` is the single authoritative endpoint (192.168.0.201). A
+read-only check from the boat LAN (2026-10-24) showed the VLP16 answering at
+192.168.0.201 (Velodyne OUI 60:76:88) and nothing at 192.168.1.201, so the
+former `lidar_robot.yaml` override was removed. `robot.launch.py` and
+`sensors.launch.py` both default `lidar_deployment_file` to empty and so project
+identical lidar parameters. A deployment file may still be selected explicitly;
+a custom selected file overrides it, and an explicit alias overrides both. Resolver output includes every source path/hash
 and per-leaf ordered origins, including ephemeral explicit aliases.
 
 The validated model/frame project identically to driver and transform; RPM and

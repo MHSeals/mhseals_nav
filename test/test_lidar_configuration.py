@@ -31,11 +31,13 @@ def overlay(tmp_path, data):
 def test_defaults_deployment_selection_and_explicit_aliases(share, tmp_path):
     """Preserve both historical endpoints as visible, separately hashed layers."""
     standalone = resolve_lidar(share=share)
-    robot = resolve_lidar(deployment=ROOT / 'config/lidar_robot.yaml', share=share)
+    deployment = overlay(tmp_path, {'endpoint': {'ip': '192.168.7.9'}})
+    robot = resolve_lidar(deployment=deployment, share=share)
     assert standalone['driver']['device_ip'] == '192.168.0.201'
-    assert robot['driver']['device_ip'] == '192.168.1.201'
+    assert robot['driver']['device_ip'] == '192.168.7.9'
+    assert not (ROOT / 'config/lidar_robot.yaml').exists()
     selected = overlay(tmp_path, {'endpoint': {'ip': '10.1.2.3'}, 'rpm': 420})
-    custom = resolve_lidar(selected, ROOT / 'config/lidar_robot.yaml',
+    custom = resolve_lidar(selected, deployment,
                            {'velodyne_port': '1234', 'velodyne_ip': ''}, share=share)
     assert custom['driver']['device_ip'] == '10.1.2.3'
     assert custom['driver']['port'] == 1234
