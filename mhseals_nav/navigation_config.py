@@ -40,11 +40,11 @@ class StrictOverlayLoader(yaml.SafeLoader):
 
 
 def load_overlay(path, *, strict=False):
-    """Read a user YAML overlay; a missing, empty, unparsable or non-mapping file is no overlay."""
+    """Read an optional overlay; strict mode rejects invalid existing documents."""
     try:
         text = Path(path).expanduser().read_text()
         data = yaml.load(text, Loader=StrictOverlayLoader if strict else yaml.SafeLoader)
-        if data is None:
+        if data is None and (not strict or yaml.compose(text) is None):
             data = {}
     except FileNotFoundError:
         return {}
@@ -236,6 +236,12 @@ def validate_navigation_overlay(base, overlay, path=()):
                 raise ValueError(f'{location}: expected integer')
             if wrong_sign(default, value):
                 raise ValueError(f'{location}: out of range')
+            if key == 'waypoint_pause_duration' and value < 0:
+                raise ValueError(f'{location}: must be nonnegative')
+            if key == 'mode' and path and path[-1] == 'PathAngleCritic' and value not in (0, 1, 2):
+                raise ValueError(f'{location}: expected mode 0, 1 or 2')
+            if len(path) >= 2 and path[-2] == 'deadband_velocity' and value < 0:
+                raise ValueError(f'{location}: deadband must be nonnegative')
         elif isinstance(default, list):
             if not isinstance(value, list):
                 raise ValueError(f'{location}: expected list')
@@ -257,7 +263,18 @@ def validate_navigation_overlay(base, overlay, path=()):
 
 def validated_merge_limits(base, limits):
     validate_navigation_overlay(base, limits)
-    return merge_limits(base, limits)
+    def normalized(template, value):
+        if isinstance(value, dict):
+            return {key: normalized(template[key], item) for key, item in value.items()}
+        if isinstance(value, list) and template:
+            return [normalized(template[min(index, len(template) - 1)], item)
+                    for index, item in enumerate(value)]
+        if isinstance(template, float):
+            return float(value)
+        if isinstance(template, int) and not isinstance(template, bool):
+            return int(value)
+        return value
+    return merge_limits(base, normalized(base, limits))
 
 
 def persistent_limits_path():

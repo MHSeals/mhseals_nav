@@ -71,3 +71,43 @@ def test_actual_navigation_factory_fails_before_node(base, tmp_path):
     with patch.dict(sys.modules, {'launch.actions': actions, 'launch.event_handlers': events}):
         with pytest.raises(ValueError):
             ns['navigation_nodes']({'params_file': str(base_path), 'limits_file': str(overlay)})
+
+
+@pytest.mark.parametrize('patch', [
+    {'waypoint_follower': {'ros__parameters': {'wait_at_waypoint': {'waypoint_pause_duration': -1}}}},
+    {'velocity_smoother': {'ros__parameters': {'deadband_velocity': [-1.0, 0.0, 0.0]}}},
+    {'controller_server': {'ros__parameters': {'FollowPath': {'PathAngleCritic': {'mode': -1}}}}},
+    {'controller_server': {'ros__parameters': {'FollowPath': {'PathAngleCritic': {'mode': 3}}}}},
+])
+def test_known_zero_default_domains_rejected(base, patch):
+    with pytest.raises(ValueError):
+        validated_merge_limits(base, patch)
+
+
+@pytest.mark.parametrize('vector', [[0, 0, 0], [0, 0.0, 0]])
+def test_emitted_deadband_vector_has_selected_base_float_type(base, vector):
+    result = validated_merge_limits(base, {'velocity_smoother': {'ros__parameters': {
+        'deadband_velocity': vector}}})
+    emitted = yaml.safe_load(yaml.safe_dump(result))
+    assert all(type(v) is float for v in emitted['velocity_smoother']['ros__parameters']['deadband_velocity'])
+
+
+@pytest.mark.parametrize('text', ['null', '~', '---\nnull\n'])
+def test_explicit_null_requested_file_rejected(tmp_path, text):
+    path = tmp_path / 'null.yaml'
+    path.write_text(text)
+    with pytest.raises(ValueError, match='root must be a mapping'):
+        load_overlay(path, strict=True)
+
+
+@pytest.mark.parametrize('text', ['', '# first use\n'])
+def test_empty_requested_file_is_supported(tmp_path, text):
+    path = tmp_path / 'empty.yaml'
+    path.write_text(text)
+    assert load_overlay(path, strict=True) == {}
+
+
+def test_unrelated_zero_default_can_remain_signed(base):
+    base['Extension'] = {'signed_offset': 0.0}
+    result = validated_merge_limits(base, {'Extension': {'signed_offset': -1.0}})
+    assert result['Extension']['signed_offset'] == -1.0
