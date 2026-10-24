@@ -72,7 +72,8 @@ def test_tui_actual_path_and_component_argv(monkeypatch, override, xdg):
     component = {'nav2_limits': SimpleNamespace(launch_argument=tui['launch_argument']),
                  'Component': lambda *args: args}
     functions(root / 'harness/components.py',
-              {'components', 'odometry_arguments', 'ODOMETRY_INPUTS', 'ODOMETRY_LAUNCHES'},
+              {'components', 'odometry_arguments', 'validate_localization_profile',
+               'ODOMETRY_INPUTS', 'ODOMETRY_LAUNCHES'},
               component)
     profile = SimpleNamespace(components={'navigation': {
         'launch': ['mhseals_nav', 'navigation.launch.py'], 'limits': True}})
