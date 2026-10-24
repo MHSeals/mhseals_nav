@@ -24,6 +24,7 @@ def navigation_nodes(context):
         LaunchConfiguration('limits_file').perform(context),
         sim=LaunchConfiguration('sim').perform(context),
         use_lidar=LaunchConfiguration('use_lidar').perform(context),
+        config_candidate=LaunchConfiguration('config_candidate').perform(context) or None,
         resources=resource_paths(FindPackageShare('mhseals_nav').perform(context)))
     handle = tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False)
     with handle:
@@ -61,6 +62,7 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument('params_file', default_value=PathJoinSubstitution(
             [share, 'config', 'nav2_params.yaml'])),
+        DeclareLaunchArgument('config_candidate', default_value=''),
         DeclareLaunchArgument('config_root', default_value=snapshot_root()),
         DeclareLaunchArgument('config_scope', default_value=snapshot_scope(),
                              description='Reuse for an exact partial restart'),

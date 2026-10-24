@@ -13,7 +13,7 @@ import uuid
 from mhseals_config import Artifact, BaselineRevision, digest
 from mhseals_config._bootstrap import (
     begin_bootstrap, finish_bootstrap, NoActiveSelection,
-    read_bootstrap_inputs, read_selected_inputs,
+    read_bootstrap_inputs, read_selected_inputs, read_selected_subset,
 )
 from mhseals_config._evidence import Recipe
 from mhseals_nav.bt_artifacts import materialize_trees
@@ -27,6 +27,7 @@ import yaml
 
 RECIPE = 'nav-compiler-serialization/1'
 PARTICIPANT = 'nav2-compiler'
+PARTICIPANTS = frozenset(('nav2-baseline', PARTICIPANT))
 
 
 def _boolean(value):
@@ -98,23 +99,71 @@ def _serialized(document, evidence):
 EVALUATORS = {RECIPE: Recipe(RECIPE, _serialized)}
 
 
-def select_snapshot(root, scope, params_file, limits_file, *, sim, use_lidar, resources=None):
-    """Adopt an exact scope or bootstrap a fresh, domain-validated selection."""
-    def mutable(value):
-        from collections.abc import Mapping
-        if isinstance(value, Mapping):
-            return {key: mutable(item) for key, item in value.items()}
-        if isinstance(value, tuple):
-            return [mutable(item) for item in value]
-        return value
+def _mutable(value):
+    from collections.abc import Mapping
+    if isinstance(value, Mapping):
+        return {key: _mutable(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return [_mutable(item) for item in value]
+    return value
 
+
+def prepare_inputs(root, scope, params_file, limits_file, *, sim, use_lidar, resources=None):
+    """Compile the fixed navigation closure without reserving or writing a scope."""
+    paths = resources or resource_paths()
+    base, defaults = _source(params_file)
+    limits, operator = _source(limits_file, optional=True) if limits_file else (
+        {}, {'path': None, 'sha256': None, 'origins': []})
+    validate_navigation_base(base)
+    parameters = validated_merge_limits(base, limits)
+    # B contains persistent inputs only. Invocation flags belong to S.
+    baseline = {'parameters': parameters, 'sources': [defaults, operator]}
+    revision = digest(baseline)
+    invocation = {'sim': _boolean(sim), 'use_lidar': _boolean(use_lidar)}
+    resources = resource_identity(paths)
+    for resource in resources.values():
+        if 'content_hex' in resource:
+            resource['artifact'] = str(Path(os.path.abspath(root)) / scope / 'nav2-bt'
+                                       / (resource['sha256'] + '.xml'))
+    effective, projection = project_launch(parameters, invocation, resources)
+    document = {'parameters': effective, 'baseline': baseline,
+                'invocation': invocation, 'resources': resources,
+                'projection': projection,
+                'compiler': compiler_identity(), 'scope': scope,
+                'verification': 'pure-compiler-output; ROS unobserved'}
+    documents = {PARTICIPANT: document, 'nav2-baseline': baseline}
+    source = digest(baseline['sources'])
+    identity = document['compiler']
+    artifacts = (Artifact('nav2-baseline.json', digest(baseline)),)
+    return {'documents': documents, 'recipes': {p: RECIPE for p in PARTICIPANTS},
+            'identities': {p: identity for p in PARTICIPANTS},
+            'baseline_artifacts': artifacts,
+            'baseline': BaselineRevision(revision, artifacts), 'source': source}
+
+
+def observe_inputs(documents, ticket, source):
+    """Bind serialization observations over the owner's captured documents."""
+    return {p: {'scope': ticket.scope, 'candidate': ticket.candidate, 'source': source,
+                'identity': documents[PARTICIPANT]['compiler'], 'recipe': RECIPE,
+                'evidence': {'yaml': yaml.safe_dump(_mutable(documents[p]['parameters'])),
+                             'kind': 'pure-compiler-output'}} for p in PARTICIPANTS}
+
+
+def select_snapshot(root, scope, params_file, limits_file, *, sim, use_lidar, resources=None,
+                    config_candidate=None):
+    """Adopt captured invocation values, or bootstrap an unmanaged domain scope."""
+    if config_candidate and not scope:
+        raise ValueError('managed navigation startup requires explicit scope')
     paths = resources or resource_paths()
     try:
-        selected = read_selected_inputs(root, scope, evaluators=EVALUATORS)
+        selected = read_selected_subset(
+            root, scope, PARTICIPANTS, evaluators=EVALUATORS,
+            expected_candidate=config_candidate)
     except NoActiveSelection:
-        pass
+        if config_candidate:
+            raise
     else:
-        document = mutable(selected.documents[PARTICIPANT])
+        document = _mutable(selected.documents[PARTICIPANT])
         pinned = document['resources']
         if (set(paths) != set(pinned)
                 or any(str(Path(path).absolute()) != pinned[key]['path']
@@ -127,47 +176,20 @@ def select_snapshot(root, scope, params_file, limits_file, *, sim, use_lidar, re
         materialize_trees(root, scope, pinned)
         return document
 
-    base, defaults = _source(params_file)
-    limits, operator = _source(limits_file, optional=True) if limits_file else (
-        {}, {'path': None, 'sha256': None, 'origins': []})
-    validate_navigation_base(base)
-    parameters = validated_merge_limits(base, limits)
-    # B contains persistent inputs only. Invocation flags belong to S.
-    baseline = {'parameters': parameters, 'sources': [defaults, operator]}
-    revision = digest(baseline)
-    invocation = {'sim': _boolean(sim), 'use_lidar': _boolean(use_lidar)}
-    resources = resource_identity(paths)
-    materialize_trees(root, scope, resources)
-    effective, projection = project_launch(parameters, invocation, resources)
-    document = {'parameters': effective, 'baseline': baseline,
-                'invocation': invocation, 'resources': resources,
-                'projection': projection,
-                'compiler': compiler_identity(), 'scope': scope,
-                'verification': 'pure-compiler-output; ROS unobserved'}
-    documents = {PARTICIPANT: document, 'nav2-baseline': baseline}
-    source = digest(baseline['sources'])
-    identity = document['compiler']
+    prepared = prepare_inputs(root, scope, params_file, limits_file,
+                              sim=sim, use_lidar=use_lidar, resources=paths)
     ticket = begin_bootstrap(
-        root, scope, BaselineRevision(revision, (
-            Artifact('nav2-baseline.json', digest(baseline)),)),
-        documents, {name: RECIPE for name in documents},
-        source_identity=source,
-        participant_identities={name: identity for name in documents},
+        root, scope, prepared['baseline'], prepared['documents'], prepared['recipes'],
+        source_identity=prepared['source'], participant_identities=prepared['identities'],
         closure='inert', evaluators=EVALUATORS)
     candidate = read_bootstrap_inputs(root, ticket)
-    if mutable(candidate.documents) != documents:
+    if _mutable(candidate.documents) != prepared['documents']:
         raise ValueError('materialized navigation inputs differ')
-    observations = {}
-    for name, inputs in documents.items():
-        observations[name] = {
-            'scope': scope, 'candidate': ticket.candidate, 'source': source,
-            'identity': identity, 'recipe': RECIPE,
-            'evidence': {'yaml': yaml.safe_dump(inputs['parameters']),
-                         'kind': 'pure-compiler-output'}}
-    receipt = finish_bootstrap(root, ticket,
-                               observations,
-                               evaluators=EVALUATORS)
+    observations = observe_inputs(candidate.documents, ticket, candidate.candidate['source'])
+    receipt = finish_bootstrap(root, ticket, observations, evaluators=EVALUATORS)
     if receipt['status'] != 'verified_startup':
         raise ValueError('navigation compiler serialization unverified')
-    read_selected_inputs(root, scope, evaluators=EVALUATORS)
+    selected = read_selected_inputs(root, scope, evaluators=EVALUATORS)
+    document = _mutable(selected.documents[PARTICIPANT])
+    materialize_trees(root, scope, document['resources'])
     return document

@@ -12,6 +12,7 @@ def generate_launch_description():
 
     launch_args = [
         # General
+        ('config_candidate', '', 'Exact owner-prepared startup candidate'),
         ('config_root', snapshot_root(), 'Local immutable startup artifact root'),
         ('config_scope', snapshot_scope(), 'Session identity; reuse for partial restart'),
         ('sim', 'true', 'Use simulation time'),
@@ -83,6 +84,7 @@ def generate_launch_description():
             [mhseals_nav_dir, 'launch', 'navigation.launch.py'])),
         launch_arguments={
             'sim': launch_configurations['sim'],
+            'config_candidate': launch_configurations['config_candidate'],
             'config_root': launch_configurations['config_root'],
             'config_scope': launch_configurations['config_scope'],
             'params_file': launch_configurations['nav2_params_file'],
