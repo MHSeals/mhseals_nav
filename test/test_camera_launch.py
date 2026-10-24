@@ -4,6 +4,7 @@ import importlib.util
 import re
 from pathlib import Path
 
+from mhseals_nav.camera_configuration import resolve_camera
 import pytest
 from launch import LaunchContext
 from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription, \
@@ -14,6 +15,10 @@ ROOT = Path(__file__).parents[1]
 spec = importlib.util.spec_from_file_location('camera_launch', ROOT / 'launch/camera.launch.py')
 camera = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(camera)
+
+
+def default_rate():
+    return resolve_camera(ROOT / 'config/camera_startup.yaml').preview_hz
 
 
 def wrapper_arguments():
@@ -30,6 +35,11 @@ def wrapper_arguments():
 def fake_share(monkeypatch):
     """mhseals_nav need not be installed to check the paths the launch builds."""
     from launch_ros.substitutions import FindPackageShare
+    monkeypatch.setattr(camera, 'from_launch', lambda context: resolve_camera(
+        ROOT / 'config/camera_startup.yaml',
+        deployment_file=context.launch_configurations.get('camera_deployment_file', ''),
+        operator_file=context.launch_configurations.get('camera_startup_file', ''),
+        preview_hz=context.launch_configurations.get('preview_hz', '')))
     real = FindPackageShare.perform
     monkeypatch.setattr(FindPackageShare, 'perform', lambda self, context: (
         '/share/mhseals_nav' if 'mhseals_nav' in perform_substitutions(context, self.package)
@@ -45,7 +55,12 @@ def performed(context, value):
 def group_actions():
     description = camera.generate_launch_description()
     declared = {e.name: e for e in description.entities if isinstance(e, DeclareLaunchArgument)}
-    group = next(e for e in description.entities if isinstance(e, GroupAction))
+    context = LaunchContext()
+    for argument in declared.values():
+        argument.execute(context)
+    startup = next(e for e in description.entities if isinstance(e, OpaqueFunction))
+    group = startup.execute(context)[0]
+    assert isinstance(group, GroupAction)
     return declared, group.get_sub_entities()
 
 
@@ -53,7 +68,8 @@ def test_one_config_point_with_defaults():
     declared, _ = group_actions()
     defaults = {name: perform_substitutions(LaunchContext(), arg.default_value)
                 for name, arg in declared.items()}
-    assert defaults == {'camera_name': 'front', 'camera_model': 'zed2i', 'slam': 'false'}
+    assert defaults == {'camera_name': 'front', 'camera_model': 'zed2i', 'slam': 'false',
+                        'camera_deployment_file': '', 'camera_startup_file': '', 'preview_hz': ''}
 
 
 def test_wrapper_include_loads_our_files_and_publishes_no_pose_tf():
@@ -110,7 +126,8 @@ def test_camera_dds_profile_whitelists_the_boat_address(monkeypatch):
 
 
 def test_boat_relays_are_named_and_carry_no_raw_images():
-    found = {n['name']: (n['executable'], n['arguments']) for n in camera.relays('front', False)}
+    found = {n['name']: (n['executable'], n['arguments'])
+             for n in camera.relays('front', False, default_rate())}
     assert found == {
         'front_info_relay': ('relay', [
             '/front/zed_node/rgb/color/rect/camera_info', '/front_camera/camera_info']),
@@ -121,21 +138,22 @@ def test_boat_relays_are_named_and_carry_no_raw_images():
 
 
 def test_slam_adds_named_raw_relays():
-    boat = {n['name'] for n in camera.relays('front', False)}
-    slam = {n['name']: n['arguments'][-1] for n in camera.relays('front', True)}
+    boat = {n['name'] for n in camera.relays('front', False, default_rate())}
+    slam = {n['name']: n['arguments'][-1] for n in camera.relays('front', True, default_rate())}
     assert set(slam) - boat == {'front_rgb_relay', 'front_depth_relay'}
     assert slam['front_rgb_relay'] == '/front_camera/rgb/image'
     assert slam['front_depth_relay'] == '/front_camera/depth/image'
 
 
 def test_relay_names_are_unique_and_follow_camera_name():
-    names = [n['name'] for n in camera.relays('rear', True)]
+    names = [n['name'] for n in camera.relays('rear', True, default_rate())]
     assert len(names) == len(set(names))
     assert all(name.startswith('rear_') for name in names)
 
 
 def test_every_relay_is_lazy():
-    assert all(n['parameters'] == [{'lazy': True}] for n in camera.relays('front', True))
+    assert all(n['parameters'] == [{'lazy': True}]
+               for n in camera.relays('front', True, default_rate()))
 
 
 def test_hardware_sensors_launch_starts_no_camera():

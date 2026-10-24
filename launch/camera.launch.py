@@ -12,7 +12,7 @@ from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
-PREVIEW_HZ = 2.0
+from mhseals_nav.camera_configuration import from_launch
 FASTDDS_NS = 'http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles'
 
 
@@ -52,14 +52,14 @@ def relay(name, executable, arguments):
                 arguments=arguments, parameters=[{'lazy': True}], output='screen')
 
 
-def relays(camera_name, slam):
+def relays(camera_name, slam, preview_hz):
     zed = f'/{camera_name}/zed_node'
     out = f'/{camera_name}_camera'
     found = [
         relay(f'{camera_name}_info_relay', 'relay',
               [f'{zed}/rgb/color/rect/camera_info', f'{out}/camera_info']),
         relay(f'{camera_name}_preview_throttle', 'throttle',
-              ['messages', f'{zed}/rgb/color/rect/image/compressed', str(PREVIEW_HZ),
+              ['messages', f'{zed}/rgb/color/rect/image/compressed', str(preview_hz),
                f'{out}/preview/compressed']),
     ]
     if slam:
@@ -72,13 +72,15 @@ def relays(camera_name, slam):
     return found
 
 
-def relay_nodes(context):
+def relay_nodes(context, settings):
     camera_name = LaunchConfiguration('camera_name').perform(context)
     slam = LaunchConfiguration('slam').perform(context).lower() == 'true'
-    return [Node(**kwargs) for kwargs in relays(camera_name, slam)]
+    return [Node(**kwargs) for kwargs in relays(camera_name, slam, settings.preview_hz)]
 
 
-def generate_launch_description():
+def camera_startup(context):
+    settings = from_launch(context)
+    environment = dds_env(context)
     share = FindPackageShare('mhseals_nav')
     wrapper = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(PathJoinSubstitution([
@@ -95,7 +97,17 @@ def generate_launch_description():
             'ros_params_override_path': PathJoinSubstitution(
                 [share, 'config', 'zed_boat.yaml']),
         }.items())
+    return [GroupAction([*environment, wrapper, *relay_nodes(context, settings)])]
+
+
+def generate_launch_description():
     return LaunchDescription([
+        DeclareLaunchArgument('camera_deployment_file', default_value='',
+                              description='Explicit camera startup deployment YAML'),
+        DeclareLaunchArgument('camera_startup_file', default_value='',
+                              description='Explicit camera startup operator YAML'),
+        DeclareLaunchArgument('preview_hz', default_value='',
+                              description='Explicit preview throttle rate; empty inherits YAML'),
         DeclareLaunchArgument('camera_name', default_value='front',
                               description='ZED namespace; topics are /<camera_name>/zed_node/*'),
         DeclareLaunchArgument('camera_model', default_value='zed2i'),
@@ -103,9 +115,5 @@ def generate_launch_description():
                               description='Also relay raw RGB and depth for RTAB-Map'),
         # Large camera frames need this profile; it applies to this launch only and
         # keeps the boat's interface pin and 1400-byte messages.
-        GroupAction([
-            OpaqueFunction(function=dds_env),
-            wrapper,
-            OpaqueFunction(function=relay_nodes),
-        ]),
+        OpaqueFunction(function=camera_startup),
     ])

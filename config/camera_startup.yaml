@@ -1,0 +1,2 @@
+# Output preview throttle; ZED capture/publication and TUI filtering are separate.
+preview_hz: 2.0
