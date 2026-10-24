@@ -6,8 +6,6 @@ from mhseals_nav.localization_configuration import compile_localization, simulat
 from mhseals_nav.odometry_configuration import ALIASES, LAYER_ARGUMENTS, resolve_odometry
 import pytest
 
-import pytest
-
 ROOT = Path(__file__).parents[1]
 
 
