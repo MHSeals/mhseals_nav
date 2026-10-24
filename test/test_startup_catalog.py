@@ -2,11 +2,10 @@
 from hashlib import sha256
 from pathlib import Path
 
-import pytest
-import yaml
-
 from mhseals_nav import localization_configuration as loc, odometry_configuration as odom
 from mhseals_nav import owner_catalog as owner, startup_catalog as catalog
+import pytest
+import yaml
 
 ROOT = Path(__file__).parents[1]
 
@@ -18,7 +17,8 @@ def resources():
 
 
 def bundles(resources):
-    return catalog.startup_catalogs(resources, policy_raw=(ROOT / 'config/catalog.yaml').read_bytes())
+    return catalog.startup_catalogs(resources, policy_raw=(
+        ROOT / 'config/catalog.yaml').read_bytes())
 
 
 def leaves(resources):
@@ -106,7 +106,7 @@ def test_known_constraints_and_unverified_consumer_claims(resources):
 
 
 @pytest.mark.parametrize('fault', ['orphan-yaml', 'compiler-key', 'stale-descriptor',
-                                  'removed-source-key', 'hash', 'override', 'covariance'])
+                                   'removed-source-key', 'hash', 'override', 'covariance'])
 def test_bidirectional_mutations_refuse(resources, monkeypatch, fault):
     descriptors = leaves(resources)
     path = catalog.ODOMETRY_RESOURCE
@@ -116,7 +116,7 @@ def test_bidirectional_mutations_refuse(resources, monkeypatch, fault):
         monkeypatch.setattr(odom, 'KEYS', odom.KEYS | {'new_compiler_key'})
     elif fault in ('stale-descriptor', 'covariance'):
         descriptors[0]['canonical_key'] = ('odometry.removed' if fault == 'stale-descriptor' else
-                                          'localization.ekf_local.process_noise_covariance')
+                                           'localization.ekf_local.process_noise_covariance')
     elif fault == 'removed-source-key':
         data = yaml.safe_load(resources[path])
         del data['mavros_velocity_stddev']
@@ -149,7 +149,8 @@ def test_missing_descriptor_requires_accountable_disposition(resources):
     assert catalog.audit_startup_catalog(resources, descriptors, {removed: disposition})
 
 
-def test_selected_compiler_values_keep_actual_source_hashes_separate(resources, tmp_path, monkeypatch):
+def test_selected_compiler_values_keep_actual_source_hashes_separate(
+        resources, tmp_path, monkeypatch):
     monkeypatch.setenv('HOME', str(tmp_path))
     operator = tmp_path / 'operator.yaml'
     operator.write_text('mavros_velocity_stddev: 2\nekf_delay_included: 7.25\n')
@@ -165,7 +166,9 @@ def test_selected_compiler_values_keep_actual_source_hashes_separate(resources, 
     assert compiled.parameters('ekf_local')['frequency'] == 41.0
     assert compiled.inputs[-1]['sha256'] == sha256(overlay.read_bytes()).hexdigest()
     result = bundles(resources)
-    assert result['odometry'][0].field('odometry.mavros_velocity_stddev').default == yaml.safe_load(resources[catalog.ODOMETRY_RESOURCE])['mavros_velocity_stddev']
+    assert result['odometry'][0].field(
+        'odometry.mavros_velocity_stddev').default == yaml.safe_load(
+        resources[catalog.ODOMETRY_RESOURCE])['mavros_velocity_stddev']
     assert result['localization'][0].field('localization.ekf_local.frequency').default == 30.0
     assert result['odometry'][0].field('odometry.mavros_velocity_stddev').descriptor[
         'default_ref']['source_hash'] == sha256(resources[catalog.ODOMETRY_RESOURCE]).hexdigest()
@@ -204,7 +207,8 @@ def test_orphan_yaml_requires_explicit_accountable_unsupported_disposition(resou
     with pytest.raises(ValueError, match='orphan'):
         catalog.audit_startup_catalog(resources, descriptors)
     assert catalog.audit_startup_catalog(resources, descriptors, {
-        (path, '/future_unsupported'): {'reason': 'fixture: unsupported startup field; compiler refuses',
+        (path, '/future_unsupported'): {'reason': 'fixture: unsupported startup field; compiler '
+                                                  'refuses',
                                         'revision': catalog.REVISION, 'family': 'odometry'}})
     with pytest.raises(ValueError):
         bundles(resources)
@@ -216,7 +220,8 @@ def test_override_mapping_closes_existing_aliases_and_layer_selectors():
     assert {name + '_config_file' for name in loc.NODES} <= routes.keys()
     assert routes['ekf_delay'] == routes['ekf_startup_context'] == (
         'odometry.ekf_delay_standalone', 'odometry.ekf_delay_included')
-    assert all(target in catalog.schema_fields() for targets in routes.values() for target in targets)
+    assert all(target in catalog.schema_fields()
+               for targets in routes.values() for target in targets)
 
 
 def test_incomplete_known_localization_base_is_not_a_complete_catalog_default(resources):

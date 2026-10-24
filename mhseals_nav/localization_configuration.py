@@ -61,7 +61,8 @@ def field_rule(name, key):
     if key in QUEUES[name]:
         return Rule('integer', minimum=1, maximum=2**63 - 1)
     if key in DOUBLES[name]:
-        return Rule('number', minimum=0 if key in ('frequency', 'delay', 'sensor_timeout') else None,
+        return Rule('number',
+                    minimum=0 if key in ('frequency', 'delay', 'sensor_timeout') else None,
                     exclusive=key == 'frequency')
     raise ValueError('unsupported localization field: ' + name + '.' + key)
 

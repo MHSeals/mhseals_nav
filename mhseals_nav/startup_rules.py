@@ -46,7 +46,8 @@ class Rule:
             return f'flat sequence of exactly {self.size} actual booleans; replaces whole vector'
         if self.kind == 'boolean':
             return 'actual boolean (no numeric/string coercion)'
-        text = 'positive signed int64' if self.kind == 'integer' else 'finite double; integer spelling normalizes to double'
+        text = ('positive signed int64' if self.kind == 'integer' else
+                'finite double; integer spelling normalizes to double')
         if self.minimum is not None:
             text += (' > ' if self.exclusive else ' >= ') + str(self.minimum)
         if self.maximum is not None:

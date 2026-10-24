@@ -10,7 +10,7 @@ from .catalog import mavros_catalog, navigation_catalog, REGISTRY
 from .lidar_catalog import lidar_catalog, REGISTRY as LIDAR_REGISTRY
 from .lidar_configuration import package_share
 from .navigation_config import StrictOverlayLoader
-from .startup_catalog import startup_catalogs, ODOMETRY_RESOURCE, LOCALIZATION_RESOURCES
+from .startup_catalog import LOCALIZATION_RESOURCES, ODOMETRY_RESOURCE, startup_catalogs
 
 FAMILIES = ('nav2', 'mavros', 'lidar', 'odometry', 'localization')
 
@@ -87,7 +87,8 @@ def load_catalog(*, nav2=None, mavros=None, consumer_versions=None):
     Its label is provenance supplied by the caller, not an installed filesystem
     origin: no file is read at that label. Selected descriptor defaults describe
     those requested bytes, never observed/live values or separate runtime layers.
-    Lidar, odometry and localization remain installed package inventory; runtime layer origins belong to
+    Lidar, odometry and localization remain installed package inventory; runtime layer origins
+    belong to
     the separate lidar resolver. Missing or malformed installed families raise.
     """
     share = package_share('mhseals_nav')

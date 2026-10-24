@@ -180,7 +180,8 @@ def test_missing_malformed_and_invalid_family_fail_visibly(
         owner.load_catalog()
 
 
-def test_installed_nondefault_compiler_evidence_does_not_replace_raw_defaults(installed, tmp_path, monkeypatch):
+def test_installed_nondefault_compiler_evidence_does_not_replace_raw_defaults(
+        installed, tmp_path, monkeypatch):
     from mhseals_nav.odometry_configuration import resolve_odometry
     from mhseals_nav.localization_configuration import compile_localization, NODES
     monkeypatch.setenv('HOME', str(tmp_path))

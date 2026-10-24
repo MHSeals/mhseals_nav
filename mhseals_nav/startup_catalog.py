@@ -4,16 +4,16 @@ from hashlib import sha256
 from mhseals_config.catalog import DescriptorBundle
 import yaml
 
-from .catalog import _locations, _pointer
 from . import localization_configuration as loc
 from . import odometry_configuration as odom
+from .catalog import _locations, _pointer
 
 REVISION = 'b30394bcfa083b62eadd0296ea64006dd6d29fd5+startup-catalog-v1'
 ODOMETRY_RESOURCE = 'config/odometry_startup.yaml'
 LOCALIZATION_RESOURCES = {name: 'config/' + name + '.yaml' for name in loc.NODES}
 UNSUPPORTED = {
     'localization.covariance': {'reason': 'covariance matrices have no supported compiler schema',
-                              'revision': REVISION, 'family': 'localization'},
+                                'revision': REVISION, 'family': 'localization'},
     'localization.additional_sensor_slots': {
         'reason': 'only the explicit GRAPH and fusion-vector schema is supported',
         'revision': REVISION, 'family': 'localization'},
@@ -83,7 +83,8 @@ def override_routes():
 
 RULES = {key: rule for key, (_, _, rule) in schema_fields().items()}
 REGISTRY = {'odometry.validate': odom.validate, 'odometry.resolve': odom.resolve_odometry,
-            'localization.validate': loc.validate, 'localization.compile': loc.compile_localization}
+            'localization.validate': loc.validate,
+            'localization.compile': loc.compile_localization}
 REGISTRY.update({'startup.rule.' + key: rule.check for key, rule in RULES.items()})
 
 
@@ -130,7 +131,8 @@ def audit_startup_catalog(resources, descriptors, dispositions=None, *, routes=N
         path, pointer, _ = fields[key]
         ref = leaf['default_ref']
         if (ref['path'] != path or ref['yaml_pointer'] != pointer or path not in resources
-                or ref['source_id'] != 'startup-' + path.removeprefix('config/').removesuffix('.yaml')
+                or ref['source_id'] != (
+                    'startup-' + path.removeprefix('config/').removesuffix('.yaml'))
                 or ref['line'] != _locations(resources[path]).get(pointer)
                 or sha256(resources[path]).hexdigest() != ref['source_hash']
                 or pointer not in _leaves(resources[path])):
@@ -150,7 +152,8 @@ def audit_startup_catalog(resources, descriptors, dispositions=None, *, routes=N
         raise ValueError('orphan YAML leaf or missing source default')
     expected = override_routes()
     routes = expected if routes is None else routes
-    if set(routes) != set(expected) or any(tuple(routes[key]) != expected[key] for key in expected):
+    if set(routes) != set(expected) or any(
+            tuple(routes[key]) != expected[key] for key in expected):
         raise ValueError('unaccounted or unsupported launch override route')
     if any(target not in fields for targets in routes.values() for target in targets):
         raise ValueError('override targets unknown compiler field')
@@ -171,16 +174,20 @@ def _bundle(resources, family, policy, consumer_versions):
                 continue
             if family == 'odometry':
                 field = key.removeprefix('odometry.')
-                consumer = ('robot_state_publisher' if field == 'robot_state_publish_frequency' else
+                consumer = ('robot_state_publisher'
+                            if field == 'robot_state_publish_frequency' else
                             'ekf_startup_timer' if field.startswith('ekf_delay_') else
                             'mavros_odom_adapter')
-                outputs = ([name for name, value in odom.ADAPTER_PARAMETERS.items() if value == field]
-                           or ['publish_frequency' if consumer == 'robot_state_publisher' else 'period'])
+                outputs = ([name for name, value in odom.ADAPTER_PARAMETERS.items()
+                            if value == field]
+                           or ['publish_frequency'
+                               if consumer == 'robot_state_publisher' else 'period'])
                 site = ('odom.load_urdf -> robot_state_publisher.publish_frequency' if
                         consumer == 'robot_state_publisher' else
                         'ekf.ekf_nodes -> TimerAction.period; explicit context selects delay' if
                         consumer == 'ekf_startup_timer' else
-                        'odom.odometry_nodes and mavros_odometry.main -> adapter parameter declarations')
+                        'odom.odometry_nodes and mavros_odometry.main -> '
+                        'adapter parameter declarations')
                 destination = ('explicit odometry_deployment_file / odometry_startup_file; '
                                'package < deployment < operator < supplied launch aliases')
                 layers, status = ['package', 'deployment', 'operator'], 'startup-supported'
@@ -191,11 +198,14 @@ def _bundle(resources, family, policy, consumer_versions):
                 unverified = consumer + '.' + field in UNVERIFIED
                 status = ('discovered' if unverified else 'fixed-invariant' if
                           field in loc.GRAPH[consumer] else 'startup-supported')
-                site = ('ekf.ekf_nodes -> compiled.parameters; local graph invariant where applicable; '
+                site = ('ekf.ekf_nodes -> compiled.parameters; local graph '
+                        'invariant where applicable; '
                         'upstream consumption unverified' if
-                        unverified else 'ekf.ekf_nodes -> compiled.parameters startup projection only')
+                        unverified else
+                        'ekf.ekf_nodes -> compiled.parameters startup projection only')
                 destination = (consumer + '_config_file replaces packaged base; explicit '
-                               'ekf_overlay_file or optional ~/.config/mhseals/ekf.yaml node overlay')
+                               'ekf_overlay_file or optional '
+                               '~/.config/mhseals/ekf.yaml node overlay')
                 layers, absence = ['package', 'operator'], 'domain-defined'
             pins[consumer] = 'unknown'
             compiler = 'odometry.resolve' if family == 'odometry' else 'localization.compile'
@@ -206,16 +216,19 @@ def _bundle(resources, family, policy, consumer_versions):
                                 'line': locations[pointer], 'source_hash': digest},
                 'value': {'type': rule.kind, 'dimensions': [rule.size] if rule.size else [],
                           'units': field_units(key),
-                          'constraint_ref': reference, 'validator_ref': compiler, 'inputs': closure},
+                          'constraint_ref': reference, 'validator_ref': compiler,
+                          'inputs': closure},
                 'authoring': dict(policy['authoring'], destination=destination, pointer=pointer,
                                   layers=layers, absence=absence, scopes=['baseline'],
                                   reset='unsupported',
                                   controlling_keys=[]),
                 'consumers': [dict(policy['consumer'], id=consumer, version='unknown',
                                    parameters=outputs, compiler_ref=compiler, inputs=closure,
-                                   outputs=outputs, dependencies=['fresh-start/restart-required; runtime restart unsupported',
-                                    'complete startup input closure',
-                                    'selected base/layer paths and hashes; context/aliases separate'])],
+                                   outputs=outputs, dependencies=[
+                                       'fresh-start/restart-required; runtime restart unsupported',
+                                       'complete startup input closure',
+                                       'selected base/layer paths and hashes; '
+                                       'context/aliases separate'])],
                 'safety': policy['safety'],
                 'evidence': [dict(policy['evidence'], recipe_ref=reference, consumer=consumer,
                                   version='unknown', required_type='consumer-unverified' if
@@ -245,7 +258,8 @@ def startup_catalogs(resources, *, policy_raw, consumer_versions=None):
         raise ValueError('complete odometry defaults required')
     for name, path in LOCALIZATION_RESOURCES.items():
         loc.parse_base(resources[path], name)
-        expected = {pointer for resource, pointer, _ in schema_fields().values() if resource == path}
+        expected = {pointer for resource, pointer, _ in schema_fields().values()
+                    if resource == path}
         if _leaves(resources[path]) != expected:
             raise ValueError('complete localization package defaults required: ' + name)
     policy = yaml.load(policy_raw, Loader=loc.Loader)
@@ -254,14 +268,14 @@ def startup_catalogs(resources, *, policy_raw, consumer_versions=None):
         raise ValueError('unsupported startup catalog policy')
     result = {}
     for family, subset in (('odometry', {ODOMETRY_RESOURCE: resources[ODOMETRY_RESOURCE]}),
-                            ('localization', {path: resources[path]
-                                              for path in LOCALIZATION_RESOURCES.values()})):
+                           ('localization', {path: resources[path]
+                                             for path in LOCALIZATION_RESOURCES.values()})):
         bundle = _bundle(subset, family, policy, consumer_versions)
         raw = {source['id']: subset[source['resource']]
                for source in bundle.descriptor['default_sources']}
         result[family] = (bundle, raw, REGISTRY)
     audit_startup_catalog(resources, [leaf for bundle, _, _ in result.values()
-                                    for leaf in bundle.descriptor['leaves']])
+                                      for leaf in bundle.descriptor['leaves']])
     return result
 
 
@@ -269,22 +283,30 @@ def constraint_markdown(resources):
     """Generate read-only documentation from the same rules and actual default resources."""
     lines = ['# Startup catalog constraints (generated)', '',
              'Generated by `startup_catalog.constraint_markdown` from compiler Rule objects and '
-             'owned semantic unit metadata and the four authoritative package YAML resources. Do not edit this table as schema.', '',
-             'Units describe values: dimensionless includes booleans, source selectors and fusion masks; '
-             'frame/topic identify names and count identifies queue entries. Unknown is reserved for '
+             'owned semantic unit metadata and the four '
+             'authoritative package YAML resources. Do not edit this table as schema.', '',
+             'Units describe values: dimensionless includes '
+             'booleans, source selectors and fusion masks; '
+             'frame/topic identify names and count identifies '
+             'queue entries. Unknown is reserved for '
              'missing unit evidence, not unitless values. Constraint prose stays separate.\n\n'
              'Every row is read-only: fresh-start/restart-required, no runtime authority. '
              'Numeric bounds are schema limits, not physical qualification. Consumer versions '
              'remain unknown. Selected compiled values and path/hash/layer/context evidence '
              'remain separate from these raw defaults.', '',
              'Odometry precedence: package < explicit deployment < explicit operator < supplied '
-             'launch aliases. `ekf_delay` targets the context-selected delay field, not two defaults. '
-             'No implicit home or session startup layer exists. Localization selected bases replace '
-             'their respective packaged bases; explicit overlay or optional `~/.config/mhseals/ekf.yaml` '
-             'overlays node fields. Null/unknown fields refuse; arrays replace whole; omission inherits '
+             'launch aliases. `ekf_delay` targets the '
+             'context-selected delay field, not two defaults. '
+             'No implicit home or session startup layer exists. '
+             'Localization selected bases replace '
+             'their respective packaged bases; explicit overlay '
+             'or optional `~/.config/mhseals/ekf.yaml` '
+             'overlays node fields. Null/unknown fields refuse; '
+             'arrays replace whole; omission inherits '
              'only at an existing layer. No runtime writer or reset adapter is provided.', '',
              'Covariance matrices and additional sensor slots remain unsupported. Fusion-vector '
-             'ordering is x/y/z, roll/pitch/yaw, linear velocities, angular velocities, accelerations. '
+             'ordering is x/y/z, roll/pitch/yaw, linear '
+             'velocities, angular velocities, accelerations. '
              'Navsat frames are local graph invariants whose upstream consumption is unverified; '
              'both EKF predict_to_current_time consumers are also unverified. Projection is not '
              'runtime behavior qualification.', '',
@@ -301,7 +323,8 @@ def constraint_markdown(resources):
                   key.split('.', 2)[2] in loc.GRAPH[key.split('.', 2)[1]] else
                   'startup projection only')
         description = rule.describe().replace('|', '\\|')
-        lines.append(f"| `{key}` | `{value!r}` | {field_units(key)} | {description} | {status} |")
+        lines.append(f'| `{key}` | `{value!r}` | {field_units(key)} | {description} | {status} |')
     lines += ['', 'Raw source SHA256 (defaults remain attributed only to these bytes):', '']
-    lines += [f"- `{path}`: `{sha256(raw).hexdigest()}`" for path, raw in sorted(resources.items())]
+    lines += [f'- `{path}`: `{sha256(raw).hexdigest()}`' for path,
+              raw in sorted(resources.items())]
     return '\n'.join(lines) + '\n'
