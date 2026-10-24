@@ -7,6 +7,8 @@
   <maintainer email="lunarzDev@outlook.com">root</maintainer>
   <license>GPL-3.0</license>
 
+  <exec_depend>mhseals_config</exec_depend>
+
   <!-- ROS Execution Dependencies -->
   <exec_depend>diagnostic_msgs</exec_depend>
   <exec_depend>launch</exec_depend>
