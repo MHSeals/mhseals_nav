@@ -175,7 +175,6 @@ def main(args=None):
     for name, value in defaults.items():
         node.declare_parameter(name, value)
     policy = validate_setup({name: node.get_parameter(name).value for name in defaults})
-    node.declare_parameter('fcu_sysid', 1)  # MAVROS target system
     # A changed list is requested at once; the FCU keeps the latest request.
     live = LiveParams(node, {'message_rates': parse_rates},
                       on_change=lambda values, changed: wanted.set())
@@ -222,10 +221,11 @@ def main(args=None):
     boot_ms = [None]
 
     def receive_mavlink(msg):
+        if not from_fcu(msg.sysid, msg.compid, policy['fcu_sysid']):
+            return
         now_ms = decode_boot_ms(msg.msgid, msg.len, msg.payload64)
         # A routed GCS SYSTEM_TIME has its own boot clock and would look like a reboot.
-        fcu_sysid = node.get_parameter('fcu_sysid').value
-        if now_ms is not None and from_fcu(msg.sysid, msg.compid, fcu_sysid):
+        if now_ms is not None:
             if rebooted(boot_ms[0], now_ms):
                 node.get_logger().info('FCU boot time went backwards; requesting rates again')
                 reboot_seen()
@@ -254,13 +254,15 @@ def main(args=None):
             rc_since[0] = None
             return
         rc_since[0] = rc_since[0] or now
-        if now - rc_since[0] < 10.:
+        if now - rc_since[0] < policy['rc_grace']:
             return
-        low = rc_rate_low(rc_arrivals, now)
+        low = rc_rate_low(rc_arrivals, now, window=policy['rc_window'],
+                          min_hz=policy['rc_min_hz'], min_channels=policy['rc_min_channels'])
         if low != rc_low[0]:
             rc_low[0] = low
             (node.get_logger().warning if low else node.get_logger().info)(
-                'rc rate low: /mavros/rc/in under 10 Hz or under 8 channels; '
+                f"rc rate low: /mavros/rc/in under {policy['rc_min_hz']:g} Hz "
+                f"or under {policy['rc_min_channels']} channels; "
                 'MANUAL will be choppy and stick takeover impossible' if low else
                 'rc rate ok')
 
@@ -268,7 +270,7 @@ def main(args=None):
         RCIn, '/mavros/rc/in',
         lambda msg: rc_arrivals.append((time.monotonic(), len(msg.channels))),
         qos_profile_sensor_data)
-    node.create_timer(1., check_rc_rate)
+    node.create_timer(policy['rc_timer'], check_rc_rate)
     threading.Thread(target=work, daemon=True).start()
     try:
         spin_until_shutdown(node)

@@ -47,7 +47,19 @@ POLICY_FIELDS = {
     'retry_attempts': 'integer', 'retry_delay': 'nonnegative',
     'response_timeout': 'positive', 'service_wait': 'positive',
     'reboot_dedupe_window': 'positive',
+    'rc_window': 'positive', 'rc_min_hz': 'positive', 'rc_min_channels': 'integer',
+    'rc_grace': 'nonnegative', 'rc_timer': 'positive', 'fcu_sysid': 'sysid',
 }
+
+
+def validate_policy_value(key, value):
+    rule = POLICY_FIELDS[key]
+    if (type(value) not in (int, float) or not math.isfinite(value)
+            or (rule in ('integer', 'sysid') and type(value) is not int)
+            or (rule == 'sysid' and value > 255)
+            or value < 0 or (rule != 'nonnegative' and value == 0)):
+        raise ValueError('invalid policy: ' + key)
+    return value
 
 
 def validate_setup(params, *, complete=True):
@@ -59,11 +71,7 @@ def validate_setup(params, *, complete=True):
     for key, rule in POLICY_FIELDS.items():
         if key not in params:
             continue
-        value = params[key]
-        if (type(value) not in (int, float) or not math.isfinite(value)
-                or (rule == 'integer' and type(value) is not int)
-                or value < 0 or (rule != 'nonnegative' and value == 0)):
-            raise ValueError('invalid policy: ' + key)
+        validate_policy_value(key, params[key])
     return MappingProxyType({k: tuple(v) if k == 'message_rates' else v
                              for k, v in params.items()})
 

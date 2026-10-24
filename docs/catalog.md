@@ -75,12 +75,11 @@ The shared IMU alias historically controls both attitude IDs; the package raises
 both to 50 Hz following the approved 31=50 Hz attitude sampling decision and
 retains that paired behavior. Other package rates retain the existing requests.
 The target remains FCU system 1/autopilot component 1 by existing default;
-connection identity is a separate future descriptor, not a new YAML setting.
+connection identity is described below as an observed-source filter.
 
 The closure is desired list -> validated alias projection -> setup parameter ->
-existing reconnect/boot worker -> `/mavros/set_message_interval`. No reconnect
-trigger, retry policy, RC monitor threshold, request result handling, or worker
-reset bookkeeping changes here. Dropping an ID creates a later reset obligation;
+existing reconnect/boot worker -> `/mavros/set_message_interval`. The M01b additions below configure policy; reconnect trigger, request result
+handling and worker reset bookkeeping remain unchanged. Dropping an ID creates a later reset obligation;
 it is not evidence that the FCU stopped a stream. Disabling/resetting required
 streams can remove control/health inputs. No concrete startup required-ID policy
 exists here; guarded runtime authority policy remains pending and no diagnostic
@@ -96,6 +95,15 @@ is validated before explicit overrides; final ROS values are validated before
 clients/subscriptions/workers. Startup policy is immutable and setters require
 restart through LiveParams. ACK/request outcome remains pending/unverified;
 M01c still must repair partial failures, sent bookkeeping and reboot dedupe.
+
+`mavros.rc_monitor.*` now configures diagnostic window/timer (positive seconds),
+grace (nonnegative seconds), minimum rate (positive Hz), and channel count
+(positive integer). These thresholds do not change mux authority timeout or
+create a control safety floor. `mavros.connection_identity.fcu_sysid` (integer
+1..255) filters received autopilot SYSTEM_TIME and EKF observations only. It does
+not configure or guarantee MAVROS's global request target. Both families are
+captured at startup and refuse changed live setters. Catalog defaults reference
+selected YAML bytes; no diagnostic behavior or ACK is behavior verification.
 
 ## Lidar startup layers
 

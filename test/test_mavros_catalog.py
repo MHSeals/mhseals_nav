@@ -33,3 +33,12 @@ def test_descriptor_reuses_strict_schema():
     raw = b'mavros_setup: {ros__parameters: {message_rates: ["1:2", "1:3"]}}'
     with pytest.raises(ValueError):
         mavros_catalog(raw, resource='config/custom.yaml', policy_raw=POLICY)
+
+
+def test_policy_catalog_uses_selected_consumed_values():
+    raw = (ROOT / 'config/mavros_setup.yaml').read_bytes()
+    bundle = mavros_catalog(raw.replace(b'rc_min_hz: 10.0', b'rc_min_hz: 3.0'),
+                            resource='custom.yaml', policy_raw=POLICY)
+    assert bundle.field('mavros.rc_monitor.rc_min_hz').default == 3.
+    assert bundle.field('mavros.request_policy.retry_attempts').default == 3
+    assert bundle.field('mavros.connection_identity.fcu_sysid').default == 1

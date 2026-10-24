@@ -146,7 +146,7 @@ def test_actual_main_declaration_and_pre_worker_validation(rates):
     with pytest.raises(ValueError if rates == ['31:nan'] else ReachedLegacyBoundary):
         ns['main']()
     assert declarations['message_rates'] == rates
-    assert ('fcu_sysid' in declarations) == (rates != ['31:nan'])
+    assert declarations['fcu_sysid'] == 1
 
 
 @pytest.mark.parametrize('alias,ids', list(ALIASES.items()))

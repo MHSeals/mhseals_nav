@@ -1,5 +1,7 @@
 """Execute actual main closures with inert node, clock, service and worker."""
 import ast
+import sys
+import struct
 from pathlib import Path
 from types import SimpleNamespace as NS
 
@@ -13,10 +15,10 @@ ROOT = Path(__file__).parents[1]
 def inert_main(monkeypatch, overrides=None):
     params = resolve_setup(ROOT / 'config/mavros_setup.yaml')
     params.update(overrides or {})
-    seen = NS(params={}, callbacks={}, waits=[], retries=[], timers=[], logs=[])
+    seen = NS(params={}, callbacks={}, waits=[], retries=[], timers=[], logs=[], sets=[], published=[])
 
     class Event:
-        def set(self): pass
+        def set(self): seen.sets.append(True)
         def clear(self): pass
         def wait(self, timeout=None):
             seen.waits.append(timeout)
@@ -35,7 +37,7 @@ def inert_main(monkeypatch, overrides=None):
                           result=lambda: NS(success=False))
             return NS(wait_for_service=lambda **kw: seen.waits.append(kw) or True,
                       call_async=call_async)
-        def create_publisher(self, *args): return NS(publish=lambda msg: None)
+        def create_publisher(self, *args): return NS(publish=seen.published.append)
         def create_subscription(self, kind, topic, callback, qos): seen.callbacks[topic] = callback
         def create_timer(self, period, callback): seen.timers.append((period, callback))
         def get_logger(self): return NS(info=seen.logs.append, warning=seen.logs.append)
@@ -91,3 +93,80 @@ def test_policy_invalid_before_resources(monkeypatch, key, value):
 def test_policy_validation_has_no_defaults():
     with pytest.raises(ValueError):
         validate_setup({'message_rates': ['1:2']})
+
+
+def test_actual_rc_callbacks_use_diagnostic_policy(monkeypatch):
+    seen = inert_main(monkeypatch, dict(rc_window=2., rc_min_hz=1., rc_min_channels=2,
+                                     rc_grace=3., rc_timer=.2))
+    assert seen.timers[0][0] == .2
+    seen.callbacks['/mavros/state'](NS(connected=True))
+    check = seen.timers[0][1]
+    check()
+    seen.now = 22.
+    check()
+    assert seen.logs == []
+    seen.now = 23.
+    for _ in range(2):
+        seen.callbacks['/mavros/rc/in'](NS(channels=[1, 2]))
+    check()
+    assert seen.logs == []  # 2 frames / 2 seconds meets nondefault 1 Hz
+    seen.now = 26.
+    check()
+    assert 'under 1 Hz or under 2 channels' in seen.logs[-1]
+    seen.callbacks['/mavros/rc/in'](NS(channels=[1]))
+    check()
+    assert len(seen.logs) == 1
+
+
+def test_actual_source_filter_and_dedupe_window(monkeypatch):
+    seen = inert_main(monkeypatch, dict(fcu_sysid=7, reboot_dedupe_window=2.))
+    receive = seen.callbacks['/uas1/mavlink_source']
+    def boot(sysid, boot_ms):
+        raw = struct.pack('<QI', 0, boot_ms).ljust(16, b'\0')
+        receive(NS(sysid=sysid, compid=1, msgid=2, len=12,
+                   payload64=struct.unpack('<2Q', raw)))
+    boot(7, 100)
+    boot(1, 1)
+    assert seen.sets == []
+    boot(7, 90)
+    assert len(seen.sets) == 1
+    seen.now = 21.
+    boot(7, 80)
+    assert len(seen.sets) == 1
+    seen.now = 22.5
+    boot(7, 70)
+    assert len(seen.sets) == 2
+
+
+def test_startup_policy_live_changes_refused(monkeypatch):
+    monkeypatch.setitem(sys.modules, 'rcl_interfaces', NS())
+    monkeypatch.setitem(sys.modules, 'rcl_interfaces.msg', NS(SetParametersResult=NS))
+    seen = inert_main(monkeypatch)
+    for name in seen.params.keys() - {'message_rates'}:
+        result = seen.setter([NS(name=name, value=999)])
+        assert not result.successful and 'restart required' in result.reason
+
+
+@pytest.mark.parametrize('key,value', [('rc_window', 0), ('rc_min_hz', True),
+    ('rc_min_channels', 1.5), ('rc_grace', -1), ('rc_timer', float('inf')),
+    ('fcu_sysid', True), ('fcu_sysid', 0), ('fcu_sysid', 256)])
+def test_monitor_identity_invalid_before_resources(monkeypatch, key, value):
+    with pytest.raises(ValueError):
+        inert_main(monkeypatch, {key: value})
+
+
+def test_invalid_selected_policy_is_not_hidden_by_alias(tmp_path):
+    path = tmp_path / 'selected.yaml'
+    path.write_text((ROOT / 'config/mavros_setup.yaml').read_text().replace(
+        'retry_attempts: 3', 'retry_attempts: true'))
+    with pytest.raises(ValueError):
+        resolve_setup(path, {'mavros_imu_rate': '19'})
+
+
+def test_ekf_source_filter_applies_before_observation(monkeypatch):
+    seen = inert_main(monkeypatch, {'fcu_sysid': 7})
+    receive = seen.callbacks['/uas1/mavlink_source']
+    receive(NS(sysid=1, compid=1, msgid=193))  # no payload access for other FCU
+    assert seen.published == []
+    receive(NS(sysid=7, compid=1, msgid=193, len=0, payload64=[]))
+    assert len(seen.published) == 1

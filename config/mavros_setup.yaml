@@ -15,3 +15,11 @@ mavros_setup:
     response_timeout: 5.0
     service_wait: 10.0
     reboot_dedupe_window: 5.0
+    # RC diagnostics only; does not change mux authority or stale-frame timeout.
+    rc_window: 5.0
+    rc_min_hz: 10.0
+    rc_min_channels: 8
+    rc_grace: 10.0
+    rc_timer: 1.0
+    # Source filter for observed MAVLink, not a MAVROS request-target setting.
+    fcu_sysid: 1
