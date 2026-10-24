@@ -61,7 +61,7 @@ def test_mavros_global_defaults_do_not_relabel_sensor_frames():
     assert 'frame_id' not in config['/**']['ros__parameters']
 
 
-def test_mavros_relays_preserve_sensor_abstraction_at_safe_rates():
+def test_mavros_relays_preserve_sensor_abstraction_at_safe_rates(tmp_path):
     launch = (ROOT / 'launch/odom.launch.py').read_text()
     for source, destination in (
         ('/mavros/imu/data', '/imu/raw'),
@@ -80,7 +80,25 @@ def test_mavros_relays_preserve_sensor_abstraction_at_safe_rates():
                        'mavros_gps_rate': (24,), 'mavros_rc_rate': (65,)}
     for alias in ALIASES:
         assert f"('{alias}', ''" in launch  # absence must preserve the YAML authority
-    assert '/dev/serial/by-id/usb-CubePilot_CubeOrange+_*-if00' in launch
+    from mhseals_nav.endpoint_configuration import resolve_endpoints
+    endpoints = resolve_endpoints(ROOT / 'config/endpoint_startup.yaml')
+    authority = yaml.safe_load((ROOT / 'config/endpoint_startup.yaml').read_text())
+    selected = authority['contexts']['standalone']
+    assert selected['discovery'] == 'odom_cube_if00'
+    fallback, observation = endpoints.mavros_parameters(False, tmp_path)
+    assert fallback['fcu_url'] == (
+        f"serial://{authority['serial_fallback']}:{selected['baud']}")
+    assert observation['fallback'] is True
+    by_id = tmp_path / 'serial/by-id'
+    by_id.mkdir(parents=True)
+    for name in ('usb-CubePilot_CubeOrange+_z-if00',
+                 'usb-CubePilot_CubeOrange+_a-if00',
+                 'usb-CubePilot_CubeOrange+_0-if01'):
+        (by_id / name).touch()
+    found, observation = endpoints.mavros_parameters(False, tmp_path)
+    expected = by_id / 'usb-CubePilot_CubeOrange+_a-if00'
+    assert found['fcu_url'] == f"serial://{expected}:{selected['baud']}"
+    assert observation['path'] == str(expected) and observation['fallback'] is False
 
 
 def test_mavros_loads_only_the_plugins_the_stack_uses():
