@@ -75,3 +75,29 @@ def test_required_base_is_checked_without_an_overlay(tmp_path):
     with pytest.raises(ValueError, match='required mapping'):
         select_snapshot(tmp_path / 'snapshots', 'new', path, '',
                         sim='true', use_lidar='true')
+
+
+@pytest.mark.parametrize('name', ['FollowPath', 'Custom'])
+def test_selected_non_mppi_plugin_does_not_receive_mppi_fields(base, tmp_path, name):
+    from mhseals_nav.startup_snapshot import select_snapshot
+    controller = base['controller_server']['ros__parameters']
+    del controller['FollowPath']
+    custom = {'plugin': 'nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController',
+              'desired_linear_vel': .3}
+    controller[name] = custom
+    controller['controller_plugins'] = [name]
+    path = tmp_path / 'custom.yaml'
+    path.write_text(yaml.safe_dump(base))
+    selected = select_snapshot(tmp_path / 'snapshots', 'new', path, '',
+                               sim='true', use_lidar='true')
+    assert selected['parameters']['controller_server']['ros__parameters'][name] == custom
+    assert 'model_dt' not in selected['parameters']['controller_server']['ros__parameters'][name]
+
+
+def test_renamed_selected_mppi_uses_its_plugin_contract(base):
+    controller = base['controller_server']['ros__parameters']
+    controller['Boat'] = controller.pop('FollowPath')
+    controller['controller_plugins'] = ['Boat']
+    result = validated_merge_limits(base, {'controller_server': {'ros__parameters': {
+        'controller_frequency': 20}}})
+    assert result['controller_server']['ros__parameters']['Boat']['model_dt'] == .05

@@ -103,6 +103,32 @@ def valid_numbers(controller, follow):
     return True
 
 
+def mppi_controller(controller, *, legacy=False):
+    """Select the supported MPPI contract by plugin identity, not instance name."""
+    selected = controller.get('controller_plugins', list(controller))
+    matches = []
+    for name in selected:
+        config = controller.get(name)
+        if not isinstance(config, dict):
+            continue
+        plugin = config.get('plugin')
+        if (plugin == 'nav2_mppi_controller::MPPIController'
+                or (plugin == 'nav2_rotation_shim_controller::RotationShimController'
+                    and config.get('primary_controller') ==
+                    'nav2_mppi_controller::MPPIController')):
+            matches.append(name)
+    if len(matches) > 1:
+        raise ValueError('multiple MPPI controllers require an explicit smoother binding')
+    if matches:
+        return matches[0]
+    # Keep the historical pure helper's plugin-free fixtures supported. An
+    # explicit non-MPPI plugin never receives these MPPI parameter derivations.
+    follow = controller.get('FollowPath')
+    if legacy and isinstance(follow, dict) and 'plugin' not in follow:
+        return 'FollowPath'
+    return None
+
+
 def derived(config, original=None):
     """Return config with the values that follow from others recomputed.
 
@@ -112,10 +138,11 @@ def derived(config, original=None):
     """
     result = deepcopy(config)
     controller = result.get('controller_server', {}).get('ros__parameters', {})
-    follow = controller.get('FollowPath')
-    if follow is None:
+    name = mppi_controller(controller, legacy=True)
+    if name is None:
         return result
-    original = (original or config)['controller_server']['ros__parameters']['FollowPath']
+    follow = controller[name]
+    original = (original or config)['controller_server']['ros__parameters'][name]
     if not valid_numbers(controller, follow):
         return result
     if 'controller_frequency' in controller:
@@ -202,8 +229,10 @@ def merge_limits(base, limits):
     """Overlay limits onto base, recompute derived keys and warn about overlay values that did not stick."""
     limits = typed_like(base, limits)
     result = deep_merge(deepcopy(base), limits)
-    follow = result.get('controller_server', {}).get('ros__parameters', {}).get('FollowPath')
-    original = base.get('controller_server', {}).get('ros__parameters', {}).get('FollowPath')
+    controller = result.get('controller_server', {}).get('ros__parameters', {})
+    name = mppi_controller(controller, legacy=True)
+    follow = controller.get(name)
+    original = base.get('controller_server', {}).get('ros__parameters', {}).get(name)
     if isinstance(original, dict) and isinstance(follow, dict) and 'vx_min' in original and 'vx_min' in follow:
         follow['vx_min'] = max(original['vx_min'], follow['vx_min'])
     result = derived(result, base)
@@ -274,7 +303,8 @@ def validate_navigation_base(base):
             or not isfinite(frequency) or frequency <= 0):
         raise ValueError('controller_frequency: required positive finite number')
     validate_navigation_overlay(base, base)
-    follow = controller.get('FollowPath')
+    name = mppi_controller(controller)
+    follow = controller.get(name)
     if follow is not None:
         if not isinstance(follow, dict):
             raise ValueError('FollowPath: expected mapping')
@@ -322,9 +352,10 @@ def lower_navigation(base, explicit):
     """
     result = merge_limits(base, explicit)
     controller = explicit.get('controller_server', {}).get('ros__parameters', {})
-    follow = controller.get('FollowPath', {})
-    lowered = result.get('controller_server', {}).get('ros__parameters', {}).get(
-        'FollowPath', {})
+    output_controller = result.get('controller_server', {}).get('ros__parameters', {})
+    name = mppi_controller(output_controller, legacy=True)
+    follow = controller.get(name, {})
+    lowered = output_controller.get(name, {})
     bound = ('model_dt', 'vx_std', 'vy_std', 'wz_std', 'prune_distance',
              'rotate_to_heading_angular_vel', 'max_angular_accel')
     for key in bound:
