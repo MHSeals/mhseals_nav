@@ -111,3 +111,17 @@ def test_always_derived_shim_metadata(name):
         explicit['controller_server']['ros__parameters'][name][output] = 0.1
         with pytest.raises(ValueError, match='conflicts with canonical lowering'):
             REGISTRY[COMPILER](base, explicit)
+
+
+def test_consumer_credit_per_key():
+    base = yaml.safe_load(RESOURCE.read_bytes())
+    inventory = bundle(base)
+    prefix = 'navigation/controller_server/ros__parameters/FollowPath/'
+
+    def ids(key):
+        return [c['id'] for c in inventory.field(prefix + key).descriptor['consumers']]
+
+    assert ids('rotate_to_heading_angular_vel') == ['rotation_shim']
+    assert ids('vx_max') == ['mppi']
+    assert not any('behavior_server/ros__parameters/max_rotational_vel' in r.descriptor['canonical_key']
+                   for r in inventory.rows)

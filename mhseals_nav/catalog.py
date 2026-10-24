@@ -136,7 +136,7 @@ def navigation_catalog(raw, *, resource, policy_raw, consumer_versions=None):
 
     add((*cp, 'controller_frequency'), ['controller_server'])
     if name:
-        consumers = ['mppi'] + (['rotation_shim'] if 'rotation_shim' in ids else [])
+        shim_keys = ('rotate_to_heading_angular_vel', 'max_angular_accel')
         for key in dict.fromkeys((*LOWERING_INPUTS[1:], *derived)):
             if key in controller[name]:
                 controls = {
@@ -145,16 +145,14 @@ def navigation_catalog(raw, *, resource, policy_raw, consumer_versions=None):
                     'max_angular_accel': (*fp, 'az_max'),
                 }
                 controlling = ['navigation' + _pointer(controls[key])] if key in controls else []
-                add((*fp, key), consumers, controlling=controlling)
+                consumers = ['rotation_shim'] if key in shim_keys else ['mppi']
+                if consumers[0] in ids:
+                    add((*fp, key), consumers, controlling=controlling)
         if 'velocity_smoother' in ids:
             for key in smoother_keys:
                 if key in base['velocity_smoother']['ros__parameters']:
                     add(('velocity_smoother', 'ros__parameters', key), ['velocity_smoother'],
                         controlling=['navigation' + p for p in inputs])
-    behavior = base.get('behavior_server', {}).get('ros__parameters', {})
-    for key in ('max_rotational_vel', 'min_rotational_vel', 'rotational_acc_lim'):
-        if key in behavior:
-            add(('behavior_server', 'ros__parameters', key), ['behavior_server'])
     data = {'schema_version': 1, 'owner_package': policy['owner_package'],
             'revision': policy['revision'],
             'consumer_versions': pins,
