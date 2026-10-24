@@ -1,5 +1,6 @@
 """Merge measured limits with the current navigation parameters at launch."""
 import logging
+import os
 from copy import deepcopy
 from math import isfinite
 from pathlib import Path
@@ -257,3 +258,11 @@ def validate_navigation_overlay(base, overlay, path=()):
 def validated_merge_limits(base, limits):
     validate_navigation_overlay(base, limits)
     return merge_limits(base, limits)
+
+
+def persistent_limits_path():
+    """Match the existing TUI overlay selection until shared snapshots replace it."""
+    override = os.environ.get('MHSEALS_NAV2')
+    if override:
+        return str(Path(override).expanduser())
+    return str(Path(os.environ.get('XDG_CONFIG_HOME', Path.home() / '.config')) / 'mhseals/nav2.yaml')
