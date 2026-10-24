@@ -69,7 +69,7 @@ def test_empty_and_comment_only_overlays_are_no_overlay(tmp_path):
 def test_navigation_launch_reads_the_overlay_through_load_overlay():
     launch = Path(__file__).parents[1] / 'launch' / 'navigation.launch.py'
     source = launch.read_text()
-    assert 'load_overlay(limits)' in source
+    assert 'load_overlay(limits, strict=True)' in source
     assert 'measured = yaml.safe_load' not in source
 
 

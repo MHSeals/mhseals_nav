@@ -10,22 +10,23 @@ from nav2_common.launch import RewrittenYaml
 import tempfile
 import os
 import yaml
-from mhseals_nav.navigation_config import load_overlay, merge_limits
+from mhseals_nav.navigation_config import load_overlay, validated_merge_limits
 
 
 def navigation_nodes(context):
     source = LaunchConfiguration('params_file').perform(context)
     limits = os.path.expanduser(LaunchConfiguration('limits_file').perform(context))
     # A missing overlay (~/.config/mhseals/nav2.yaml before the first edit) is no overlay.
-    if limits and os.path.exists(limits):
+    if limits:
         from launch.actions import RegisterEventHandler
         from launch.event_handlers import OnShutdown
         with open(source) as stream:
             base = yaml.safe_load(stream)
-        measured = load_overlay(limits)
+        measured = load_overlay(limits, strict=True)
+        merged = validated_merge_limits(base, measured)
         handle = tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False)
         with handle:
-            yaml.safe_dump(merge_limits(base, measured), handle)
+            yaml.safe_dump(merged, handle)
         source = handle.name
         cleanup = RegisterEventHandler(OnShutdown(on_shutdown=[OpaqueFunction(
             function=lambda _: os.unlink(source) if os.path.exists(source) else None)]))

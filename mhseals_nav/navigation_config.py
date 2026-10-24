@@ -19,16 +19,42 @@ def deep_merge(dst, src):
     return dst
 
 
-def load_overlay(path):
+class StrictOverlayLoader(yaml.SafeLoader):
+    """Do not discard ambiguous user assignments during dictionary construction."""
+    def construct_mapping(self, node, deep=False):
+        result = {}
+        for key_node, value_node in node.value:
+            if key_node.tag == 'tag:yaml.org,2002:merge':
+                raise ValueError(f'Merge keys are unsupported at {key_node.start_mark}')
+            key = self.construct_object(key_node, deep=deep)
+            if key in result:
+                raise ValueError(f'Duplicate key {key!r} at {key_node.start_mark}')
+            result[key] = self.construct_object(value_node, deep=deep)
+        return result
+
+    def compose_node(self, parent, index):
+        if self.check_event(yaml.AliasEvent):
+            raise ValueError('YAML aliases are unsupported in navigation overlays')
+        return super().compose_node(parent, index)
+
+
+def load_overlay(path, *, strict=False):
     """Read a user YAML overlay; a missing, empty, unparsable or non-mapping file is no overlay."""
     try:
-        data = yaml.safe_load(Path(path).expanduser().read_text()) or {}
+        text = Path(path).expanduser().read_text()
+        data = yaml.load(text, Loader=StrictOverlayLoader if strict else yaml.SafeLoader)
+        if data is None:
+            data = {}
     except FileNotFoundError:
         return {}
     except (OSError, yaml.YAMLError, UnicodeDecodeError) as error:
+        if strict:
+            raise ValueError(f'Invalid overlay {path}: {error}') from error
         log.error('Ignoring overlay %s: %s', path, error)
         return {}
     if not isinstance(data, dict):
+        if strict:
+            raise ValueError(f'Invalid overlay {path}: root must be a mapping')
         log.error('Ignoring overlay %s: root is %s, not a mapping', path, type(data).__name__)
         return {}
     return data
@@ -182,3 +208,52 @@ def merge_limits(base, limits):
     result = derived(result, base)
     warn_overridden(limits, result)
     return result
+
+
+def validate_navigation_overlay(base, overlay, path=()):
+    """Reject malformed requested values before deriving or constructing Nav2 nodes.
+
+    The selected base is the supported parameter structure. This does not claim
+    upstream dynamic-parameter support or infer undocumented enum options.
+    """
+    if not isinstance(overlay, dict):
+        raise ValueError(f"{'.'.join(path)}: expected mapping")
+    for key, value in overlay.items():
+        location = '.'.join((*path, str(key)))
+        if key not in base:
+            raise ValueError(f'{location}: unknown parameter in selected base')
+        default = base[key]
+        if isinstance(default, dict):
+            validate_navigation_overlay(default, value, (*path, str(key)))
+        elif isinstance(default, bool):
+            if not isinstance(value, bool):
+                raise ValueError(f'{location}: expected boolean')
+        elif isinstance(default, (int, float)):
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not isfinite(value):
+                raise ValueError(f'{location}: expected finite number')
+            if isinstance(default, int) and value != int(value):
+                raise ValueError(f'{location}: expected integer')
+            if wrong_sign(default, value):
+                raise ValueError(f'{location}: out of range')
+        elif isinstance(default, list):
+            if not isinstance(value, list):
+                raise ValueError(f'{location}: expected list')
+            # Motion vectors have a fixed axis count; plugin lists remain variable.
+            if key in ('max_velocity', 'min_velocity', 'max_accel', 'max_decel', 'deadband_velocity'):
+                if len(value) != 3:
+                    raise ValueError(f'{location}: expected three axes')
+            if default:
+                for index, item in enumerate(value):
+                    template = default[min(index, len(default) - 1)]
+                    validate_navigation_overlay({'item': template}, {'item': item}, (*path, str(key), str(index)))
+        elif isinstance(default, str):
+            if not isinstance(value, str):
+                raise ValueError(f'{location}: expected string')
+            # Nav2 velocity smoother's documented closed/open feedback contract.
+            if key == 'feedback' and value not in ('OPEN_LOOP', 'CLOSED_LOOP'):
+                raise ValueError(f'{location}: expected OPEN_LOOP or CLOSED_LOOP')
+
+
+def validated_merge_limits(base, limits):
+    validate_navigation_overlay(base, limits)
+    return merge_limits(base, limits)
