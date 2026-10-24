@@ -89,6 +89,14 @@ legacy/unmanaged. Its permissive parser is not an alternate startup validator.
 Evidence is **requested/unverified**, including accepted ACKs: these offline
 construction tests establish propagation, not request delivery or behavior.
 
+M01b adds `mavros.request_policy.*` from the same selected YAML: positive integer
+`retry_attempts`, nonnegative seconds `retry_delay`, and positive seconds
+`response_timeout`, `service_wait`, `reboot_dedupe_window`. Every selected layer
+is validated before explicit overrides; final ROS values are validated before
+clients/subscriptions/workers. Startup policy is immutable and setters require
+restart through LiveParams. ACK/request outcome remains pending/unverified;
+M01c still must repair partial failures, sent bookkeeping and reboot dedupe.
+
 ## Lidar startup layers
 
 `mhseals_nav.lidar_catalog.lidar_catalog` returns the same read-only

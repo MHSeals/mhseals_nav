@@ -18,7 +18,7 @@ import struct
 import threading
 import time
 
-from mhseals_nav.mavros_configuration import installed_setup_defaults, validate_rates
+from mhseals_nav.mavros_configuration import installed_setup_defaults, validate_setup
 from mhseals_nav.utils.live_params import LiveParams
 
 MAV_COMP_ID_AUTOPILOT1 = 1
@@ -172,8 +172,9 @@ def main(args=None):
     defaults = installed_setup_defaults()
     rclpy.init(args=args)
     node = Node('mavros_setup')
-    node.declare_parameter('message_rates', defaults['message_rates'])
-    validate_rates(node.get_parameter('message_rates').value)
+    for name, value in defaults.items():
+        node.declare_parameter(name, value)
+    policy = validate_setup({name: node.get_parameter(name).value for name in defaults})
     node.declare_parameter('fcu_sysid', 1)  # MAVROS target system
     # A changed list is requested at once; the FCU keeps the latest request.
     live = LiveParams(node, {'message_rates': parse_rates},
@@ -188,7 +189,7 @@ def main(args=None):
     def reboot_seen():
         # One reboot shows as both a state edge and a boot-clock reset; ask once.
         now = time.monotonic()
-        if not is_duplicate_trigger(last_reboot[0], now):
+        if not is_duplicate_trigger(last_reboot[0], now, policy['reboot_dedupe_window']):
             wanted.set()
             last_reboot[0] = now
 
@@ -202,15 +203,16 @@ def main(args=None):
         request = MessageInterval.Request(message_id=message_id, message_rate=hz)
         future = client.call_async(request)
         future.add_done_callback(lambda _: done.set())
-        return done.wait(5.) and future.result().success
+        return done.wait(policy['response_timeout']) and future.result().success
 
     def work():
         while rclpy.ok():
             wanted.wait()
             wanted.clear()
-            if client.wait_for_service(timeout_sec=10.):
+            if client.wait_for_service(timeout_sec=policy['service_wait']):
                 rates = live['message_rates']
-                request_rates(with_removed(sent[0], rates), call, node.get_logger().info)
+                request_rates(with_removed(sent[0], rates), call, node.get_logger().info,
+                              attempts=policy['retry_attempts'], wait=policy['retry_delay'])
                 sent[0] = rates
             else:
                 wanted.set()  # the wait already took 10 s; try again rather than skip

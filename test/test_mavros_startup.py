@@ -139,7 +139,8 @@ def test_actual_main_declaration_and_pre_worker_validation(rates):
 
     ns = dict(vars(mavros_setup), Node=InertNode,
               rclpy=SimpleNamespace(init=lambda **kwargs: None),
-              installed_setup_defaults=lambda: {'message_rates': rates},
+              installed_setup_defaults=lambda: dict(
+                  resolve_setup(ROOT / 'config/mavros_setup.yaml'), message_rates=rates),
               validate_rates=validate_rates, LiveParams=legacy_boundary)
     exec(compile(ast.Module(body=[main], type_ignores=[]), '<actual main>', 'exec'), ns)
     with pytest.raises(ValueError if rates == ['31:nan'] else ReachedLegacyBoundary):

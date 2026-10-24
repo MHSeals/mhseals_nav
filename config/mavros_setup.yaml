@@ -10,3 +10,8 @@ mavros_setup:
       - '1:2'
       - '193:2'
       - '65:25'
+    retry_attempts: 3
+    retry_delay: 8.0
+    response_timeout: 5.0
+    service_wait: 10.0
+    reboot_dedupe_window: 5.0

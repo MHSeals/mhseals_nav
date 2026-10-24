@@ -11,8 +11,9 @@ import yaml
 def selected(tmp_path, entries):
     """Write an explicitly selected test parameter file."""
     path = tmp_path / 'rates.yaml'
-    path.write_text(yaml.safe_dump({'mavros_setup': {
-        'ros__parameters': {'message_rates': entries}}}))
+    data = yaml.safe_load((Path(__file__).parents[1] / 'config/mavros_setup.yaml').read_text())
+    data['mavros_setup']['ros__parameters']['message_rates'] = entries
+    path.write_text(yaml.safe_dump(data))
     return str(path)
 
 
@@ -79,8 +80,8 @@ def test_installed_default_loader_is_actual_main_seam(tmp_path, monkeypatch):
     monkeypatch.setitem(sys.modules, 'ament_index_python.packages', packages)
     (tmp_path / 'config').mkdir()
     path = tmp_path / 'config/mavros_setup.yaml'
-    path.write_text('mavros_setup: {ros__parameters: {message_rates: ["31:17"]}}')
-    assert installed_setup_defaults() == {'message_rates': ['31:17']}
+    path.write_text(Path(selected(tmp_path, ['31:17'])).read_text())
+    assert installed_setup_defaults()['message_rates'] == ['31:17']
     path.unlink()
     with pytest.raises(OSError):
         installed_setup_defaults()
@@ -89,5 +90,5 @@ def test_installed_default_loader_is_actual_main_seam(tmp_path, monkeypatch):
     main = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'main')
     calls = [ast.unparse(n) for n in ast.walk(main) if isinstance(n, ast.Call)]
     assert 'installed_setup_defaults()' in calls
-    assert "node.declare_parameter('message_rates', defaults['message_rates'])" in calls
-    assert "validate_rates(node.get_parameter('message_rates').value)" in calls
+    assert 'node.declare_parameter(name, value)' in calls
+    assert any(call.startswith('validate_setup(') for call in calls)

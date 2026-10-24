@@ -4,12 +4,15 @@ Read-only Nav2 inventory from explicitly selected installed parameter bytes.
 Plugin build contracts are unresolved; no ROS discovery or live authority.
 The existing navigation compiler is the sole validator/lowering implementation.
 """
+from copy import deepcopy
 from hashlib import sha256
 
 from mhseals_config.catalog import DescriptorBundle
 import yaml
 
-from .mavros_configuration import rates_from_yaml, resolve_setup, validate_rates
+from .mavros_configuration import (
+    POLICY_FIELDS, parameters_from_yaml, rates_from_yaml, resolve_setup, validate_rates,
+    validate_setup)
 from .navigation_config import (LOWERING_INPUTS, mppi_controller, StrictOverlayLoader,
                                 validate_navigation_base, validated_merge_limits)
 
@@ -21,7 +24,8 @@ REGISTRY = {COMPILER: validated_merge_limits, VALIDATOR: validate_navigation_bas
 # Recipe checks compilation only; upstream plugin behavior requires separate evidence.
 REGISTRY[RECIPE] = validated_merge_limits
 MAVROS_REVISION = '79992f4'
-REGISTRY.update({'mavros.validate_rates': validate_rates,
+REGISTRY.update({'mavros.validate_setup': validate_setup,
+                 'mavros.validate_rates': validate_rates,
                  'mavros.resolve_setup': resolve_setup,
                  'mavros.selected-rate-validation': rates_from_yaml})
 
@@ -196,8 +200,26 @@ def mavros_catalog(raw, *, resource, policy_raw, consumer_versions=None):
                       'revision': MAVROS_REVISION, 'path': 'launch/odom.launch.py',
                       'line': 70,
                       'consume_site': 'create_mavros_setup_node; reconnect request_rates'}]}
+    leaves = [leaf]
+    params = parameters_from_yaml(raw)
+    for key, rule in POLICY_FIELDS.items():
+        if key not in params:
+            continue
+        item = deepcopy(leaf)
+        path = '/mavros_setup/ros__parameters/' + key
+        item['canonical_key'] = 'mavros.request_policy.' + key
+        item['default_ref'].update(yaml_pointer=path, line=_locations(raw)[path])
+        item['value'].update(type='integer' if rule == 'integer' else 'number',
+                             dimensions=[], units='attempts' if rule == 'integer' else 'seconds',
+                             constraint_ref='mavros.validate_setup', validator_ref='mavros.validate_setup',
+                             inputs=[path])
+        item['authoring'].update(pointer=path)
+        item['consumers'][0].update(parameters=[path], inputs=[path])
+        item['coverage'][0].update(path='mhseals_nav/mavros_setup.py',
+                                   consume_site='startup captured policy; work/call/reboot_seen')
+        leaves.append(item)
     data = {'schema_version': 1, 'owner_package': 'mhseals_nav', 'revision': MAVROS_REVISION,
             'consumer_versions': {consumer: version},
             'default_sources': [{'id': source, 'resource': resource, 'sha256': digest}],
-            'leaves': [leaf]}
+            'leaves': leaves}
     return DescriptorBundle.read(data, {source: raw}, REGISTRY, dict(consumer_versions or {}))

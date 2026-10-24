@@ -4,6 +4,7 @@ Strict, pure startup selection of MAVROS desired message rates.
 MAVROS MessageInterval uses Hz: zero restores the FCU default and -1 disables.
 No request result or observed delivery is inferred by this resolver.
 """
+from types import MappingProxyType
 import math
 from pathlib import Path
 import re
@@ -42,7 +43,32 @@ def validate_rates(entries):
     return result
 
 
-def rates_from_yaml(raw):
+POLICY_FIELDS = {
+    'retry_attempts': 'integer', 'retry_delay': 'nonnegative',
+    'response_timeout': 'positive', 'service_wait': 'positive',
+    'reboot_dedupe_window': 'positive',
+}
+
+
+def validate_setup(params, *, complete=True):
+    """Validate every supplied layer before overrides; no Python policy defaults."""
+    allowed = {'message_rates', *POLICY_FIELDS}
+    if not isinstance(params, dict) or set(params) - allowed or (complete and set(params) != allowed):
+        raise ValueError('invalid or incomplete MAVROS setup parameters')
+    validate_rates(params.get('message_rates'))
+    for key, rule in POLICY_FIELDS.items():
+        if key not in params:
+            continue
+        value = params[key]
+        if (type(value) not in (int, float) or not math.isfinite(value)
+                or (rule == 'integer' and type(value) is not int)
+                or value < 0 or (rule != 'nonnegative' and value == 0)):
+            raise ValueError('invalid policy: ' + key)
+    return MappingProxyType({k: tuple(v) if k == 'message_rates' else v
+                             for k, v in params.items()})
+
+
+def parameters_from_yaml(raw):
     """Read only the consumed per-node schema; unsupported settings fail closed."""
     data = yaml.load(raw, Loader=StrictOverlayLoader)
     if not isinstance(data, dict) or set(data) != {'mavros_setup'}:
@@ -51,16 +77,21 @@ def rates_from_yaml(raw):
     if not isinstance(node, dict) or set(node) != {'ros__parameters'}:
         raise ValueError('expected only mavros_setup.ros__parameters')
     params = node['ros__parameters']
-    if not isinstance(params, dict) or set(params) != {'message_rates'}:
-        raise ValueError('expected only message_rates')
-    return validate_rates(params['message_rates'])
+    validate_setup(params, complete=False)
+    return params
+
+
+def rates_from_yaml(raw):
+    return validate_rates(parameters_from_yaml(raw)['message_rates'])
 
 
 def resolve_setup(path, overrides=None):
     """Resolve selected bytes then explicit aliases, validating before construction."""
     if not path:
         raise ValueError('mavros_setup_params_file must select an existing file')
-    rates = dict(rates_from_yaml(Path(path).expanduser().read_text()))
+    params = parameters_from_yaml(Path(path).expanduser().read_text())
+    validate_setup(params)
+    rates = dict(validate_rates(params['message_rates']))
     for alias, text in (overrides or {}).items():
         if alias not in ALIASES:
             raise ValueError(f'unknown rate alias: {alias}')
@@ -72,7 +103,7 @@ def resolve_setup(path, overrides=None):
             rates[message_id] = validate_rates([f'{message_id}:{text}'])[0][1]
     entries = [f'{message_id}:{hz:g}' for message_id, hz in rates.items()]
     validate_rates(entries)
-    return {'message_rates': entries}
+    return dict(params, message_rates=entries)
 
 
 def installed_setup_defaults():
