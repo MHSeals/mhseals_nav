@@ -37,8 +37,8 @@ def sensor_nodes(context):
     deployment = LaunchConfiguration('lidar_deployment_file').perform(context)
     aliases = {name: LaunchConfiguration(name).perform(context)
                for name in ('velodyne_ip', 'velodyne_port')}
-    lidar = resolve_lidar(selected, deployment, aliases, required_frame=
-                          LaunchConfiguration('lidar_required_frame').perform(context))
+    required_frame = LaunchConfiguration('lidar_required_frame').perform(context)
+    lidar = resolve_lidar(selected, deployment, aliases, required_frame=required_frame)
     # Validate the complete pair before constructing either physical node.
     velodyne_driver_node = Node(
         package='velodyne_driver',

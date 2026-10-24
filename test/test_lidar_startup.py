@@ -5,7 +5,8 @@ from mhseals_nav.lidar_configuration import resolve_lidar
 
 import pytest
 
-from test_lidar_configuration import overlay, share  # noqa: F401
+import test_lidar_configuration as calibration_fixtures
+from test_lidar_configuration import overlay
 
 from test_robot_overlay import robot_factory
 
@@ -14,11 +15,17 @@ from test_sensor_startup import factory
 ROOT = Path(__file__).parents[1]
 
 
+@pytest.fixture
+def share(tmp_path):
+    """Reuse the calibrated installed-share fixture without an imported fixture name."""
+    return calibration_fixtures.share.__wrapped__(tmp_path)
+
+
 def context():
     """Represent unset launch arguments, not copied sensor defaults."""
-    return dict(sim='false', sensors_ignore='', lidar_params_file='',
-                lidar_deployment_file='', lidar_required_frame='',
-                velodyne_ip='', velodyne_port='')
+    return {'sim': 'false', 'sensors_ignore': '', 'lidar_params_file': '',
+            'lidar_deployment_file': '', 'lidar_required_frame': '',
+            'velodyne_ip': '', 'velodyne_port': ''}
 
 
 def sensor_factory(share):
@@ -43,9 +50,10 @@ def test_robot_selected_layer_and_direct_equivalent(share, tmp_path, explicit):
                  for key, value in include.launch_arguments}
     namespace = sensor_factory(share)
     robot = namespace['sensor_nodes'](forwarded)
-    direct = namespace['sensor_nodes'](dict(context(), lidar_params_file=selected,
-        lidar_deployment_file=values['lidar_deployment_file'], velodyne_ip=explicit,
-        lidar_required_frame='lidar_link'))
+    direct_context = dict(context(), lidar_params_file=selected,
+                          lidar_deployment_file=values['lidar_deployment_file'],
+                          velodyne_ip=explicit, lidar_required_frame='lidar_link')
+    direct = namespace['sensor_nodes'](direct_context)
     assert robot == direct
     driver, transform = [node['parameters'][0] for node in robot[:2]]
     assert driver['device_ip'] == (explicit or '10.0.1.8')
@@ -88,7 +96,7 @@ def test_unused_lidar_selection_does_not_resolve(share, sim, ignored):
     """Simulation and ignored lidar retain their bounded previous closure."""
     namespace = factory(lambda *args, **kwargs: pytest.fail('resolved unused physical lidar'))
     nodes = namespace['sensor_nodes'](dict(context(), sim=sim, sensors_ignore=ignored,
-                                          lidar_params_file='/missing'))
+                                         lidar_params_file='/missing'))
     assert [n['package'] for n in nodes] == (['ros_tcp_endpoint'] if sim == 'true' else [])
 
 

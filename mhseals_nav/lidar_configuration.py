@@ -1,8 +1,8 @@
 """Resolve startup-only lidar layers and paired driver/transform projections."""
+import math
 from collections.abc import Mapping
 from hashlib import sha256
 from ipaddress import IPv4Address
-import math
 from pathlib import Path
 
 from mhseals_config.resolver import Field, parse, resolve
@@ -87,7 +87,8 @@ def parse_lidar(raw, source, layer):
 def _layer(path, layer):
     path = Path(path).expanduser().resolve(strict=True)
     raw = path.read_bytes()
-    return parse_lidar(raw, str(path), layer), {'path': str(path), 'sha256': sha256(raw).hexdigest(), 'layer': layer}
+    identity = {'path': str(path), 'sha256': sha256(raw).hexdigest(), 'layer': layer}
+    return parse_lidar(raw, str(path), layer), identity
 
 
 def _calibration(reference, source, share):
@@ -117,8 +118,9 @@ def resolve_lidar(selected='', deployment='', overrides=None, *, share=package_s
     """Compile defaults < deployment < selected < explicit endpoint aliases."""
     sources, layers = [], []
     paths = [(Path(share('mhseals_nav')) / 'config/lidar.yaml', 'defaults')]
-    paths += [(path, layer) for path, layer in ((deployment, 'deployment'),
-                                               (selected, 'operator')) if path != '']
+    for path, layer in ((deployment, 'deployment'), (selected, 'operator')):
+        if path != '':
+            paths.append((path, layer))
     for path, layer in paths:
         assignments, identity = _layer(path, layer)
         layers.append(assignments)
@@ -147,6 +149,7 @@ def resolve_lidar(selected='', deployment='', overrides=None, *, share=package_s
     calibration = _calibration(values['lidar.calibration'], calibration_source, share)
     pair = {'model': values['lidar.model'], 'frame_id': values['lidar.frame']}
     return {'driver': dict(pair, rpm=float(values['lidar.rpm']),
-                           device_ip=values['lidar.endpoint.ip'], port=values['lidar.endpoint.port']),
+                           device_ip=values['lidar.endpoint.ip'],
+                           port=values['lidar.endpoint.port']),
             'transform': dict(pair, calibration=calibration['path']),
             'calibration': calibration, 'sources': sources, 'resolution': resolution}

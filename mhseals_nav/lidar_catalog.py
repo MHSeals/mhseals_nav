@@ -17,7 +17,7 @@ REGISTRY = {VALIDATOR: validate_values, COMPILER: resolve_lidar}
 
 
 def lidar_catalog(raw, *, resource, policy_raw, consumer_versions=None):
-    """Reference complete installed baseline bytes; layer origins stay in resolver."""
+    """Read complete installed baseline bytes; layer origins stay in resolver."""
     validate_values(resolve([parse_lidar(raw, resource, 'defaults')]).effective)
     policy = yaml.load(policy_raw, Loader=StrictOverlayLoader)
     if not isinstance(policy, dict) or policy.get('schema_version') != 1:
@@ -25,7 +25,8 @@ def lidar_catalog(raw, *, resource, policy_raw, consumer_versions=None):
     source, digest = 'lidar-package-defaults', sha256(raw).hexdigest()
     locations = _locations(raw)
     closure = ['/lidar/' + key for key in ('model', 'frame', 'rpm', 'calibration', 'endpoint')]
-    pins = {name: 'unknown' for name in ('velodyne_driver', 'velodyne_transform', 'sensor_factory')}
+    consumers = ('velodyne_driver', 'velodyne_transform', 'sensor_factory')
+    pins = dict.fromkeys(consumers, 'unknown')
     leaves = []
 
     def add(key, kind, units, consumers, outputs):
@@ -44,8 +45,8 @@ def lidar_catalog(raw, *, resource, policy_raw, consumer_versions=None):
                                parameters=outputs, compiler_ref=COMPILER, inputs=closure,
                                outputs=outputs, dependencies=['installed-lidar-defaults',
                                    'selected-deployment-and-operator-layers',
-                                   'validated-calibration-path-and-sha256',
-                                   'TF-URDF-contract-pending-M06']) for cid in consumers],
+                                             'validated-calibration-path-and-sha256',
+                                             'TF-URDF-contract-pending-M06']) for cid in consumers],
             'safety': policy['safety'],
             'evidence': [dict(policy['evidence'], recipe_ref=VALIDATOR, consumer=cid,
                               version=pins[cid], required_type='startup-inputs/unverified')
@@ -64,7 +65,7 @@ def lidar_catalog(raw, *, resource, policy_raw, consumer_versions=None):
     add('endpoint', 'mapping', 'IPv4-address/UDP-port', ['velodyne_driver'], ['device_ip', 'port'])
     # Inventoried adjacent launch fields have no claimed YAML/default authority yet.
     for key, parameters in (('sensors.selection', ['sim', 'sensors_ignore']),
-                             ('sensors.sim_endpoint', ['ros_ip', 'ros_port'])):
+                            ('sensors.sim_endpoint', ['ros_ip', 'ros_port'])):
         leaves.append({
             'canonical_key': key, 'aliases': [],
             'consumers': [dict(policy['consumer'], id='sensor_factory', version='unknown',

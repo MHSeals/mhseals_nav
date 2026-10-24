@@ -44,7 +44,8 @@ def test_defaults_deployment_selection_and_explicit_aliases(share, tmp_path):
     assert custom['calibration']['sha256']
 
 
-@pytest.mark.parametrize('patch', [{'model': 'HDL64'}, {'frame': ''}, {'rpm': True},
+@pytest.mark.parametrize('patch', [
+    {'model': 'HDL64'}, {'frame': ''}, {'rpm': True},
     {'rpm': float('nan')}, {'rpm': 0}, {'rpm': -2}, {'endpoint': {'port': True}},
     {'endpoint': {'port': 0}}, {'endpoint': {'port': 65536}}, {'endpoint': {'ip': 'bad'}},
     {'unknown': 3}, {'calibration': {'file': '/missing'}}])
@@ -88,7 +89,8 @@ def test_custom_calibration_relative_origin_and_content_identity(share, tmp_path
     assert resolve_lidar(selected, share=share)['calibration']['sha256'] != sha256(raw).hexdigest()
 
 
-@pytest.mark.parametrize('alias,value', [('velodyne_port', '1.5'), ('velodyne_port', '-1'),
+@pytest.mark.parametrize('alias,value', [
+    ('velodyne_port', '1.5'), ('velodyne_port', '-1'),
     ('velodyne_port', '65536'), ('velodyne_ip', 'not-an-IP'), ('unknown', '')])
 def test_invalid_explicit_endpoint_refuses(share, alias, value):
     """Explicit aliases share the final typed endpoint validator."""
