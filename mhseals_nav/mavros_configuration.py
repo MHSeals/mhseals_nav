@@ -4,8 +4,8 @@ MAVROS MessageInterval uses Hz: zero restores the FCU default and -1 disables.
 No request result or observed delivery is inferred by this resolver.
 """
 import math
-from pathlib import Path
 import re
+from pathlib import Path
 
 import yaml
 

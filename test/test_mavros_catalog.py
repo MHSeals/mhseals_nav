@@ -3,6 +3,7 @@ from hashlib import sha256
 from pathlib import Path
 
 from mhseals_nav.catalog import mavros_catalog
+
 import pytest
 
 ROOT = Path(__file__).parents[1]
@@ -10,6 +11,7 @@ POLICY = (ROOT / 'config/catalog.yaml').read_bytes()
 
 
 def test_named_family_selected_defaults_and_evidence():
+    """Named family selected defaults and evidence."""
     raw = (ROOT / 'config/mavros_setup.yaml').read_bytes()
     bundle = mavros_catalog(raw, resource='config/mavros_setup.yaml', policy_raw=POLICY)
     row = bundle.field('mavros.intervals')
@@ -27,6 +29,7 @@ def test_named_family_selected_defaults_and_evidence():
 
 
 def test_descriptor_reuses_strict_schema():
+    """Descriptor reuses strict schema."""
     raw = b'mavros_setup: {ros__parameters: {message_rates: ["1:2", "1:3"]}}'
     with pytest.raises(ValueError):
         mavros_catalog(raw, resource='config/custom.yaml', policy_raw=POLICY)

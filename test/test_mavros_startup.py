@@ -4,14 +4,18 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from mhseals_nav.mavros_configuration import ALIASES, resolve_setup
+
 import pytest
-from test_robot_overlay import robot_factory
+
 from test_mavros_configuration import selected
+
+from test_robot_overlay import robot_factory
 
 ROOT = Path(__file__).parents[1]
 
 
 def factory():
+    """Bind actual odometry factories to inert launch constructors."""
     source = ROOT / 'launch/odom.launch.py'
     tree = ast.parse(source.read_text())
     functions = [n for n in tree.body if isinstance(n, ast.FunctionDef)]
@@ -34,11 +38,13 @@ def factory():
 
 
 def defaults(entities):
+    """Collect actual declared launch argument defaults."""
     return {e.args[0]: e.default_value for e in entities if hasattr(e, 'default_value')}
 
 
 @pytest.mark.parametrize('explicit', ['', '20.0'])
 def test_nondefault_robot_forwarded_and_direct_equivalent(tmp_path, explicit):
+    """Nondefault robot forwarded and direct equivalent."""
     path = selected(tmp_path, ['33:7', '30:8', '31:9', '24:4', '27:3', '1:4', '193:6'])
     ns = factory()
     direct = defaults(ns['generate_launch_description']())
@@ -63,6 +69,7 @@ def test_nondefault_robot_forwarded_and_direct_equivalent(tmp_path, explicit):
 
 @pytest.mark.parametrize('selection', ['', '/missing/rates.yaml', 'invalid'])
 def test_selection_failure_precedes_node(tmp_path, selection):
+    """Selection failure precedes node."""
     if selection == 'invalid':
         path = tmp_path / 'invalid.yaml'
         path.write_text('mavros_setup: []')
@@ -76,6 +83,7 @@ def test_selection_failure_precedes_node(tmp_path, selection):
 
 
 def test_invalid_final_alias_precedes_node(tmp_path):
+    """Invalid final alias precedes node."""
     ns = factory()
     context = defaults(ns['generate_launch_description']())
     context.update(mavros_setup_params_file=selected(tmp_path, ['31:7']),
@@ -86,6 +94,7 @@ def test_invalid_final_alias_precedes_node(tmp_path):
 
 
 def test_fcu_gate_still_contains_setup_and_sim_default():
+    """Fcu gate still contains setup and sim default."""
     ns = factory()
     entities = ns['generate_launch_description']()
     group = next(e for e in entities if hasattr(e, 'actions'))
@@ -96,6 +105,7 @@ def test_fcu_gate_still_contains_setup_and_sim_default():
 
 @pytest.mark.parametrize('rates', [['31:17'], ['31:nan']])
 def test_actual_main_declaration_and_pre_worker_validation(rates):
+    """Actual main declaration and pre worker validation."""
     from mhseals_nav import mavros_setup
     from mhseals_nav.mavros_configuration import validate_rates
 
@@ -129,6 +139,7 @@ def test_actual_main_declaration_and_pre_worker_validation(rates):
 
 @pytest.mark.parametrize('alias,ids', list(ALIASES.items()))
 def test_every_explicit_alias_overrides_and_unset_preserves(tmp_path, alias, ids):
+    """Every explicit alias overrides and unset preserves."""
     ns = factory()
     context = defaults(ns['generate_launch_description']())
     context['mavros_setup_params_file'] = selected(tmp_path, ['33:7', '30:8', '31:9',
