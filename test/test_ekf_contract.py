@@ -1,6 +1,7 @@
 """Static measurement contracts: do not fuse fields a sensor cannot measure."""
 from pathlib import Path
 
+import pytest
 import yaml
 
 ROOT = Path(__file__).parents[1]
@@ -106,16 +107,17 @@ def test_overlay_overrides_one_node_and_a_missing_file_is_no_overlay(tmp_path):
     assert ekf_overlay(str(path), 'ekf_local') == {'frequency': 40.0}
     assert ekf_overlay(str(path), 'ekf_global') == {'two_d_mode': False}
     assert ekf_overlay(str(path), 'navsat_transform') == {}
-    assert ekf_overlay(str(tmp_path / 'none.yaml'), 'ekf_local') == {}
+    with pytest.raises(FileNotFoundError):
+        ekf_overlay(str(tmp_path / 'none.yaml'), 'ekf_local')
 
 
-def test_bad_overlay_falls_back_to_packaged_configs(tmp_path, caplog):
+def test_bad_overlay_refuses_instead_of_falling_back(tmp_path):
     from mhseals_nav.navigation_config import ekf_overlay
     for text in ('ekf_local: [unclosed', '- a\n- b\n', 'ekf_local: 5\n', 'ekf_local:\n  ros__parameters: 3\n'):
         path = tmp_path / 'ekf.yaml'
         path.write_text(text)
-        assert ekf_overlay(str(path), 'ekf_local') == {}
-    assert 'Ignoring overlay' in caplog.text
+        with pytest.raises((ValueError, yaml.YAMLError)):
+            ekf_overlay(str(path), 'ekf_local')
 
 
 def test_ekf_delay_is_zero_standalone_and_six_seconds_from_odom():
@@ -131,20 +133,22 @@ def test_ekf_delay_is_zero_standalone_and_six_seconds_from_odom():
     assert "'ekf_delay': '6.0'" not in odom
 
 
-def test_wildcard_overlay_warns_instead_of_silently_applying_nothing(tmp_path, caplog):
+def test_wildcard_overlay_refuses_instead_of_silently_applying_nothing(tmp_path):
     from mhseals_nav.navigation_config import ekf_overlay
     path = tmp_path / 'ekf.yaml'
     path.write_text('/**:\n  ros__parameters:\n    frequency: 40.0\n')
-    assert ekf_overlay(str(path), 'ekf_local') == {}
-    assert '/**' in caplog.text
+    with pytest.raises(ValueError):
+        ekf_overlay(str(path), 'ekf_local')
 
 
-def test_overlay_is_typed_like_the_packaged_config(tmp_path, caplog):
+def test_overlay_normalizes_doubles_and_refuses_invalid_values(tmp_path):
     from mhseals_nav.navigation_config import ekf_overlay
     base = ROOT / 'config/ekf_local.yaml'
     path = tmp_path / 'ekf.yaml'
     path.write_text('ekf_local:\n  frequency: 30\n  sensor_timeout: .nan\n  transform_time_offset: -0.1\n')
+    with pytest.raises(ValueError):
+        ekf_overlay(str(path), 'ekf_local', str(base))
+    path.write_text('ekf_local: {frequency: 30, transform_time_offset: -0.1}')
     params = ekf_overlay(str(path), 'ekf_local', str(base))
     assert params == {'frequency': 30.0, 'transform_time_offset': -0.1}
     assert isinstance(params['frequency'], float)
-    assert 'sensor_timeout' in caplog.text

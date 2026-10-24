@@ -81,6 +81,18 @@ def validate(name, params):
     return checked
 
 
+def parse_base(raw, name):
+    """Each selected base must preserve the canonical fixed graph independently."""
+    data = yaml.load(raw, Loader=Loader)
+    if (not isinstance(data, dict) or set(data) != {'/**'}
+            or not isinstance(data['/**'], dict) or set(data['/**']) != {'ros__parameters'}):
+        raise ValueError('base must contain only /**.ros__parameters')
+    params = validate(name, data['/**']['ros__parameters'])
+    if not set(GRAPH[name]) <= set(params):
+        raise ValueError('base must state complete fixed graph identities: ' + name)
+    return params
+
+
 def parse_overlay(raw):
     """An empty document inherits; node nulls and mixed wrappers do not."""
     data = yaml.load(raw, Loader=Loader)
@@ -105,6 +117,10 @@ class LocalizationConfiguration:
     nodes: object
     inputs: tuple
     use_sim_time: bool
+    unverified_consumers: tuple = (
+        'navsat_transform.map_frame', 'navsat_transform.odom_frame',
+        'navsat_transform.base_link_frame', 'ekf_local.predict_to_current_time',
+        'ekf_global.predict_to_current_time')
 
     def parameters(self, name):
         """A fresh ROS-compatible projection, never the original mutable YAML file."""
@@ -126,20 +142,15 @@ def compile_localization(base_paths, overlay_selection='', use_sim_time=False):
     nodes, inputs = {}, []
 
     def read(path, kind, explicit=True):
+        selection = str(path)
         path = Path(path).expanduser().resolve(strict=True)
         raw = path.read_bytes()
         inputs.append(MappingProxyType(dict(path=str(path), sha256=sha256(raw).hexdigest(),
-                                             kind=kind, explicit=explicit)))
+                                             kind=kind, explicit=explicit, selection=selection)))
         return raw
 
     for name in NODES:
-        data = yaml.load(read(base_paths[name], name), Loader=Loader)
-        if (not isinstance(data, dict) or set(data) != {'/**'}
-                or not isinstance(data['/**'], dict) or set(data['/**']) != {'ros__parameters'}):
-            raise ValueError('base must contain only /**.ros__parameters')
-        nodes[name] = validate(name, data['/**']['ros__parameters'])
-        if not set(GRAPH[name]) <= set(nodes[name]):
-            raise ValueError('base must state complete fixed graph identities: ' + name)
+        nodes[name] = parse_base(read(base_paths[name], name), name)
     explicit = overlay_selection != ''
     path = Path(overlay_selection).expanduser() if explicit else Path.home() / '.config/mhseals/ekf.yaml'
     try:

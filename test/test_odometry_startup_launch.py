@@ -2,6 +2,7 @@
 import ast
 from pathlib import Path
 
+from mhseals_nav.localization_configuration import compile_localization, simulation_clock
 from mhseals_nav.odometry_configuration import ALIASES, LAYER_ARGUMENTS, resolve_odometry
 
 import pytest
@@ -37,7 +38,8 @@ def factories(filename, settings, calls):
         'FindPackageShare': lambda x: x,
         'IfCondition': lambda x: x,
         'from_launch': lambda context: settings(),
-        'ekf_overlay': lambda *args: {},
+        'compile_localization': compile_localization,
+        'simulation_clock': simulation_clock,
         'ALIASES': ALIASES,
         'LAYER_ARGUMENTS': LAYER_ARGUMENTS,
     }
@@ -48,8 +50,9 @@ def factories(filename, settings, calls):
 def context():
     return {**{name: '' for name in (*ALIASES, *LAYER_ARGUMENTS)},
             'sim': 'true', 'ekf_overlay_file': '', 'ekf_startup_context': 'included',
-            'navsat_transform_config_file': 'navsat', 'ekf_local_config_file': 'local',
-            'ekf_global_config_file': 'global'}
+            'navsat_transform_config_file': str(ROOT / 'config/navsat_transform.yaml'),
+            'ekf_local_config_file': str(ROOT / 'config/ekf_local.yaml'),
+            'ekf_global_config_file': str(ROOT / 'config/ekf_global.yaml')}
 
 
 @pytest.mark.parametrize('key,value,target', [

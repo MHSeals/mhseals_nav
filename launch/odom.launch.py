@@ -120,7 +120,7 @@ def generate_launch_description():
         ('mavros_rc_rate', '', 'Requested MAVROS RC_CHANNELS rate'),
         ('rtabmap_params_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'rtabmap.yaml']), 'Path to RTABMap params'),
         ('start_ekf', 'true', 'Start the EKFs and navsat_transform (false when ekf.launch.py runs on its own)'),
-        ('ekf_overlay_file', '~/.config/mhseals/ekf.yaml', 'Per-node EKF parameter overlay; ignored when missing'),
+        ('ekf_overlay_file', '', 'Empty inherits optional standard overlay; explicit path must exist'),
         ('navsat_transform_config_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'navsat_transform.yaml']), 'Path to navsat_transform params'),
         ('ekf_local_config_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'ekf_local.yaml']), 'Path to local EKF config'),
         ('ekf_global_config_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'ekf_global.yaml']), 'Path to global EKF config'),

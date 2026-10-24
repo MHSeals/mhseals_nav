@@ -66,26 +66,20 @@ EKF_NODES = {'ekf_local', 'ekf_global', 'navsat_transform'}
 
 
 def ekf_overlay(path, node, base_path=None):
-    """Parameters the overlay sets for one EKF/navsat node, flat or under ros__parameters.
-
-    With base_path (the packaged config) values are typed like it, so an int
-    frequency stays a float and NaN is dropped; robot_localization aborts on both.
-    """
-    overlay = load_overlay(path)
-    for key in overlay.keys() - EKF_NODES:
-        log.warning('Ignoring overlay key %r in %s: use node-keyed sections (%s), not /**',
-                    key, path, ', '.join(sorted(EKF_NODES)))
-    section = overlay.get(node) or {}
-    if not isinstance(section, dict):
-        log.error('Ignoring overlay section %s in %s: not a mapping', node, path)
-        return {}
-    params = section.get('ros__parameters', section)
-    if not isinstance(params, dict):
-        return {}
-    if base_path is None:
-        return params
-    base = load_overlay(base_path).get('/**', {}).get('ros__parameters', {})
-    return typed_like(base, params, keep_sign=False)
+    """Strict compatibility projection; missing explicit selections now refuse."""
+    from .localization_configuration import NODES, parse_base, parse_overlay
+    if node not in NODES:
+        raise ValueError('unsupported localization node: ' + node)
+    if base_path is not None:
+        parse_base(Path(base_path).expanduser().read_bytes(), node)
+    selected = Path(path).expanduser() if path else Path.home() / '.config/mhseals/ekf.yaml'
+    try:
+        raw = selected.read_bytes()
+    except FileNotFoundError:
+        if path or selected.is_symlink():
+            raise
+        raw = b''
+    return parse_overlay(raw).get(node, {})
 
 
 def valid_numbers(controller, follow):
