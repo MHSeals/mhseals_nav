@@ -1,5 +1,3 @@
-from mhseals_nav.mavros_configuration import ALIASES, resolve_setup
-
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription, OpaqueFunction
 from launch.launch_description_sources import PythonLaunchDescriptionSource
@@ -66,6 +64,7 @@ def create_mavros_node(context):
     )]
 
 def create_mavros_setup_node(context):
+    from mhseals_nav.mavros_configuration import ALIASES, resolve_setup
     path = LaunchConfiguration('mavros_setup_params_file').perform(context)
     overrides = {name: LaunchConfiguration(name).perform(context) for name in ALIASES}
     parameters = resolve_setup(path, overrides)
@@ -107,8 +106,8 @@ def generate_launch_description():
         ('fcu_url', '', 'Flight control unit connection URL'),
         ('gcs_url', 'udp://@127.0.0.1:14550', 'Ground control service connection URL'),
         ('mavros_params_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'mavros.yaml']), 'Path to MAVROS params'),
-        ('mavros_setup_params_file', PathJoinSubstitution([mhseals_nav_dir, 'config',
-                                                        'mavros_setup.yaml']),
+        ('mavros_setup_params_file',
+         PathJoinSubstitution([mhseals_nav_dir, 'config', 'mavros_setup.yaml']),
          'Selected desired message-rate startup parameters'),
         ('mavros_odom_rate', '', 'Requested MAVROS odometry rate'),
         ('mavros_velocity_stddev', '0.3', 'Body velocity uncertainty in m/s (FCU mode; GPS mode uses the receiver vel_acc)'),

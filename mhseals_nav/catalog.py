@@ -194,7 +194,7 @@ def mavros_catalog(raw, *, resource, policy_raw, consumer_versions=None):
                           version=version, required_type='requested/unverified')],
         'coverage': [{'source': source, 'consumer': consumer, 'status': 'startup-supported',
                       'revision': MAVROS_REVISION, 'path': 'launch/odom.launch.py',
-                      'line': 71,
+                      'line': 70,
                       'consume_site': 'create_mavros_setup_node; reconnect request_rates'}]}
     data = {'schema_version': 1, 'owner_package': 'mhseals_nav', 'revision': MAVROS_REVISION,
             'consumer_versions': {consumer: version},

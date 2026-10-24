@@ -25,8 +25,8 @@ def generate_launch_description():
         ('gcs_url', 'udp://127.0.0.1:14550', 'Ground control station connection URL'),
         ('mavros_params_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'mavros.yaml']), 'Path to MAVROS parameters file'),
 
-        ('mavros_setup_params_file', PathJoinSubstitution([mhseals_nav_dir, 'config',
-                                                        'mavros_setup.yaml']),
+        ('mavros_setup_params_file',
+         PathJoinSubstitution([mhseals_nav_dir, 'config', 'mavros_setup.yaml']),
          'Selected desired message-rate startup parameters'),
         ('mavros_odom_rate', '', 'Explicit odometry rate override; empty uses YAML'),
         ('mavros_imu_rate', '', 'Explicit attitude rate override for IDs 30 and 31'),
