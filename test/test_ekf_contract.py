@@ -121,9 +121,14 @@ def test_bad_overlay_falls_back_to_packaged_configs(tmp_path, caplog):
 def test_ekf_delay_is_zero_standalone_and_six_seconds_from_odom():
     ekf = (ROOT / 'launch/ekf.launch.py').read_text()
     odom = (ROOT / 'launch/odom.launch.py').read_text()
-    assert "DeclareLaunchArgument('ekf_delay', default_value='0.0'" in ekf
+    from mhseals_nav.odometry_configuration import resolve_odometry
+    assert "DeclareLaunchArgument('ekf_delay', default_value=''" in ekf
+    defaults = ROOT / 'config/odometry_startup.yaml'
+    assert resolve_odometry(defaults, context='standalone').delay == 0.0
+    assert resolve_odometry(defaults, context='included').delay == 6.0
     assert 'period=6.0' not in ekf
-    assert "'ekf_delay': '6.0'" in odom
+    assert "('ekf_startup_context', 'included'" in odom
+    assert "'ekf_delay': '6.0'" not in odom
 
 
 def test_wildcard_overlay_warns_instead_of_silently_applying_nothing(tmp_path, caplog):

@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from mhseals_nav.navigation_config import persistent_limits_path
+from mhseals_nav.odometry_configuration import ALIASES, LAYER_ARGUMENTS
 from mhseals_nav.startup_snapshot import snapshot_root, snapshot_scope
 import pytest
 
@@ -25,7 +26,8 @@ def robot_factory():
     ns.update(LaunchConfiguration=Configuration, LaunchDescription=lambda x: x,
               PathJoinSubstitution=lambda x: '/'.join(map(str, x)),
               FindPackageShare=lambda x: x, persistent_limits_path=persistent_limits_path,
-              snapshot_root=snapshot_root, snapshot_scope=snapshot_scope)
+              snapshot_root=snapshot_root, snapshot_scope=snapshot_scope,
+              ALIASES=ALIASES, LAYER_ARGUMENTS=LAYER_ARGUMENTS)
     exec(compile(ast.Module(body=[function], type_ignores=[]), str(source), 'exec'), ns)
     return ns['generate_launch_description']()
 
@@ -60,13 +62,18 @@ def test_tui_actual_path_and_component_argv(monkeypatch, override, xdg):
 
     def functions(file, names, namespace):
         tree = ast.parse(file.read_text())
-        nodes = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in names]
+        nodes = [n for n in tree.body if
+                 (isinstance(n, ast.FunctionDef) and n.name in names) or
+                 (isinstance(n, ast.Assign) and any(
+                     isinstance(target, ast.Name) and target.id in names for target in n.targets))]
         exec(compile(ast.Module(body=nodes, type_ignores=[]), str(file), 'exec'), namespace)
     tui = {'os': os, 'Path': Path}
     functions(root / 'nav2_limits.py', {'path', 'launch_argument'}, tui)
     component = {'nav2_limits': SimpleNamespace(launch_argument=tui['launch_argument']),
                  'Component': lambda *args: args}
-    functions(root / 'harness/components.py', {'components'}, component)
+    functions(root / 'harness/components.py',
+              {'components', 'odometry_arguments', 'ODOMETRY_INPUTS', 'ODOMETRY_LAUNCHES'},
+              component)
     profile = SimpleNamespace(components={'navigation': {
         'launch': ['mhseals_nav', 'navigation.launch.py'], 'limits': True}})
     argv = component['components'](profile)[0][2]

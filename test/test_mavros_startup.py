@@ -4,6 +4,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from mhseals_nav.mavros_configuration import ALIASES, resolve_setup
+from mhseals_nav.odometry_configuration import (
+    ALIASES as ODOMETRY_ALIASES, LAYER_ARGUMENTS, resolve_odometry)
 
 import pytest
 
@@ -31,8 +33,15 @@ def factory():
         'UnlessCondition', 'ParameterValue')}
     ns.update(LaunchConfiguration=Configuration, LaunchDescription=lambda x: x,
               PathJoinSubstitution=lambda x: '/'.join(map(str, x)),
-              FindPackageShare=lambda x: str(ROOT), ALIASES=ALIASES,
-              resolve_setup=resolve_setup)
+              FindPackageShare=lambda x: str(ROOT), ALIASES=ODOMETRY_ALIASES,
+              LAYER_ARGUMENTS=LAYER_ARGUMENTS,
+              resolve_setup=resolve_setup,
+              from_launch=lambda context: resolve_odometry(
+                  ROOT / 'config/odometry_startup.yaml',
+                  deployment_file=context['odometry_deployment_file'],
+                  operator_file=context['odometry_startup_file'],
+                  aliases={name: context[name] for name in ODOMETRY_ALIASES},
+                  context=context['ekf_startup_context']))
     exec(compile(ast.Module(body=functions, type_ignores=[]), str(source), 'exec'), ns)
     return ns
 
@@ -97,7 +106,9 @@ def test_fcu_gate_still_contains_setup_and_sim_default():
     """Fcu gate still contains setup and sim default."""
     ns = factory()
     entities = ns['generate_launch_description']()
-    group = next(e for e in entities if hasattr(e, 'actions'))
+    opaque = next(e for e in entities if hasattr(e, 'function'))
+    assert opaque.function is ns['odometry_nodes']
+    group = next(e for e in opaque.function(defaults(entities)) if hasattr(e, 'actions'))
     assert group.condition.args[0].name == 'fcu'
     assert group.actions[-1].function is ns['create_mavros_setup_node']
     assert defaults(entities)['sim'] == 'true'
