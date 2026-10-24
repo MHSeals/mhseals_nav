@@ -221,11 +221,30 @@ def mavros_catalog(raw, *, resource, policy_raw, consumer_versions=None):
                              constraint_ref='mavros.policy.' + key, validator_ref='mavros.policy.' + key,
                              inputs=[path])
         item['authoring'].update(pointer=path)
-        item['consumers'][0].update(parameters=[path], inputs=[path])
+        lines = {'retry_attempts': 214, 'retry_delay': 214, 'response_timeout': 205,
+                 'service_wait': 211, 'reboot_dedupe_window': 191, 'rc_window': 259,
+                 'rc_min_hz': 260, 'rc_min_channels': 260, 'rc_grace': 257,
+                 'rc_timer': 273, 'fcu_sysid': 224}
+        if key.startswith('rc_'):
+            outputs = ['rc-rate-diagnostic-log']
+            dependencies = ['selected-mavros-setup-yaml', '/mavros/rc/in',
+                            '/mavros/state', 'monotonic-receive-clock']
+            consume_site = 'check_rc_rate/create_timer; diagnostic only, no mux authority change'
+        elif key == 'fcu_sysid':
+            outputs = ['filtered-SYSTEM_TIME-boot-observations', '/fcu/ekf_status']
+            dependencies = ['selected-mavros-setup-yaml', '/uas1/mavlink_source',
+                            'autopilot-component-1']
+            consume_site = 'receive_mavlink source filter; not MAVROS request target'
+        else:
+            outputs = ['/mavros/set_message_interval']
+            dependencies = ['selected-mavros-setup-yaml', 'MAVROS-request-target-external',
+                            '/mavros/state', 'connection-and-boot-epoch']
+            consume_site = 'startup captured policy; work/call/reboot_seen'
+        item['consumers'][0].update(parameters=[path], inputs=[path],
+                                    outputs=outputs, dependencies=dependencies)
         item['coverage'][0].update(path='mhseals_nav/mavros_setup.py',
-                                   consume_site=('receive_mavlink source filter' if key == 'fcu_sysid' else
-                                                 'check_rc_rate/create_timer' if key.startswith('rc_') else
-                                                 'startup captured policy; work/call/reboot_seen'))
+                                   revision='27fae9069aa839671f25f2f3a08e49713394be70',
+                                   line=lines[key], consume_site=consume_site)
         leaves.append(item)
     data = {'schema_version': 1, 'owner_package': 'mhseals_nav', 'revision': MAVROS_REVISION,
             'consumer_versions': {consumer: version},
