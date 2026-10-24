@@ -37,11 +37,7 @@ EKF_FLAGS = {0: 'ATTITUDE', 1: 'VELOCITY_HORIZ', 2: 'VELOCITY_VERT', 3: 'POS_HOR
 
 
 def rates_rule(value):
-    """LiveParams rule: the startup contract, so a live set cannot be looser than a launch.
-
-    A dropped id is not reset implicitly; removal is an explicit id:0 (FCU default) or
-    id:-1 (disable) entry. An empty list, duplicate ids and rates below -1 are refused.
-    """
+    """Validate live message_rates with the startup rule; no implicit 0 resets."""
     return validate_rates(list(value) if isinstance(value, (list, tuple)) else value)
 
 

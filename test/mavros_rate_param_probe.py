@@ -1,17 +1,15 @@
-"""Isolated mavros_setup check: live message_rates sets go through the startup rule.
-
-Runs the real node against a fake loopback /mavros/set_message_interval service; it never
-talks to an FCU. Run with ROS_DOMAIN_ID set to an isolated domain and ROS_LOCALHOST_ONLY=1.
-"""
+"""Isolated mavros_setup check of live message_rates sets; never talks to an FCU."""
+# Runs the real node against a fake loopback /mavros/set_message_interval service.
+# Run with ROS_DOMAIN_ID set to an isolated domain and ROS_LOCALHOST_ONLY=1.
 import subprocess
 import sys
 import time
 
-import rclpy
 from mavros_msgs.msg import State
 from mavros_msgs.srv import MessageInterval
 from rcl_interfaces.msg import Parameter, ParameterType, ParameterValue
 from rcl_interfaces.srv import GetParameters, SetParameters
+import rclpy
 
 from ros_domain import require_isolated_domain
 
@@ -57,7 +55,8 @@ def write(entries):
     return result.successful, result.reason
 
 
-node = subprocess.Popen([sys.executable, '-c', 'from mhseals_nav.mavros_setup import main; main()'])
+node = subprocess.Popen(
+    [sys.executable, '-c', 'from mhseals_nav.mavros_setup import main; main()'])
 try:
     assert get.wait_for_service(10) and put.wait_for_service(10), 'mavros_setup did not start'
     start = read()
