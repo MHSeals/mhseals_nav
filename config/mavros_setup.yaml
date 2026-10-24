@@ -1,0 +1,12 @@
+mavros_setup:
+  ros__parameters:
+    # Desired requests, repeated on reconnect; delivery remains unverified.
+    message_rates:
+      - '33:20'
+      - '30:50'
+      - '31:50'
+      - '24:5'
+      - '27:10'
+      - '1:2'
+      - '193:2'
+      - '65:25'
