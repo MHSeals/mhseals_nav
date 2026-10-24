@@ -118,7 +118,7 @@ def validate_url(value, gcs=False):
         ids = query.split('ids=', 1)[1]
         if ',' in ids:
             for item in ids.split(',', 1):
-                if not re.fullmatch(r'[+]?\d+', item) or not 0 <= int(item) <= 255:
+                if not re.fullmatch(r'[+]?[0-9]+', item) or not 0 <= int(item) <= 255:
                     raise ValueError('endpoint ids must be uint8 values')
 
 
@@ -127,7 +127,7 @@ def _host_pair(value, maximum, serial=False):
     if not serial and host and not re.fullmatch(r'[A-Za-z0-9_.-]+', host):
         raise ValueError('endpoint host must be an IPv4 literal or hostname')
     if separator:
-        if not re.fullmatch(r'[+]?\d+', number) or not 1 <= int(number) <= maximum:
+        if not re.fullmatch(r'[+]?[0-9]+', number) or not 1 <= int(number) <= maximum:
             raise ValueError('endpoint port/baud outside parser integer representation')
 
 

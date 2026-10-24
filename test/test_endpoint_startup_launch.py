@@ -146,3 +146,19 @@ def test_robot_forwards_layers_context_aliases_and_preflights_first():
     gate = next(node for node in ast.walk(source) if isinstance(node, ast.Call)
                 and getattr(node.func, 'id', '') == 'OpaqueFunction')
     assert gate.keywords[0].value.id == 'endpoint_preflight'
+
+
+@pytest.mark.parametrize('url', [
+    'tcp://host:１２３４', 'serial:///dev/ttyACM0:５７６００',
+    'udp://@host:14550/?ids=１,２'])
+@pytest.mark.parametrize('filename,function', [
+    ('odom.launch.py', 'create_mavros_node'), ('robot.launch.py', 'endpoint_preflight')])
+def test_unicode_uri_layer_preflight_precedes_constructors(tmp_path, url, filename, function):
+    """Reject invalid numeric bytes before actual MAVROS construction or robot includes."""
+    selected = tmp_path / 'selected.yaml'
+    selected.write_text(yaml.safe_dump({'fcu_url': url}))
+    calls = []
+    namespace = bind(factories(filename, lambda: None, calls), calls, selected)
+    with pytest.raises(ValueError):
+        namespace[function]({'sim': 'true', 'fcu': 'true'})
+    assert calls == []

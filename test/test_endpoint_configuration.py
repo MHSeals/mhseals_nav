@@ -146,3 +146,13 @@ def test_actual_launch_adapter_preserves_explicit_alias_provenance(tmp_path, mon
     assert result.overrides == {'fcu_url': 'tcp://operator:1234'}
     assert result.unity_parameters['ROS_TCP_PORT'] == 7999
     assert result.mavros_parameters(False, tmp_path)[0]['fcu_url'] == 'tcp://operator:1234'
+
+
+@pytest.mark.parametrize('url', [
+    'tcp://host:１２３４', 'serial:///dev/ttyACM0:５７６００',
+    'udp://@host:14550/?ids=１,２', 'tcp://host:١٢٣٤'])
+def test_unicode_uri_numbers_refuse_in_selected_layer(tmp_path, url):
+    """Keep URI numeric grammar compatible with byte-preserved std::stoi input."""
+    path = selected(tmp_path, {'fcu_url': url})
+    with pytest.raises(ValueError):
+        resolve_endpoints(BASE, operator_file=path)
