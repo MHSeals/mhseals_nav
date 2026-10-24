@@ -71,9 +71,8 @@ def validate_calibration(raw):
     return data
 
 
-def _layer(path, layer):
-    path = Path(path).expanduser().resolve(strict=True)
-    raw = path.read_bytes()
+def parse_lidar(raw, source, layer):
+    """Parse located strict leaves using the core layer contract."""
     # The core parser has exact scalar types; RPM deliberately supports int/float.
     data = yaml.load(raw, Loader=StrictOverlayLoader)
     rpm = data.get('lidar', {}).get('rpm') if isinstance(data, dict) and isinstance(
@@ -82,8 +81,13 @@ def _layer(path, layer):
     if rpm is not None:
         positive(rpm, 'rpm')
         fields['lidar.rpm'] = Field(type(rpm))
-    assignments = parse(raw.decode(), str(path), layer, fields)
-    return assignments, {'path': str(path), 'sha256': sha256(raw).hexdigest(), 'layer': layer}
+    return parse(raw.decode(), source, layer, fields)
+
+
+def _layer(path, layer):
+    path = Path(path).expanduser().resolve(strict=True)
+    raw = path.read_bytes()
+    return parse_lidar(raw, str(path), layer), {'path': str(path), 'sha256': sha256(raw).hexdigest(), 'layer': layer}
 
 
 def _calibration(reference, source, share):

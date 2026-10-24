@@ -88,3 +88,67 @@ minimum is promoted to a safety floor. The existing `LiveParams` setter remains
 legacy/unmanaged. Its permissive parser is not an alternate startup validator.
 Evidence is **requested/unverified**, including accepted ACKs: these offline
 construction tests establish propagation, not request delivery or behavior.
+
+## Lidar startup layers
+
+`mhseals_nav.lidar_catalog.lidar_catalog` returns the same read-only
+`DescriptorBundle` convention for `lidar.model`, `lidar.frame`, `lidar.rpm`,
+`lidar.calibration` and `lidar.endpoint`. Supply complete installed baseline
+`config/lidar.yaml` bytes/resource and package `config/catalog.yaml` policy.
+Defaults, locations and source hash come from those bytes. The finite supported
+model is currently VLP16; other model/calibration contracts remain unsupported.
+Adjacent `sensors.selection` and `sensors.sim_endpoint` rows explicitly inventory
+existing launch-only fields as unsupported, with missing authority blockers.
+No live mutation tier, qualified upstream version or behavior evidence is claimed.
+
+The shared core parser/resolver supplies strict types, duplicate/merge-key
+rejection, located leaf origins and layer precedence. Startup always requires
+installed `config/lidar.yaml`, then applies optional `lidar_deployment_file`,
+optional `lidar_params_file`, and genuinely explicit `velodyne_ip`/`velodyne_port`
+aliases. All optional selections/aliases default to empty (no layer/override).
+A nonempty selected path that is missing, unreadable or invalid refuses startup;
+it never falls back. Partial YAML overlays use the `lidar` shape of the baseline;
+unknown keys/nulls refuse. RPM permits finite positive integer/float values;
+port is an integer1..65535; IP is IPv4; model/frame are exact strings.
+
+The historical address conflict is preserved as explicit deployment selection:
+standalone sensors use the canonical endpoint, while full robot selects
+`config/lidar_robot.yaml`, which contains only its historical IP override.
+Neither address was inferred from current boat networking. A custom selected
+file overrides that deployment layer, and an explicit alias overrides both.
+There is one common defaults table and one visible deployment value, not
+conflicting launcher constants. Resolver output includes every source path/hash
+and per-leaf ordered origins, including ephemeral explicit aliases.
+
+The validated model/frame project identically to driver and transform; RPM and
+endpoint project only to driver, calibration only to transform. Calibration can
+use `{package: velodyne_pointcloud, path: params/VLP16db.yaml}` or a `{file: ...}`
+reference. Relative files resolve against the YAML layer that authored that
+reference. Package paths resolve through the installed ament index, with no
+absolute/traversal package-relative paths. The bounded supported calibration
+schema requires the VLP16db top-level fields, sixteen unique integer laser IDs
+and finite correction fields; a wrong-model shape, duplicate key/ID, missing
+file or corrupt YAML refuses before either physical node is constructed.
+Resolver output records resolved calibration path and SHA256 of validated bytes.
+Those identities describe inputs at resolution time, not a claim that a later
+upstream file read or device behavior was observed; immutable process snapshots
+and pinned consumer behavior remain later gates.
+
+The relay preserves cloud headers through `/points`; the existing large-data
+transport environment and transform remapping remain paired. Startup-only
+changes require restarting the lidar driver/transform pair and affect downstream
+cloud consumers (relay, Nav2, RTABMap/DLIO when selected). No stop/restart is
+performed by this resolver. Simulation creates only its existing ROS TCP
+endpoint; ignored physical lidar constructs nothing and does not resolve unused
+physical configuration. `sensors.selection`/`sensors.sim_endpoint` are separate
+remaining configuration work, rather than silently supported new YAML keys.
+
+Frame changes have a deliberately limited scope: standalone sensor-local frame
+projection is supported, but full robot forwards a fixed `lidar_link` contract
+and refuses a different selected frame before physical construction. Blastoise
+URDF's fixed `lidar_joint` joins `sensor_mount_link` to `lidar_link`; omni_boat
+also has a fixed lidar link and DLIO names `lidar_link`. No URDF/static transform
+or complete Nav2/EKF/TF fan-out is rewritten. Full-stack shared-frame migration
+remains M06; a standalone custom frame requires a separately coherent external
+TF/downstream setup. These tests prove requested node inputs only, not driver
+startup, scan delivery, calibration accuracy, TF behavior or live reconfiguration.
