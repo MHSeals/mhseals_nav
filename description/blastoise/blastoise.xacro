@@ -26,8 +26,8 @@
 
     <!-- Mass and CoM are NOT measured: the boat has not been weighed. The links add up to
          crane_ml's 30 kg "loaded" (deck, electronics and batteries 10 kg here, hulls 9 kg each,
-         mount 0.3, thrusters 4 x 0.427) with the CoM at base_link; each tensor is the solid box
-         (or cylinder) of its link, so the composite yaw inertia is about 4.5 kg m^2. Only TF reads
+         mount 0.3, thrusters 4 x 0.427) with the CoM under base_link (x, y); each tensor is the
+         solid box (or cylinder) of its link, so the composite yaw inertia is about 4.5 kg m^2. Only TF reads
          this file at runtime; replace the numbers once the boat is weighed and balanced. -->
     <inertial>
       <mass value="10.0"/>

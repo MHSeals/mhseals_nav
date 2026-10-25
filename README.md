@@ -200,7 +200,7 @@ MPPI plans as if its command were the velocity. Tuning measures what sits in bet
 | Lag `tau` per axis | Controller steps, rise time / ln 9 | `vx_max`, `vy_max`: `D / (T (k/2 + 1))`, stop within `D` = 1 m; accelerations `v / (k T)`, `k` = 3 |
 | Neutral velocity SD `sigma` | Characterize neutral phase (wave floor) | stopped velocities at least `2 sigma`; velocity `kp` at most `0.0625 / (2 sigma)` (hardware owner) |
 | Odometry noise in the plan | `/cmd_vel_nav` sign changes | `temperature` up, `*_std` down, each std under its axis limit |
-| Rotation-centre offset `d` | Characterize yaw rows | xy goal tolerances plus `1.6 d`; in-place turns at most 0.3 rad/s while `d` > 0.08 m |
+| Rotation-centre offset `d` | Characterize yaw rows | xy goal tolerances at least `2 sigma_p + l + 1.6 d` (the final in-place turn starts inside them); in-place turns at most 0.3 rad/s while `d` > 0.08 m |
 | GPS SD `sigma_p` per fix tier, antenna offset `l` | 5 min moored per tier; tape | xy goal tolerances at least `2 sigma_p + l`; precise goals (docking) only at RTK fixed |
 
 The characterization's overlay takes the smaller of the measured limit and the rule (`nav2_rules` in mhseals_testing's `config/characterize.yaml`). Verify every change in crane_ml before the boat. The derivations, evidence and acceptance thresholds are in mhseals_testing `docs/tuning.tex` (`make tuning` in `docs/`).

@@ -51,8 +51,9 @@ controller_server:
       rotate_to_heading_angular_vel: 0.3    # = wz_max
       max_angular_accel: 0.5                # = az_max
       simulate_ahead_time: 1.0
-      # Inside the goal checker's xy tolerance the shim turns to the goal yaw, closed loop.
-      # The BT and goal checkers only test the yaw; nothing else steers to it.
+      # Inside the active goal checker's xy tolerance (Jazzy 1.3.13 copies it into the shim's
+      # position_checker every cycle; its stateful latch clears on each 1 Hz replan) the shim
+      # turns in place to the goal yaw. Goal checkers only test the yaw; nothing else steers to it.
       rotate_to_goal_heading: true
       motion_model: Omni
       time_steps: 48
