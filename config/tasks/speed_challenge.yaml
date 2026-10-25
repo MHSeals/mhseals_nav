@@ -11,4 +11,5 @@ circle_clockwise: false # either direction scores
 circle_points: 8
 time_limit: 360.0       # includes driving to the task area
 timeout: 240.0
-gate_radius: 10.0        # m from the approach (when given) within which its gate lies
+gate_radius: 10.0       # m from the approach (when given) within which its gate lies
+mark_radius: 32.0       # m from the mark within which its gate lies, without an approach

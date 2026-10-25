@@ -2,3 +2,5 @@
 # overridden here (e.g. docking: {banner: red_circle}).
 tasks: [nav_channel, follow_path, docking, speed_challenge, return_home]
 timeout: 1800.0
+# The course area for searches, map frame, from the day's layout; null searches around home.
+search: {area: null}

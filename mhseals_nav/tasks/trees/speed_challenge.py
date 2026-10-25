@@ -10,20 +10,29 @@ from py_trees.common import ParallelPolicy
 from py_trees.composites import Parallel, Selector, Sequence
 
 from mhseals_nav.tasks.behaviours import (
-    CountObjects, GateRun, Navigate, PlanCircle, PlanConcat, PlanGatePass, Report, ReportCount,
-    Search,
+    CountObjects, GateRun, Navigate, PlanCircle, PlanConcat, PlanGatePass, PlanView, Report,
+    ReportCount, Search,
 )
 
 
 def build(params):
     from mhseals_nav.tasks.trees import look_for
     red, green, mark = params['red'], params['green'], params['mark']
-    run = Sequence('speed run', memory=True, children=[
+    # Without the day's layout, the blue mark (only this task has one) leads the boat to
+    # the task; red/green gates look alike, so other tasks' gates are excluded.
+    near, radius, find = 'speed_challenge_approach', params['gate_radius'], []
+    if not params.get('approach'):
+        near, radius = 'speed_mark', params['mark_radius']
+        find = [look_for('find the mark first', (mark,), params),
+                PlanView('plan a view of the mark', 'speed_view', mark),
+                Navigate('to the mark', 'speed_view', accept=3.0, why='to the speed mark',
+                         phase='approach'),
+                PlanView('where the mark is', 'speed_mark', mark, standoff=0.0)]
+    run = Sequence('speed run', memory=True, children=find + [
         look_for('find the gate', (red, green), params),
-        # Its gate is the one by its approach: other tasks' red/green gates look alike.
         GateRun('through the gate', 'speed_gate', red, green, gates=1,
-                max_width=params['max_gate_width'], near='speed_challenge_approach',
-                radius=params['gate_radius']),
+                max_width=params['max_gate_width'], near=near, radius=radius,
+                exclude=('path', 'channel'), toward=mark),
         Report('report start', 'speed_started'),
         # The mark lies straight on past the gate: drive on, and search if it is not there.
         Selector('find the mark', memory=True, children=[

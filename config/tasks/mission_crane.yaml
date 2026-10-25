@@ -3,5 +3,7 @@
 # from the day's layout. Run: run_task --task mission --params <this file>.
 tasks: [nav_channel, follow_path, docking, speed_challenge, return_home]
 timeout: 1800.0
+# The course area searches stay inside (map frame = the start pose here).
+search: {area: [[-8.0, -26.0], [40.0, 18.0]]}
 docking: {approach: [12.0, -14.0, -1.5708]}
 speed_challenge: {approach: [-1.0, 11.0, 0.0]}
