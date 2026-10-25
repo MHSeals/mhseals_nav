@@ -62,8 +62,11 @@ def validate_layer(layer, where, keys=KEYS):
         here = f'{where}.parts.{name}'
         if not isinstance(spec, dict) or not set(spec) <= PART_KEYS:
             raise ValueError(f'{here}: mapping with keys from {sorted(PART_KEYS)}')
-        if 'launch' in spec and not isinstance(spec['launch'], str):
-            raise ValueError(f'{here}.launch: a launch file name in this package')
+        # A bare file name only: a path (./navigation.launch.py) would dodge the commander check.
+        launch = spec.get('launch')
+        if 'launch' in spec and not (isinstance(launch, str) and Path(launch).name == launch
+                                     and launch.endswith('.launch.py')):
+            raise ValueError(f'{here}.launch: a launch file name in this package (<name>.launch.py)')
         if 'run' in spec and len(_names(spec['run'], f'{here}.run')) < 2:
             raise ValueError(f'{here}.run: [package, executable, arguments...]')
         _arguments(spec.get('args', {}), f'{here}.args')

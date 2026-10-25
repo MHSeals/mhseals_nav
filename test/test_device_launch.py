@@ -112,6 +112,11 @@ def test_no_launch_file_here_starts_the_thruster_driver_or_the_mux():
 @pytest.mark.parametrize('overrides, message', [
     ({'parts': {'navigation': {'kind': 'sensing'}}}, 'can command motion; set kind: commander'),
     ({'parts': {'ekf': {'launch': 'nowhere.launch.py'}}}, 'no nowhere.launch.py'),
+    # A path to a commander launch must not pass as sensing.
+    ({'parts': {'ekf': {'launch': './navigation.launch.py'}}}, r'<name>\.launch\.py'),
+    ({'parts': {'ekf': {'launch': '../config/../launch/navigation.launch.py'}}}, r'<name>\.launch\.py'),
+    ({'parts': {'ekf': {'launch': '/opt/x/task.launch.py'}}}, r'<name>\.launch\.py'),
+    ({'parts': {'ekf': {'launch': 'navigation.launch.xml'}}}, r'<name>\.launch\.py'),
     ({'parts': {'pwm': {'run': ['mhseals_hardware', 'thruster_pwm_node']}}}, 'with arming'),
     ({'parts': {'mux': {'run': ['mhseals_hardware', 'command_mux']}}}, 'start with arming'),
     ({'parts': {'odd': {'nodes': ['x']}}}, 'exactly one of launch or run'),
