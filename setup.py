@@ -43,7 +43,7 @@ setup(
     install_requires=[
         'setuptools',
         'pyyaml',
-        "numpy", "websocket-client"
+        "numpy"
     ],
     zip_safe=True,
     author="Liam Bray",
@@ -56,7 +56,6 @@ setup(
             "object_tracker = mhseals_nav.object_tracker:main",
             "thruster_allocation = mhseals_nav.thruster_allocation:main",
             "zed_detections_converter = mhseals_nav.zed_detections_converter:main",
-            "legacy_buoy_detector = mhseals_nav.legacy_buoy_detector:main",
             "lidar_relay = mhseals_nav.lidar_relay:main",
             "mavros_odometry = mhseals_nav.mavros_odometry:main",
             "mavros_setup = mhseals_nav.mavros_setup:main",

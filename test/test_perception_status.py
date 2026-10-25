@@ -1,4 +1,4 @@
-"""Converter relay: /perception/status stages from a faked source."""
+"""/perception/status stages and the converter's own stage."""
 
 import time
 from types import SimpleNamespace
@@ -7,11 +7,8 @@ import pytest
 
 pytest.importorskip("rclpy")
 import rclpy
-from diagnostic_msgs.msg import DiagnosticArray
-from rclpy.executors import SingleThreadedExecutor
 
 from mhseals_nav import perception_status
-from ros_domain import require_isolated_domain
 
 
 def test_relayed_keeps_stereolabs_and_prefixes_names():
@@ -45,104 +42,6 @@ def test_stage_clock_counts_drops_and_percentiles():
     assert clock.values(200.0)["hz"] == "0.00"
 
 
-class FakeSource:
-    url = "ws://192.168.0.153:9090"
-    topic = "/objects"
-    connected = True
-    packets = 0
-    remote = dict(clock_offset_ms=12.34, clock_rtt_ms=5.0, remote_nodes=["/a", "/b"])
-
-    def __init__(self, *args, **kwargs):
-        self.queues = {"/objects": [], "/perception/status": [], "/diagnostics": [], "/rosout": []}
-
-    def latest(self, topic=None):
-        queue = self.queues[topic or "/objects"]
-        return queue.pop(0) if queue else None
-
-    def close(self):
-        pass
-
-
-class Recorder:
-    def __init__(self):
-        self.lines = []
-
-    def warning(self, text, **_):
-        self.lines.append(text)
-
-    info = error = warning
-
-
-def zed_packet(now, age):
-    stamp = now - age
-    return dict(header=dict(frame_id="cam", stamp=dict(sec=int(stamp), nanosec=int(stamp % 1 * 1e9))),
-                objects=[])
-
-
-def test_converter_reports_stages_and_relogs_remote_warnings(monkeypatch):
-    require_isolated_domain()
-    monkeypatch.setattr("mhseals_nav.rosbridge_source.RosbridgeSource", FakeSource)
-    from mhseals_nav.zed_detections_converter import ZedDetectionsConverter
-
-    rclpy.init(args=["--ros-args", "-p", "rosbridge_url:=ws://192.168.0.153:9090"])
-    node = ZedDetectionsConverter()
-    listener = rclpy.create_node("status_listener")
-    got = []
-    listener.create_subscription(DiagnosticArray, "/perception/status", got.append, 1)
-    executor = SingleThreadedExecutor()
-    executor.add_node(node)
-    executor.add_node(listener)
-    log = Recorder()
-    node.get_logger = lambda: log
-    try:
-        now = time.time()
-        queues = node.source.queues
-        queues["/objects"] += [zed_packet(now, 30.0), zed_packet(now, .1), dict(header=1)]
-        queues["/perception/status"].append(dict(status=[
-            dict(name="detector", hardware_id="squirtle", level=0, values=[dict(key="hz", value="4")]),
-            # Same-domain echo of our own stages must not come back as duplicates.
-            dict(name="perception/legacy_zed/bridge", hardware_id="127.0.0.1", level=0, values=[]),
-            dict(name="perception/legacy_zed/converter", hardware_id="127.0.0.1", level=0, values=[])]))
-        queues["/diagnostics"].append(dict(status=[
-            dict(name="front: ZED", hardware_id="Stereolabs ZED 2i", level=0, values=[]),
-            dict(name="other", hardware_id="x", level=0, values=[])]))
-        queues["/rosout"] += [dict(level=30, msg="stale image"), dict(level=30, msg="stale image"),
-                              dict(level=20, msg="chatter")]
-        for _ in range(3):  # one packet per poll
-            node.poll()
-        # Malformed remote JSON must not escape the timer callback.
-        queues["/diagnostics"] += [dict(status=[dict(name="bad", level=999)]), dict(status=7), ["x"]]
-        queues["/rosout"].append(dict(level=30, msg="x"))
-        for _ in range(3):
-            node.poll()
-        node.logged["old"] = time.monotonic() - 60
-        node.collect_remote()
-        assert "old" not in node.logged
-        node.report()
-        node.report()  # remote topics are throttled to 1 s: stages must survive the next report
-        end = time.time() + 3
-        while len(got) < 2 and time.time() < end:
-            executor.spin_once(timeout_sec=.1)
-    finally:
-        executor.shutdown()
-        node.destroy_node()
-        listener.destroy_node()
-        rclpy.shutdown()
-
-    assert len(got[0].status) == len({s.name for s in got[0].status}) == 4
-    assert {s.name for s in got[1].status} == {s.name for s in got[0].status}
-    stages = {s.name: {v.key: v.value for v in s.values} for s in got[0].status}
-    assert set(stages) == {"perception/legacy_zed/bridge", "perception/legacy_zed/converter",
-                           "perception/legacy_zed/detector", "perception/legacy_zed/front: ZED"}
-    bridge = stages["perception/legacy_zed/bridge"]
-    assert bridge["connected"] == "true" and bridge["peer"] == "192.168.0.153:9090"
-    assert bridge["clock_offset_ms"] == "12.3" and bridge["remote_nodes"] == "/a,/b"
-    converter = stages["perception/legacy_zed/converter"]
-    assert converter["drop_stale"] == "1" and converter["drop_malformed"] == "1"
-    assert 50 <= int(converter["latency_ms"]) <= 400
-    assert log.lines.count("squirtle: stale image") == 1
-
-
 def test_relayed_follows_the_source_namespace():
     packet = dict(status=[
         dict(name="perception/legacy_zed/detector", hardware_id="squirtle", level=0, values=[]),
@@ -162,23 +61,6 @@ def test_detector_stage_reports_one_window_at_a_time():
                           latency_ms="400", views=4, objects="1.0")
     # The window restarts; drops stay cumulative.
     assert stage.values(102.0) == dict(hz="0.00", drop_stale=1)
-
-
-def test_detector_report_publishes_the_prefixed_stage():
-    from mhseals_nav.legacy_buoy_detector import LegacyBuoyDetector, view_count
-
-    assert view_count(1080, 1920, 0, 3) == 1 and view_count(1080, 1920, 720, 3) == 4
-    published = []
-    detector = SimpleNamespace(
-        node=SimpleNamespace(get_clock=lambda: rclpy.clock.Clock()),
-        perception_status=perception_status, diagnostic_type=DiagnosticArray, host="squirtle",
-        stage=perception_status.DetectorStage(0.0),
-        status_pub=SimpleNamespace(publish=published.append))
-    LegacyBuoyDetector.report(detector)
-    assert published and len(published) == 1
-    (stage,) = published[0].status
-    assert stage.name == "perception/legacy_zed/detector" and stage.hardware_id == "squirtle"
-    assert {v.key: v.value for v in stage.values}["hz"] == "0.00"
 
 
 def test_native_converter_reports_its_converter_stage():
