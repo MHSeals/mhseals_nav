@@ -1,5 +1,6 @@
 """Geofence watchdog: outside, or near the edge heading outward, holds; so does no fence."""
 
+import itertools
 import json
 import math
 from pathlib import Path
@@ -46,6 +47,18 @@ def test_near_the_edge_holds_only_heading_outward():
     assert not at(dog, 0.0, edge, 25.0, math.pi, 0.5)            # facing and moving west
     assert not at(dog, 2.0, edge, 25.0, math.pi / 2, 0.5)        # along the edge
     assert at(dog, 4.0, edge, 25.0, math.pi, -0.5)               # backing out east
+
+
+def test_near_edge_reason_does_not_change_with_the_distance():
+    """The node logs on a reason change: a distance in it would log every tick."""
+    dog = FenceWatchdog(MAP)
+    reasons = set()
+    for k, x in enumerate((96.0, 97.0, 98.0)):
+        assert at(dog, k * 1.0, x, 25.0)
+        reasons.add(dog.reason(k * 1.0))
+    assert reasons == {'within the margin heading outward'}
+    assert dog.describe(dog.reason(2.0)) == 'within the margin heading outward (2.0 m)'
+    assert dog.describe('outside the fence') == 'outside the fence'
 
 
 def test_outward_angle_and_margin_bounds():
@@ -146,6 +159,7 @@ def test_node_holds_outside_a_map_fence():
     from rclpy.parameter import Parameter
     from std_msgs.msg import String
     from ros_domain import require_isolated_domain
+    from watchdog_cycle import flip_twice
     require_isolated_domain()
     from mhseals_nav.fence_watchdog import node_class
     rclpy.init()
@@ -163,14 +177,17 @@ def test_node_holds_outside_a_map_fence():
         ex.add_node(dog)
         ex.add_node(probe)
 
-        def drive(x, seconds, until=None, autonomy=True):
+        def odometry(x):
             msg = Odometry()
             msg.pose.pose.position.x, msg.pose.pose.position.y = x, 25.0
             msg.pose.pose.orientation.w = 1.0
             msg.twist.twist.linear.x = 1.0
+            return msg
+
+        def drive(x, seconds, until=None, autonomy=True):
             end = time.monotonic() + seconds
             while time.monotonic() < end and not (until and until()):
-                odom.publish(msg)
+                odom.publish(odometry(x))
                 if autonomy:
                     cmd.publish(Twist())
                 ex.spin_once(timeout_sec=0.05)
@@ -180,6 +197,18 @@ def test_node_holds_outside_a_map_fence():
         assert dog.logic.poly is not None and dog.logic.p == (50.0, 25.0) and not got
         drive(101.0, 3.0, until=lambda: len(got) >= 2)
         assert len(got) >= 2
+
+        def at_x(xs):
+            xs = iter(xs)
+
+            def feed():
+                odom.publish(odometry(next(xs)))
+                cmd.publish(Twist())
+            return feed
+
+        # Near the east edge heading east, the distance changing every message.
+        near = at_x(97.0 + 0.01 * (k % 100) for k in itertools.count())
+        flip_twice(ex, got, near, at_x(itertools.repeat(50.0)))
         assert {g['op'] for g in got} == {'hold'}
         assert {g['cause'] for g in got} == {'geofence'}
         assert {g['by'] for g in got} == {'fence_watchdog'} and all(g['token'] for g in got)
