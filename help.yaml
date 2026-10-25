@@ -1,0 +1,76 @@
+# Commands this package provides, for astro_dock's help browser (astro-help).
+package: mhseals_nav
+summary: Boat bringup - sensors, localization, objects, Nav2 and tasks.
+commands:
+  - name: build
+    run: colcon build --packages-up-to mhseals_nav mhseals_hardware mhseals_testing
+    summary: Build the boat packages; the shell reloads itself afterwards.
+
+  - name: robot.launch
+    run: ros2 launch mhseals_nav robot.launch.py
+    summary: The whole boat stack - MAVROS, EKFs, sensors, objects and Nav2.
+    notes: 'ODROID: sim:=false sensors_ignore:=camera,lidar. Every option: ros2 launch mhseals_nav robot.launch.py --show-args'
+    params:
+      - {name: sim, type: bool, default: true, description: Use simulation time.}
+      - {name: fcu_url, description: 'FCU connection URL, e.g. serial:///dev/ttyACM0:57600; empty inherits the endpoint YAML.'}
+      - {name: sensors_ignore, description: 'Comma-separated local drivers to skip, e.g. camera,lidar.'}
+      - {name: use_lidar, type: bool, default: true, description: Lidar costmap; false requires supervised operation.}
+      - {name: enable_slam, type: bool, default: false, description: Optional RTAB-Map lidar-cloud mapping.}
+      - {name: fcu, type: bool, default: true, description: Start MAVROS; false when the simulator publishes the FCU topics.}
+      - {name: camera_name, default: front, description: ZED camera namespace.}
+    examples:
+      - ros2 launch mhseals_nav robot.launch.py sim:=true
+      - ros2 launch mhseals_nav robot.launch.py sim:=false sensors_ignore:=camera,lidar fcu_url:=serial:///dev/ttyACM0:57600
+
+  - name: sensors.launch
+    run: ros2 launch mhseals_nav sensors.launch.py
+    summary: Velodyne driver and lidar relay (sim:=false), or the Unity ROS TCP endpoint (sim:=true).
+    params:
+      - {name: sim, type: bool, default: true, description: Run in simulation mode.}
+      - {name: sensors_ignore, description: 'Comma-separated sensors to ignore, e.g. lidar.'}
+      - {name: velodyne_ip, description: Device IP override; empty inherits YAML.}
+
+  - name: camera.launch
+    run: ros2 launch mhseals_nav camera.launch.py
+    summary: ZED camera with object detection and a lazy preview; the only launch the camera host runs.
+    notes: Start it in the container so ASTRO_DDS_ADDRESS pins its DDS profile.
+    params:
+      - {name: camera_name, default: front, description: 'ZED namespace; topics are /<camera_name>/zed_node/*.'}
+      - {name: camera_model, default: zed2i, description: ZED model.}
+      - {name: slam, type: bool, default: false, description: Also relay raw RGB and depth for RTAB-Map.}
+      - {name: preview_hz, type: float, description: Preview throttle rate; empty inherits YAML.}
+
+  - name: task.launch
+    run: ros2 launch mhseals_nav task.launch.py
+    summary: Run one task tree from config/tasks/.
+    params:
+      - {name: task, required: true, choices: [nav_channel, follow_path, speed_challenge, docking, return_home,
+                                                mission, mission_crane, circle_test, pair_test],
+         description: Task tree name in config/tasks/.}
+      - {name: sim, type: bool, default: false, description: Use simulation time.}
+      - {name: params_file, type: path, description: 'Task YAML; default config/tasks/<task>.yaml.'}
+    examples:
+      - ros2 launch mhseals_nav task.launch.py task:=nav_channel
+
+  - name: navigation.launch
+    run: ros2 launch mhseals_nav navigation.launch.py
+    summary: Nav2 alone, with the measured-limits overlay.
+    params:
+      - {name: sim, type: bool, default: true, description: Use simulation time.}
+      - {name: use_lidar, type: bool, default: true, description: Lidar costmap layer.}
+
+  - name: slam.launch
+    run: ros2 launch mhseals_nav slam.launch.py
+    summary: RTAB-Map mapping from the lidar cloud and camera.
+    params:
+      - {name: sim, type: bool, default: true, description: Use simulation time.}
+
+  - name: monitor
+    run: ros2 topic hz /odom/local
+    summary: Quick health looks - topic rates, MAVROS state, TF tree, RViz.
+    examples:
+      - ros2 topic echo /mavros/state
+      - ros2 topic hz /points
+      - ros2 run rqt_tf_tree rqt_tf_tree
+      - docker exec roboboat_dev bash -c 'ros2 topic hz /odom/local'
+      - ros2 launch rosbridge_server rosbridge_websocket_launch.xml
