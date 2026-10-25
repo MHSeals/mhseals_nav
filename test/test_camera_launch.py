@@ -35,6 +35,7 @@ def wrapper_arguments():
 def fake_share(monkeypatch):
     """mhseals_nav need not be installed to check the paths the launch builds."""
     from launch_ros.substitutions import FindPackageShare
+    monkeypatch.delenv('ASTRO_DDS_ADDRESS', raising=False)
     monkeypatch.setattr(camera, 'from_launch', lambda context: resolve_camera(
         ROOT / 'config/camera_startup.yaml',
         deployment_file=context.launch_configurations.get('camera_deployment_file', ''),
