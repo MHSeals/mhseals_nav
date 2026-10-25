@@ -1,6 +1,10 @@
 /**:
   ros__parameters:
-    frequency: 30.0   # inputs come at 20-50 Hz; 80 Hz missed its deadlines under load and lagged TF
+    # /imu/raw runs at 100 Hz with SCHED_LOOP_RATE 200 (config/fcu/odom-100hz.proposed.param).
+    # Cost, both EKFs and navsat with 100 Hz FCU + 100 Hz ZED IMU: 9% of one host E-core, within
+    # a 2-core budget squeezed to 0.12 E-cores with no gaps over 11 ms (odom-100hz bench).
+    # The 2026-10 ODROID gaps of up to 342 ms at 30 Hz were contention, not this cost.
+    frequency: 100.0
     sensor_timeout: 0.5
     two_d_mode: true
     publish_tf: true
@@ -42,6 +46,38 @@
       false, false, false,   # vx, vy, vz (IMU does not measure velocity)
       false, false, true,    # angular velocity: yaw rate
       false, false, false    # acceleration off until bias/noise is calibrated
+    ]
+
+    # === ZED 2i IMU (second reference, zed_imu_reference.py on the Orin) ===
+    # Gyro yaw rate only: the ZED's own orientation yaw is relative (no magnetometer in it).
+    # Its variance is floored at 0.005 rad/s, so the FCU leads while it streams. Lag from the
+    # Orin is a few ms; robot_localization applies a late sample as current (no smoothing).
+    imu1: /imu/zed
+    imu1_queue_size: 20
+    imu1_differential: false
+    imu1_relative: false
+    imu1_remove_gravitational_acceleration: true
+    imu1_config: [
+      false, false, false,
+      false, false, false,
+      false, false, false,
+      false, false, true,    # yaw rate
+      false, false, false
+    ]
+
+    # ZED magnetometer heading, absolute yaw. Published only after the ZED magcal
+    # (zed_imu_reference.yaml heading_enabled); until then this input stays silent.
+    imu2: /imu/zed_heading
+    imu2_queue_size: 5
+    imu2_differential: false
+    imu2_relative: false
+    imu2_remove_gravitational_acceleration: false
+    imu2_config: [
+      false, false, false,
+      false, false, true,    # yaw
+      false, false, false,
+      false, false, false,
+      false, false, false
     ]
 
     # # === DLIO ===

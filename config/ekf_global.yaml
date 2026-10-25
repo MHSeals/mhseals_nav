@@ -41,6 +41,20 @@
     imu0_relative: false
     imu0_remove_gravitational_acceleration: true
     
+    # ZED magnetometer heading (silent until the ZED magcal; see ekf_local.yaml imu2).
+    imu1: /imu/zed_heading
+    imu1_queue_size: 5
+    imu1_differential: false
+    imu1_relative: false
+    imu1_remove_gravitational_acceleration: false
+    imu1_config: [
+      false, false, false,
+      false, false, true,    # yaw
+      false, false, false,
+      false, false, false,
+      false, false, false
+    ]
+
     odom1: /odom/gps
     # navsat_transform supplies position, not yaw, velocity or yaw rate.
     odom1_config: [

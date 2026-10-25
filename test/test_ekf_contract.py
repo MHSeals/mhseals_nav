@@ -30,6 +30,17 @@ def test_fc_heading_not_magnetometer_free_reintegration():
     assert local['imu0_config'][5] and local['imu0_config'][11]
 
 
+def test_zed_imu_is_a_yaw_rate_and_its_magnetometer_a_heading():
+    """The ZED orientation yaw is relative, so only its gyro and mag heading are fused."""
+    local, global_ = params('ekf_local.yaml'), params('ekf_global.yaml')
+    assert local['imu1'] == '/imu/zed'
+    assert [i for i, on in enumerate(local['imu1_config']) if on] == [11]
+    for config, key in ((local, 'imu2'), (global_, 'imu1')):
+        assert config[key] == '/imu/zed_heading'
+        assert [i for i, on in enumerate(config[key + '_config']) if on] == [5]
+    assert local['two_d_mode'] and local['frequency'] == 100.0
+
+
 def test_global_filter_fuses_the_raw_sources_not_the_local_filters_output():
     config = params('ekf_global.yaml')
     assert config['odom0'] == '/odom/mavros'
@@ -63,18 +74,19 @@ def test_mavros_global_defaults_do_not_relabel_sensor_frames():
 
 def test_mavros_relays_preserve_sensor_abstraction_at_safe_rates(tmp_path):
     launch = (ROOT / 'launch/odom.launch.py').read_text()
-    for source, destination in (
-        ('/mavros/imu/data', '/imu/raw'),
-        ('/mavros/global_position/raw/fix', '/gps/fix'),
-    ):
-        assert f"arguments=['{source}', '{destination}']" in launch
+    assert "arguments=['/mavros/imu/data', '/imu/raw']" in launch
+    # /gps/fix comes from the odometry adapter, relabelled to the antenna's frame.
+    assert "'/mavros/global_position/raw/fix', '/gps/fix'" not in launch
+    adapter = (ROOT / 'mhseals_nav/mavros_odometry.py').read_text()
+    assert "'/mavros/global_position/raw/fix'" in adapter and "'/gps/fix'" in adapter
     assert "executable='mavros_odometry'" in launch
     assert "executable='mavros_setup'" in launch
     from mhseals_nav.mavros_configuration import ALIASES, resolve_setup
     parameters = resolve_setup(ROOT / 'config/mavros_setup.yaml')
     rates = {int(message_id): float(hz)
              for message_id, hz in (entry.split(':') for entry in parameters['message_rates'])}
-    assert rates == {33: 20., 30: 25., 31: 25., 24: 5., 27: 10., 1: 2., 193: 2., 65: 25.}
+    # 31 feeds /imu/raw at 100 Hz once SCHED_LOOP_RATE is 200; 30 is the 25 Hz fallback.
+    assert rates == {33: 20., 30: 25., 31: 100., 24: 5., 27: 10., 1: 2., 193: 2., 65: 25.}
     assert 127 not in rates and 128 not in rates  # a Here4 never emits GPS_RTK
     assert ALIASES == {'mavros_odom_rate': (33,), 'mavros_imu_rate': (30, 31),
                        'mavros_gps_rate': (24,), 'mavros_rc_rate': (65,)}

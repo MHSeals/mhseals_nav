@@ -25,6 +25,14 @@
       enable_tracking: true          # stable label_id; zed_backend still drops non-OK states
       prediction_timeout: 0.5        # ids survive a 0.5 s occlusion; classes set prediction_timeout_s
       max_range: 20.0                # cannot exceed depth.max_depth
+    # IMU at 200 Hz for zed_imu_reference (every 2nd to the EKF, /imu/zed) and the tracker's
+    # per-frame pose; the magnetometer (about 50 Hz from the SDK) for its heading. Stamps are
+    # the sensor's (debug.use_pub_timestamps false, the wrapper default). The IMU frame
+    # front_imu_link comes from the boat URDF, so camera.launch.py keeps publish_imu_tf false.
+    sensors:
+      sensors_pub_rate: 200.
+      publish_imu: true
+      publish_mag: true
     # The name carries the node name because image_transport strips only the namespace (/front).
     # Publish only the compressed transport of the colour image: no theora or zstd encoding.
     zed_node.rgb.color.rect.image.enable_pub_plugins: [image_transport/compressed]

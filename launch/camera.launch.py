@@ -99,7 +99,13 @@ def camera_startup(context):
             'ros_params_override_path': PathJoinSubstitution(
                 [share, 'config', 'zed_boat.yaml']),
         }.items())
-    return [GroupAction([*environment, wrapper, *relay_nodes(context, settings)])]
+    # The ZED IMU and magnetometer as ekf_local's second yaw reference (on the ODROID).
+    reference = Node(
+        package='mhseals_nav', executable='zed_imu_reference', name='zed_imu_reference',
+        output='screen', parameters=[
+            PathJoinSubstitution([share, 'config', 'zed_imu_reference.yaml']),
+            {'camera_name': LaunchConfiguration('camera_name')}])
+    return [GroupAction([*environment, wrapper, *relay_nodes(context, settings), reference])]
 
 
 def generate_launch_description():

@@ -208,6 +208,7 @@ def odometry_nodes(context):
             # leaves the EKF predicting without fresh translational motion.
             # This source carries ENU velocity despite its base_link child label.
             # Rotate with its own FCU attitude and replace unknown covariance.
+            # It also republishes /mavros/global_position/raw/fix as /gps/fix in gps_link.
             parameters=[settings.adapter_parameters],
             output='screen'
         ),
@@ -216,13 +217,6 @@ def odometry_nodes(context):
             executable='relay',
             name='mavros_imu_relay',
             arguments=['/mavros/imu/data', '/imu/raw'],
-            output='screen'
-        ),
-        Node(
-            package='topic_tools',
-            executable='relay',
-            name='mavros_gps_relay',
-            arguments=['/mavros/global_position/raw/fix', '/gps/fix'],
             output='screen'
         ),
     ]

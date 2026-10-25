@@ -156,6 +156,20 @@
     <origin xyz="0.04990 0 0.13779" rpy="0 0 0"/>
   </joint>
 
+  <!-- ZED 2i IMU (frame_id of /front/zed_node/imu/data and /imu/zed). front_camera_link is the
+       camera's bottom mounting screw; the ZED wrapper's own description (publish_urdf, on the
+       Orin) hangs front_camera_center 0.015 above it, unrotated for the zed2i (bottom_slope 0),
+       but it has no IMU link: the wrapper's IMU TF is off (camera.launch.py publish_imu_tf
+       false), so this is its only publisher and the ODROID's EKF needs no Orin TF for it.
+       Placed at the camera centre with the camera's axes: the SDK's factory camera-IMU
+       transform is a few mm and under a degree, which a gyro or heading does not feel. -->
+  <link name="front_imu_link"/>
+  <joint name="front_imu_joint" type="fixed">
+    <parent link="front_camera_link"/>
+    <child link="front_imu_link"/>
+    <origin xyz="0 0 0.015" rpy="0 0 0"/>
+  </joint>
+
   <link name="lidar_link">
     <visual>
       <origin xyz="-0.01946 -0.00019 -0.01764" rpy="1.57080 0 -1.57080"/>

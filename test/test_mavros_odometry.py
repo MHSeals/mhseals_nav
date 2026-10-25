@@ -131,3 +131,11 @@ def test_fcu_source_keeps_the_fcu_velocity_and_base_link():
     result = Adapter(LIVE, 'fcu', 'gps_link').receive(message(0., (2., 0.)), 10.)
     assert result.child_frame_id == 'base_link'
     assert result.twist.twist.linear.x == pytest.approx(2.)
+
+
+def test_raw_fix_is_relabelled_to_the_antenna_frame():
+    """MAVROS stamps GPS_RAW_INT as base_link; navsat_transform removes the lever arm only
+    when the fix names the antenna's frame."""
+    from mhseals_nav.mavros_odometry import antenna_fix
+    fix = antenna_fix(S(header=S(frame_id='base_link', stamp=5), latitude=1.), 'gps_link')
+    assert fix.header.frame_id == 'gps_link' and fix.latitude == 1.

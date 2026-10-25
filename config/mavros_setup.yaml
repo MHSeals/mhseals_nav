@@ -1,15 +1,18 @@
 mavros_setup:
   ros__parameters:
     # Desired requests, repeated on reconnect; delivery remains unverified.
-    # ATTITUDE (30) feeds /mavros/imu/data -> /imu/raw. At SCHED_LOOP_RATE 50 the FCU
-    # refuses 50 Hz and keeps SR0_EXTRA1's 4 Hz; 25 Hz is accepted (2026-10-25).
+    # /mavros/imu/data -> /imu/raw comes from ATTITUDE_QUATERNION (31) once it arrives; MAVROS
+    # then ignores ATTITUDE (30). ArduPilot denies intervals under 1.25 loop periods: at
+    # SCHED_LOOP_RATE 50 it refuses 31 at 100 Hz, so /imu/raw stays on 30 at 25 Hz (accepted
+    # 2026-10-25) and the 31 shortfall is logged every verify_period. At 200
+    # (config/fcu/odom-100hz.proposed.param) 31 runs at 100 Hz.
     # GPS_RAW_INT (24) stays at the Here4's current 5 Hz. The FCU repeats the last fix at the
     # requested rate and nothing downstream drops repeats, so request no more than the receiver
     # makes: set 24:10 only after the node shows 10 Hz (config/fcu/blastoise_gnss_proposal.param).
     message_rates:
       - '33:20'
       - '30:25'
-      - '31:25'
+      - '31:100'
       - '24:5'
       - '27:10'
       - '1:2'

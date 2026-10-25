@@ -83,6 +83,17 @@ def gps_sample(gps, now, max_age, nofix_stddev):
     return (0., 0., 0.), nofix_stddev, False
 
 
+def antenna_fix(fix, gps_frame):
+    """The raw receiver fix labelled with the antenna's frame.
+
+    MAVROS stamps GPS_RAW_INT with its child_frame_id (base_link), which navsat_transform
+    reads as the antenna sitting on base_link: the 0.137 m lever arm then circles the fused
+    position through every turn. With the antenna frame it removes the lever arm by TF.
+    """
+    fix.header.frame_id = gps_frame
+    return fix
+
+
 def with_velocity(message, velocity, stddev):
     """The same odometry with its ENU velocity and diagonal sigma replaced."""
     result = deepcopy(message)
@@ -141,6 +152,7 @@ def main(args=None):
     from rclpy.executors import ExternalShutdownException
 
     from mavros_msgs.msg import GPSRAW
+    from sensor_msgs.msg import NavSatFix
 
     from .odometry_configuration import resolve_odometry
     defaults = resolve_odometry().adapter_parameters
@@ -182,6 +194,11 @@ def main(args=None):
                                  receive_gps, qos_profile_sensor_data)
 
     node.create_subscription(Odometry, '/mavros/global_position/local', receive,
+                             qos_profile_sensor_data)
+    # /gps/fix for navsat_transform and the watchdogs, in the antenna's frame.
+    fix_out = node.create_publisher(NavSatFix, '/gps/fix', 10)
+    node.create_subscription(NavSatFix, '/mavros/global_position/raw/fix',
+                             lambda fix: fix_out.publish(antenna_fix(fix, gps_frame)),
                              qos_profile_sensor_data)
     try:
         rclpy.spin(node)
