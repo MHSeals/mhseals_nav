@@ -36,7 +36,8 @@ def build(params):
         Navigate('into the bay', 'bay_berth', precise=True, retries=2,
                  accept=params['berth_accept'], why='slide into the bay'),
         Report('report docked', 'docked', include=('bay',), banner=banner),
-        Hold('hold in the bay', params['dock_time'], station=params['berth_accept']),
+        Hold('hold in the bay', params['dock_time'], station=params['hold_redrive'],
+             precise=params['hold_precise']),
         Navigate('back out', 'bay_staging', retries=2, accept=1.0, why='back out of the bay'),
         Report('report undocked', 'undocked'),
     ])

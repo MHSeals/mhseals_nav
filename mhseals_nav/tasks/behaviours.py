@@ -143,8 +143,12 @@ class Driver(Leaf):
         self.goal, self.queued, self.outcome = None, None, status
         return status
 
-    def keep_station(self, hold):
-        """Hold the pose this was first called at: drive back once ``hold`` metres off."""
+    def keep_station(self, hold, precise=False):
+        """Hold the pose this was first called at: drive back once ``hold`` metres off.
+
+        ``precise`` drives back on the tight goal checker, so it ends well inside
+        ``hold`` and the next drift has room before another re-goal.
+        """
         pose = self.board.pose
         if pose is None:
             return
@@ -153,7 +157,7 @@ class Driver(Leaf):
         if self.driving() == 'RUNNING':
             return
         if math.dist(pose[:2], self.anchor[:2]) > hold:
-            self.drive([self.anchor], why='hold station')
+            self.drive([self.anchor], precise, why='hold station')
         elif hasattr(self.navigator, 'hold'):
             # No command for 0.5 s zeroes the thrusters and the boat drifts freely; a
             # zero velocity is held against the current by the velocity controller.
@@ -687,9 +691,9 @@ class Hold(Driver):
     drift ``station`` metres off, it drives back to where the hold began.
     """
 
-    def __init__(self, name, seconds, station=None):
+    def __init__(self, name, seconds, station=None, precise=False):
         super().__init__(name)
-        self.seconds, self.station = seconds, station
+        self.seconds, self.station, self.precise = seconds, station, precise
 
     def initialise(self):
         super().initialise()
@@ -701,7 +705,7 @@ class Hold(Driver):
         if self.board.now >= self.until:
             return Status.SUCCESS
         if self.station is not None:
-            self.keep_station(self.station)
+            self.keep_station(self.station, self.precise)
         return Status.RUNNING
 
 

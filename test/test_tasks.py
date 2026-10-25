@@ -577,9 +577,20 @@ def test_berth_counts_when_nav2_gives_up_inside_the_bay_and_keeps_station():
     assert world.run(script=stubborn) == 'SUCCESS'
     assert world.names() == ['docked', 'undocked']
     berth = next(goal.route[-1] for goal in world.goals if goal.precise)
-    assert any(goal.route == [pytest.approx(berth)] and not goal.precise
-               for goal in world.goals)  # drove back in while holding
+    back = [goal for goal in world.goals if goal.route == [pytest.approx(berth)]]
+    assert len(back) >= 2 and all(goal.precise for goal in back)  # drove back in, precisely
     assert world.holds > 0  # and otherwise held zero velocity
+
+
+def test_the_dock_hold_re_drives_well_outside_the_precise_goal_tolerance():
+    """Arriving within the checker's tolerance must leave drift room before a re-goal."""
+    import yaml
+    from pathlib import Path
+    nav2 = yaml.safe_load((Path(__file__).parents[1] / 'config/nav2_params.yaml').read_text())
+    checker = nav2['controller_server']['ros__parameters']['precise_goal_checker']
+    docking = params('docking')
+    assert docking['hold_precise']
+    assert docking['hold_redrive'] - checker['xy_goal_tolerance'] >= 0.3 - 1e-9
 
 
 def test_spin_report_turns_one_quarter_goal_at_a_time():

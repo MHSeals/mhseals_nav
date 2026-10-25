@@ -9,6 +9,10 @@ staging: 3.0            # m out from the banner, lined up before sliding in
 bay_depth: 1.5          # m the bay reaches out from the spine
 dock_time: 5.0          # s held in the bay
 berth_accept: 0.5       # m from the berth that counts as in the bay if Nav2 gives up
+# Holding: drift this far off the berth before driving back; the drive back ends on the
+# precise checker (0.3 m, nav2_params.yaml), leaving at least 0.3 m of hysteresis.
+hold_redrive: 0.6       # m
+hold_precise: true
 attempts: 2             # tries within the mission's time limit
 precise: true           # gated on GPS fix tier, drift and thrusters (mission `conditions`)
 search_distance: 20.0
