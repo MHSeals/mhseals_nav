@@ -56,6 +56,35 @@ def test_latency_shifts_the_moving_disc():
     assert at(grid, origin, -0.5, 3.0) == 0
 
 
+def test_only_the_moving_hull_is_lethal():
+    centre = (0.0, 0.0)
+    origin = grid_origin(centre, GRID)
+    boat = track(0.0, 3.0, vx=0.0, vy=1.0, motion=2, cls='yellow_target_boat', sigma=0.2)
+    grid = rasterize([boat], centre, GRID, now=0.0)
+    hull = GRID['radius']['yellow_target_boat']
+    assert at(grid, origin, hull - 0.1, 3.0) == 100
+    assert at(grid, origin, hull + 0.2, 3.0) == GRID['ring_cost'] < 100
+    # The same uncertainty around a buoy stays lethal.
+    still = rasterize([track(0.0, 3.0, cls='yellow_target_boat', sigma=0.2)], centre, GRID)
+    assert at(still, origin, hull + 0.2, 3.0) == 100
+
+
+def test_stale_swath_shrinks_and_ends_with_the_horizon():
+    centre = (0.0, 0.0)
+    origin = grid_origin(centre, GRID)
+    boat = track(0.0, 3.0, vx=1.0, motion=2, cls='yellow_target_boat')
+    h = GRID['horizon_s']
+    fresh = rasterize([boat], centre, GRID, now=0.0)
+    stale = rasterize([boat], centre, GRID, now=h - 1.0)
+    gone = rasterize([boat], centre, GRID, now=h + 0.5)
+    assert at(fresh, origin, h - 0.2, 3.0) > 0
+    assert at(stale, origin, h - 0.2, 3.0) > 0       # still within the last prediction
+    reach = GRID['radius']['yellow_target_boat'] + GRID['max_extra_m'] + 0.2
+    assert at(stale, origin, h + reach, 3.0) == 0    # nothing beyond it
+    assert at(gone, origin, h + 0.5, 3.0) == 100     # the hull where it should be now
+    assert at(gone, origin, h + 0.5 + reach, 3.0) == 0   # and no swath ahead
+
+
 def test_origin_snaps_to_cells():
     a = grid_origin((1.01, 2.02), GRID)
     assert all(abs(v / GRID['resolution'] - round(v / GRID['resolution'])) < 1e-9 for v in a)

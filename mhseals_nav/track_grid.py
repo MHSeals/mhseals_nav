@@ -1,7 +1,9 @@
 """Tracks as an OccupancyGrid for the perception costmap's track_layer (perception-v2 §5.7).
 
-Pure numpy. Static, prior and unknown tracks are lethal discs; a moving track also lays a
-graded swath along its predicted path, so MPPI pays to cross ahead of it.
+Pure numpy. Static, prior and unknown tracks are lethal discs, uncertainty included. A
+moving track is lethal only over its hull; its uncertainty ring and the swath along its
+predicted path are graded, so MPPI pays to cross ahead of it but a crossing never walls
+off a gate.
 """
 
 import math
@@ -57,14 +59,18 @@ def rasterize(tracks, centre_xy, cfg, now=None):
             continue
         latency = max((now if now is not None else track.t) - track.t, 0.0)
         p, v = track.x[:2], track.x[2:]
-        steps = int(round(cfg['horizon_s'] / cfg['step_s']))
+        # The prediction ends horizon_s after the last measurement: a stale track's swath
+        # shrinks away instead of sliding ahead of it, and only its current disc remains.
+        steps = int(max(cfg['horizon_s'] - latency, 0.0) / cfg['step_s'] + 1e-9)
         for k in range(steps + 1):
             t = k * cfg['step_s']
             dt = latency + t
             P = track.P[:2, :2] + dt * (track.P[:2, 2:] + track.P[2:, :2]) + \
                 dt * dt * track.P[2:, 2:]
             sigma = math.sqrt(max(float(np.linalg.eigvalsh(P).max()), 0.0))
-            value = 100 if k == 0 else min(99, max(
+            value = cfg['ring_cost'] if k == 0 else min(99, max(
                 cfg['min_cost'], int(100 * (1 - t / cfg['horizon_s']) ** cfg['gamma'])))
             _disc(grid, origin, res, p + v * dt, radius + min(2 * sigma, extra), value)
+        # Only the hull is lethal (B inflates it); its uncertainty ring and swath are graded.
+        _disc(grid, origin, res, p + v * latency, radius, 100)
     return grid
