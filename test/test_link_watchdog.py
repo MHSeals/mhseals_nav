@@ -110,7 +110,11 @@ def test_node_holds_without_the_operator_and_survives_flips():
             return feed
 
         # Bad: no operator yet (require_operator), then only the boat's own TUI beating.
+        status = []
+        probe.create_subscription(String, '/link_watchdog/status',
+                                  lambda m: status.append(json.loads(m.data)), 10)
         flip_twice(ex, got, beats(socket.gethostname()), beats(OPERATOR))
+        assert status and set(status[-1]) == {'ok', 'reason'}   # its liveness beat for the TUI
         assert dog.logic.beat_at is not None
         assert {g['op'] for g in got} == {'hold'}
         assert {g['cause'] for g in got} == {'operator_link'}

@@ -6,11 +6,17 @@ token, and asks again every repeat_s, so a release while the condition is still 
 again. It never releases: the operator clears holds. Ages are receipt ages on the monotonic
 clock; only costmap_watchdog also checks header stamps, so there a skew between the boat and
 the Orin beyond max_stamp_age_s holds.
+
+Each also publishes ``~/status`` (JSON ``{"ok", "reason"}``) every STATUS_S: its liveness for an
+operator TUI, which refuses and holds arming within about 2 s of the beats stopping, long before
+DDS would drop the dead node from the graph.
 """
 
 import json
 import secrets
 import time
+
+STATUS_S = 0.5    # s between ~/status beats; a TUI calls a watchdog dead after 2 s without one
 
 
 def fresh(at, now, limit):
@@ -71,7 +77,13 @@ def node_class(name, filename, logic, subscribe):
             self.create_subscription(Twist, cfg['command_topic'], self.on_command, 10)
             subscribe(self)
             self.create_timer(1.0 / cfg['rate_hz'], self.tick)
+            self.status = self.create_publisher(String, '~/status', 10)
+            self.create_timer(STATUS_S, self.beat)
             self.was = None
+
+        def beat(self):
+            why = self.logic.reason(time.monotonic())
+            self.status.publish(String(data=json.dumps({'ok': not why, 'reason': why})))
 
         def on_command(self, _):
             self.logic.command(time.monotonic())
