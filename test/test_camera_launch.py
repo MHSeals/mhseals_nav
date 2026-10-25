@@ -164,3 +164,61 @@ def test_hardware_sensors_launch_starts_no_camera():
         for dead in ('zed_wrapper', 'common_config_path', 'zed_id_path', 'ffmpeg_config_path',
                      'custom_onnx_file', 'common_stereo', 'ffmpeg.yaml', 'zed2i.yaml'):
             assert dead not in text, (name, dead)
+
+
+def flat(tree, prefix=''):
+    """Dotted ROS parameter names of a nested YAML mapping."""
+    names = {}
+    for key, value in tree.items():
+        if isinstance(value, dict):
+            names.update(flat(value, f'{prefix}{key}.'))
+        else:
+            names[f'{prefix}{key}'] = value
+    return names
+
+
+def ros_params(path):
+    import yaml
+    return yaml.safe_load(Path(path).read_text())['/**']['ros__parameters']
+
+
+def wrapper_parameters(*names):
+    try:
+        from ament_index_python.packages import get_package_share_directory
+        share = Path(get_package_share_directory('zed_wrapper'), 'config')
+    except Exception:
+        pytest.skip('zed_wrapper is not installed')
+    found = {}
+    for name in names:
+        found.update(flat(ros_params(share / name)))
+    return found
+
+
+def test_boat_overrides_name_only_parameters_the_wrapper_reads():
+    """A misspelt key would be declared by nobody and silently ignored."""
+    known = wrapper_parameters('common_stereo.yaml', 'zed2i.yaml')
+    ours = flat(ros_params(ROOT / 'config/zed_boat.yaml'))
+    # image_transport reads its own per-topic parameter, not the wrapper.
+    assert {k for k in ours if not k.startswith('zed_node.')} <= set(known)
+
+
+def test_custom_detection_runs_epoch60_with_wrapper_class_keys():
+    known = wrapper_parameters('custom_object_detection.yaml')
+    sample = {k.split('.', 2)[2] for k in known if k.startswith('object_detection.class_000.')}
+    detection = ros_params(ROOT / 'config/custom_object_detection.yaml')['object_detection']
+    assert detection['detection_model'] == 'CUSTOM_YOLOLIKE_BOX_OBJECTS'
+    assert Path(detection['custom_onnx_file']).name == 'epoch60.onnx'
+    assert (ROOT / 'config/epoch60.onnx').is_file()
+    classes = {k: v for k, v in detection.items() if k.startswith('class_')}
+    assert len(classes) == detection['custom_class_count']
+    assert all(set(v) <= sample for v in classes.values())
+
+
+@pytest.mark.parametrize('name', ['zed_boat.yaml', 'custom_object_detection.yaml'])
+def test_rcl_accepts_the_parameter_file(name):
+    """rcl parses --params-file at init and rejects any non-ROS shape."""
+    rclpy = pytest.importorskip('rclpy')
+    context = rclpy.context.Context()
+    rclpy.init(args=['--ros-args', '--params-file', str(ROOT / 'config' / name)],
+               context=context)
+    rclpy.shutdown(context=context)
