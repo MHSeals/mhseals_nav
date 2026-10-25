@@ -30,7 +30,8 @@ def test_omni_mppi_and_command_limits():
     assert mppi['rotate_to_heading_once'] is True
     assert mppi['rotate_to_heading_angular_vel'] <= mppi['wz_max']
     assert mppi['max_angular_accel'] <= mppi['az_max']
-    assert mppi['rotate_to_goal_heading'] is False
+    # Inside xy tolerance the shim turns to the goal yaw; nothing else steers to it.
+    assert mppi['rotate_to_goal_heading'] is True
     smoother = config['velocity_smoother']['ros__parameters']
     # The smoother passes everything MPPI may command, sway included, and no more.
     assert smoother['max_velocity'] == [mppi['vx_max'], mppi['vy_max'], mppi['wz_max']]
