@@ -17,6 +17,13 @@
 # is never armed (testing health flags an armed FCU as unsafe), so Rover's modes, steering and
 # speed controllers, and its logging (LOG_DISARMED 0), never run.
 #
+# Rover 4.6.3 SITL with this repo's blastoise.param (GPS and CAN swapped for SITL's), 2026-10-25:
+#   loop 50:  ATTITUDE_QUATERNION at 100 Hz DENIED, "Requested rate for message ID 31 too fast.
+#             Increase SCHED_LOOP_RATE"; ATTITUDE at 25 Hz arrives at 24.6 Hz.
+#   loop 200: 31 at 100 Hz accepted and arrives at 99.4 Hz; with this whole set, 99.5 Hz.
+#   PM: no long loops (NLon 0) in any; MaxT 20.8 ms at 50 Hz, 5.8 ms at 200 Hz. SITL timing
+#   says nothing about the H7's CPU, so the load check after the reboot is on the real FCU.
+#
 # Format: NAME,VALUE   # was OLD | why. Unlisted parameters stay as in the latest snapshot.
 
 # --- A. Loop and IMU rate -------------------------------------------------------------------
@@ -36,8 +43,7 @@ SR0_EXTRA1,25                # was 4 | ATTITUDE 25 Hz without any MAVROS request
 
 # --- B. Rover features we do not use --------------------------------------------------------
 # The Cube must never drive the thrusters. 73/74 are ThrottleLeft/ThrottleRight on MAIN 1-4.
-# Disabled outputs are not driven at all; Rover then refuses to arm ("no throttle/steering"),
-# which is an extra guard since we never arm it.
+# Disabled outputs are not driven at all, armed or not, and we never arm it.
 SERVO1_FUNCTION,0            # was 73 | Cube does not drive thrusters
 SERVO2_FUNCTION,0            # was 74 | Cube does not drive thrusters
 SERVO3_FUNCTION,0            # was 73 | Cube does not drive thrusters
