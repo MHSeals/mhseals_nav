@@ -6,5 +6,6 @@ max_gate_width: 4.0
 search_distance: 6.0
 first_gate_radius: 30.0 # m; the task's first gate is the nearest within this, any way
 corner_side: 1.0        # m the next gate lies to the side before the route gets a mid-point
+gate_exit: 1.1          # m past each gate: half the hull (0.53) and a margin
 time_limit: 240.0
 timeout: 240.0

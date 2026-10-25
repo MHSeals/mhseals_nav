@@ -33,6 +33,7 @@ from mhseals_nav.tasks.recognition import Recogniser
 from mhseals_nav.tasks.search import Coverage, load_config as load_search
 from mhseals_nav.tasks.trees import KINDS, TREES
 from nav2_msgs.action import BackUp, NavigateThroughPoses, NavigateToPose
+from nav2_msgs.msg import SpeedLimit
 from nav_msgs.msg import Odometry
 import py_trees
 import rclpy
@@ -125,12 +126,14 @@ class Navigator:
     can cancel them all, including one whose request is still in flight.
     """
 
-    def __init__(self, node, frame='map', hold_topic='/cmd_vel_nav', backup_wait_s=0.0):
+    def __init__(self, node, frame='map', hold_topic='/cmd_vel_nav', backup_wait_s=0.0,
+                 speed_limit_topic='/speed_limit'):
         from ament_index_python.packages import get_package_share_directory
         self.node, self.frame, self.report, self.last = node, frame, None, None
         self.backup_wait_s, self.backup_since = backup_wait_s, None
         self.goals, self.closed = [], False
         self.zero = node.create_publisher(Twist, hold_topic, 1)
+        self.limit = node.create_publisher(SpeedLimit, speed_limit_topic, 10)
         self.to_pose = ActionClient(node, NavigateToPose, 'navigate_to_pose')
         self.through = ActionClient(node, NavigateThroughPoses, 'navigate_through_poses')
         self.backup = ActionClient(node, BackUp, 'backup')  # behavior_server's backup plugin
@@ -154,6 +157,14 @@ class Navigator:
         """
         if not self.closed:
             self.zero.publish(Twist())
+
+    def speed_limit(self, speed):
+        """Cap Nav2's controller at ``speed`` m/s; 0 lifts the cap.
+
+        Lifting it still goes out after an override: it commands no motion, and a
+        cap left behind would slow whoever drives with Nav2 next.
+        """
+        self.limit.publish(SpeedLimit(percentage=False, speed_limit=float(speed)))
 
     def ready(self):
         """Nav2's navigators are up, and the backup behaviour or ``backup_wait_s`` gone by.

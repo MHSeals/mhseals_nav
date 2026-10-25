@@ -441,14 +441,16 @@ class GateRun(Driver):
     with ``toward`` (a label) each gate is crossed toward the nearest such object.
     ``red_side`` (port, starboard) fixes the way through each gate by its colour
     order, so a gate crossed the wrong way never counts; ``any`` takes either.
-    ``corner_side`` (m) is when a turn between gates gets a mid-point (geometry.chain).
+    ``corner_side`` (m) is when a turn between gates gets a mid-point, and
+    ``exit_after`` (m) how far past each gate the route goes on (geometry.chain).
     The cleared gates go to ``key``; each is reported as ``gate_cleared``.
     """
 
     def __init__(self, name, key, red, green, gates=None, search=10.0, step=5.0,
                  max_width=8.0, min_width=1.0, near=None, radius=None, lookahead=3,
                  replan=0.7, retries=2, exclude=(), toward=None, red_side='any',
-                 first_radius=None, exclude_radius=None, spread=None, corner_side=None):
+                 first_radius=None, exclude_radius=None, spread=None, corner_side=None,
+                 exit_after=None):
         super().__init__(name, reads=((near,) if near else ()) + tuple(exclude),
                          writes=(key,))
         if red_side not in ('port', 'starboard', 'any'):
@@ -459,6 +461,7 @@ class GateRun(Driver):
         self.search, self.step, self.max_width, self.min_width = search, step, max_width, min_width
         self.near, self.radius, self.lookahead = near, radius, lookahead
         self.replan, self.retries, self.corner_side = replan, retries, corner_side
+        self.exit_after = exit_after
 
     def initialise(self):
         super().initialise()
@@ -542,7 +545,7 @@ class GateRun(Driver):
             if not self.planned:
                 self.decide('execute', f'{len(chain)} gate(s) ahead: through the middle')
             self.planned, self.looks, self.searched = chain, None, 0.0
-            route = geometry.chain(chain, self.corner_side)
+            route = geometry.chain(chain, self.corner_side, self.exit_after)
             if geometry.lined_up(chain[0], pose):  # past the lead-in: never turn back to it
                 route = route[1:]
             self.drive(route, why=f'between gate {len(self.cleared) + 1} markers')
@@ -793,6 +796,33 @@ class Deadline(Decorator):
             self.decorated.stop(Status.INVALID)
             return Status.FAILURE
         return self.decorated.status
+
+
+class SpeedCap(Decorator):
+    """Cap Nav2's speed at ``speed`` m/s while the child runs; 0 leaves it uncapped.
+
+    However the child ends (done, failed, stopped by an override), the cap is lifted.
+    """
+
+    def __init__(self, name, child, speed):
+        super().__init__(name=name, child=child)
+        self.speed = speed
+
+    def setup(self, **kwargs):
+        self.navigator = kwargs.get('navigator')
+
+    def initialise(self):
+        self.cap(self.speed)
+
+    def update(self):
+        return self.decorated.status
+
+    def terminate(self, new_status):
+        self.cap(0.0)
+
+    def cap(self, speed):
+        if self.speed and hasattr(self.navigator, 'speed_limit'):
+            self.navigator.speed_limit(speed)
 
 
 class PlanHome(Leaf):

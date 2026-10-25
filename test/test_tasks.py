@@ -147,6 +147,9 @@ class World:
     def hold(self):
         self.holds = getattr(self, 'holds', 0) + 1
 
+    def speed_limit(self, speed):
+        self.limits = getattr(self, 'limits', []) + [speed]
+
     def preempt(self, why):
         """As the runner does: no goal goes out after this, and the run ends."""
         self.preempted = why
@@ -249,6 +252,19 @@ def test_follow_path_runs_every_gate_and_reports_the_species_count():
     assert world.run() == 'SUCCESS'
     assert world.names().count('gate_cleared') == 3
     assert world.event('species_count') == {'count': 2, 'method': 'display'}
+    assert world.limits == [params('follow_path')['speed'], 0.0]  # capped, then lifted
+
+
+def test_the_gate_speed_cap_is_lifted_when_an_override_stops_the_task():
+    world = World('follow_path', params('follow_path'))
+    world.state['objects'] = gate(5, 0, 2.4, 'red_buoy', 'green_buoy')
+
+    def revoke(tick, world):
+        if world.goals:
+            world.goals[0].status = 'CANCELED'
+
+    assert world.run(script=revoke) == 'PREEMPTED'
+    assert world.limits[-1] == 0.0
 
 
 def test_docking_skips_the_occupied_bay():
@@ -896,7 +912,9 @@ def test_drift_never_aborts_a_dock_under_way():
 
 
 def test_offset_gates_get_a_mid_point_so_the_corner_is_not_cut():
-    route = geometry.chain([(19, 0, 0), (24, -2, 0), (30, -2, 0)],
-                           params('follow_path')['corner_side'])
+    path = params('follow_path')
+    route = geometry.chain([(19, 0, 0), (24, -2, 0), (30, -2, 0)], path['corner_side'],
+                           1.1)
+    assert route[1][2] == pytest.approx(route[2][2])  # the exit already faces the leg
     assert route[2] == pytest.approx((21.3, -1.0, geometry.heading((20.1, 0), (22.5, -2))))
     assert len(route) == 7  # no mid-point between the two gates in line

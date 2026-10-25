@@ -5,7 +5,7 @@ yellow buoys and vessels, then report how many yellow buoys (endangered
 species) there were before leaving the task.
 """
 
-from mhseals_nav.tasks.behaviours import CountObjects, GateRun, ReportCount
+from mhseals_nav.tasks.behaviours import CountObjects, GateRun, ReportCount, SpeedCap
 from py_trees.common import ParallelPolicy
 from py_trees.composites import Parallel, Sequence
 
@@ -15,9 +15,11 @@ def build(params):
     red, green = params['red'], params['green']
     path = Sequence('path', memory=True, children=[
         look_for('find the path', (red, green), params),
-        GateRun('follow the gates', 'path', red, green, search=params['search_distance'],
-                max_width=params['max_gate_width'], red_side=params['red_side'],
-                **gate_options(params)),
+        # Slower through the small gates: the controller gave up at the turn out of one.
+        SpeedCap('gate speed', GateRun(
+            'follow the gates', 'path', red, green, search=params['search_distance'],
+            max_width=params['max_gate_width'], red_side=params['red_side'],
+            **gate_options(params)), params['speed']),
         ReportCount('report count', 'species', 'species_count',
                     spin=params['report'] == 'spin'),
     ])

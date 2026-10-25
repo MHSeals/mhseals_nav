@@ -6,6 +6,7 @@ max_gate_width: 8.0
 search_distance: 10.0  # m of forward search, with camera sweeps
 first_gate_radius: 30.0  # m; the pair is the nearest within this, any way
 corner_side: 1.0         # m the next gate lies to the side before the route gets a mid-point
+gate_exit: 1.1           # m past each gate: half the hull (0.53) and a margin
 clearance: 3.0         # m past the gate centre before turning
 time_limit: 180.0
 timeout: 180.0
