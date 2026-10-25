@@ -51,7 +51,9 @@ controller_server:
       rotate_to_heading_angular_vel: 0.3    # = wz_max
       max_angular_accel: 0.5                # = az_max
       simulate_ahead_time: 1.0
-      rotate_to_goal_heading: false         # the BT and goal checkers own final yaw
+      # Inside the goal checker's xy tolerance the shim turns to the goal yaw, closed loop.
+      # The BT and goal checkers only test the yaw; nothing else steers to it.
+      rotate_to_goal_heading: true
       motion_model: Omni
       time_steps: 48
       model_dt: 0.1             # = 1 / controller_frequency
