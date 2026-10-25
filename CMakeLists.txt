@@ -1,25 +1,50 @@
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.20)
 project(mhseals_nav)
 
-# Default to C99
-if(NOT CMAKE_C_STANDARD)
-  set(CMAKE_C_STANDARD 99)
-endif()
-
-# Default to C++14
-if(NOT CMAKE_CXX_STANDARD)
-  set(CMAKE_CXX_STANDARD 14)
-endif()
-
-if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-  add_compile_options(-Wall -Wextra -Wpedantic)
-endif()
-
 find_package(ament_cmake REQUIRED)
+find_package(ament_cmake_python REQUIRED)
+find_package(rosidl_default_generators REQUIRED)
+find_package(builtin_interfaces REQUIRED)
+find_package(geometry_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
 
-if(BUILD_TESTING)
-  find_package(ament_lint_auto REQUIRED)
-  ament_lint_auto_find_test_dependencies()
-endif()
+rosidl_generate_interfaces(${PROJECT_NAME}
+  msg/Observation.msg
+  msg/ObservationArray.msg
+  msg/Track.msg
+  msg/TrackArray.msg
+  DEPENDENCIES builtin_interfaces geometry_msgs std_msgs
+)
 
+# rosidl already owns ament_python_install_package(mhseals_nav) for the generated msg
+# subpackage, and a second call is a hard error, so the sources merge into the same
+# install directory and each executable is a generated wrapper.
+install(DIRECTORY ${PROJECT_NAME}/ DESTINATION ${PYTHON_INSTALL_DIR}/${PROJECT_NAME}
+  PATTERN "__pycache__" EXCLUDE PATTERN "*.pyc" EXCLUDE)
+
+set(ENTRY_POINTS
+  twist_converter=twist_converter
+  object_tracker=object_tracker
+  thruster_allocation=thruster_allocation
+  zed_backend=zed_backend
+  sim_backend=sim_backend
+  lidar_relay=lidar_relay
+  mavros_odometry=mavros_odometry
+  mavros_setup=mavros_setup
+  run_task=tasks.interface
+)
+foreach(entry ${ENTRY_POINTS})
+  string(REPLACE "=" ";" entry "${entry}")
+  list(GET entry 0 exe)
+  list(GET entry 1 module)
+  file(GENERATE OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/scripts/${exe}
+    CONTENT "#!/usr/bin/python3\nimport sys\nfrom ${PROJECT_NAME}.${module} import main\nsys.exit(main())\n"
+    FILE_PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
+  install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/scripts/${exe} DESTINATION lib/${PROJECT_NAME})
+endforeach()
+
+install(DIRECTORY launch config description rviz2 DESTINATION share/${PROJECT_NAME})
+install(DIRECTORY ${PROJECT_NAME}/behavior_trees DESTINATION share/${PROJECT_NAME})
+
+ament_export_dependencies(rosidl_default_runtime)
 ament_package()
