@@ -15,7 +15,7 @@ URDF = ET.parse(ROOT / 'description/blastoise/blastoise.xacro').getroot()
 
 
 def parents():
-    """child link -> (parent link, xyz, rpy) for the literal fixed joints."""
+    """Map each child link to (parent link, xyz, rpy) for the literal fixed joints."""
     result = {}
     for joint in URDF.findall('joint'):
         child = joint.find('child').get('link')
@@ -74,9 +74,11 @@ def test_zed_imu_frame_is_the_cameras_and_unrotated():
 
 
 def test_sensor_axes_are_base_link_axes():
-    """REP-103 base_link (x forward, y left, z up). MAVROS publishes the FCU IMU already in
-    base_link, the lidar deskew uses base_link's twist for lidar_link, and the ZED gyro's z is
-    the yaw rate only while its frame is level: none of them may be rotated."""
+    """Keep every sensor frame on REP-103 base_link axes (x forward, y left, z up).
+
+    MAVROS publishes the FCU IMU already in base_link, the lidar deskew uses base_link's twist
+    for lidar_link, and the ZED gyro's z is the yaw rate only while its frame is level.
+    """
     for frame in ('lidar_link', 'front_imu_link', 'gps_link', 'imu_link'):
         offset(frame)   # asserts every joint on the chain is unrotated
 

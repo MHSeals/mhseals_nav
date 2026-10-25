@@ -18,8 +18,8 @@ import sys
 import tempfile
 import time
 
-import rclpy
 from ament_index_python.packages import get_package_prefix
+import rclpy
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import Imu, NavSatFix
 import yaml
@@ -113,7 +113,7 @@ try:
         odom = Odometry()                             # the antenna's velocity, body axes
         odom.header.stamp, odom.header.frame_id = stamp, 'map'
         odom.child_frame_id = TWIST_FRAME
-        odom.pose.pose.orientation.z, odom.pose.pose.orientation.w = imu.orientation.z, imu.orientation.w
+        odom.pose.pose.orientation = imu.orientation
         odom.twist.twist.linear.x, odom.twist.twist.linear.y = -rate * ay, rate * ax
         for i in (0, 7, 14):
             odom.twist.covariance[i] = .05 ** 2
@@ -129,9 +129,9 @@ try:
         assert len(spin) > 10, f'no /odom/{key} during the spin'
         mx, my = sum(x for x, _ in spin) / len(spin), sum(y for _, y in spin) / len(spin)
         spreads[key] = max(math.hypot(x - mx, y - my) for x, y in spin)
-        print(f'fix {GPS_FRAME}, twist {TWIST_FRAME}: /odom/{key} position spread over a {W:g} rad/s spin '
-              f'{spreads[key] * 100:.1f} cm (antenna lever arm {math.hypot(*antenna) * 100:.1f} cm)',
-              flush=True)
+        print(f'fix {GPS_FRAME}, twist {TWIST_FRAME}: /odom/{key} position spread over a '
+              f'{W:g} rad/s spin {spreads[key] * 100:.1f} cm '
+              f'(antenna lever arm {math.hypot(*antenna) * 100:.1f} cm)', flush=True)
     if GPS_FRAME == TWIST_FRAME == 'gps_link':
         assert spreads['global'] < .05, spreads
 finally:

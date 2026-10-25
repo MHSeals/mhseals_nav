@@ -250,7 +250,8 @@ def test_actual_verify_requests_again_only_the_short_ids(monkeypatch):
     requested = []
     seen.worker.__globals__['request_rates'] = lambda rates, *a, **kw: requested.append(rates)
     seen.worker()
-    assert requested == [[(30, 25.), (31, 25.)]]
+    # At SCHED_LOOP_RATE 50 the FCU denies 31 at 100 Hz, so it is asked again every period.
+    assert requested == [[(30, 25.), (31, 100.)]]
 
 
 def test_actual_verify_waits_for_a_full_span_and_a_connection(monkeypatch):

@@ -43,7 +43,7 @@ def test_reader_keeps_latest_scan_without_reliable_network_backpressure():
 
 
 def vlp16_cloud(world, yaw_rate, velocity, period=0.1):
-    """Static world points (x, y) as a VLP16 at the origin sees them while turning and moving.
+    """Scan static world points (x, y) as a VLP16 at the origin does while turning and moving.
 
     The sensor sweeps azimuth once per period, ending at the stamp (t = 0); a point hit at
     time t (-period..0) is stored in the sensor frame of that moment, with its t.

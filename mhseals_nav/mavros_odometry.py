@@ -84,7 +84,7 @@ def gps_sample(gps, now, max_age, nofix_stddev):
 
 
 def antenna_fix(fix, gps_frame):
-    """The raw receiver fix labelled with the antenna's frame.
+    """Label the raw receiver fix with the antenna's frame.
 
     MAVROS stamps GPS_RAW_INT with its child_frame_id (base_link), which navsat_transform
     reads as the antenna sitting on base_link: the 0.137 m lever arm then circles the fused

@@ -27,7 +27,7 @@ def boolean(value):
 
 
 def floored_covariance(covariance, floor_stddev):
-    """A 3x3 covariance (9-list) with each diagonal raised to at least floor_stddev**2.
+    """Raise each diagonal of a 3x3 covariance (9-list) to at least floor_stddev**2.
 
     A -1 first element (unknown) becomes the floor on the diagonal, zeros elsewhere.
     """
@@ -49,7 +49,7 @@ def roll_pitch(q):
 
 
 def level_field(field, roll, pitch):
-    """The body-frame (FLU) field rotated into the level frame that shares the body's yaw."""
+    """Rotate the body-frame (FLU) field into the level frame that shares the body's yaw."""
     mx, my, mz = field
     cr, sr, cp, sp = math.cos(roll), math.sin(roll), math.cos(pitch), math.sin(pitch)
     # R = Ry(pitch) Rx(roll): undo the tilt, keep the heading.

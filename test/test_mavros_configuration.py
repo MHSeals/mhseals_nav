@@ -20,7 +20,7 @@ def test_package_authority():
     """Package authority."""
     path = Path(__file__).parents[1] / 'config/mavros_setup.yaml'
     assert dict(rates_from_yaml(path.read_text())) == {
-        33: 20, 30: 25, 31: 25, 24: 5, 27: 10, 1: 2, 193: 2, 65: 25}
+        33: 20, 30: 25, 31: 100, 24: 5, 27: 10, 1: 2, 193: 2, 65: 25}
 
 
 @pytest.mark.parametrize('entries', [

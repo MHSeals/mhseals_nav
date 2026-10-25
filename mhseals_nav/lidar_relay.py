@@ -42,7 +42,7 @@ TWIST_MAX_AGE = 0.3   # s; an older twist leaves the cloud as scanned
 
 
 def deskew(message, yaw_rate, velocity):
-    """The cloud with each point moved to where the sensor saw it at the header stamp.
+    """Move each point to where the sensor saw it at the header stamp.
 
     A VLP16 scan takes 0.1 s and the driver stamps it at its last packet, with each point's
     offset from the stamp in the float32 ``time`` field (-0.1..0 s). Turning at w, a point seen
@@ -120,10 +120,10 @@ def publish(pipe, topic):
     publisher = node.create_publisher(PointCloud2, topic, _qos())
     # The fused body twist (ekf_local, 100 Hz) for deskew; older than TWIST_MAX_AGE, none.
     twist = {}
-    node.create_subscription(Odometry, "/odom/local", lambda m: twist.update(
+    node.create_subscription(Odometry, '/odom/local', lambda m: twist.update(
         w=m.twist.twist.angular.z, v=(m.twist.twist.linear.x, m.twist.twist.linear.y),
         at=time.monotonic()), _qos(False))
-    node.get_logger().info(f"publishing {topic} on the default transport, deskewed by /odom/local")
+    node.get_logger().info(f'publishing {topic} on the default transport, deskewed')
     while rclpy.ok():
         rclpy.spin_once(node, timeout_sec=0)
         if not pipe.poll(0.01):
@@ -133,8 +133,8 @@ def publish(pipe, topic):
         while pipe.poll(0):
             payload = pipe.recv_bytes()
         cloud = deserialize_message(payload, PointCloud2)
-        if time.monotonic() - twist.get("at", -1e9) < TWIST_MAX_AGE:
-            cloud = deskew(cloud, twist["w"], twist["v"])
+        if time.monotonic() - twist.get('at', -1e9) < TWIST_MAX_AGE:
+            cloud = deskew(cloud, twist['w'], twist['v'])
         publisher.publish(cloud)
 
 

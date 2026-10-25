@@ -1,9 +1,8 @@
 """The ZED IMU reference: gyro variance floor and tilt-compensated magnetic heading."""
 import math
 
-import pytest
-
 from mhseals_nav.zed_imu_reference import floored_covariance, heading_yaw
+import pytest
 
 # A northern-hemisphere field in world ENU: 0.24 G toward north, 0.4 G down.
 FIELD = (0., 0.24, -0.4)
@@ -37,7 +36,8 @@ def body_field(yaw, pitch, roll):
 def test_heading_is_the_body_yaw_through_tilt(yaw, pitch, roll):
     # The ZED orientation's own yaw is arbitrary (no magnetometer in it); only its tilt is used.
     orientation = quaternion(0.7, pitch, roll)
-    assert heading_yaw(body_field(yaw, pitch, roll), orientation, 0.) == pytest.approx(yaw, abs=1e-9)
+    yaw_out = heading_yaw(body_field(yaw, pitch, roll), orientation, 0.)
+    assert yaw_out == pytest.approx(yaw, abs=1e-9)
 
 
 def test_east_declination_turns_the_true_heading_clockwise():
@@ -61,7 +61,7 @@ def test_gyro_variance_is_floored_and_unknown_becomes_the_floor():
 
 
 def test_floor_keeps_the_fcu_in_charge_of_the_yaw_rate():
-    """MAVROS's gyro sigma (0.02 deg/s) must be far below the ZED floor."""
+    """Keep MAVROS's gyro sigma (0.02 deg/s) far below the ZED floor."""
     from pathlib import Path
     import yaml
     config = yaml.safe_load((Path(__file__).parents[1] / 'config/zed_imu_reference.yaml')
