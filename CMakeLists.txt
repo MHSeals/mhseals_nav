@@ -35,6 +35,9 @@ set(ENTRY_POINTS
   mavros_setup=mavros_setup
   run_task=tasks.interface
   costmap_watchdog=costmap_watchdog
+  link_watchdog=link_watchdog
+  fence_watchdog=fence_watchdog
+  fcu_watchdog=fcu_watchdog
 )
 foreach(entry ${ENTRY_POINTS})
   string(REPLACE "=" ";" entry "${entry}")
