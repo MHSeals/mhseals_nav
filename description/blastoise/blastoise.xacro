@@ -24,12 +24,17 @@
       <geometry><box size="0.18120 0.18120 0.18120"/></geometry>
     </collision>
 
+    <!-- Mass and CoM are NOT measured: the boat has not been weighed. The links add up to
+         crane_ml's 30 kg "loaded" (deck, electronics and batteries 10 kg here, hulls 9 kg each,
+         mount 0.3, thrusters 4 x 0.427) with the CoM at base_link; each tensor is the solid box
+         (or cylinder) of its link, so the composite yaw inertia is about 4.5 kg m^2. Only TF reads
+         this file at runtime; replace the numbers once the boat is weighed and balanced. -->
     <inertial>
-      <mass value="3.0"/>
+      <mass value="10.0"/>
       <origin xyz="0 0 0" rpy="0 0 0"/>
-      <inertia ixx="0.001" ixy="0" ixz="0"
-               iyy="0.001" iyz="0"
-               izz="0.001"/>
+      <inertia ixx="0.195" ixy="0" ixz="0"
+               iyy="0.364" iyz="0"
+               izz="0.492"/>
     </inertial>
 
     <visual>
@@ -61,12 +66,12 @@
       </geometry>
     </collision>
 
-    <inertial>
-      <mass value="7.0"/>
+    <inertial>  <!-- 1.06 m long (link y), 0.16 m wide, 0.2 m deep slender box -->
+      <mass value="9.0"/>
       <origin xyz="0 0 0" rpy="0 0 0"/>
-      <inertia ixx="0.001" ixy="0" ixz="0"
-               iyy="0.001" iyz="0"
-               izz="0.001"/>
+      <inertia ixx="0.873" ixy="0" ixz="0"
+               iyy="0.049" iyz="0"
+               izz="0.862"/>
     </inertial>
 
     <visual>
@@ -91,12 +96,12 @@
       </geometry>
     </collision>
 
-    <inertial>
-      <mass value="7.0"/>
+    <inertial>  <!-- 1.06 m long (link y), 0.16 m wide, 0.2 m deep slender box -->
+      <mass value="9.0"/>
       <origin xyz="0 0 0" rpy="0 0 0"/>
-      <inertia ixx="0.001" ixy="0" ixz="0"
-               iyy="0.001" iyz="0"
-               izz="0.001"/>
+      <inertia ixx="0.873" ixy="0" ixz="0"
+               iyy="0.049" iyz="0"
+               izz="0.862"/>
     </inertial>
 
     <visual>
@@ -121,12 +126,12 @@
       </geometry>
     </collision>
 
-    <inertial>
+    <inertial>  <!-- the collision cylinder's centre and tensor -->
       <mass value="0.3"/>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <inertia ixx="0.001" ixy="0" ixz="0"
-               iyy="0.001" iyz="0"
-               izz="0.001"/>
+      <origin xyz="0 0 0.15839" rpy="0 0 0"/>
+      <inertia ixx="0.0033" ixy="0" ixz="0"
+               iyy="0.0033" iyz="0"
+               izz="0.0008"/>
     </inertial>
   </link>
 
