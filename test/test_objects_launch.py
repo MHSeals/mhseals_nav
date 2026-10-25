@@ -43,7 +43,8 @@ def test_backend_tracker_and_perception_costmap(sim, backend, executable):
     assert costmap['parameters'] == ['mhseals_nav/config/perception_costmap.yaml', clock]
     assert (manager['namespace'], manager['name']) == ('perception',
                                                        'lifecycle_manager_perception')
-    assert manager['parameters'] == [{'autostart': True, 'node_names': ['costmap'], **clock}]
+    assert manager['parameters'] == [{'autostart': True, 'node_names': ['costmap'],
+                                      'bond_timeout': 0.0, **clock}]
 
 
 @pytest.mark.parametrize('sim,backend', [('invalid', 'zed'), ('false', 'rosbridge')])
