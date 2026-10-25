@@ -1,7 +1,10 @@
 """Hold the boat through command_mux while autonomy runs on a stale perception costmap.
 
 B's Nav2 StaticLayer has no timeout: without this, a dead Orin leaves Nav2 driving on
-the last obstacles it saw. Hold-only; the operator releases like any sticky hold.
+the last obstacles it saw. The costmap alone is not enough: with the tracker dead, the
+Orin's StaticLayer keeps the last track grid while /perception/costmap stays fresh, so
+recent /perception/tracks are required too. Hold-only; the operator releases like any
+sticky hold.
 """
 
 import json
@@ -15,6 +18,7 @@ class Watchdog:
     def __init__(self, cfg):
         self.cfg = cfg
         self.fresh_at = None
+        self.tracks_at = None
         self.command_at = None
         self.sent_at = None
 
@@ -22,11 +26,23 @@ class Watchdog:
         if stamp_age <= self.cfg['max_stamp_age_s']:
             self.fresh_at = now
 
+    def tracks(self, now, stamp_age):
+        if stamp_age <= self.cfg['max_stamp_age_s']:
+            self.tracks_at = now
+
     def command(self, now):
         self.command_at = now
 
+    def stale_inputs(self, now):
+        """Names of the inputs that are missing or older than their limit."""
+        cfg = self.cfg
+        return [name for name, at, limit in (
+            ('costmap', self.fresh_at, cfg['max_age_s']),
+            ('tracks', self.tracks_at, cfg['max_tracks_age_s']))
+            if at is None or now - at > limit]
+
     def stale(self, now):
-        return self.fresh_at is None or now - self.fresh_at > self.cfg['max_age_s']
+        return bool(self.stale_inputs(now))
 
     def autonomy(self, now):
         return self.command_at is not None and \
@@ -52,6 +68,7 @@ def node_class():
     from rclpy.time import Time
     from std_msgs.msg import String
 
+    from mhseals_nav.msg import TrackArray
     from mhseals_nav.yaml_params import node_config
 
     class CostmapWatchdog(Node):
@@ -68,14 +85,22 @@ def node_class():
                 OccupancyGrid, cfg['costmap_topic'], self.on_costmap, latched)
             self.create_subscription(
                 OccupancyGridUpdate, cfg['updates_topic'], self.on_costmap, 10)
+            self.create_subscription(
+                TrackArray, cfg['tracks_topic'], self.on_tracks,
+                QoSProfile(depth=1, reliability=QoSReliabilityPolicy.BEST_EFFORT))
             self.create_subscription(Twist, cfg['command_topic'], self.on_command, 10)
             self.create_timer(1.0 / cfg['rate_hz'], self.tick)
             self.was_stale = None
 
-        def on_costmap(self, msg):
+        def age(self, msg):
             stamp = Time.from_msg(msg.header.stamp, clock_type=self.get_clock().clock_type)
-            age = (self.get_clock().now() - stamp).nanoseconds * 1e-9
-            self.logic.costmap(time.monotonic(), age)
+            return (self.get_clock().now() - stamp).nanoseconds * 1e-9
+
+        def on_costmap(self, msg):
+            self.logic.costmap(time.monotonic(), self.age(msg))
+
+        def on_tracks(self, msg):
+            self.logic.tracks(time.monotonic(), self.age(msg))
 
         def on_command(self, _):
             self.logic.command(time.monotonic())
@@ -83,14 +108,14 @@ def node_class():
 
         def tick(self):
             now = time.monotonic()
-            stale = self.logic.stale(now)
+            stale = self.logic.stale_inputs(now)
             if stale != self.was_stale:
                 log = self.get_logger().warning if stale else self.get_logger().info
-                log(f"{self.cfg['costmap_topic']} {'stale or missing' if stale else 'fresh'}")
+                log(f"stale or missing: {', '.join(stale)}" if stale else 'perception fresh')
                 self.was_stale = stale
             if self.logic.tick(now):
                 self.get_logger().error(
-                    f"autonomy on a stale costmap: requesting hold {self.cfg['cause']}",
+                    f"autonomy on stale perception: requesting hold {self.cfg['cause']}",
                     throttle_duration_sec=5.0)
                 self.request.publish(String(data=json.dumps({
                     'op': 'hold', 'cause': self.cfg['cause'], 'by': 'costmap_watchdog',

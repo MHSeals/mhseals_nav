@@ -1,16 +1,20 @@
 # costmap_watchdog (B): Nav2 must never drive on a stale or missing /perception/costmap.
-# While autonomy commands flow and the costmap is stale, it requests a command_mux hold.
+# While autonomy commands flow and the costmap or the tracks are stale, it requests a
+# command_mux hold. Tracks too: with the tracker dead the Orin's StaticLayer keeps the
+# last track grid while the costmap itself stays fresh.
 # It never releases: like any automatic stop, the operator clears it (U) once perception
-# is back, and while the costmap is still stale a release is re-held within repeat_s.
+# is back, and while perception is still stale a release is re-held within repeat_s.
 /**:
   ros__parameters:
     costmap_topic: /perception/costmap
     updates_topic: /perception/costmap_updates
+    tracks_topic: /perception/tracks   # the tracker publishes at 10 Hz
     command_topic: /cmd_vel            # Nav2 -> command_mux auto input
     request_topic: /command_mux/request
     cause: costmap_stale
     max_age_s: 1.0                     # receipt age; the TUI costmap_age check fails at 1.0
-    max_stamp_age_s: 2.0               # header age, so a latched old map is not fresh
+    max_tracks_age_s: 1.0              # receipt age of /perception/tracks
+    max_stamp_age_s: 2.0               # header age (costmap and tracks): old is not fresh
     command_window_s: 0.5              # autonomy = an auto command within this window
     repeat_s: 1.0
     rate_hz: 10.0
