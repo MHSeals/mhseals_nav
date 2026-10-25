@@ -1,4 +1,4 @@
-"""Check source selection and message remapping without starting ROS nodes."""
+"""Check backend selection and the perception nodes without starting ROS nodes."""
 
 import ast
 from pathlib import Path
@@ -7,12 +7,13 @@ import pytest
 import yaml
 
 
-def object_nodes(sim):
+def object_nodes(sim, backend):
     source = Path(__file__).parents[1] / 'launch/objects.launch.py'
-    factory = next(node for node in ast.parse(source.read_text()).body
-                   if isinstance(node, ast.FunctionDef) and node.name == 'nodes')
-    values = dict(sim=sim, detections_topic='/detections',
-                  objects_topic='/front/zed_node/obj_det/objects')
+    tree = ast.parse(source.read_text())
+    body = [node for node in tree.body
+            if (isinstance(node, ast.FunctionDef) and node.name == 'nodes')
+            or (isinstance(node, ast.Assign) and node.targets[0].id == 'BACKENDS')]
+    values = dict(sim=sim, backend=backend)
 
     class Configuration:
         def __init__(self, name):
@@ -21,52 +22,46 @@ def object_nodes(sim):
         def perform(self, context):
             return values[self.name]
 
-    namespace = dict(LaunchConfiguration=Configuration,
-                     ParameterValue=lambda value, **_: value.perform(None) == 'true',
-                     Node=lambda **kwargs: kwargs)
-    exec(compile(ast.Module(body=[factory], type_ignores=[]), str(source), 'exec'),
-         namespace)
+    namespace = dict(LaunchConfiguration=Configuration, Node=lambda **kwargs: kwargs,
+                     PathJoinSubstitution=lambda parts: '/'.join(map(str, parts)),
+                     FindPackageShare=lambda package: package)
+    exec(compile(ast.Module(body=body, type_ignores=[]), str(source), 'exec'), namespace)
     return namespace['nodes'](None)
 
 
-def test_simulation_needs_only_the_canonical_tracker():
-    nodes = object_nodes('true')
-    assert [node['executable'] for node in nodes] == ['object_tracker']
-    assert nodes[0]['parameters'][0]['use_sim_time'] is True
+@pytest.mark.parametrize('sim,backend,executable', [
+    ('false', 'zed', 'zed_backend'), ('true', 'sim', 'sim_backend')])
+def test_backend_tracker_and_perception_costmap(sim, backend, executable):
+    nodes = object_nodes(sim, backend)
+    assert [n['executable'] for n in nodes] == [
+        executable, 'object_tracker', 'nav2_costmap_2d', 'lifecycle_manager']
+    clock = {'use_sim_time': sim == 'true'}
+    assert nodes[0]['parameters'] == [f'mhseals_nav/config/{executable}.yaml', clock]
+    assert nodes[1]['parameters'] == ['mhseals_nav/config/tracker.yaml', clock]
+    costmap, manager = nodes[2:]
+    assert (costmap['namespace'], costmap['name']) == ('perception', 'costmap')
+    assert costmap['parameters'] == ['mhseals_nav/config/perception_costmap.yaml', clock]
+    assert (manager['namespace'], manager['name']) == ('perception',
+                                                       'lifecycle_manager_perception')
+    assert manager['parameters'] == [{'autostart': True, 'node_names': ['costmap'], **clock}]
 
 
-def test_zed_adapter_remaps_input_and_preserves_tracker_contract():
-    tracker, adapter = object_nodes('false')
-    assert tracker['executable'] == 'object_tracker'
-    assert tracker['parameters'][0]['use_sim_time'] is False
-    assert adapter['executable'] == 'zed_detections_converter'
-    assert adapter['parameters'][0]['objects_topic'] == 'objects'
-    remaps = dict(adapter['remappings'])
-    assert remaps['objects'].perform(None) == '/front/zed_node/obj_det/objects'
-    for node in (tracker, adapter):
-        assert dict(node['remappings'])['detections'].perform(None) == '/detections'
-
-
-def test_invalid_sim_fails_before_nodes_start():
+@pytest.mark.parametrize('sim,backend', [('invalid', 'zed'), ('false', 'rosbridge')])
+def test_invalid_arguments_fail_before_nodes_start(sim, backend):
     with pytest.raises(ValueError):
-        object_nodes('invalid')
+        object_nodes(sim, backend)
 
 
-def test_legacy_bridge_arguments_are_gone():
-    text = (Path(__file__).parents[1] / 'launch/objects.launch.py').read_text()
-    assert 'rosbridge_url' not in text and 'camera_root_frame' not in text
-
-
-def test_jp6_wrapper_disables_sdk_predictions():
+def test_zed_predicts_through_half_second_occlusions():
     config = Path(__file__).parents[1] / 'config'
     boat = yaml.safe_load((config / 'zed_boat.yaml').read_text())
-    assert boat['/**']['ros__parameters']['object_detection']['prediction_timeout'] == 0
+    assert boat['/**']['ros__parameters']['object_detection']['prediction_timeout'] == .5
 
     loaded = yaml.safe_load((config / 'custom_object_detection.yaml').read_text())
     custom = loaded.get('/**', {}).get('ros__parameters', loaded)['object_detection']
     classes = {key: value for key, value in custom.items() if key.startswith('class_')}
     assert len(classes) == custom['custom_class_count']
-    assert all(value['prediction_timeout_s'] == 0 for value in classes.values())
+    assert all(value['prediction_timeout_s'] == .5 for value in classes.values())
 
 
 def test_custom_detection_file_is_a_ros_parameter_file():
@@ -78,16 +73,18 @@ def test_custom_detection_file_is_a_ros_parameter_file():
     assert loaded['/**']['ros__parameters']['object_detection']['od_enabled'] is True
 
 
-def test_boat_wrapper_overrides_keep_zed_out_of_tf_and_odometry():
+def test_boat_wrapper_tracks_objects_on_gen1_without_area_memory():
     path = Path(__file__).parents[1] / 'config/zed_boat.yaml'
     loaded = yaml.safe_load(path.read_text())
     assert list(loaded) == ['/**'] and list(loaded['/**']) == ['ros__parameters']
     params = loaded['/**']['ros__parameters']
-    assert params['pos_tracking']['pos_tracking_enabled'] is False
+    tracking = params['pos_tracking']
+    assert tracking['pos_tracking_enabled'] is True
+    assert (tracking['pos_tracking_mode'], tracking['area_memory']) == ('GEN_1', False)
     detection = params['object_detection']
     assert detection['od_enabled'] is True
-    assert detection['enable_tracking'] is False
-    assert detection['prediction_timeout'] == 0
+    assert detection['enable_tracking'] is True
+    assert detection['prediction_timeout'] == .5
     assert params['general']['pub_resolution'] == 'CUSTOM'
     assert params['general']['pub_frame_rate'] <= params['general']['grab_frame_rate']
 
