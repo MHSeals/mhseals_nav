@@ -17,7 +17,6 @@
     track_unknown_space: false
     trinary_costmap: false       # keep the tracker's graded swath
     use_maximum: true            # tracks add to lidar marks, never clear them
-    transform_tolerance: 0.3
     footprint: "[[0.5315, 0.4475], [0.5315, -0.4475], [-0.5315, -0.4475], [-0.5315, 0.4475]]"
     footprint_padding: 0.1
     plugins: [lidar_layer, track_layer]
@@ -62,3 +61,4 @@
       map_subscribe_transient_local: true
       subscribe_to_updates: false
       footprint_clearing_enabled: false
+      transform_tolerance: 0.3   # per layer: the costmap-level key never reaches it

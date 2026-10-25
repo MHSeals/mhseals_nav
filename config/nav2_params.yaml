@@ -156,7 +156,6 @@ local_costmap:
       # StaticLayer reads these from the costmap, not from its own namespace.
       trinary_costmap: false     # keep the Orin's graded costs
       use_maximum: false
-      transform_tolerance: 0.3
       plugins: [perception_layer, inflation_layer]
       # The Orin's /perception/costmap (lidar STVL + tracks, graded): resampled through TF
       # into this rolling map. It has no timeout; costmap_watchdog holds the boat if stale.
@@ -166,6 +165,7 @@ local_costmap:
         map_subscribe_transient_local: true
         subscribe_to_updates: true
         footprint_clearing_enabled: false
+        transform_tolerance: 0.3   # per layer: the costmap-level key never reaches it
       # Past the hull's padded circumscribed radius (0.84 m), so MPPI knows when
       # to check the whole footprint, and wide enough that the gap between two
       # buoys is not free water: the planner squeezes through only when it must.
@@ -225,7 +225,6 @@ global_costmap:
       # StaticLayer reads these from the costmap, not from its own namespace.
       trinary_costmap: false     # keep the Orin's graded costs
       use_maximum: false
-      transform_tolerance: 0.3
       plugins: [perception_layer, inflation_layer]
       # The Orin's /perception/costmap (lidar STVL + tracks, graded): resampled through TF
       # into this rolling map. It has no timeout; costmap_watchdog holds the boat if stale.
@@ -235,6 +234,7 @@ global_costmap:
         map_subscribe_transient_local: true
         subscribe_to_updates: true
         footprint_clearing_enabled: false
+        transform_tolerance: 0.3   # per layer: the costmap-level key never reaches it
       # Past the hull's padded circumscribed radius (0.84 m), so MPPI knows when
       # to check the whole footprint, and wide enough that the gap between two
       # buoys is not free water: the planner squeezes through only when it must.
