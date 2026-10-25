@@ -81,6 +81,8 @@ SINGLES = [case(bias=5), case(bias=-5), case(lag=0.1), case(ext=3), case(ext=-3)
 CORNERS = [case(b, 0.1, e, o) for b, e, o in product((-5, 5), (-3, 3), (-0.1, 0.1))]
 ENVELOPE = [BASELINE] + SINGLES + CORNERS
 LAGS = [case(lag=tau) for tau in (0.0, 0.1, 0.2, 0.3)]
+# A 4 Hz FCU attitude stream, bursty, holds the EKF heading up to 0.5 s old (2026-10-25).
+SLOW_IMU = case(lag=0.5)
 # zed mode runs zed_backend, which needs ROS: skipped per test, never for the whole module.
 ZED = find_spec('rclpy') is not None
 needs_zed = pytest.mark.skipif(not ZED, reason='zed mode runs zed_backend, which needs ROS')
@@ -146,7 +148,7 @@ WORST = case(5, 0.1, 3, -0.1)   # the lag and stamp offset add up to 0.2 s
 def sessions():
     """Every session the tests read, simulated in parallel (each one is deterministic)."""
     modes = ['plain'] + (['zed'] if ZED else [])
-    jobs = [(m, c, ()) for m in modes for c in ENVELOPE + LAGS[2:]]
+    jobs = [(m, c, ()) for m in modes for c in ENVELOPE + LAGS[2:] + [SLOW_IMU]]
     jobs.append(('plain', WORST, NO_TANGENTIAL))
     # spawn, not fork: rclpy (imported by the ROS pytest plugins) already runs threads.
     with ProcessPoolExecutor(mp_context=get_context('spawn')) as pool:
@@ -280,3 +282,17 @@ def test_mutation_without_the_tangential_term_breaks_r1():
     """The suite must notice if R_pos loses its heading/lag term."""
     mutant = run('plain', WORST, NO_TANGENTIAL)
     assert moving_buoys(mutant) or static_set(mutant) != static_set(run('plain', BASELINE))
+
+
+@pytest.mark.parametrize('mode', MODES)
+def test_slow_imu_lag_keeps_buoys_static_with_one_id_and_the_boat_moving(mode):
+    """A 0.5 s heading lag (4 Hz attitude) fakes no buoy motion and no buoy id churn."""
+    result = run(mode, SLOW_IMU)
+    assert moving_buoys(result) == [], 'a static buoy was classified moving'
+    assert static_set(result) == static_set(run(mode, BASELINE)), 'static set changed'
+    assert max(id_switches(result).values()) <= max(id_switches(run(mode, BASELINE)).values())
+    phantom = len(BUOYS)
+    seen = [(t, motion) for t, tracks in result.frames
+            for _, _, motion, m in tracks if m == phantom]
+    assert seen and all(motion == MOTION_MOVING for t, motion in seen
+                        if t >= seen[0][0] + 2.0), 'the phantom was not MOVING'

@@ -23,7 +23,9 @@
       # Tangential term: static buoys stay static through the §8 envelope (bias 5 deg plus
       # extrinsic 3 deg, lag plus stamp offset 0.2 s) in the metamorphic suite.
       heading_sigma_deg: 3.0
-      lag_sigma_s: 0.25
+      # 0.5, not 0.25: the 4 Hz bursty FCU attitude (2026-10-25) holds the EKF heading up
+      # to 0.5 s old, and at 0.25 pole buoys at 20 m turned MOVING and changed ids.
+      lag_sigma_s: 0.5
       # A lag fakes velocity rho*lag*|dr/dt|, largest while the yaw rate reverses through
       # zero, where |r| is near zero. So the lag term uses the largest |r| of this window,
       # and the speed bound adds rho*lag_sigma_s*|dr/dt| (largest of the window, so it
