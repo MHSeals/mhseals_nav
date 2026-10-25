@@ -27,6 +27,8 @@ Start each component once. `robot` includes navigation, so running it also start
 
 `/cmd_vel` is the final smoothed navigation output. Nav2 commands are velocity targets; the hardware PWM driver interprets Twist as effort, so autonomous propulsion requires a calibrated velocity controller.
 
+While a task runs, the runner sends zero velocity to `/cmd_vel_nav` whenever Nav2 has been silent for 0.3 s (between goals, after an abort, during the recovery Wait), so the boat keeps station. These zeros keep `/cmd_vel` flowing, so the link, fence, FCU and costmap watchdogs treat the task as autonomous from its start: a stale operator link or perception fault now holds the boat during those gaps, and the operator clears it with U. The zeros stop at an override, a refusal or the end of the run.
+
 ### Parameters
 
 | Parameter | Launch files | Default / purpose |
