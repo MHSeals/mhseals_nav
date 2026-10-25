@@ -12,7 +12,8 @@ GRID = {**CFG['grid'], 'radius': CFG['radius']}
 
 def track(x, y, vx=0.0, vy=0.0, motion=1, cls='red_buoy', sigma=0.05):
     P = np.diag([sigma ** 2, sigma ** 2, 0.01, 0.01])
-    return NS(class_id=cls, motion=motion, x=np.array([x, y, vx, vy]), P=P, t=0.0)
+    return NS(class_id=cls, motion=motion, x=np.array([x, y, vx, vy]), P=P, t=0.0,
+              seen_xy=np.array([x, y]), seen_P=P[:2, :2].copy())
 
 
 def at(grid, origin, x, y):
@@ -32,6 +33,19 @@ def test_static_disc_is_lethal_with_radius():
     origin = grid_origin(centre, GRID)
     assert at(grid, origin, 2.0, 1.0) == 100
     assert at(grid, origin, 2.0 + 0.6, 1.0) == 0
+
+
+def test_unseen_static_disc_keeps_its_last_measured_size():
+    centre = (0.0, 0.0)
+    origin = grid_origin(centre, GRID)
+    buoy = track(2.0, 1.0)
+    buoy.x[:2] += 0.4                               # predicted drift while out of view
+    buoy.P[:2, :2] = np.eye(2) * 1.0                # and its predicted growth
+    grid = rasterize([buoy], centre, GRID)
+    assert at(grid, origin, 2.0, 1.0) == 100        # still lethal where it was seen
+    assert at(grid, origin, 2.0 + 0.6, 1.0) == 0    # but no wider
+    unknown = rasterize([NS(**{**vars(buoy), 'motion': 0})], centre, GRID)
+    assert at(unknown, origin, 2.0 + 0.6, 1.0) == 100
 
 
 def test_moving_swath_cost_is_monotone_in_time():

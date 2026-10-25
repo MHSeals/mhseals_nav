@@ -10,7 +10,7 @@ import math
 
 import numpy as np
 
-MOTION_MOVING = 2
+MOTION_STATIC, MOTION_MOVING = 1, 2
 
 
 def cells(cfg):
@@ -55,7 +55,12 @@ def rasterize(tracks, centre_xy, cfg, now=None):
     for track in tracks:
         radius = radii.get(track.class_id, radii['default'])
         if track.motion != MOTION_MOVING:
-            _disc(grid, origin, res, track.x[:2], radius + min(2 * _sigma(track.P), extra), 100)
+            # A static track stays where and as sure as its last measurement put it (as the
+            # course map saves it): the CV prediction's growth while it is out of view would
+            # otherwise widen a buoy's lethal disc into a gate the boat is passing through.
+            xy, P = ((track.seen_xy, track.seen_P) if track.motion == MOTION_STATIC
+                     else (track.x[:2], track.P))
+            _disc(grid, origin, res, xy, radius + min(2 * _sigma(P), extra), 100)
             continue
         latency = max((now if now is not None else track.t) - track.t, 0.0)
         p, v = track.x[:2], track.x[2:]
