@@ -7,3 +7,5 @@ parts:
   # Backend, tracker and the perception costmap (/perception/costmap).
   objects: {launch: objects.launch.py, args: {backend: zed}, nodes: [zed_backend, object_tracker, costmap]}
   sensors: {launch: sensors.launch.py, nodes: [velodyne_driver]}
+  # Temperature, power mode and free disk on /diagnostics for the TUI's preflight.
+  host_diagnostic: {run: [mhseals_testing, host_diagnostic], nodes: [host_diagnostic]}

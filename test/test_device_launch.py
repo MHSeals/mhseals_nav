@@ -54,6 +54,7 @@ def test_jetson_runs_camera_zed_perception_and_the_lidar():
         'camera.launch.py': (None, {'sim': 'false'}),
         'objects.launch.py': (None, {'sim': 'false', 'backend': 'zed'}),
         'sensors.launch.py': (None, {'sim': 'false'}),
+        'host_diagnostic': (['ros2', 'run', 'mhseals_testing', 'host_diagnostic'], {}),
     }
 
 
@@ -65,14 +66,15 @@ def test_only_starts_the_named_parts():
 
 def test_a_run_part_is_one_ros2_run():
     assert expand(device='operator') == {
-        'rtk_base': (['ros2', 'run', 'mhseals_testing', 'rtk_base'], {})}
+        'rtk_base': (['ros2', 'run', 'mhseals_testing', 'rtk_base'], {}),
+        'operator_heartbeat': (['ros2', 'run', 'mhseals_testing', 'operator_heartbeat'], {})}
 
 
 def test_sim_extends_both_computers_without_the_camera():
     profile = device_profile.load('sim')
     assert profile['requires'] == []
     assert [name for name, _ in device_profile.select(profile)] == [
-        'odometry', 'ekf', 'mapping', 'navigation', 'mission', 'objects', 'sensors']
+        'odometry', 'ekf', 'mapping', 'navigation', 'mission', 'watchdogs', 'objects', 'sensors']
     assert device_profile.launch_arguments(profile, profile['parts']['odometry']) == {
         'sim': 'true', 'fcu': 'false', 'start_ekf': 'false'}
     assert profile['parts']['objects']['args'] == {'backend': 'sim'}
@@ -114,7 +116,8 @@ def test_no_launch_file_here_starts_the_thruster_driver_or_the_mux():
     ({'parts': {'ekf': {'launch': 'nowhere.launch.py'}}}, 'no nowhere.launch.py'),
     # A path to a commander launch must not pass as sensing.
     ({'parts': {'ekf': {'launch': './navigation.launch.py'}}}, r'<name>\.launch\.py'),
-    ({'parts': {'ekf': {'launch': '../config/../launch/navigation.launch.py'}}}, r'<name>\.launch\.py'),
+    ({'parts': {'ekf': {'launch': '../config/../launch/navigation.launch.py'}}},
+     r'<name>\.launch\.py'),
     ({'parts': {'ekf': {'launch': '/opt/x/task.launch.py'}}}, r'<name>\.launch\.py'),
     ({'parts': {'ekf': {'launch': 'navigation.launch.xml'}}}, r'<name>\.launch\.py'),
     ({'parts': {'pwm': {'run': ['mhseals_hardware', 'thruster_pwm_node']}}}, 'with arming'),
@@ -154,3 +157,48 @@ def test_an_extends_cycle_is_refused(source_tree, monkeypatch):
     monkeypatch.setattr(device_profile, 'share', lambda: root)
     with pytest.raises(ValueError, match='extends itself: a -> b -> a'):
         device_profile.load('a')
+
+
+def watchdog_nodes(**arguments):
+    """{node name: parameters} that watchdogs.launch.py starts with ``arguments``."""
+    path = ROOT / 'launch/watchdogs.launch.py'
+    spec = importlib.util.spec_from_file_location('watchdogs_launch', path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    context = LaunchContext()
+    defaults = {'sim': 'false', 'require_operator': '', 'fence_frame': '', 'fence_points': '',
+                'fcu_watchdog': 'true'}
+    context.launch_configurations.update({**defaults, **arguments})
+    assert len(module.watchdogs(context)) in (2, 3)          # the launch builds the nodes
+    return dict(module.watchdog_parameters(lambda name: {**defaults, **arguments}[name]))
+
+
+def test_the_boat_runs_all_three_watchdogs_on_their_yaml():
+    arguments = expand(device='odroid', only='watchdogs')['watchdogs.launch.py'][1]
+    assert arguments == {'sim': 'false'}
+    nodes = watchdog_nodes(**arguments)
+    assert list(nodes) == ['link_watchdog', 'fence_watchdog', 'fcu_watchdog']
+    assert all(parameters == {'use_sim_time': False} for parameters in nodes.values())
+
+
+def test_the_sim_watchdogs_need_no_operator_or_fcu_and_fence_a_map_box():
+    arguments = expand(device='sim', only='watchdogs')['watchdogs.launch.py'][1]
+    nodes = watchdog_nodes(**arguments)
+    assert list(nodes) == ['link_watchdog', 'fence_watchdog']
+    assert nodes['link_watchdog'] == {'use_sim_time': True, 'require_operator': False}
+    fence = nodes['fence_watchdog']
+    assert fence['fence_frame'] == 'map' and fence['fence_file'] == ''   # an operator file cannot move it
+    from mhseals_nav.fence_watchdog import inside, polygon
+    box = polygon('map', fence['fence_points'])
+    assert inside((0.0, 0.0), box) and inside((12.0, -14.0), box) and not inside((-77.0, -76.0), box)
+    assert 'host_diagnostic' not in dict(device_profile.select(device_profile.load('sim')))
+
+
+@pytest.mark.parametrize('arguments, message', [
+    ({'fence_points': '[1, 2, x'}, 'fence_points: not a list'),
+    ({'fence_points': '[1, true]'}, 'flat list of numbers'),
+    ({'require_operator': 'maybe'}, 'require_operator: true or false'),
+])
+def test_bad_watchdog_arguments_are_refused(arguments, message):
+    with pytest.raises(ValueError, match=message):
+        watchdog_nodes(**arguments)

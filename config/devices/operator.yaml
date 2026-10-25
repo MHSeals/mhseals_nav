@@ -2,3 +2,5 @@
 requires: []
 parts:
   rtk_base: {run: [mhseals_testing, rtk_base], nodes: [rtk_base]}
+  # /operator/heartbeat for the boat's link_watchdog, which holds when it stops.
+  operator_heartbeat: {run: [mhseals_testing, operator_heartbeat], nodes: [operator_heartbeat]}
