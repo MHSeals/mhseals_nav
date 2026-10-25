@@ -106,13 +106,14 @@ class FenceWatchdog(HoldGate):
 def load_fence(cfg):
     """Return cfg with fence_frame and fence_points from fence_file when that file exists.
 
-    A file that does not parse to a mapping leaves no valid fence, which holds.
+    A file that cannot be read or does not parse to a mapping leaves no valid fence, which
+    holds.
     """
     path = Path(cfg['fence_file']).expanduser() if cfg['fence_file'] else None
     if path is not None and path.is_file():
         try:
             day = yaml.safe_load(path.read_text())
-        except yaml.YAMLError:
+        except (OSError, UnicodeDecodeError, yaml.YAMLError):
             day = None
         if not isinstance(day, dict):
             return dict(cfg, fence_points=None)

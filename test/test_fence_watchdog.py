@@ -115,6 +115,22 @@ def test_fence_file_overrides_the_package_fence(tmp_path):
         dict(CFG, fence_file=str(tmp_path / 'missing.yaml'))
 
 
+def test_unreadable_fence_file_holds(tmp_path, monkeypatch):
+    """Even with a valid fence in the parameters: the day's file was meant to replace it."""
+    day = tmp_path / 'fence.yaml'
+    day.write_bytes(b'fence_frame: map\nfence_points: [\xff\xfe]\n')   # not UTF-8
+    dog = FenceWatchdog(load_fence(dict(MAP, fence_file=str(day))))
+    assert dog.poly is None and at(dog, 0.0, 50.0, 25.0)
+    day.write_text(yaml.safe_dump({'fence_frame': 'map', 'fence_points': BOX}))
+    day.chmod(0)                       # root still reads it, so also refuse the read itself
+
+    def refuse(*_, **__):
+        raise PermissionError(13, 'Permission denied', str(day))
+    monkeypatch.setattr(Path, 'read_text', refuse)
+    dog = FenceWatchdog(load_fence(dict(MAP, fence_file=str(day))))
+    assert dog.poly is None and at(dog, 0.0, 50.0, 25.0)
+
+
 def test_back_inside_never_releases():
     dog = FenceWatchdog(MAP)
     assert at(dog, 0.0, 120.0, 25.0)
