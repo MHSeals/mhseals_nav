@@ -115,7 +115,7 @@ def test_unknown_velocity_kind_raises():
 @pytest.fixture
 def backend():
     require_isolated_domain()
-    rclpy.init(args=['--ros-args', '-p', 'box2d_scale:=2.0'])
+    rclpy.init()  # no overrides: every value below comes from config/zed_backend.yaml
     node = ZedBackend()
     node.pub = SimpleNamespace(sent=[], publish=lambda m: node.pub.sent.append(m))
     node.status_pub = SimpleNamespace(sent=[], publish=lambda m: node.status_pub.sent.append(m))
@@ -145,6 +145,17 @@ def test_node_publishes_fresh_frames_and_drops_stale_and_reordered(backend):
     assert values['frame'] == 'front_left_camera_frame' and values['ids'] == 'true'
     assert values['velocity'] == 'none' and values['hfov_deg'] == '110'
     assert set(values) >= {'hz', 'latency_ms', 'latency_ms_p95', 'proc_ms', 'range_m'}
+
+
+def test_node_holds_no_default_values():
+    import ast
+    from pathlib import Path
+    """Defaults live in config/zed_backend.yaml only (the backend fixture passes none)."""
+    text = (Path(__file__).parents[1] / 'mhseals_nav/zed_backend.py').read_text()
+    declared = [c for c in ast.walk(ast.parse(text)) if isinstance(c, ast.Call)
+                and getattr(c.func, 'attr', '') == 'declare_parameter']
+    assert all(not isinstance(arg, ast.Constant) for call in declared for arg in call.args[1:])
+    assert '/front/zed_node' not in text and 'zed_native' not in text
 
 
 def test_box2d_scale_matches_the_wrapper_publish_downscale():

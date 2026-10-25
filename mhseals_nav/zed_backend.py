@@ -18,6 +18,7 @@ from sensor_msgs.msg import CameraInfo
 from mhseals_nav import perception_status
 from mhseals_nav.msg import Observation, ObservationArray
 from mhseals_nav.utils.live_params import LiveParams, positive
+from mhseals_nav.yaml_params import node_config
 
 VELOCITY_KINDS = {'none': Observation.VELOCITY_NONE,
                   'relative': Observation.VELOCITY_RELATIVE,
@@ -121,22 +122,17 @@ def convert_objects(packet, camera_size, velocity_kind):
 
 class ZedBackend(Node):
     def __init__(self):
-        super().__init__('zed_backend')
-        declared = dict(objects_topic='/front/zed_node/obj_det/objects',
-                        camera_info_topic='/front/zed_node/rgb/color/rect/camera_info',
-                        box2d_scale=1.0, velocity_kind='none', backend='zed_native')
-        for name, default in declared.items():
-            self.declare_parameter(name, default)
-        self.declare_parameter('fov.hfov_deg', 110.0)
-        self.declare_parameter('fov.range_m', 20.0)
-        self.declare_parameter('max_detection_age', 1.0)
-        value = self.get_parameter
-        self.backend = value('backend').value
-        self.velocity_kind = value('velocity_kind').value
+        super().__init__('zed_backend', automatically_declare_parameters_from_overrides=True)
+        # Every default lives in config/zed_backend.yaml; launch overrides sit on top.
+        cfg = node_config(self, 'zed_backend.yaml')
+        if not self.has_parameter('max_detection_age'):  # LiveParams needs it declared
+            self.declare_parameter('max_detection_age', cfg['max_detection_age'])
+        self.backend = cfg['backend']
+        self.velocity_kind = cfg['velocity_kind']
         if self.velocity_kind not in VELOCITY_KINDS:
             raise ValueError(f'velocity_kind must be one of {sorted(VELOCITY_KINDS)}')
-        self.box2d_scale = value('box2d_scale').value
-        self.fov = (value('fov.hfov_deg').value, value('fov.range_m').value)
+        self.box2d_scale = cfg['box2d_scale']
+        self.fov = (cfg['fov']['hfov_deg'], cfg['fov']['range_m'])
         self.live = LiveParams(
             self, {'max_detection_age': positive},
             lambda values, changed: setattr(self, 'max_age', values['max_detection_age']))
@@ -155,9 +151,9 @@ class ZedBackend(Node):
             from zed_msgs.msg import ObjectsStamped
         except ImportError:
             from zed_interfaces.msg import ObjectsStamped
-        self.create_subscription(CameraInfo, value('camera_info_topic').value,
+        self.create_subscription(CameraInfo, cfg['camera_info_topic'],
                                  self.camera_info, qos_profile_sensor_data)
-        self.create_subscription(ObjectsStamped, value('objects_topic').value,
+        self.create_subscription(ObjectsStamped, cfg['objects_topic'],
                                  self.objects, qos_profile_sensor_data)
 
     def camera_info(self, msg):
