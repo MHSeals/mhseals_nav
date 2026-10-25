@@ -103,6 +103,8 @@ class TrackFilter:
         self.assoc = {'id': 0, 'gate': 0}
         self.yaw_rates = deque()    # (t, r, |r|, |dr/dt|) over meas.lag_window_s
         self.lag_speed = 0.0        # sigma_lag * max |dr/dt|: per metre of range, this frame
+        self.mono = {'fused': 0, 'rejected': 0}
+        self.yaw_rate_from = {'central': 0, 'backward': 0, 'none': 0}
         self._groups = {}
 
     @property
@@ -184,6 +186,21 @@ class TrackFilter:
         # 0.6-2.5 m deeper or nearer at 6-10 m against a reported 0.15 m, and started new ids.
         u = offset / rho
         Rz = Rz + (meas['depth_k'] * rho ** 2) ** 2 * np.outer(u, u)
+        # A single-camera (waterline) range fuses with the stereo range along the bearing,
+        # each weighted by its variance. One that disagrees beyond mono_gate_chi2 is left out
+        # (a hidden waterline, a box cut by the frame edge).
+        mono = float(getattr(ob, 'mono_range', 0.0) or 0.0)
+        if meas.get('mono_fusion', False) and mono > 0.0:
+            s_mono = max(float(ob.mono_range_sigma), 1e-3) ** 2
+            s_stereo = float(u @ Rz @ u)
+            if (rho - mono) ** 2 / (s_mono + s_stereo) < meas['mono_gate_chi2']:
+                fused = (rho * s_mono + mono * s_stereo) / (s_mono + s_stereo)
+                world[:2] = c[:2] + u * fused
+                Rz = Rz + (s_mono * s_stereo / (s_mono + s_stereo) - s_stereo) * np.outer(u, u)
+                offset, rho = u * fused, max(fused, 1e-3)
+                self.mono['fused'] += 1
+            else:
+                self.mono['rejected'] += 1
         # Heading noise and stamp lag sweep a static object across the bearing.
         n = np.array([-offset[1], offset[0]]) / rho
         tangential = (rho * math.radians(meas['heading_sigma_deg'])) ** 2 + \
@@ -234,13 +251,25 @@ class TrackFilter:
             return False
         meas = self.cfg['meas']
         yaw_rate = v_cam = None
-        try:
-            dt = self.cfg['heading_check']['yaw_dt']
-            Ra, _ = pose_at(t - dt, self.cfg.get('base_frame', 'base_link'))
-            Rb, _ = pose_at(t + dt, self.cfg.get('base_frame', 'base_link'))
-            yaw_rate = wrap(yaw_of(Rb) - yaw_of(Ra)) / (2 * dt)
-        except LookupError:
-            pass
+        # Central difference over [t-dt, t+dt]. A fresh frame usually arrives before TF
+        # reaches t+dt, so the backward difference over [t-2dt, t] stands in rather than
+        # leaving the lag term and the heading check without this frame's yaw rate.
+        dt = self.cfg['heading_check']['yaw_dt']
+        base = self.cfg.get('base_frame', 'base_link')
+        spans = [(-dt, dt, 'central')]
+        if meas.get('yaw_rate_backward', False):
+            spans.append((-2 * dt, 0.0, 'backward'))
+        for lo, hi, how in spans:
+            try:
+                Ra, _ = pose_at(t + lo, base)
+                Rb, _ = pose_at(t + hi, base)
+            except LookupError:
+                continue
+            yaw_rate = wrap(yaw_of(Rb) - yaw_of(Ra)) / (hi - lo)
+            self.yaw_rate_from[how] += 1
+            break
+        else:
+            self.yaw_rate_from['none'] += 1
         try:
             dt = meas['cam_vel_dt']
             _, pa = pose_at(t - dt, frame)

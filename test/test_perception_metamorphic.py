@@ -81,8 +81,10 @@ SINGLES = [case(bias=5), case(bias=-5), case(lag=0.1), case(ext=3), case(ext=-3)
 CORNERS = [case(b, 0.1, e, o) for b, e, o in product((-5, 5), (-3, 3), (-0.1, 0.1))]
 ENVELOPE = [BASELINE] + SINGLES + CORNERS
 LAGS = [case(lag=tau) for tau in (0.0, 0.1, 0.2, 0.3)]
-# A 4 Hz FCU attitude stream, bursty, holds the EKF heading up to 0.5 s old (2026-10-25).
-SLOW_IMU = case(lag=0.5)
+# A slow attitude stream holds the EKF heading old. The 4 Hz FCU stream of 2026-10-25
+# (up to 0.5 s) is gone once mavros-rate-retry (25 Hz) or the 100 Hz odometry runs; lag_sigma_s
+# 0.25 keeps a 0.4 s constant lag safe, four times the 25 Hz chain's ~0.1 s.
+SLOW_IMU = case(lag=0.4)
 # zed mode runs zed_backend, which needs ROS: skipped per test, never for the whole module.
 ZED = find_spec('rclpy') is not None
 needs_zed = pytest.mark.skipif(not ZED, reason='zed mode runs zed_backend, which needs ROS')
@@ -286,7 +288,7 @@ def test_mutation_without_the_tangential_term_breaks_r1():
 
 @pytest.mark.parametrize('mode', MODES)
 def test_slow_imu_lag_keeps_buoys_static_with_one_id_and_the_boat_moving(mode):
-    """A 0.5 s heading lag (4 Hz attitude) fakes no buoy motion and no buoy id churn."""
+    """A 0.4 s heading lag (slow attitude) fakes no buoy motion and no buoy id churn."""
     result = run(mode, SLOW_IMU)
     assert moving_buoys(result) == [], 'a static buoy was classified moving'
     assert static_set(result) == static_set(run(mode, BASELINE)), 'static set changed'

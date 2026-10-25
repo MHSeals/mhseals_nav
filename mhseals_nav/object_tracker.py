@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 import math
 import os
 from socket import gethostname
+from time import monotonic
 
 import numpy as np
 import rclpy
@@ -70,6 +71,7 @@ class ObjectTracker(Node):
         self.grid_at = None
         self.clock_back = -math.inf
         self.last_tracks = None
+        self.published_at = -math.inf
 
         self.create_subscription(ObservationArray, cfg['observations_topic'],
                                  self.on_observations, OBSERVATIONS)
@@ -134,7 +136,16 @@ class ObjectTracker(Node):
     def on_observations(self, msg):
         self.backend = msg.backend or self.backend
         self.pending.append(msg)
+        stepped = self.filter.last_stamp
         self.drain()
+        # A fresh update goes out at once (still at most rate_hz), rather than waiting up
+        # to one tick period for the timer: capture -> world-frame track loses 0-1/rate_hz.
+        if self.cfg['publish_on_update'] and self.filter.last_stamp != stepped and \
+                self.due():
+            self.publish_tracks()
+
+    def due(self):
+        return monotonic() - self.published_at >= 0.9 / self.cfg['rate_hz']
 
     def drain(self):
         now = self.now()
@@ -165,13 +176,15 @@ class ObjectTracker(Node):
     def tick(self):
         self.drain()
         self.filter.expire(self.now())
-        self.publish_tracks()
+        if not self.cfg['publish_on_update'] or self.due():
+            self.publish_tracks()
 
     # ------------------------------------------------------------ publishing
     def publish_tracks(self):
         transform = self.latest(self.map, self.odom)
         if transform is None:
             return
+        self.published_at = monotonic()
         R, p = transform
         now_msg, now = self.get_clock().now().to_msg(), self.now()
         array = TrackArray()
@@ -271,6 +284,8 @@ class ObjectTracker(Node):
         values['grid_age_s'] = 'inf' if self.grid_at is None else f'{now - self.grid_at:.2f}'
         assoc = self.filter.assoc
         values['id_assoc_share'] = f"{assoc['id'] / max(assoc['id'] + assoc['gate'], 1):.2f}"
+        values.update({f'mono_{k}': v for k, v in self.filter.mono.items()})
+        values.update({f'yaw_rate_{k}': v for k, v in self.filter.yaw_rate_from.items()})
         host = gethostname()
         result = self.heading.result(now)
         level = int(result['level'])

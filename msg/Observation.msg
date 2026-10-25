@@ -13,3 +13,6 @@ geometry_msgs/Vector3 velocity        # m/s
 float64[9] velocity_covariance        # all zero = use tracker YAML velocity_sigma
 bool has_box2d
 float32[4] box2d                      # u0 v0 u1 v1, normalized 0..1 of the source image
+float32 mono_range                    # m, horizontal camera -> object centre from one image
+                                      # (waterline); 0 = none
+float32 mono_range_sigma              # m, 1-sigma of mono_range

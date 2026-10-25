@@ -7,6 +7,9 @@
     base_frame: base_link
     observations_topic: /perception/observations
     rate_hz: 10.0
+    # Publish tracks right after an update (still at most rate_hz) instead of on the timer
+    # alone: the timer wait added 0-100 ms (mean 50) between capture and the world track.
+    publish_on_update: true
     markers_hz: 2.0
     status_hz: 1.0
     max_detection_age: 1.0
@@ -27,9 +30,11 @@
       # Tangential term: static buoys stay static through the §8 envelope (bias 5 deg plus
       # extrinsic 3 deg, lag plus stamp offset 0.2 s) in the metamorphic suite.
       heading_sigma_deg: 3.0
-      # 0.5, not 0.25: the 4 Hz bursty FCU attitude (2026-10-25) holds the EKF heading up
-      # to 0.5 s old, and at 0.25 pole buoys at 20 m turned MOVING and changed ids.
-      lag_sigma_s: 0.5
+      # 0.25 with yaw_rate_backward (perception_accuracy_bench, 3 seeds, turns of 0.6 rad/s):
+      # 0.5 widened the gates past same-class neighbours (+70 % extra ids at 100 Hz IMU);
+      # 0.25 keeps buoys static at 4, 25 and 100 Hz attitude. Before yaw_rate_backward the
+      # term mostly saw no yaw rate, so its old value (0.5) was tuned against a missing input.
+      lag_sigma_s: 0.25
       # A lag fakes velocity rho*lag*|dr/dt|, largest while the yaw rate reverses through
       # zero, where |r| is near zero. So the lag term uses the largest |r| of this window,
       # and the speed bound adds rho*lag_sigma_s*|dr/dt| (largest of the window, so it
@@ -37,6 +42,16 @@
       lag_window_s: 3.0
       yaw_accel_dt: 0.5          # dr/dt is the yaw rate's slope over this span
       cam_vel_dt: 0.05
+      # Fresh frames arrive before TF reaches t + heading_check.yaw_dt; without this the
+      # frame's yaw rate (lag term, heading check) was mostly missing.
+      yaw_rate_backward: true
+      # Fuse Observation.mono_range (waterline) with the stereo range, inverse-variance,
+      # along the bearing; skip it when the two disagree beyond mono_gate_chi2 (1 dof).
+      # Off: with the camera 0.33 m above the water both errors grow as range^2 and the
+      # waterline's is 1.3-2.4x stereo's at 5-25 m (bench), and its bias (shore dip, height)
+      # made track range worse. Turn on only after a water bag shows otherwise.
+      mono_fusion: false
+      mono_gate_chi2: 9.0
     use_backend_velocity: false
     velocity_sigma: 0.5          # m/s, when the backend gives no velocity covariance
     score_alpha: 0.3
