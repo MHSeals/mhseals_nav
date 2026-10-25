@@ -93,6 +93,26 @@ def through(gate, before=1.5, after=1.1):
     return [(x - before * c, y - before * s, yaw), (x + after * c, y + after * s, yaw)]
 
 
+def chain(gates, offset=1.0):
+    """One route through ``gates`` in order, with a mid-point between gates offset sideways.
+
+    Between a gate's exit and the next one's lead-in the path turns; a pose half way,
+    facing along that leg, keeps the controller from cutting the corner over a buoy.
+    """
+    route = []
+    for gate in gates:
+        lead_in, out = through(gate)
+        if route:
+            last = route[-1]
+            yaw = last[2]
+            side = -(lead_in[0] - last[0]) * math.sin(yaw) + (lead_in[1] - last[1]) * math.cos(yaw)
+            if abs(side) > offset:
+                route.append(((last[0] + lead_in[0]) / 2, (last[1] + lead_in[1]) / 2,
+                              heading(last, lead_in)))
+        route += [lead_in, out]
+    return route
+
+
 def next_gate(gates, pose, cleared, direction=None, horizon=25.0, separation=2.0):
     """Return the nearest gate ahead that has not been cleared, or None.
 

@@ -833,3 +833,9 @@ def test_drift_never_aborts_a_dock_under_way():
 
     assert world.run(script=drift) == 'SUCCESS'
     assert world.names()[-2:] == ['undocked', 'stage_completed']
+
+
+def test_offset_gates_get_a_mid_point_so_the_corner_is_not_cut():
+    route = geometry.chain([(19, 0, 0), (24, -2, 0), (30, -2, 0)])
+    assert route[2] == pytest.approx((21.3, -1.0, geometry.heading((20.1, 0), (22.5, -2))))
+    assert len(route) == 7  # no mid-point between the two gates in line
