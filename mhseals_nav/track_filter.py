@@ -41,6 +41,8 @@ class TrackState:
     n_static: int = 0
     hit_times: list = field(default_factory=list)
     fov_miss_since: float = None
+    anchor: np.ndarray = None
+    anchor_t: float = 0.0
 
 
 def stamp_of(header):
@@ -232,7 +234,7 @@ class TrackFilter:
                     matched_tracks.add(k)
                 break
         # Gate pass: global order of increasing d2.
-        candidates = []
+        candidates, nearest = [], [math.inf] * len(rows)
         for i, (ob, z, Rz, vel) in enumerate(rows):
             if i in matched_obs:
                 continue
@@ -240,6 +242,7 @@ class TrackFilter:
                 if k in matched_tracks or not self._compatible(track, ob.class_id):
                     continue
                 gate = self._innovation(track, z, Rz, vel)
+                nearest[i] = min(nearest[i], gate[0])
                 limit = self.cfg['gate_chi2_v'] if gate[4] else self.cfg['gate_chi2']
                 if gate[0] < limit:
                     candidates.append((gate[0], i, k, gate))
@@ -256,7 +259,8 @@ class TrackFilter:
             if live[k].confirmed:
                 self.assoc[how] += 1
         for i, (ob, z, Rz, vel) in enumerate(rows):
-            if i not in matched_obs:
+            # A tail outlier of an existing track must not seed its duplicate.
+            if i not in matched_obs and nearest[i] >= self.cfg['candidate']['exclusion_chi2']:
                 self._start(ob, obs.backend, z, Rz, vel, t)
         self._miss_in_fov(R, p, frame, live, matched_tracks, t)
         self.expire(max(now, t))
@@ -290,13 +294,22 @@ class TrackFilter:
             return
         self._classify(track)
         check = self.cfg['heading_check']
-        if track.motion == MOTION_STATIC and track.hits >= check['min_hits'] \
-                and yaw_rate is not None:
-            offset = prior_xy - c[:2]
+        if track.motion != MOTION_STATIC:
+            track.anchor = None
+            return
+        # The CV prediction follows a turn's sweep, so the residual is taken against a
+        # slow anchor of the static position instead of the prior estimate.
+        if track.anchor is None:
+            track.anchor, track.anchor_t = prior_xy, t
+        gain = 1 - math.exp(-(t - track.anchor_t) / check['anchor_tau_s'])
+        track.anchor = track.anchor + gain * (z[:2] - track.anchor)
+        track.anchor_t = t
+        if track.hits >= check['min_hits'] and yaw_rate is not None:
+            offset = track.anchor - c[:2]
             rho = float(np.hypot(*offset))
             if rho > 1e-3:
                 n = np.array([-offset[1], offset[0]]) / rho
-                a = float((z[:2] - prior_xy) @ n) / rho
+                a = float((z[:2] - track.anchor) @ n) / rho
                 self.heading_samples.append((t, a, yaw_rate, track.id))
 
     def _classify(self, track):
@@ -305,7 +318,8 @@ class TrackFilter:
         track.speed_bound = bound
         if speed > bound:
             track.n_move, track.n_static = track.n_move + 1, 0
-        elif speed < cfg['release_frac'] * bound:
+        elif speed < cfg['release_frac'] * bound and bound <= cfg['static_bound_max_mps']:
+            # A young track's wide bound would call anything static.
             track.n_move, track.n_static = 0, track.n_static + 1
         else:
             track.n_move = track.n_static = 0

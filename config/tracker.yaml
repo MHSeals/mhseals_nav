@@ -15,12 +15,15 @@
     gate_chi2_id: 13.8
     gate_chi2_v: 13.3
     group_match: false
-    candidate: {hits: 3, time: 0.5, timeout: 1.0}
+    # exclusion_chi2: a leftover inside this looser gate of a track starts no candidate.
+    candidate: {hits: 3, time: 0.5, timeout: 1.0, exclusion_chi2: 30.0}
     meas:
       min_sigma_m: 0.10
       range_frac: 0.03
-      heading_sigma_deg: 1.0     # tangential term: makes static buoys robust to heading noise
-      lag_sigma_s: 0.05
+      # Tangential term: static buoys stay static through the §8 envelope (bias 5 deg plus
+      # extrinsic 3 deg, lag plus stamp offset 0.2 s) in the metamorphic suite.
+      heading_sigma_deg: 3.0
+      lag_sigma_s: 0.25
       cam_vel_dt: 0.05
     use_backend_velocity: false
     velocity_sigma: 0.5          # m/s, when the backend gives no velocity covariance
@@ -30,11 +33,15 @@
     class_groups:
       buoy: {match: ['*_buoy', black_cross, black_triangle], prior: static,
              q: 0.005, sigma_v0: 0.3, n_move: 12, n_static: 4}
+      # Spec q 0.5 gives a steady speed sigma near 0.45 m/s, so k_sigma=3 could never
+      # call a 0.8 m/s boat moving; 0.05 keeps the bound near 0.8 m/s at 10 m.
       boat: {match: ['*_target_boat'], prior: moving,
-             q: 0.5, sigma_v0: 1.5, n_move: 3, n_static: 20}
+             q: 0.05, sigma_v0: 1.5, n_move: 3, n_static: 20}
       unknown: {match: ['?'], prior: unknown,
                 q: 0.1, sigma_v0: 1.0, n_move: 6, n_static: 8}
-    motion: {k_sigma: 3.0, floor_mps: 0.25, release_frac: 0.5, n_unknown_min: 5}
+    # static_bound_max_mps: no static evidence while the bound is wider (young tracks).
+    motion: {k_sigma: 3.0, floor_mps: 0.25, release_frac: 0.5, n_unknown_min: 5,
+             static_bound_max_mps: 1.2}
     tau: {static: 300.0, moving: 2.0, unknown: 5.0}
     timeout: {static: 900.0, moving: 3.0, unknown: 10.0}
     miss_in_fov_s: 5.0
@@ -68,6 +75,7 @@
     heading_check:
       window_s: 60.0
       min_hits: 10
+      anchor_tau_s: 20.0         # residuals vs a slow static anchor, not the CV prior
       yaw_dt: 0.1
       min_samples: 60
       min_tracks: 2
