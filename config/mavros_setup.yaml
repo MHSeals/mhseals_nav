@@ -15,6 +15,8 @@ mavros_setup:
     response_timeout: 5.0
     service_wait: 10.0
     reboot_dedupe_window: 5.0
+    # Ids arriving below 0.7 of their rate over this span are requested again.
+    verify_period: 30.0
     # RC diagnostics only; does not change mux authority or stale-frame timeout.
     rc_window: 5.0
     rc_min_hz: 10.0

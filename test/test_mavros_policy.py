@@ -23,6 +23,8 @@ def inert_main(monkeypatch, overrides=None):
 
         def clear(self): pass
 
+        def is_set(self): return False
+
         def wait(self, timeout=None):
             seen.waits.append(timeout)
             return True
@@ -216,3 +218,66 @@ def test_actual_setter_accepts_valid_rates_and_drops_nothing_implicitly(monkeypa
     seen.worker()
     # Exactly the new list: ids the default set had but this one omits get no implicit 0.
     assert requested == [[(33, 10.), (31, 0.)]]
+
+
+def fcu(msgid):
+    """Return an autopilot-sourced raw MAVLink message of id ``msgid``."""
+    return NS(sysid=1, compid=1, msgid=msgid, len=0, payload64=[])
+
+
+def test_actual_verify_requests_again_only_the_short_ids(monkeypatch):
+    """Request again only the ids that arrive under 0.7 of their rate."""
+    # 2026-10-25: ATTITUDE (30) and ATTITUDE_QUATERNION (31) at 50 Hz failed at connect,
+    # and ATTITUDE stayed at the FCU's SR0_EXTRA1 = 4 Hz; nothing asked again.
+    seen = inert_main(monkeypatch, {'verify_period': 10.})
+    period, verify = seen.timers[1]
+    assert period == 10.
+    seen.callbacks['/mavros/state'](NS(connected=True))
+    seen.sets.clear()
+    verify()                                  # starts the span
+    wanted = dict(validate_rates(list(seen.params['message_rates'])))
+    for msgid, hz in wanted.items():
+        got = 4. if msgid == 30 else hz       # 30 at the stream default, 31 never sent
+        for _ in range(int(got * 10)):
+            if msgid != 31:
+                seen.callbacks['/uas1/mavlink_source'](fcu(msgid))
+    seen.now += 10.
+    verify()
+    assert seen.sets == [True]
+    assert any('30 at 4.0 of 50 Hz' in line for line in seen.logs)
+    requested = []
+    seen.worker.__globals__['request_rates'] = lambda rates, *a, **kw: requested.append(rates)
+    seen.worker()
+    assert requested == [[(30, 50.), (31, 50.)]]
+
+
+def test_actual_verify_waits_for_a_full_span_and_a_connection(monkeypatch):
+    """Give no verdict before a full span while connected."""
+    seen = inert_main(monkeypatch, {'verify_period': 10.})
+    verify = seen.timers[1][1]
+    verify()
+    seen.now += 30.
+    verify()                                  # not connected: never counts
+    seen.callbacks['/mavros/state'](NS(connected=True))
+    seen.sets.clear()
+    verify()
+    seen.now += 5.
+    verify()                                  # half a span: no verdict yet
+    assert seen.sets == []
+
+
+def test_reconnect_after_a_partial_retry_requests_the_whole_list(monkeypatch):
+    """Request the whole list on a reconnect, even after a partial retry."""
+    seen = inert_main(monkeypatch, {'verify_period': 10.})
+    seen.callbacks['/mavros/state'](NS(connected=True))
+    verify = seen.timers[1][1]
+    verify()
+    seen.now += 10.
+    verify()                                  # nothing arrived: every id is short
+    seen.callbacks['/mavros/state'](NS(connected=False))
+    seen.now += 10.
+    seen.callbacks['/mavros/state'](NS(connected=True))
+    requested = []
+    seen.worker.__globals__['request_rates'] = lambda rates, *a, **kw: requested.append(rates)
+    seen.worker()
+    assert requested == [validate_rates(list(seen.params['message_rates']))]

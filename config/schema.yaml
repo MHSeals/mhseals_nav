@@ -30,6 +30,7 @@ mavros_setup.retry_delay: {type: float, units: s, tier: restart, doc: "Wait betw
 mavros_setup.response_timeout: {type: float, units: s, tier: restart, doc: "Wait for each request response."}
 mavros_setup.service_wait: {type: float, units: s, tier: restart, doc: "Wait for the MAVROS interval service."}
 mavros_setup.reboot_dedupe_window: {type: float, units: s, tier: restart, doc: "Window that merges repeated FCU reboot observations."}
+mavros_setup.verify_period: {type: float, units: s, tier: restart, doc: "Span over which FCU message rates are counted; ids below 0.7 of their request are requested again."}
 mavros_setup.rc_window: {type: float, units: s, tier: restart, doc: "RC rate measurement window; diagnostic only."}
 mavros_setup.rc_min_hz: {type: float, units: Hz, tier: restart, doc: "RC rate below which a diagnostic is logged."}
 mavros_setup.rc_min_channels: {type: int, units: count, tier: restart, doc: "Minimum RC channels expected."}

@@ -8,6 +8,11 @@ step in SYSTEM_TIME.time_boot_ms also counts as a reconnect.
 It also decodes EKF_STATUS_REPORT, which MAVROS has no plugin for, from the raw
 MAVLink stream onto /fcu/ekf_status for the health checks.
 
+A request can fail (no ack while the link is busy at connect) or be accepted and not
+take effect, which leaves the message at the FCU's SRx_ stream rate (ATTITUDE at 4 Hz on
+2026-10-25). So the FCU's own messages are counted, and every ``verify_period`` the ids
+arriving below 0.7 of their requested rate are requested again.
+
 RC arbitration treats rc/in frames older than 0.3 s as lost, so at the FCU default of
 2 Hz MANUAL is choppy and no stick takeover latches. It therefore watches the real
 /mavros/rc/in rate and logs when it is low instead of leaving the mux to flap silently.
@@ -171,6 +176,8 @@ def main(args=None):
                       on_change=lambda values, changed: wanted.set())
     client = node.create_client(MessageInterval, '/mavros/set_message_interval')
     wanted = threading.Event()
+    subset = [None]       # ids to request on the next wake; None is the whole list
+    busy = [False]        # a request round is running: its arrivals are not counted
     # Not set at start: the first connected /mavros/state is a False->True edge and asks.
     connected = [False]
     last_reboot = [None]
@@ -179,6 +186,7 @@ def main(args=None):
         # One reboot shows as both a state edge and a boot-clock reset; ask once.
         now = time.monotonic()
         if not is_duplicate_trigger(last_reboot[0], now, policy['reboot_dedupe_window']):
+            subset[0] = None
             wanted.set()
             last_reboot[0] = now
 
@@ -198,19 +206,51 @@ def main(args=None):
         while rclpy.ok():
             wanted.wait()
             wanted.clear()
+            rates, ids = live['message_rates'], subset[0]
+            subset[0] = None
+            if ids is not None:
+                rates = [(i, hz) for i, hz in rates if i in ids]
             if client.wait_for_service(timeout_sec=policy['service_wait']):
-                request_rates(live['message_rates'], call, node.get_logger().info,
-                              attempts=policy['retry_attempts'], wait=policy['retry_delay'])
+                busy[0] = True
+                try:
+                    request_rates(rates, call, node.get_logger().info,
+                                  attempts=policy['retry_attempts'],
+                                  wait=policy['retry_delay'])
+                finally:
+                    busy[0] = False
             else:
                 wanted.set()  # the wait already took 10 s; try again rather than skip
 
     ekf_pub = node.create_publisher(DiagnosticStatus, '/fcu/ekf_status', 10)
 
     boot_ms = [None]
+    counts = collections.Counter()   # FCU messages per id since span[0]
+    span = [None]                    # start of the counting span; None while not counting
+
+    def verify_rates():
+        """Request again the ids arriving below 0.7 of their rate over the last period."""
+        now = time.monotonic()
+        if not connected[0] or busy[0] or wanted.is_set():
+            span[0] = None
+            return
+        if span[0] is None or now - span[0] < policy['verify_period']:
+            if span[0] is None:
+                counts.clear()
+                span[0] = now
+            return
+        short = rate_shortfalls(dict(counts), now - span[0], dict(live['message_rates']))
+        counts.clear()
+        span[0] = now
+        if short:
+            node.get_logger().info('rates short, requesting again: ' + ', '.join(
+                f'{i} at {got:.1f} of {hz:g} Hz' for i, hz, got in short))
+            subset[0] = {i for i, _, _ in short}
+            wanted.set()
 
     def receive_mavlink(msg):
         if not from_fcu(msg.sysid, msg.compid, policy['fcu_sysid']):
             return
+        counts[msg.msgid] += 1
         now_ms = decode_boot_ms(msg.msgid, msg.len, msg.payload64)
         # A routed GCS SYSTEM_TIME has its own boot clock and would look like a reboot.
         if now_ms is not None:
@@ -262,6 +302,7 @@ def main(args=None):
         lambda msg: rc_arrivals.append((time.monotonic(), len(msg.channels))),
         qos_profile_sensor_data)
     node.create_timer(policy['rc_timer'], check_rc_rate)
+    node.create_timer(policy['verify_period'], verify_rates)
     threading.Thread(target=work, daemon=True).start()
     try:
         spin_until_shutdown(node)

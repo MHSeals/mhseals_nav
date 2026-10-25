@@ -45,7 +45,7 @@ def validate_rates(entries):
 POLICY_FIELDS = {
     'retry_attempts': 'integer', 'retry_delay': 'nonnegative',
     'response_timeout': 'positive', 'service_wait': 'positive',
-    'reboot_dedupe_window': 'positive',
+    'reboot_dedupe_window': 'positive', 'verify_period': 'positive',
     'rc_window': 'positive', 'rc_min_hz': 'positive', 'rc_min_channels': 'integer',
     'rc_grace': 'nonnegative', 'rc_timer': 'positive', 'fcu_sysid': 'sysid',
 }
