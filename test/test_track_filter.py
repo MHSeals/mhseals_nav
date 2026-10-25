@@ -161,6 +161,32 @@ def test_backend_velocity_is_used_when_enabled():
     assert track.x[2] == pytest.approx(1.0, abs=0.1)
 
 
+def test_coasting_static_track_holds_its_last_measured_position():
+    f = TrackFilter(CFG)
+    # Behind the camera, so the in-FOV miss rule does not drop it while it coasts.
+    t = run(f, lambda t: [ob('red_buoy', -8.0, 2.0)], 3.0)
+    (track,) = f.tracks
+    assert track.motion == MOTION_STATIC
+    track.x[2:] = (0.4, -0.3)          # a lag- or noise-induced velocity estimate
+    seen, P0 = track.seen_xy.copy(), track.P[0, 0]
+    assert seen == pytest.approx([-8.0, 2.0], abs=0.05)
+    t = run(f, lambda t: [], 10.0, start=t)
+    assert track.x[:2] == pytest.approx(seen, abs=1e-9)
+    assert track.seen_xy == pytest.approx(seen, abs=1e-9)
+    assert track.P[0, 0] > P0                       # uncertainty still grows
+    run(f, lambda t: [ob('red_buoy', -8.0, 2.0)], 1.0, start=t)
+    assert [tr.id for tr in f.tracks] == [track.id]
+
+
+def test_coasting_moving_track_still_predicts():
+    f = TrackFilter(CFG)
+    t = run(f, lambda t: [ob('yellow_target_boat', -8.0 - 0.8 * t, 2.0)], 3.0)
+    (track,) = f.tracks
+    x0 = track.x[0]
+    run(f, lambda t: [], 1.0, start=t)
+    assert track.x[0] == pytest.approx(x0 - 0.8, abs=0.15)
+
+
 def test_young_boat_track_does_not_turn_static():
     f = TrackFilter(CFG)
     run(f, lambda t: [ob('yellow_target_boat', 8 + 0.8 * t, 3.0)], 6.0, noise=0.05)

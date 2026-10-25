@@ -43,6 +43,12 @@ class TrackState:
     fov_miss_since: float = None
     anchor: np.ndarray = None
     anchor_t: float = 0.0
+    seen_xy: np.ndarray = None     # position and covariance after the last measurement
+    seen_P: np.ndarray = None
+
+    def __post_init__(self):
+        if self.seen_xy is None:
+            self.seen_xy, self.seen_P = self.x[:2].copy(), self.P[:2, :2].copy()
 
 
 def stamp_of(header):
@@ -212,6 +218,10 @@ class TrackFilter:
         except LookupError:
             v_cam = np.zeros(3)
         self.last_stamp = t
+        # A coasting STATIC track does not move: its velocity is a noise estimate, and over
+        # its 900 s lifetime it would carry the disc and the course map off the buoy.
+        held = [(track, track.x[:2].copy()) for track in self.all
+                if track.confirmed and track.motion == MOTION_STATIC]
         for track in self.all:
             self.predict(track, t)
 
@@ -258,6 +268,10 @@ class TrackFilter:
             self._update(live[k], ob, obs.backend, z, gate, t, p, yaw_rate)
             if live[k].confirmed:
                 self.assoc[how] += 1
+        updated = {id(live[k]) for k in matched_tracks}
+        for track, xy in held:
+            if id(track) not in updated:
+                track.x[:2] = xy            # P keeps its predicted growth
         for i, (ob, z, Rz, vel) in enumerate(rows):
             # A tail outlier of an existing track must not seed its duplicate.
             if i not in matched_obs and nearest[i] >= self.cfg['candidate']['exclusion_chi2']:
@@ -273,6 +287,7 @@ class TrackFilter:
         track.x = track.x + K @ nu
         track.P = (np.eye(4) - K @ H) @ track.P
         track.P = (track.P + track.P.T) / 2
+        track.seen_xy, track.seen_P = track.x[:2].copy(), track.P[:2, :2].copy()
         alpha = self.cfg['score_alpha']
         track.score += alpha * (ob.score - track.score)
         size = np.array([ob.size.x, ob.size.y, ob.size.z])

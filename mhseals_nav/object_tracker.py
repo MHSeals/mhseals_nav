@@ -325,10 +325,12 @@ class ObjectTracker(Node):
         for track in tracks:
             if track.source == SOURCE_PRIOR:
                 continue                    # not re-observed: keep its file entry
-            xy = transform[0] @ np.array([track.x[0], track.x[1], 0.0]) + transform[1]
+            # The last measured position, not one predicted while out of view.
+            seen = track.seen_xy
+            xy = transform[0] @ np.array([seen[0], seen[1], 0.0]) + transform[1]
             request = self.ToLL.Request()
             request.map_point.x, request.map_point.y = float(xy[0]), float(xy[1])
-            sigma = math.sqrt(max(float(np.linalg.eigvalsh(track.P[:2, :2]).max()), 0.0))
+            sigma = math.sqrt(max(float(np.linalg.eigvalsh(track.seen_P).max()), 0.0))
             row = {'class_id': track.class_id, 'sigma_m': round(sigma, 3), 'hits': track.hits,
                    'last_seen': course_map.iso(stamp)}
             self.to_ll.call_async(request).add_done_callback(
