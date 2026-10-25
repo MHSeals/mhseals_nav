@@ -5,6 +5,8 @@ A task with ``approach: [x, y, yaw]`` (map frame, from the day's course layout)
 first drives there, so it starts where its objects are in view.
 """
 
+import math
+
 from py_trees.composites import Sequence
 from py_trees.decorators import FailureIsSuccess
 
@@ -25,6 +27,12 @@ def look_for(name, labels, params, **overrides):
     """The search subtree (tasks/search.py) with the task's own ``search`` overrides."""
     return search.search(name, labels, search.load_config(
         {**(params.get('search') or {}), **overrides}))
+
+
+def gate_options(params):
+    """GateRun's YAML: the first gate's reach, and its look spread (search's scan spread)."""
+    spread = search.load_config(params.get('search'))['scan_spread_deg']
+    return dict(first_radius=params['first_gate_radius'], spread=math.radians(spread))
 
 
 def approached(task, build):

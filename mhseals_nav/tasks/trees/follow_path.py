@@ -12,12 +12,13 @@ from mhseals_nav.tasks.behaviours import CountObjects, GateRun, ReportCount
 
 
 def build(params):
-    from mhseals_nav.tasks.trees import look_for
+    from mhseals_nav.tasks.trees import gate_options, look_for
     red, green = params['red'], params['green']
     path = Sequence('path', memory=True, children=[
         look_for('find the path', (red, green), params),
         GateRun('follow the gates', 'path', red, green, search=params['search_distance'],
-                max_width=params['max_gate_width'], red_side=params['red_side']),
+                max_width=params['max_gate_width'], red_side=params['red_side'],
+                **gate_options(params)),
         ReportCount('report count', 'species', 'species_count',
                     spin=params['report'] == 'spin'),
     ])

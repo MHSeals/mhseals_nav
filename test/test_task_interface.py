@@ -103,8 +103,8 @@ def test_navigate_reports_one_goal_across_retries(monkeypatch):
     monkeypatch.setattr(interface, 'NavigateThroughPoses', SimpleNamespace(Goal=lambda **k: None))
     events = []
     node = Navigate('go', 'route', retries=0)
-    node.navigator = reporting_navigator(events)
-    node.report = lambda event, **d: events.append((event, d))
+    node.setup(navigator=reporting_navigator(events),
+               report=lambda event, **d: events.append((event, d)))
     node.board = board([(0.0, 0.0, 0.0), (4.0, 5.0, 1.5)])
     node.initialise()
     for _ in range(40):
@@ -117,8 +117,9 @@ def test_navigate_on_an_empty_route_fails_without_event_or_raising():
     from mhseals_nav.tasks.behaviours import Navigate
     events = []
     node = Navigate('go', 'route')
-    node.navigator = SimpleNamespace(send=lambda route, precise=False, quiet=False, why='': None)
-    node.report = lambda event, **d: events.append(event)
+    node.setup(navigator=SimpleNamespace(send=lambda route, precise=False, quiet=False,
+                                         why='': None),
+               report=lambda event, **d: events.append(event))
     node.board = board([])
     node.initialise()
     assert node.update() == Status.FAILURE and events == []

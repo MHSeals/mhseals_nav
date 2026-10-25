@@ -16,7 +16,7 @@ from mhseals_nav.tasks.behaviours import (
 
 
 def build(params):
-    from mhseals_nav.tasks.trees import look_for
+    from mhseals_nav.tasks.trees import gate_options, look_for
     red, green, mark = params['red'], params['green'], params['mark']
     # Without the day's layout, the blue mark (only this task has one) leads the boat to
     # the task; red/green gates look alike, so other tasks' gates are excluded.
@@ -32,7 +32,8 @@ def build(params):
         look_for('find the gate', (red, green), params),
         GateRun('through the gate', 'speed_gate', red, green, gates=1,
                 max_width=params['max_gate_width'], near=near, radius=radius,
-                exclude=('path', 'channel'), toward=mark),
+                exclude=('path', 'channel'), exclude_radius=params['exclude_radius'],
+                toward=mark, **gate_options(params)),
         Report('report start', 'speed_started'),
         # The mark lies straight on past the gate: drive on, and search if it is not there.
         Selector('find the mark', memory=True, children=[

@@ -17,7 +17,7 @@ import py_trees
 from py_trees.common import Access, Status
 from py_trees.decorators import Decorator
 
-from mhseals_nav.tasks import geometry
+from mhseals_nav.tasks import geometry, load_config
 
 
 class Leaf(py_trees.behaviour.Behaviour):
@@ -65,7 +65,10 @@ class Driver(Leaf):
     cancels its goal. A goal cancelled by anyone but the task preempts the run.
     """
 
-    RETRIES = 30  # sends of one route: a goal just cancelled elsewhere can take a moment
+    def setup(self, **kwargs):
+        super().setup(**kwargs)
+        # goal_retries (sends of one route) and refusal_s: config/tasks/runner.yaml
+        self.limits = kwargs.get('runner') or load_config('runner')
 
     def initialise(self):
         self.goal = self.old = self.queued = self.outcome = self.anchor = None
@@ -129,8 +132,8 @@ class Driver(Leaf):
         # Refused while another navigation winds down: rejected, or accepted and at
         # once aborted. Either way, send it again.
         refused = status == 'REJECTED' or (status == 'ABORTED' and q is not None
-                                           and now - q['sent'] < 1.0)
-        if refused and q is not None and q['tries'] < self.RETRIES:
+                                           and now - q['sent'] < self.limits['refusal_s'])
+        if refused and q is not None and q['tries'] < self.limits['goal_retries']:
             self.goal = None
             return self.driving()
         if refused:  # the replacement never took over: stop the old route
@@ -399,9 +402,11 @@ class GateRun(Driver):
     the chain changes (a gate appears, or moves over ``replan`` metres). A gate is
     cleared when the hull crosses its line. Nav2 giving up is retried ``retries``
     times. With no gate ahead the camera sweeps the unexplored side, then the boat
-    drives ``step`` metre legs up to ``search`` metres. ``near``/``radius`` keep only
+    drives ``step`` metre legs up to ``search`` metres. The first gate is the nearest
+    within ``first_radius``, any way. ``near``/``radius`` keep only
     gates within ``radius`` of a blackboard point (the black return gate by home);
-    gates listed in the ``exclude`` keys (other tasks' cleared gates) are skipped, and
+    gates within ``exclude_radius`` of those in the ``exclude`` keys (other tasks'
+    cleared gates) are skipped, and
     with ``toward`` (a label) each gate is crossed toward the nearest such object.
     ``red_side`` (port, starboard) fixes the way through each gate by its colour
     order, so a gate crossed the wrong way never counts; ``any`` takes either.
@@ -410,12 +415,14 @@ class GateRun(Driver):
 
     def __init__(self, name, key, red, green, gates=None, search=10.0, step=5.0,
                  max_width=8.0, min_width=1.0, near=None, radius=None, lookahead=3,
-                 replan=0.7, retries=2, exclude=(), toward=None, red_side='any'):
+                 replan=0.7, retries=2, exclude=(), toward=None, red_side='any',
+                 first_radius=None, exclude_radius=None, spread=None):
         super().__init__(name, reads=((near,) if near else ()) + tuple(exclude),
                          writes=(key,))
         if red_side not in ('port', 'starboard', 'any'):
             raise ValueError(f'red_side must be port, starboard or any, not {red_side!r}')
         self.exclude, self.toward, self.red_side = tuple(exclude), toward, red_side
+        self.first_radius, self.exclude_radius, self.spread = first_radius, exclude_radius, spread
         self.key, self.red, self.green, self.limit = key, red, green, gates
         self.search, self.step, self.max_width, self.min_width = search, step, max_width, min_width
         self.near, self.radius, self.lookahead = near, radius, lookahead
@@ -439,7 +446,8 @@ class GateRun(Driver):
         # Gates another task already passed are not this task's (red/green look alike).
         done = [g for key in self.exclude if self.board.exists(key)
                 for g in self.board.get(key) or []]
-        gates = [g for g in gates if all(math.dist(g[:2], d[:2]) > 2.0 for d in done)]
+        gates = [g for g in gates
+                 if all(math.dist(g[:2], d[:2]) > self.exclude_radius for d in done)]
         marks = self.labelled(self.toward) if self.toward else []
         if marks:  # crossed toward the mark, whichever side the boat comes from
             gates = [g if math.cos(g[2] - geometry.heading(g, min(
@@ -467,7 +475,8 @@ class GateRun(Driver):
         direction = plan[-1][2] if plan else self.cleared[-1][2] if self.cleared else None
         while len(plan) < room:
             if not plan and not self.cleared:  # a task's first gate: the nearest, any way
-                gate = min((g for g in gates if math.dist(g[:2], origin[:2]) <= 30.0),
+                gate = min((g for g in gates
+                            if math.dist(g[:2], origin[:2]) <= self.first_radius),
                            key=lambda g: math.dist(g[:2], origin[:2]), default=None)
             else:
                 gate = geometry.next_gate(gates, origin, self.cleared + plan, direction)
@@ -526,8 +535,8 @@ class GateRun(Driver):
         """No gate ahead: look along the least-seen bearings near the course, then drive on.
 
         Each look drives ``step`` metres along the bearing whose camera cone holds the
-        most unexplored water within 60 degrees of the course, so the boat turns while
-        moving; with no coverage grid it sweeps each side in place.
+        most unexplored water within ``spread`` (rad) of the course, so the boat turns
+        while moving; with no coverage grid it sweeps each side in place.
         """
         direction = self.cleared[-1][2] if self.cleared else pose[2]
         self.phase = 'search'
@@ -539,7 +548,7 @@ class GateRun(Driver):
         if coverage is not None and self.looks and self.searched < self.search:
             self.looks -= 1
             self.searched += self.step  # a look drives a leg too
-            bearing = coverage.bearing_gaps(pose, self.board.fov, math.radians(60), direction)
+            bearing = coverage.bearing_gaps(pose, self.board.fov, self.spread, direction)
             if bearing is not None:
                 self.drive([(*geometry.forward((*pose[:2], bearing), self.step)[:2], bearing)],
                            why=f'look toward unexplored bearing {math.degrees(bearing):.0f}°')

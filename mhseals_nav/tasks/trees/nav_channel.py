@@ -11,11 +11,11 @@ from mhseals_nav.tasks.behaviours import GateRun
 
 
 def build(params):
-    from mhseals_nav.tasks.trees import look_for
+    from mhseals_nav.tasks.trees import gate_options, look_for
     red, green = params['red'], params['green']
     return Sequence('nav channel', memory=True, children=[
         look_for('find the channel', (red, green), params),
         GateRun('through the channel', 'channel', red, green, gates=params['gates'],
                 search=params['search_distance'], max_width=params['max_gate_width'],
-                red_side=params['red_side']),
+                red_side=params['red_side'], **gate_options(params)),
     ])

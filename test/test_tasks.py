@@ -762,6 +762,18 @@ def test_a_goal_cancelled_outside_the_task_preempts_it(scenario):
     assert 'stage_failed' not in world.names()
 
 
+def test_gate_reach_and_goal_resends_come_from_yaml():
+    from mhseals_nav.tasks import load_config
+    from mhseals_nav.tasks.conditions import Conditions
+    world = World('nav_channel', dict(params('nav_channel'), first_gate_radius=5.0))
+    world.state['objects'] = gate(7, 0, 3)  # 7 m off: beyond the first gate's reach
+    world.run(ticks=1)
+    assert world.goals and world.goals[0].route[-1][:2] != pytest.approx((8.1, 0))
+    driver, _ = replacing_driver([False])
+    assert driver.limits == load_config('runner') and driver.limits['goal_retries'] > 0
+    assert Conditions().cfg == load_config('mission')['conditions']
+
+
 def replacing_driver(refuse):
     """A Driver on a fake Nav2; ``refuse`` (a one-item list) rejects the goals sent."""
     from types import SimpleNamespace

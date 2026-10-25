@@ -4,5 +4,6 @@ home_approach: 6.0           # m out from home, on the boat's side, before looki
 home_radius: 8.0        # m; only black pairs this close to home are the home gate
 max_gate_width: 4.0
 search_distance: 6.0
+first_gate_radius: 30.0 # m; the task's first gate is the nearest within this, any way
 time_limit: 240.0
 timeout: 240.0

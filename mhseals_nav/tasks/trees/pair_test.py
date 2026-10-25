@@ -9,6 +9,7 @@ from mhseals_nav.tasks.behaviours import (
 
 def build(params):
     """Remember one pair, accepting either colour order, for both crossings."""
+    from mhseals_nav.tasks.trees import gate_options
     if params['clearance'] < 1.1:
         raise ValueError('clearance must be at least 1.1 m to clear the hull')
     return Sequence('pair test', memory=True, children=[
@@ -16,7 +17,7 @@ def build(params):
                 params['red'], params['green'], gates=1,
                 search=params['search_distance'],
                 min_width=params['min_gate_width'],
-                max_width=params['max_gate_width']),
+                max_width=params['max_gate_width'], **gate_options(params)),
         PlanGatePass('plan clearance', 'pair_out', 'pair_gate',
                      after=params['clearance']),
         Navigate('a few metres beyond', 'pair_out_end'),

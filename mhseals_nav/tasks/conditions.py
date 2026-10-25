@@ -16,17 +16,18 @@ import math
 
 from py_trees.common import Status
 
+from mhseals_nav.tasks import load_config
 from mhseals_nav.tasks.behaviours import Leaf
-
-DEFAULTS = dict(precise_min_fix=6, float_policy='perception', drift_max=0.35, drift_s=10.0,
-                track_err_max=[0.15, 0.15], track_err_s=5.0, sat_effort=0.95)
 
 
 class Conditions:
-    """The latest boat state and how long each bad condition has held."""
+    """The latest boat state and how long each bad condition has held.
+
+    Settings and topics default to mission.yaml's ``conditions``; ``config`` overrides.
+    """
 
     def __init__(self, config=None):
-        self.cfg = {**DEFAULTS, **(config or {})}
+        self.cfg = {**load_config('mission')['conditions'], **(config or {})}
         self.fix = None
         self.since = {}  # condition -> time it began to hold
 

@@ -239,7 +239,7 @@ class TaskRunner(Node):
         self.navigator = Navigator(self, self.frame, params.get('hold_topic', '/cmd_vel_nav'))
         self.navigator.report = self.report
         self.tree.setup(timeout=15.0, navigator=self.navigator, report=self.report,
-                        preempt=self.preempt)
+                        preempt=self.preempt, runner=self.config)
         self.started = None
         self.outcome = None
         self.create_timer(1.0 / float(params.get('tick_hz', 10.0)), self.tick)
@@ -256,7 +256,7 @@ class TaskRunner(Node):
     def _objects(self, message):
         # Remembered for a few seconds, so a track that drops out briefly does not
         # make a sighting flicker. Superseded while perception v2 tracks arrive.
-        if self.v2_at is None or self.now() - self.v2_at > 2.0:
+        if self.v2_at is None or self.now() - self.v2_at > self.config['tracks_supersede_s']:
             self._remember(tracks.from_detections(message))
 
     def _tracks(self, message):
@@ -281,10 +281,7 @@ class TaskRunner(Node):
         only the latest applied command, odometry twist and effort, judged at the tick.
         """
         conditions = Conditions(config)
-        topics = {**dict(fix_topic='/mavros/gpsstatus/gps1/raw',
-                         drift_topic='/calibrated_velocity_controller/drift',
-                         command_topic='/cmd_vel/applied', odom_topic='/odom/local',
-                         effort_topic='/cmd_vel_effort'), **config}
+        topics = conditions.cfg
         self.velocity = dict(command=None, measured=None, effort=None)
         if topics['fix_topic']:
             self.create_subscription(GPSRAW, topics['fix_topic'],
