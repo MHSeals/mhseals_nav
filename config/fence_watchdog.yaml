@@ -1,0 +1,30 @@
+# fence_watchdog (B): autonomy must stay inside the day's course area (FCU FENCE_ENABLE=0,
+# and the FCU does not drive the thrusters). While autonomy commands flow and the boat is
+# outside the fence, or within margin_m of its edge and moving outward faster than
+# outward_speed_mps or facing within outward_angle_deg of the outward normal, it requests a
+# command_mux hold; it never releases (the operator clears it with U).
+# No valid fence, or position or odometry older than max_age_s, holds as well.
+#
+# The fence is the day's course area in fence_file (plain YAML, it overrides fence_frame and
+# fence_points here), for example:
+#   fence_frame: latlon                  # latlon: [lat, lon] pairs; map: [x, y] m in map
+#   fence_points: [42.000, -71.000, 42.000, -70.999, 42.001, -70.999, 42.001, -71.000]
+# Lat/lon is the one to use on the water: map's origin is wherever the boat started
+# (navsat_transform wait_for_datum: false). fence_points is a flat list of at least 3 vertex
+# pairs; a launch may pass it as a parameter instead (sim: a map-frame box).
+/**:
+  ros__parameters:
+    fence_file: ~/.config/mhseals/fence.yaml
+    fence_frame: latlon
+    odom_topic: /odom/global           # EKF (map): heading and velocity; position for map fences
+    gps_topic: /gps/filtered           # navsat_transform's lat/lon of /odom/global
+    command_topic: /cmd_vel            # Nav2 -> command_mux auto input
+    request_topic: /command_mux/request
+    cause: geofence
+    margin_m: 5.0                      # covers the coast after a neutral-thrust hold
+    outward_speed_mps: 0.1             # outward ground speed that counts as leaving
+    outward_angle_deg: 60.0            # heading this close to the outward normal counts too
+    max_age_s: 1.0                     # receipt age of the position and odometry
+    command_window_s: 0.5              # autonomy = an auto command within this window
+    repeat_s: 1.0
+    rate_hz: 10.0
