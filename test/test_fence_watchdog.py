@@ -144,15 +144,15 @@ def test_unreadable_fence_file_holds(tmp_path, monkeypatch):
     assert dog.poly is None and at(dog, 0.0, 50.0, 25.0)
 
 
-STATE_KEYS = {'valid', 'frame', 'points', 'source_frame', 'margin_m', 'outward_angle_deg',
-              'outward_speed_mps', 'reason', 'error', 'stamp_ns'}
+STATE_KEYS = {'valid', 'frame', 'points', 'margin_m', 'outward_angle_deg', 'outward_speed_mps',
+              'reason', 'error', 'stamp_ns'}
 
 
 def test_state_of_a_map_fence_is_its_points():
     dog = FenceWatchdog(MAP)
     state = dog.state(0.0, 7)
     assert set(state) == STATE_KEYS
-    assert state['valid'] and state['frame'] == state['source_frame'] == 'map'
+    assert state['valid'] and state['frame'] == 'map'
     assert state['points'] == BOX and state['stamp_ns'] == 7 and not state['error']
     assert state['margin_m'] == CFG['margin_m']
     assert state['reason'] == 'position missing or stale'
@@ -167,28 +167,14 @@ def test_state_without_a_fence_is_invalid():
     assert not state['valid'] and state['points'] is None and state['error']
 
 
-def test_state_places_a_lat_lon_fence_in_map_only_from_a_fresh_pair():
-    lat0, lon0, d = 42.0, -71.0, 0.001
-    dog = FenceWatchdog(dict(CFG, fence_frame='latlon', fence_points=[
-        lat0, lon0, lat0, lon0 + d, lat0 + d, lon0 + d, lat0 + d, lon0]))
-    assert not dog.state(0.0)['valid']                        # no fix, no map pose yet
-    east, north = project((lat0, lon0), lat0 + d / 2, lon0 + d / 2)
-    dog.position(0.0, lat0 + d / 2, lon0 + d / 2)
-    dog.motion(0.0, 0.0, 0.0, 0.0, (10.0, -5.0))             # map (10, -5) is that fix
-    state = dog.state(0.0)
-    assert state['valid'] and state['frame'] == 'map' and state['source_frame'] == 'latlon'
-    xs, ys = state['points'][::2], state['points'][1::2]
-    assert (xs[0], ys[0]) == pytest.approx((10.0 - east, -5.0 - north))
-    assert (xs[2], ys[2]) == pytest.approx((10.0 + east, -5.0 + north), abs=0.2)
-    late = CFG['max_age_s'] + 0.01                           # the pair went stale: no old offset
-    stale = dog.state(late)
-    assert not stale['valid'] and stale['points'] is None and 'fresh' in stale['error']
-    dog.motion(late, 0.0, 0.0, 0.0, (10.0, -5.0))            # map pose fresh, fix still old
-    assert not dog.state(late)['valid']
-    dog = FenceWatchdog(dog.cfg)
-    dog.position(0.0, lat0, lon0)
-    dog.motion(0.0, 0.0, 0.0, 0.0)                           # odometry without a map pose
-    assert not dog.state(0.0)['valid']
+def test_state_of_a_lat_lon_fence_is_its_raw_lat_lon_whatever_the_position():
+    """No map copy: the TUI checks goals in lat/lon (toLL), so a rotated map cannot shift it."""
+    points = [42.0, -71.0, 42.0, -70.999, 42.001, -70.999, 42.001, -71.0]
+    dog = FenceWatchdog(dict(CFG, fence_frame='latlon', fence_points=points))
+    for state in (dog.state(0.0), dog.state(100.0)):         # no fix yet, then a stale one
+        assert set(state) == STATE_KEYS and state['valid'] and state['frame'] == 'latlon'
+        assert state['points'] == points
+        dog.position(0.0, 42.0005, -70.9995)
 
 
 def test_back_inside_never_releases():
