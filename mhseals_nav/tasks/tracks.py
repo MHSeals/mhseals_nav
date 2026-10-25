@@ -1,0 +1,67 @@
+"""Thin adapter from either tracker interface to one track tuple the tasks read.
+
+Today's main publishes ``/objects/map`` (vision_msgs Detection3DArray); perception v2
+adds ``/perception/tracks`` (mhseals_nav/msg/TrackArray) with covariance, motion and
+course-map priors. Both become ``Track`` tuples, so leaves never see a message type.
+The functions take duck-typed messages, so they are testable without ROS.
+"""
+
+import math
+from collections import namedtuple
+
+# sigma: 1-sigma position uncertainty in m (None when the source gives none).
+# prior: loaded from the course map and not yet seen this run (v2 only).
+Track = namedtuple('Track', 'label x y confidence sigma static prior id')
+
+MOTION_STATIC, SOURCE_PRIOR = 1, 1  # mhseals_nav/msg/Track constants
+
+
+def from_detections(message):
+    """Tracks from a ``/objects/map`` Detection3DArray (live tracks only, no covariance)."""
+    tracks = []
+    for d in message.detections:
+        if not d.results:
+            continue
+        hypothesis = d.results[0].hypothesis
+        tracks.append(Track(hypothesis.class_id, d.bbox.center.position.x,
+                            d.bbox.center.position.y, float(hypothesis.score) or 1.0,
+                            None, True, False, str(d.id)))
+    return tracks
+
+
+def from_track_array(message):
+    """Tracks from a v2 ``/perception/tracks`` TrackArray, priors included."""
+    tracks = []
+    for t in message.tracks:
+        cov = t.pose.covariance
+        sigma = math.sqrt(max(cov[0] + cov[7], 0.0) / 2) if any(cov) else None
+        tracks.append(Track(t.class_id, t.pose.pose.position.x, t.pose.pose.position.y,
+                            float(t.confidence), sigma, t.motion == MOTION_STATIC,
+                            t.source == SOURCE_PRIOR, str(t.id)))
+    return tracks
+
+
+def remember(memory, seen, now, horizon=5.0, separation=1.0):
+    """Merge ``seen`` tracks into ``memory`` [(Track, last_seen)], forgetting stale ones.
+
+    A sighting within ``separation`` of a remembered track of the same label replaces
+    it, so a track that drops out for a moment stays put rather than flickering.
+    Priors are never remembered: the course map republishes them while they hold.
+    """
+    kept = [(track, seen_at) for track, seen_at in memory if now - seen_at <= horizon]
+    for track in seen:
+        if track.prior:
+            continue
+        match = next((i for i, (old, _) in enumerate(kept) if old.label == track.label
+                      and math.dist((track.x, track.y), (old.x, old.y)) < separation), None)
+        if match is None:
+            kept.append((track, now))
+        else:
+            kept[match] = (track, now)
+    return kept
+
+
+def objects(tracks, min_confidence=0.0):
+    """The (label, x, y) view of live tracks the task leaves plan with."""
+    return [(t.label, t.x, t.y) for t in tracks
+            if not t.prior and t.confidence >= min_confidence]
