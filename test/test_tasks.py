@@ -155,10 +155,11 @@ class World:
     def closed(self):
         return bool(self.preempted)
 
-    def send(self, route, precise=False, quiet=False, why=''):
+    def send(self, route, precise=False, quiet=False, why='', reverse=None):
         if self.preempted:
             return None
         self.goals.append(Goal(self.state, route, precise))
+        self.goals[-1].reverse = reverse
         return self.goals[-1]
 
     def run(self, ticks=400, script=None):
@@ -258,7 +259,23 @@ def test_docking_skips_the_occupied_bay():
     berth = next(goal for goal in world.goals if goal.precise)
     assert berth.route[-1] == pytest.approx((8.8, -5, 0))
     assert world.names() == ['docked', 'undocked']
-    assert world.goals[-1].route[-1][:2] == pytest.approx((7, -5))  # backed out
+    back = world.goals[-1]
+    assert back.route[-1][:2] == pytest.approx((7, -5))  # backed out
+    # straight back the bay's length on BackUp, never a planned turn inside the bay
+    assert back.reverse == (pytest.approx(1.8), 0.1, 40.0)
+
+
+def test_docking_drives_out_when_the_back_out_fails():
+    world = World('docking', params('docking'))
+    world.state['objects'] = [('blue_square', 10, -1), ('red_circle', 10, -3)]
+
+    def stuck(tick, world):
+        for goal in world.goals:
+            if goal.reverse is not None:
+                goal.status = 'ABORTED'  # e.g. no backup plugin or something astern
+
+    assert world.run(script=stuck) == 'SUCCESS'
+    assert [goal.reverse is not None for goal in world.goals[-3:]] == [True, True, False]
 
 
 def test_speed_challenge_circles_the_mark_and_counts_spills_past_the_gate():

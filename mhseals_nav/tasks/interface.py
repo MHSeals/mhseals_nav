@@ -23,15 +23,16 @@ import sys
 import time
 
 from action_msgs.msg import GoalStatus
+from builtin_interfaces.msg import Duration
 from diagnostic_msgs.msg import DiagnosticArray
-from geometry_msgs.msg import PoseStamped, Twist, Vector3Stamped
+from geometry_msgs.msg import Point, PoseStamped, Twist, Vector3Stamped
 from mavros_msgs.msg import GPSRAW
 from mhseals_nav.tasks import load_config, tracks
 from mhseals_nav.tasks.conditions import Conditions, speed as conditions_speed
 from mhseals_nav.tasks.recognition import Recogniser
 from mhseals_nav.tasks.search import Coverage, load_config as load_search
 from mhseals_nav.tasks.trees import KINDS, TREES
-from nav2_msgs.action import NavigateThroughPoses, NavigateToPose
+from nav2_msgs.action import BackUp, NavigateThroughPoses, NavigateToPose
 from nav_msgs.msg import Odometry
 import py_trees
 import rclpy
@@ -131,6 +132,7 @@ class Navigator:
         self.zero = node.create_publisher(Twist, hold_topic, 1)
         self.to_pose = ActionClient(node, NavigateToPose, 'navigate_to_pose')
         self.through = ActionClient(node, NavigateThroughPoses, 'navigate_through_poses')
+        self.backup = ActionClient(node, BackUp, 'backup')  # behavior_server's backup plugin
         # Docking ends on the tight goal checker (behavior_trees/nav_precise.xml).
         self.precise_tree = (f"{get_package_share_directory('mhseals_nav')}"
                              '/behavior_trees/nav_precise.xml')
@@ -166,9 +168,13 @@ class Navigator:
         self.goals = [goal for goal in self.goals if not goal.settled]
         return not self.goals
 
-    def send(self, route, precise=False, quiet=False, why=''):
-        """Send a route; every send is a ``goal`` event unless ``quiet`` (a retry)."""
-        if self.closed:
+    def send(self, route, precise=False, quiet=False, why='', reverse=None):
+        """Send a route; every send is a ``goal`` event unless ``quiet`` (a retry).
+
+        ``reverse`` (distance m, speed m/s, allowed s) reverses straight towards the
+        route's end with Nav2's BackUp instead of planning to it.
+        """
+        if self.closed or (reverse is not None and not self.backup.server_is_ready()):
             return None
         if route and not quiet:
             x, y, yaw = route[-1]
@@ -176,7 +182,12 @@ class Navigator:
             if self.report is not None:
                 self.report('goal', **self.last)
         poses = [self.pose(*waypoint) for waypoint in route]
-        if len(poses) == 1 or precise:
+        if reverse is not None:
+            distance, speed, seconds = reverse
+            goal = Goal(self.backup.send_goal_async(BackUp.Goal(
+                target=Point(x=float(distance)), speed=float(speed),
+                time_allowance=Duration(sec=int(seconds)))))
+        elif len(poses) == 1 or precise:
             request = NavigateToPose.Goal(pose=poses[-1])
             if precise:
                 request.behavior_tree = self.precise_tree

@@ -13,6 +13,9 @@ berth_accept: 0.5       # m from the berth that counts as in the bay if Nav2 giv
 # precise checker (0.3 m, nav2_params.yaml), leaving at least 0.3 m of hysteresis.
 hold_redrive: 0.6       # m
 hold_precise: true
+# Leaving: straight back to the staging pose (Nav2 BackUp), no turn inside the bay.
+back_out_speed: 0.1     # m/s, the velocity smoother's reverse limit (min_velocity)
+back_out_time: 40.0     # s allowed for one back out (1.8 m at 0.1 m/s takes ~20 s)
 attempts: 2             # tries within the mission's time limit
 precise: true           # gated on GPS fix tier, drift and thrusters (mission `conditions`)
 search_distance: 20.0

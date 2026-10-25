@@ -4,7 +4,7 @@ Find the banner, choose a bay under it (skipping any with a vessel in it),
 stage in front, slide in with the precise goal checker, hold, and back out.
 """
 
-from mhseals_nav.tasks.behaviours import Hold, Navigate, PlanBay, PlanLook, Report
+from mhseals_nav.tasks.behaviours import BackOut, Hold, Navigate, PlanBay, PlanLook, Report
 from py_trees.composites import Selector, Sequence
 
 
@@ -37,6 +37,14 @@ def build(params):
         Report('report docked', 'docked', include=('bay',), banner=banner),
         Hold('hold in the bay', params['dock_time'], station=params['hold_redrive'],
              precise=params['hold_precise']),
-        Navigate('back out', 'bay_staging', retries=2, accept=1.0, why='back out of the bay'),
+        # Straight back to the staging pose, then the next goal turns clear of the dock;
+        # planning there instead turns in the bay first and jams the boat crosswise.
+        Selector('leave the bay', memory=True, children=[
+            BackOut('back out', 'bay_staging', params['back_out_speed'],
+                    params['back_out_time'], retries=1, accept=1.0,
+                    why='back out of the bay'),
+            Navigate('drive out', 'bay_staging', retries=1, accept=1.0,
+                     why='drive out of the bay'),
+        ]),
         Report('report undocked', 'undocked'),
     ])

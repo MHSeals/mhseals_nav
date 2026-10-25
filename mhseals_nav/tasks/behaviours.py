@@ -116,8 +116,7 @@ class Driver(Leaf):
         self.superseded = [goal for goal in self.superseded if not goal.done]
         if self.queued is not None and self.goal is None:
             q = self.queued
-            self.goal = self.navigator.send(q['route'], precise=q['precise'],
-                                            quiet=q['tries'] > 0, why=q['why'])
+            self.goal = self.submit(q)
             q['tries'], q['sent'] = q['tries'] + 1, now
             if self.goal is None:
                 self.drop_superseded()
@@ -144,6 +143,11 @@ class Driver(Leaf):
             self.preempt('goal cancelled outside the task')
         self.goal, self.queued, self.outcome = None, None, status
         return status
+
+    def submit(self, q):
+        """Hand the queued route to Nav2 (``q`` as ``drive`` queued it)."""
+        return self.navigator.send(q['route'], precise=q['precise'], quiet=q['tries'] > 0,
+                                   why=q['why'])
 
     def keep_station(self, hold, precise=False):
         """Hold the pose this was first called at: drive back once ``hold`` metres off.
@@ -320,6 +324,25 @@ class Navigate(Driver):
             self.drive(self.route, self.precise, self.why)
             return Status.RUNNING
         return Status.FAILURE
+
+
+class BackOut(Navigate):
+    """Reverse straight to the route's end with Nav2's BackUp, keeping the heading.
+
+    A goal behind the boat makes the rotation shim turn in place first, which jams
+    it crosswise in a dock bay; reversing needs no turn, and the next goal turns
+    once clear. ``speed`` (m/s) and ``seconds`` (allowed) come from the task YAML.
+    """
+
+    def __init__(self, name, key, speed, seconds, **kwargs):
+        super().__init__(name, key, **kwargs)
+        self.speed, self.seconds = speed, seconds
+
+    def submit(self, q):
+        pose = self.board.pose
+        distance = math.dist(pose[:2], q['route'][-1][:2]) if pose else 0.0
+        return self.navigator.send(q['route'], quiet=q['tries'] > 0, why=q['why'],
+                                   reverse=(distance, self.speed, self.seconds))
 
 
 class Report(Leaf):

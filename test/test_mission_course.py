@@ -72,7 +72,7 @@ class Course:
         self.board.coverage = Coverage(search.get('area'), 1.5, self.pose, 60.0, 120.0)
         self.recogniser = Recogniser.from_yaml(CONFIG / 'recognition.yaml')
 
-    def send(self, route, precise=False, quiet=False, why=''):
+    def send(self, route, precise=False, quiet=False, why='', reverse=None):
         if self.goal is not None and not self.goal.done:
             self.goal.done, self.goal.status = True, 'ABORTED'  # preempted
         self.goal = Goal(route, precise)
