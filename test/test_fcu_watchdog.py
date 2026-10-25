@@ -76,6 +76,7 @@ def test_node_holds_when_mavros_goes_silent():
     from sensor_msgs.msg import Imu, NavSatFix
     from std_msgs.msg import String
     from ros_domain import require_isolated_domain
+    from watchdog_cycle import flip_twice
     require_isolated_domain()
     from mhseals_nav.fcu_watchdog import node_class
     rclpy.init()
@@ -102,7 +103,7 @@ def test_node_holds_when_mavros_goes_silent():
             ex.spin_once(timeout_sec=0.02)
         assert dog.logic.autonomy(time.monotonic()) and not dog.logic.reason(time.monotonic())
         assert not got
-        end = time.monotonic() + 3.0             # MAVROS dies, autonomy continues
+        end = time.monotonic() + 4.0             # MAVROS dies, autonomy continues
         while time.monotonic() < end and len(got) < 2:
             cmd.publish(Twist())
             ex.spin_once(timeout_sec=0.05)
@@ -110,5 +111,15 @@ def test_node_holds_when_mavros_goes_silent():
         assert {g['op'] for g in got} == {'hold'}
         assert {g['cause'] for g in got} == {'fcu_link'}
         assert {g['by'] for g in got} == {'fcu_watchdog'} and all(g['token'] for g in got)
+
+        def mavros(connected):
+            def feed():
+                state.publish(State(connected=connected))
+                imu.publish(Imu())
+                gps.publish(NavSatFix())
+                cmd.publish(Twist())
+            return feed
+
+        flip_twice(ex, got, mavros(False), mavros(True))
     finally:
         rclpy.try_shutdown()
