@@ -27,10 +27,11 @@ def cells(*boxes):
 
 
 def run(world, seconds, speed=0.4, yaw_rate=0.0, autonomy=True, flicker=0.0, seed=0,
-        cfg=ENFORCE, seen=None):
+        cfg=ENFORCE, seen=None, drop=0.0):
     """Drive along +x; ``world(t)`` gives lethal boxes. Return when hold requests went out.
 
-    ``seen`` collects the times an approach was reported (reason set), held or not.
+    ``seen`` collects the times an approach was reported (reason set), held or not;
+    ``drop`` is the share of snapshots that never arrive.
     """
     rng = numpy.random.default_rng(seed)
     guard, sent = Guard(cfg), []
@@ -42,7 +43,8 @@ def run(world, seconds, speed=0.4, yaw_rate=0.0, autonomy=True, flicker=0.0, see
             points = points[rng.random(len(points)) > flicker]
         if autonomy:
             guard.command(t)
-        guard.observe(t, points, (x, y, yaw))
+        if not (drop and rng.random() < drop):
+            guard.observe(t, points, (x, y, yaw))
         if seen is not None and guard.reason(t):
             seen.append(round(t, 1))
         if guard.tick(t):
@@ -121,6 +123,45 @@ def test_scattered_clutter_never_chains_into_a_hold():
         assert run(world, 9.0, cfg={**ENFORCE, 'max_speed': 1e9})
 
 
+def specks(rng, count):
+    """``count`` fresh specks a snapshot (spray, wake) within 4.5 m of the boat, after warmup."""
+    spots = rng.uniform(-4.5, 4.5, (2000, 2))
+
+    def world(t):
+        if t < 5.0:
+            return []
+        k = int(round(t * CFG['rate_hz']))
+        return [(0.4 * t + x, y, 0.05, 0.05) for x, y in spots[count * k:count * (k + 1)]
+                if abs(y) > 0.6 or abs(x) > 0.7]
+    return world
+
+
+@pytest.mark.parametrize('count', [1, 2, 3])
+def test_overtaker_holds_through_clutter(count):
+    alone = run(overtaker, 25.0)[0]
+    for seed in range(10):
+        clutter = specks(numpy.random.default_rng(seed), count)
+        sent = run(lambda t: overtaker(t) + clutter(t), 25.0)
+        assert sent and sent[0] <= alone + 0.6, (seed, sent[:1], alone)
+
+
+def test_overtaker_holds_through_snapshot_dropouts():
+    alone = run(overtaker, 25.0)[0]
+    for seed in range(10):
+        sent = run(overtaker, 25.0, drop=0.2, seed=seed)
+        assert sent and sent[0] <= alone + 1.0, (seed, sent[:1], alone)
+
+
+def test_a_chain_survives_miss_s_without_a_new_cell_and_no_longer():
+    guard = Guard(ENFORCE)
+    guard.chains = [[8.0, 9.0, 0.0, 0.0, 1.0, 5, 5]]
+    none = numpy.zeros((0, 2)), numpy.zeros(0)
+    guard.follow(9.0 + CFG['miss_s'], *none)
+    assert guard.chains
+    guard.follow(9.0 + CFG['miss_s'] + 0.5 / CFG['rate_hz'], *none)
+    assert guard.chains == []
+
+
 def test_head_on_boat_holds_too():
     def head_on(t):
         return [(8.0 - 0.8 * t, 0.3, 0.5, 0.25)]
@@ -137,6 +178,7 @@ def test_blind_spell_is_not_motion():
     for k in range(10):
         guard.observe(k * DT, cells(*gate(0)), (0.0, 0.0, 0.0))
     guard.blind()
+    assert guard.chains == []
     for k in range(10, 20):
         guard.command(k * DT)
         guard.observe(k * DT, cells(*gate(0)), (0.0, 0.0, 0.0))

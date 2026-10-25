@@ -8,10 +8,11 @@ is in a world frame (odom), where a buoy's lethal cells stay put however the boa
 a moving hull's leading edge keeps marking cells that were free a moment ago.
 
 So: lethal cells within ``trigger_m`` of the hull rectangle that lie more than ``move_m``
-from every known lethal cell (first lethal ``min_age_s`` ago or more, last within
-``memory_s``) are an approach. It must be seen in every snapshot for ``confirm_s``, and
-the nearest new cell must move on by at most ``max_speed`` between snapshots (plus
-``move_m``), so scattered clutter (spray, wake) cannot chain into one. Then, while autonomy
+from every known lethal cell (first lethal ``min_age_s`` ago or more in more than one
+snapshot, last within ``memory_s``) are new. They are an approach once they form a chain
+for ``confirm_s`` (``follow``): each step within ``max_speed`` of the last, so scattered
+clutter (spray, wake) cannot chain, and up to ``miss_s`` without a new cell (lidar
+dropouts) keeps a chain. Then, while autonomy
 commands flow (a station-keeping zero counts), it asks command_mux for a hold like the
 other hold-only watchdogs (hold_watchdog), and like them never releases: a hold ends the
 task (run_task), and the operator resumes. With ``enforce`` false it only logs.
@@ -58,29 +59,31 @@ class Guard(HoldGate):
         self.half = (cfg['half_length_m'], cfg['half_width_m'])
         self.cells = {}               # cell key -> [first seen, last seen] world (x, y)
         self.since = None             # observing without a gap since
-        self.streak = None            # approaching in every snapshot since
+        self.chains = []              # [start, last, x, y, gap, hits, seen]: new cells moving on
         self.approach_at = None       # last snapshot that confirmed an approach
         self.gap = None               # the approaching cell nearest the hull: its gap
         self.at = None                # its world (odom) x, y
-        self.last = None              # (time, world x, y) of the last snapshot's nearest new cell
 
     def observe(self, now, points, pose):
         """Feed one costmap snapshot (world lethal points near the boat) and the hull pose."""
         cfg = self.cfg
         self.since = now if self.since is None else self.since
-        # Known: lethal at least min_age_s ago and seen again within memory_s. A buoy the
-        # lidar loses near the hull and finds again (seconds apart) is still known.
+        # Known: lethal at least min_age_s ago, in more than one snapshot, and seen again
+        # within memory_s. A buoy the lidar loses near the hull and finds again (seconds
+        # apart) is still known; a speck of spray seen once is not, so it cannot mask
+        # the front of a hull passing over that spot later.
         for key in [k for k, (_, last, _) in self.cells.items() if now - last > cfg['memory_s']]:
             del self.cells[key]
-        known = numpy.array([xy for first, _, xy in self.cells.values()
-                             if now - first >= cfg['min_age_s']]).reshape(-1, 2)
+        known = numpy.array([xy for first, last, xy in self.cells.values()
+                             if now - first >= cfg['min_age_s'] and last > first]
+                            ).reshape(-1, 2)
         for x, y in points:
             key = (round(x * 100), round(y * 100))
             if key in self.cells:
                 self.cells[key][1] = now
             else:
                 self.cells[key] = [now, now, (x, y)]
-        gap = at = None
+        fresh, fresh_gaps = numpy.zeros((0, 2)), numpy.zeros(0)
         if now - self.since >= cfg['warmup_s'] and len(points):
             gaps = hull_gap(points, pose, self.half)
             close = gaps <= cfg['trigger_m']
@@ -95,26 +98,51 @@ class Guard(HoldGate):
                                       near[:, None, 1] - known[None, :, 1]
                                       ).min(axis=1) > cfg['move_m']
                 if new.any():
-                    i = int(numpy.argmin(numpy.where(new, gaps[close], numpy.inf)))
-                    gap, at = float(gaps[close][i]), near[i]
-        if gap is not None and self.streak is not None and self.last is not None:
-            t, x, y = self.last
-            if math.hypot(at[0] - x, at[1] - y) > cfg['max_speed'] * (now - t) + cfg['move_m']:
-                self.streak = None   # a different spot: clutter does not chain
-        if gap is None:
-            self.streak = None
-        elif self.streak is None:
-            self.streak = now
-        self.last = None if at is None else (now, float(at[0]), float(at[1]))
-        if self.streak is not None and now - self.streak >= cfg['confirm_s']:
+                    fresh, fresh_gaps = near[new], gaps[close][new]
+        self.follow(now, fresh, fresh_gaps)
+
+    def follow(self, now, fresh, gaps):
+        """Extend each chain to the new cells within its reach, start chains from the rest.
+
+        A chain is [start, last time, x, y, gap, hits, snapshots]: it moves to the centroid
+        of the new cells within ``max_speed`` times the time since its last extension (plus
+        ``move_m``), so a speck beside a hull's many cells barely moves it. One that finds
+        none survives ``miss_s``, so lidar dropouts keep it. It confirms after
+        ``confirm_s`` when extended in ``min_hits`` of the snapshots it saw.
+        """
+        cfg, used, kept = self.cfg, numpy.zeros(len(fresh), bool), []
+        for chain in self.chains:
+            start, t, x, y, _, hits, seen = chain
+            if len(fresh):
+                d = numpy.hypot(fresh[:, 0] - x, fresh[:, 1] - y)
+                reach = d <= cfg['max_speed'] * (now - t) + cfg['move_m']
+                if reach.any():
+                    used |= reach
+                    cx, cy = fresh[reach].mean(axis=0)
+                    kept.append([start, now, cx, cy, float(gaps[reach].min()), hits + 1,
+                                 seen + 1])
+                    continue
+            if now - t < cfg['miss_s'] + 0.5 / cfg['rate_hz']:   # timer jitter
+                kept.append(chain[:6] + [seen + 1])
+        for i in numpy.argsort(gaps):
+            if not used[i]:
+                kept.append([now, now, fresh[i][0], fresh[i][1], float(gaps[i]), 1, 1])
+                used |= numpy.hypot(fresh[:, 0] - fresh[i][0],
+                                    fresh[:, 1] - fresh[i][1]) <= cfg['move_m']
+        # The oldest chains first; clutter starts many short ones, keep a bounded few.
+        self.chains = sorted(kept, key=lambda c: c[0])[:cfg['max_chains']]
+        live = [c for c in self.chains if c[1] == now and now - c[0] >= cfg['confirm_s']
+                and c[5] >= cfg['min_hits'] * c[6]]
+        if live:
+            start, _, x, y, gap, _, _ = min(live, key=lambda c: c[4])
             self.approach_at, self.gap = now, gap
-            self.at = [round(float(at[0]), 2), round(float(at[1]), 2)]
+            self.at = [round(float(x), 2), round(float(y), 2)]
 
     def blind(self):
         """Forget what was seen: a gap in the costmap or TF must not read as motion."""
         self.cells.clear()
         self.since = None
-        self.streak = None
+        self.chains = []
 
     def tick(self, now):
         """Return True when a hold request should go out now; never unless enforcing."""
