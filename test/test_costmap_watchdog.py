@@ -121,8 +121,8 @@ def test_node_publishes_hold_requests_only():
         rclpy.try_shutdown()
 
 
-def test_node_survives_repeated_stale_fresh_flips_and_holds():
-    """Outlive stale/fresh flips: rclpy raises when one log call site changes severity."""
+def test_node_survives_stale_fresh_flips_and_holds():
+    """rclpy raises if one log call site changes severity; the node must outlive flips."""
     rclpy = pytest.importorskip('rclpy')
     from geometry_msgs.msg import Twist
     from map_msgs.msg import OccupancyGridUpdate
@@ -130,6 +130,7 @@ def test_node_survives_repeated_stale_fresh_flips_and_holds():
     from rclpy.qos import QoSProfile, QoSReliabilityPolicy
     from std_msgs.msg import String
     from ros_domain import require_isolated_domain
+    from watchdog_cycle import flip_twice
     require_isolated_domain()
     from mhseals_nav.costmap_watchdog import node_class
     from mhseals_nav.msg import TrackArray
@@ -148,26 +149,17 @@ def test_node_survives_repeated_stale_fresh_flips_and_holds():
         ex.add_node(dog)
         ex.add_node(probe)
 
-        def run(seconds, fresh):
-            end = time.monotonic() + seconds
-            while time.monotonic() < end:
+        def perception(fresh):
+            def feed():
                 if fresh:
-                    stamp = probe.get_clock().now().to_msg()
                     grid, arr = OccupancyGridUpdate(), TrackArray()
-                    grid.header.stamp = arr.header.stamp = stamp
+                    grid.header.stamp = arr.header.stamp = probe.get_clock().now().to_msg()
                     costmap.publish(grid)
                     tracks.publish(arr)
                 cmd.publish(Twist())
-                ex.spin_once(timeout_sec=0.02)     # a dying tick raises here
+            return feed
 
-        stale_age = CFG['max_age_s'] + 0.4
-        for _ in range(2):                         # stale -> fresh -> stale -> fresh ...
-            run(0.6, True)
-            assert dog.was_stale == []
-            run(stale_age, False)
-            assert dog.was_stale
-        got.clear()
-        run(CFG['repeat_s'] + 0.3, False)
-        assert got and {g['op'] for g in got} == {'hold'}    # alive and still holding
+        flip_twice(ex, got, perception(False), perception(True))
+        assert {g['cause'] for g in got} == {CFG['cause']}
     finally:
         rclpy.try_shutdown()
