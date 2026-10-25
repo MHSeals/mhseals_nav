@@ -336,8 +336,8 @@ class TrackFilter:
         track.confirmed = self.cfg['candidate']['hits'] <= 1
         self.all.append(track)
 
+    def add_prior(self, class_id, xy, sigma_m, now):
         """Add a course-map entry as a SOURCE_PRIOR STATIC track (§5.6)."""
-        """A course-map entry as a SOURCE_PRIOR STATIC track (§5.6)."""
         cm = self.cfg['course_map']
         spec = self._spec(class_id)
         P = np.zeros((4, 4))
