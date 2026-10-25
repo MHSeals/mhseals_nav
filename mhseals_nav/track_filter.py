@@ -5,6 +5,7 @@ LookupError when TF cannot answer. Observations may be ``ObservationArray`` mess
 duck-types with the same field names.
 """
 
+from collections import deque
 from dataclasses import dataclass, field
 from fnmatch import fnmatch
 import math
@@ -73,8 +74,12 @@ def cv_model(dt, q):
     return F, Q * q
 
 
-def speed_bound(x, P, cfg):
-    """k_sigma times the speed sigma along the velocity, plus the floor (§5.3)."""
+def speed_bound(x, P, cfg, lag_mps=0.0):
+    """k_sigma times the speed sigma along the velocity, plus the floor (§5.3).
+
+    ``lag_mps`` is the velocity a stamp lag can fake right now (rho*sigma_lag*|dr/dt|);
+    it adds to the filter's own sigma.
+    """
     v, Pvv = x[2:], P[2:, 2:]
     speed = float(np.hypot(*v))
     if speed < 1e-6:
@@ -82,6 +87,7 @@ def speed_bound(x, P, cfg):
     else:
         u = v / speed
         sigma = math.sqrt(max(float(u @ Pvv @ u), 0.0))
+    sigma = math.hypot(sigma, lag_mps)
     return cfg['k_sigma'] * sigma + cfg['floor_mps'], speed
 
 
@@ -95,6 +101,8 @@ class TrackFilter:
         self.last_stamp = -math.inf
         self.heading_samples = []   # (t, a, r, track_id), cleared at the start of step()
         self.assoc = {'id': 0, 'gate': 0}
+        self.yaw_rates = deque()    # (t, r, |r|, |dr/dt|) over meas.lag_window_s
+        self.lag_speed = 0.0        # sigma_lag * max |dr/dt|: per metre of range, this frame
         self._groups = {}
 
     @property
@@ -141,6 +149,24 @@ class TrackFilter:
         return value
 
     # ---------------------------------------------------------- measurement
+    def _lag_rates(self, t, yaw_rate):
+        """(max |r|, max |dr/dt|) over the last ``lag_window_s`` (§5.1 lag term).
+
+        A stamp lag tau offsets a static object across the bearing by rho*tau*r, so the
+        velocity it fakes is rho*tau*dr/dt: largest while r reverses through zero, where
+        |r| itself is near zero. The window holds both through the reversal and for as
+        long as the filter remembers the velocity the reversal faked.
+        """
+        meas, h = self.cfg['meas'], self.yaw_rates
+        if yaw_rate is not None:
+            old = next(((s, r) for s, r, _, _ in h if t - s <= meas['yaw_accel_dt']), None)
+            accel = abs(yaw_rate - old[1]) / (t - old[0]) if old and t > old[0] else 0.0
+            h.append((t, yaw_rate, abs(yaw_rate), accel))
+        while h and t - h[0][0] > meas['lag_window_s']:
+            h.popleft()
+        return (max((a for _, _, a, _ in h), default=0.0),
+                max((d for _, _, _, d in h), default=0.0))
+
     def _measurement(self, ob, R, p, c, v_cam, yaw_rate):
         """(z, Rz, kind) in the tracking frame; z has 4 entries when velocity is used."""
         meas = self.cfg['meas']
@@ -225,7 +251,9 @@ class TrackFilter:
         for track in self.all:
             self.predict(track, t)
 
-        rows = [(ob, *self._measurement(ob, R, p, p, v_cam, yaw_rate or 0.0))
+        rate, accel = self._lag_rates(t, yaw_rate)
+        self.lag_speed = meas['lag_sigma_s'] * accel
+        rows = [(ob, *self._measurement(ob, R, p, p, v_cam, rate))
                 for ob in obs.observations]
         live = list(self.all)
         matched_obs, matched_tracks, pairs = set(), set(), []
@@ -312,7 +340,7 @@ class TrackFilter:
                 track.confirmed = True
                 track.hit_times = []
             return
-        self._classify(track, dt, Rz)
+        self._classify(track, dt, Rz, c)
         check = self.cfg['heading_check']
         if track.motion != MOTION_STATIC:
             track.anchor = None
@@ -347,10 +375,11 @@ class TrackFilter:
         S = Rz[:2, :2] + track.P[:2, :2]
         return float(delta @ np.linalg.solve(S, delta)) > chi2
 
-    def _classify(self, track, dt, Rz):
+    def _classify(self, track, dt, Rz, c):
         """Hysteresis in seconds of consecutive evidence, so it does not depend on the rate."""
         spec, cfg = self._spec(track), self.cfg['motion']
-        bound, speed = speed_bound(track.x, track.P, cfg)
+        rho = float(np.hypot(*(track.x[:2] - c[:2])))
+        bound, speed = speed_bound(track.x, track.P, cfg, rho * self.lag_speed)
         track.speed_bound = bound
         step = min(max(dt, 0.0), cfg['max_step_s'])
         if speed > bound or self._displaced(track, Rz):

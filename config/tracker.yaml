@@ -24,6 +24,12 @@
       # extrinsic 3 deg, lag plus stamp offset 0.2 s) in the metamorphic suite.
       heading_sigma_deg: 3.0
       lag_sigma_s: 0.25
+      # A lag fakes velocity rho*lag*|dr/dt|, largest while the yaw rate reverses through
+      # zero, where |r| is near zero. So the lag term uses the largest |r| of this window,
+      # and the speed bound adds rho*lag_sigma_s*|dr/dt| (largest of the window, so it
+      # lasts as long as the filter remembers the faked velocity).
+      lag_window_s: 3.0
+      yaw_accel_dt: 0.5          # dr/dt is the yaw rate's slope over this span
       cam_vel_dt: 0.05
     use_backend_velocity: false
     velocity_sigma: 0.5          # m/s, when the backend gives no velocity covariance

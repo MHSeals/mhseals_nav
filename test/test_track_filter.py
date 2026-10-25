@@ -6,7 +6,7 @@ import math
 import numpy as np
 import pytest
 
-from tracker_fixtures import CFG, fixed_pose, frame, ob
+from tracker_fixtures import CFG, fixed_pose, frame, ob, yawing_pose
 from mhseals_nav.track_filter import (
     MOTION_MOVING, MOTION_STATIC, MOTION_UNKNOWN, SOURCE_LIVE, SOURCE_PRIOR, TrackFilter)
 
@@ -233,6 +233,32 @@ def test_hysteresis_is_counted_in_seconds(rate, monkeypatch):
     # Static evidence starts once the young bound is narrow enough; from then on the
     # flip takes static_s of updates whatever the frame rate.
     assert track.static_s == pytest.approx(static_s, abs=1.01 / rate)
+
+
+def reversal_yaw(rate=0.4, start=3.0, ramp=3.0):
+    """Yaw of a turn that reverses: +rate, a linear ramp to -rate, then -rate."""
+    ts = np.arange(0.0, 30.0, 1e-3)
+    r = rate * (1 - 2 * np.clip((ts - start) / ramp, 0, 1))
+    yaw = np.concatenate([[0.0], np.cumsum(r[:-1]) * 1e-3])
+    return lambda t: float(np.interp(t, ts, yaw))
+
+
+@pytest.mark.parametrize('lag', [0.2, 0.3])
+def test_young_boat_stays_moving_through_a_lagged_yaw_reversal(lag):
+    """A lag fakes rho*lag*dr/dt, largest where the yaw rate crosses zero (R3 in §8)."""
+    yaw = reversal_yaw()
+    pose_at = yawing_pose(yaw)
+    rng = np.random.default_rng(7)
+    f = TrackFilter(CFG)
+    motions = []
+    for k in range(int(10.0 * RATE)):
+        t = 1.5 + (k + 1) / RATE
+        world = np.array([8.0, -4.0 + 0.8 * (t - 1.5)])
+        c, s = math.cos(yaw(t - lag)), math.sin(yaw(t - lag))   # heading lags truth
+        local = np.array([[c, s], [-s, c]]) @ world + rng.normal(0, 0.05, 2)
+        f.step(frame(t, [ob('yellow_target_boat', *local)]), t, pose_at)
+        motions += [(t, tr.motion) for tr in f.tracks]
+    assert motions and all(m == MOTION_MOVING for t, m in motions if t > motions[0][0] + 2.0)
 
 
 def test_young_boat_track_does_not_turn_static():
