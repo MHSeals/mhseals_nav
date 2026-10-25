@@ -4,7 +4,7 @@ extends: [odroid, jetson]
 requires: []
 args: {sim: 'true'}
 parts:
-  odometry: {args: {fcu: 'false'}}
+  odometry: {args: {fcu: 'false'}, with: []}    # the sim starts its watchdogs part on its own
   ekf: {args: {ekf_startup_context: standalone}}
   camera: {enabled: false}
   objects: {args: {backend: sim}, nodes: [object_tracker]}

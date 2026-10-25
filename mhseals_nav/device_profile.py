@@ -14,7 +14,7 @@ from .navigation_config import load_strict
 
 KEYS = {'extends', 'requires', 'args', 'parts'}
 OVERLAY_KEYS = KEYS - {'extends'}
-PART_KEYS = {'launch', 'run', 'args', 'nodes', 'enabled', 'kind'}
+PART_KEYS = {'launch', 'run', 'args', 'nodes', 'enabled', 'kind', 'with'}
 KINDS = ('sensing', 'commander')
 COMMANDER_LAUNCHES = {'navigation.launch.py', 'task.launch.py', 'robot.launch.py'}
 DRIVERS = {'thruster_pwm_node', 'command_mux'}
@@ -72,6 +72,7 @@ def validate_layer(layer, where, keys=KEYS):
             raise ValueError(f'{here}.run: [package, executable, arguments...]')
         _arguments(spec.get('args', {}), f'{here}.args')
         _names(spec.get('nodes', []), f'{here}.nodes')
+        _names(spec.get('with', []), f'{here}.with')
         if not isinstance(spec.get('enabled', True), bool):
             raise ValueError(f'{here}.enabled: true or false')
         if spec.get('kind', 'sensing') not in KINDS:
@@ -148,10 +149,20 @@ def load(name, deployment_file='', startup_file='', overrides=None):
 
 
 def check(profile, name):
-    """Each part runs one launch file of this package or one executable; drivers never."""
+    """Each part runs one launch file of this package or one executable; drivers never.
+
+    A part's ``with`` names other sensing parts of the profile that start beside it.
+    """
     launches = share() / 'launch'
     for part, spec in profile['parts'].items():
         here = f'{name}.parts.{part}'
+        for other in spec.get('with', ()):
+            if other == part or other not in profile['parts']:
+                raise ValueError(f'{here}.with: {other!r} is not another part of {name}')
+            if profile['parts'][other].get('kind', 'sensing') != 'sensing':
+                raise ValueError(f'{here}.with: {other!r} can command motion; start it on its own')
+            if profile['parts'][other].get('with'):
+                raise ValueError(f'{here}.with: {other!r} brings parts of its own')
         if ('launch' in spec) == ('run' in spec):
             raise ValueError(f'{here}: exactly one of launch or run')
         if 'run' in spec:
@@ -168,7 +179,10 @@ def check(profile, name):
 
 
 def select(profile, only=''):
-    """[(part, spec)] to start: every enabled part, or the named ones (each must be enabled)."""
+    """[(part, spec)] to start: every enabled part, or the named ones (each must be enabled).
+
+    A named part brings its enabled ``with`` parts (the boat's watchdogs come up with odometry).
+    """
     names = [item.strip() for item in only.split(',') if item.strip()]
     if not names:
         return [(name, spec) for name, spec in profile['parts'].items()
@@ -178,7 +192,9 @@ def select(profile, only=''):
             raise ValueError(f'only: no part {name!r}; have {", ".join(profile["parts"])}')
         if not profile['parts'][name].get('enabled', True):
             raise ValueError(f'only: part {name!r} is disabled in this profile')
-    return [(name, profile['parts'][name]) for name in names]
+    brought = [other for name in names for other in profile['parts'][name].get('with', ())
+               if profile['parts'][other].get('enabled', True)]
+    return [(name, profile['parts'][name]) for name in dict.fromkeys([*names, *brought])]
 
 
 def launch_arguments(profile, spec):

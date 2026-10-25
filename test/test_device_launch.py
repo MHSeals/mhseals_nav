@@ -64,6 +64,24 @@ def test_only_starts_the_named_parts():
         'sim': 'false', 'ekf_startup_context': 'included'}
 
 
+def test_the_boat_watchdogs_start_with_odometry_on_the_boat():
+    parts = expand(device='odroid', only='odometry')
+    assert list(parts) == ['odom.launch.py', 'watchdogs.launch.py']
+    assert parts['watchdogs.launch.py'][1] == {'sim': 'false'}     # no operator or lease asked
+    profile = device_profile.load('odroid')
+    names = [name for name, _ in device_profile.select(profile, 'odometry,watchdogs')]
+    assert names == ['odometry', 'watchdogs']                      # once, never a second copy
+    assert [name for name, _ in device_profile.select(profile, 'ekf')] == ['ekf']
+    off = device_profile.load('odroid', overrides={'parts': {'watchdogs': {'enabled': False}}})
+    assert [name for name, _ in device_profile.select(off, 'odometry')] == ['odometry']
+
+
+def test_the_sim_starts_odometry_without_its_watchdogs():
+    profile = device_profile.load('sim')
+    assert [name for name, _ in device_profile.select(profile, 'odometry')] == ['odometry']
+    assert list(expand(device='sim', only='odometry')) == ['odom.launch.py']
+
+
 def test_a_run_part_is_one_ros2_run():
     assert expand(device='operator') == {
         'rtk_base': (['ros2', 'run', 'mhseals_testing', 'rtk_base'], {}),
@@ -127,6 +145,11 @@ def test_no_launch_file_here_starts_the_thruster_driver_or_the_mux():
     ({'parts': {'ekf': {'colour': 'red'}}}, 'keys from'),
     ({'extends': ['jetson']}, 'keys from'),
     ({'args': {'sim': ['x']}}, 'string, number or boolean'),
+    ({'parts': {'odometry': {'with': 'watchdogs'}}}, 'with: list of names'),
+    ({'parts': {'odometry': {'with': ['ghost']}}}, "'ghost' is not another part"),
+    ({'parts': {'odometry': {'with': ['odometry']}}}, "'odometry' is not another part"),
+    ({'parts': {'odometry': {'with': ['navigation']}}}, 'can command motion'),
+    ({'parts': {'ekf': {'with': ['odometry']}}}, 'brings parts of its own'),
 ])
 def test_bad_profiles_are_refused(overrides, message):
     with pytest.raises(ValueError, match=message):

@@ -4,7 +4,10 @@ requires: [mavros]
 args: {sim: 'false'}
 parts:
   # start_ekf:=false keeps odom.launch.py from starting a second set of EKFs (rv1-35).
-  odometry: {launch: odom.launch.py, args: {fcu: 'true', start_ekf: 'false'}, nodes: [robot_state_publisher]}
+  # with: the safety watchdogs start beside odometry on the boat itself, whoever starts it and
+  # whether or not an operator is linked; arming refuses without them (mhseals_testing preflight).
+  odometry: {launch: odom.launch.py, args: {fcu: 'true', start_ekf: 'false'},
+             nodes: [robot_state_publisher], with: [watchdogs]}
   ekf: {launch: ekf.launch.py, args: {ekf_startup_context: included},
         nodes: [ekf_local, ekf_global, navsat_transform]}
   mapping: {launch: slam.launch.py, nodes: [rtabmap]}
