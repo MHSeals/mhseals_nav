@@ -10,6 +10,7 @@ import yaml
 
 CFG = yaml.safe_load((Path(__file__).parents[1] / 'config/approach_guard.yaml')
                      .read_text())['/**']['ros__parameters']
+ENFORCE = {**CFG, 'enforce': True}   # as navigation.launch.py runs it in sim
 RES = 0.15
 DT = 1.0 / CFG['rate_hz']
 
@@ -25,10 +26,14 @@ def cells(*boxes):
     return numpy.concatenate(out) if out else numpy.zeros((0, 2))
 
 
-def run(world, seconds, speed=0.4, yaw_rate=0.0, autonomy=True, flicker=0.0, seed=0):
-    """Drive along +x; ``world(t)`` gives lethal boxes. Return when hold requests went out."""
+def run(world, seconds, speed=0.4, yaw_rate=0.0, autonomy=True, flicker=0.0, seed=0,
+        cfg=ENFORCE, seen=None):
+    """Drive along +x; ``world(t)`` gives lethal boxes. Return when hold requests went out.
+
+    ``seen`` collects the times an approach was reported (reason set), held or not.
+    """
     rng = numpy.random.default_rng(seed)
-    guard, sent = Guard(CFG), []
+    guard, sent = Guard(cfg), []
     x = y = yaw = 0.0
     for k in range(int(seconds / DT)):
         t = k * DT
@@ -38,6 +43,8 @@ def run(world, seconds, speed=0.4, yaw_rate=0.0, autonomy=True, flicker=0.0, see
         if autonomy:
             guard.command(t)
         guard.observe(t, points, (x, y, yaw))
+        if seen is not None and guard.reason(t):
+            seen.append(round(t, 1))
         if guard.tick(t):
             sent.append(round(t, 1))
         x += speed * DT * numpy.cos(yaw)
@@ -89,6 +96,31 @@ def test_overtaker_holds_well_before_contact():
     assert all(b - a >= CFG['repeat_s'] - 1e-6 for a, b in zip(sent, sent[1:]))
 
 
+def test_log_only_reports_the_approach_and_never_holds():
+    assert CFG['enforce'] is False   # the boat: log-only until water bags replay clean
+    seen = []
+    assert run(overtaker, 25.0, cfg=CFG, seen=seen) == []
+    assert seen and seen[0] == run(overtaker, 25.0)[0]
+
+
+def test_scattered_clutter_never_chains_into_a_hold():
+    def clutter(spots):
+        def world(t):
+            # Open water for warmup, then three fresh specks a snapshot (spray, wake)
+            # anywhere within 4.5 m of the boat, each new and none of them moving on.
+            if t < 5.0:
+                return []
+            k = int(round(t * CFG['rate_hz']))
+            return [(0.4 * t + x, y, 0.05, 0.05) for x, y in spots[3 * k:3 * k + 3]
+                    if abs(y) > 0.6 or abs(x) > 0.7]
+        return world
+    for seed in range(5):
+        world = clutter(numpy.random.default_rng(seed).uniform(-4.5, 4.5, (200, 2)))
+        assert run(world, 9.0) == []
+        # Without the persistence rule the same clutter would hold.
+        assert run(world, 9.0, cfg={**ENFORCE, 'max_speed': 1e9})
+
+
 def test_head_on_boat_holds_too():
     def head_on(t):
         return [(8.0 - 0.8 * t, 0.3, 0.5, 0.25)]
@@ -119,34 +151,56 @@ def test_lethal_points_reads_world_cells():
     assert pts.tolist() == [[0.25, -4.75]]
 
 
-def test_node_loads_its_config_and_holds_with_a_token():
+def spin_node(enforce, seconds=2.5):
+    """Run the node with an approach forced; return (hold requests, reports) it published."""
     rclpy = pytest.importorskip('rclpy')
     from ros_domain import require_isolated_domain
     require_isolated_domain()
     from mhseals_nav.approach_guard import node_class
     rclpy.init()
     try:
-        node = node_class()()
-        assert {k: node.cfg[k] for k in CFG} == CFG
+        node = node_class()(parameter_overrides=[
+            rclpy.parameter.Parameter('enforce', value=enforce)])
+        assert {k: node.cfg[k] for k in CFG if k != 'enforce'} == \
+            {k: v for k, v in CFG.items() if k != 'enforce'}
+        assert node.cfg['enforce'] is enforce
         from geometry_msgs.msg import Twist
         from rclpy.executors import SingleThreadedExecutor
         from std_msgs.msg import String
         probe = rclpy.create_node('approach_probe')
-        got = []
+        holds, reports = [], []
         probe.create_subscription(String, CFG['request_topic'],
-                                  lambda m: got.append(json.loads(m.data)), 10)
+                                  lambda m: holds.append(json.loads(m.data)), 10)
+        probe.create_subscription(String, CFG['report_topic'],
+                                  lambda m: reports.append(json.loads(m.data)), 10)
         cmd = probe.create_publisher(Twist, CFG['command_topic'], 10)
         ex = SingleThreadedExecutor()
         ex.add_node(node)
         ex.add_node(probe)
-        end = time.monotonic() + 3.0
-        while time.monotonic() < end and not got:
-            node.logic.approach_at = time.monotonic()   # no costmap: the decision alone
+        end = time.monotonic() + seconds
+        while time.monotonic() < end:
+            # No costmap: the decision alone, as observe() leaves it on an approach.
+            node.logic.approach_at, node.logic.gap = time.monotonic(), 2.5
+            node.logic.at = [1.0, 2.0]
             cmd.publish(Twist())
             ex.spin_once(timeout_sec=0.05)
-        assert got and got[0]['op'] == 'hold' and got[0]['cause'] == 'approach'
-        assert got[0]['token'] == node.token
+        token = node.token
         node.destroy_node()
         probe.destroy_node()
+        return holds, reports, token
     finally:
         rclpy.try_shutdown()
+
+
+def test_node_enforcing_holds_with_its_token_and_reports():
+    holds, reports, token = spin_node(True)
+    assert holds and {h['op'] for h in holds} == {'hold'}
+    assert {h['cause'] for h in holds} == {'approach'} and holds[0]['token'] == token
+    assert reports[0] == {'gap_m': 2.5, 'at': [1.0, 2.0], 'enforce': True}
+
+
+def test_node_log_only_reports_what_it_would_hold_on_and_never_holds():
+    holds, reports, _ = spin_node(False)
+    assert holds == []
+    assert reports and reports[0]['enforce'] is False
+    assert len(reports) <= 2.5 / CFG['repeat_s'] + 1   # lean: at most one per repeat_s

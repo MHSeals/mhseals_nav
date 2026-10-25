@@ -80,5 +80,8 @@ def generate_launch_description():
              output='screen', condition=IfCondition(LaunchConfiguration('command_mux')),
              parameters=[PathJoinSubstitution([share, 'config', 'approach_guard.yaml']),
                          {'use_sim_time': ParameterValue(LaunchConfiguration('sim'),
-                                                         value_type=bool)}]),
+                                                         value_type=bool),
+                          # Log-only on the boat until water bags replay clean.
+                          'enforce': ParameterValue(LaunchConfiguration('sim'),
+                                                    value_type=bool)}]),
     ])

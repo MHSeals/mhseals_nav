@@ -9,12 +9,18 @@ a moving hull's leading edge keeps marking cells that were free a moment ago.
 
 So: lethal cells within ``trigger_m`` of the hull rectangle that lie more than ``move_m``
 from every known lethal cell (first lethal ``min_age_s`` ago or more, last within
-``memory_s``) are an approach. Seen in every snapshot for ``confirm_s`` while autonomy
-commands flow, it asks command_mux for a hold like the other hold-only watchdogs
-(hold_watchdog), and like them never releases: a hold ends the task (run_task), and the
-operator resumes. Overtaken, the boat stops: the
-overtaker keeps clear (COLREG 13) of a predictable, stopped hull, and the boat neither
-turns into what only its lidar sees nor needs a new authority to move away.
+``memory_s``) are an approach. It must be seen in every snapshot for ``confirm_s``, and
+the nearest new cell must move on by at most ``max_speed`` between snapshots (plus
+``move_m``), so scattered clutter (spray, wake) cannot chain into one. Then, while autonomy
+commands flow (a station-keeping zero counts), it asks command_mux for a hold like the
+other hold-only watchdogs (hold_watchdog), and like them never releases: a hold ends the
+task (run_task), and the operator resumes. With ``enforce`` false it only logs.
+
+Only motion faster than about move_m / min_age_s in the odom frame is new: a boat closing
+slower than that is never held for. Overtaken, the boat stops rather than keeping course
+and speed as a stand-on vessel would: the threats here are robotic or unmanned and the
+boat is slow, and stopping keeps it from turning across what only its lidar sees without
+giving anything new the authority to move it.
 """
 
 import math
@@ -55,6 +61,8 @@ class Guard(HoldGate):
         self.streak = None            # approaching in every snapshot since
         self.approach_at = None       # last snapshot that confirmed an approach
         self.gap = None               # the approaching cell nearest the hull: its gap
+        self.at = None                # its world (odom) x, y
+        self.last = None              # (time, world x, y) of the last snapshot's nearest new cell
 
     def observe(self, now, points, pose):
         """Feed one costmap snapshot (world lethal points near the boat) and the hull pose."""
@@ -72,7 +80,7 @@ class Guard(HoldGate):
                 self.cells[key][1] = now
             else:
                 self.cells[key] = [now, now, (x, y)]
-        gap = None
+        gap = at = None
         if now - self.since >= cfg['warmup_s'] and len(points):
             gaps = hull_gap(points, pose, self.half)
             close = gaps <= cfg['trigger_m']
@@ -87,19 +95,30 @@ class Guard(HoldGate):
                                       near[:, None, 1] - known[None, :, 1]
                                       ).min(axis=1) > cfg['move_m']
                 if new.any():
-                    gap = float(gaps[close][new].min())
+                    i = int(numpy.argmin(numpy.where(new, gaps[close], numpy.inf)))
+                    gap, at = float(gaps[close][i]), near[i]
+        if gap is not None and self.streak is not None and self.last is not None:
+            t, x, y = self.last
+            if math.hypot(at[0] - x, at[1] - y) > cfg['max_speed'] * (now - t) + cfg['move_m']:
+                self.streak = None   # a different spot: clutter does not chain
         if gap is None:
             self.streak = None
         elif self.streak is None:
             self.streak = now
+        self.last = None if at is None else (now, float(at[0]), float(at[1]))
         if self.streak is not None and now - self.streak >= cfg['confirm_s']:
             self.approach_at, self.gap = now, gap
+            self.at = [round(float(at[0]), 2), round(float(at[1]), 2)]
 
     def blind(self):
         """Forget what was seen: a gap in the costmap or TF must not read as motion."""
         self.cells.clear()
         self.since = None
         self.streak = None
+
+    def tick(self, now):
+        """Return True when a hold request should go out now; never unless enforcing."""
+        return super().tick(now) and self.cfg['enforce']
 
     def reason(self, now):
         recent = self.approach_at is not None and \
@@ -112,11 +131,13 @@ class Guard(HoldGate):
 
 def node_class():
     """Build the ROS node class lazily so the logic imports without rclpy."""
+    import json
     import time
     from map_msgs.msg import OccupancyGridUpdate
     from nav_msgs.msg import OccupancyGrid
     from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy
     from rclpy.time import Time
+    from std_msgs.msg import String
     from tf2_ros import Buffer, TransformException, TransformListener
 
     from mhseals_nav.nearest_obstacle import Grid
@@ -156,6 +177,16 @@ def node_class():
                 cfg['lethal']), at)
 
         node.create_timer(1.0 / cfg['rate_hz'], observe)
+
+        # What it holds, or with enforce false would hold, on: every repeat_s at most.
+        report = node.create_publisher(String, cfg['report_topic'], 10)
+
+        def publish_report():
+            if guard.reason(time.monotonic()) and guard.autonomy(time.monotonic()):
+                report.publish(String(data=json.dumps({
+                    'gap_m': round(guard.gap, 2), 'at': guard.at, 'enforce': cfg['enforce']})))
+
+        node.create_timer(cfg['repeat_s'], publish_report)
 
     return watchdog_class('approach_guard', 'approach_guard.yaml', Guard, subscribe)
 

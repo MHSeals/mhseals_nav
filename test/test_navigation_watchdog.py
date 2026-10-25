@@ -32,3 +32,20 @@ def test_watchdog_follows_command_mux(mux, started):
     assert [n.node_executable for n in nodes] == ['costmap_watchdog', 'approach_guard']
     for node in nodes:
         assert node.condition.evaluate(context) is started
+
+
+@pytest.mark.parametrize('sim', ['true', 'false'])
+def test_approach_guard_enforces_in_sim_and_only_logs_on_the_boat(sim):
+    from launch.utilities import perform_substitutions
+    entities = description().entities
+    context = LaunchContext()
+    for entity in entities:
+        if isinstance(entity, DeclareLaunchArgument):
+            entity.execute(context)
+    context.launch_configurations['sim'] = sim
+    (guard,) = [e for e in entities
+                if isinstance(e, Node) and e.node_executable == 'approach_guard']
+    (overrides,) = [p for p in guard._Node__parameters if isinstance(p, dict)]
+    (value,) = [v for k, v in overrides.items()
+                if perform_substitutions(context, list(k)) == 'enforce']
+    assert perform_substitutions(context, list(value.value)) == sim
