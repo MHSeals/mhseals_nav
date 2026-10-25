@@ -12,5 +12,5 @@
     half_width_m: 0.4475
     radius_m: 1.5            # farther obstacles report NaN
     lethal: 100              # OccupancyGrid value of a lethal cell
-    max_age_s: 1.0           # receipt age of the costmap (5 Hz)
+    max_age_s: 1.0           # receipt age of the costmap (5 Hz) and stamp age of the TF
     rate_hz: 5.0

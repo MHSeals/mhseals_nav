@@ -105,6 +105,9 @@ def node_class():
                 tf = self.tf.lookup_transform(grid.frame, cfg['base_frame'], Time())
             except TransformException:
                 return
+            stamp = Time.from_msg(tf.header.stamp, clock_type=self.get_clock().clock_type)
+            if (self.get_clock().now() - stamp).nanoseconds * 1e-9 > cfg['max_age_s']:
+                return
             t, q = tf.transform.translation, tf.transform.rotation
             yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
             found = nearest(grid.cells, grid.resolution, grid.origin, (t.x, t.y, yaw),
