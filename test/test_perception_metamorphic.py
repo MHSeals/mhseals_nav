@@ -44,8 +44,6 @@ except ImportError:  # host without the generated messages: duck types with the 
         Observation=_Observation, ObservationArray=_ObservationArray)
 
 from mhseals_nav import sim_backend as sb  # noqa: E402, I100
-
-pytest.importorskip('mhseals_nav.track_filter', reason='needs the P-nav-track filter')
 from mhseals_nav.heading_check import HeadingCheck, OK, WARN  # noqa: E402
 from mhseals_nav.track_filter import MOTION_MOVING, MOTION_STATIC, TrackFilter  # noqa: E402
 
