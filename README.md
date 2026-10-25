@@ -190,6 +190,20 @@ ros2 run mhseals_testing boat_test --start-stack   # the flight controller is de
 
 The suite's characterization writes a Nav2 overlay with the measured velocity, acceleration, deceleration, and combined-axis limits; pass it as `navigation.launch.py params_file:=...`. Nav2 commands are SI velocities, so they need `calibrated_velocity_controller` in front of the normalized-effort PWM node (`boat_test --velocity-control`).
 
+### Tuning
+
+Measure these on the boat, then set the parameters from them; MPPI plans as if its command were the velocity, so these are what it does not model. `T = tau + L` per axis.
+
+| Measure | How | Sets |
+| --- | --- | --- |
+| Dead time `L` (command to odometry) | yaw onsets of a Characterize session, first-order-plus-dead-time fit | `wz_max`, `rotate_to_heading_angular_vel`: at most `yaw_goal_tolerance / (2 T_yaw)` |
+| Closed-loop lag `tau` per axis | Controller steps, rise time / ln 9 | `vx_max`, `vy_max`: stop within `D` m, `D / (T (k/2 + 1))`; accelerations `v / (k T)`, k = 3 |
+| Neutral velocity SD `sigma` afloat (waves + noise) | Characterize neutral phase (wave floor) | `trans_stopped_velocity`, `rot_stopped_velocity` at least `2 sigma`; velocity `kp` at most `0.0625 / (2 sigma)` |
+| Rotation-centre offset `d` from `base_link` | Characterize yaw rows | add `1.6 d` to the xy goal tolerances; slow in-place turns when `d` is over 0.08 m |
+| GPS position SD per fix tier, antenna offset `l` | 5 min moored per tier; tape | xy goal tolerances at least `2 sigma_p + l`; precise goals only at RTK fixed |
+
+The characterization's overlay takes the smaller of the measured limit and the rule (`nav2_rules` in mhseals_testing's `characterize.yaml`).
+
 ### Development
 
 Develop inside the [`astro_dock`](https://github.com/1unarzDev/astro_dock) ROS container; its README covers setup and simulation connections. From the workspace root:
