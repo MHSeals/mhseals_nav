@@ -75,7 +75,7 @@
     heading_check:
       window_s: 60.0
       min_hits: 10
-      anchor_tau_s: 20.0         # residuals vs a slow static anchor, not the CV prior
+      anchor_tau_s: 40.0         # residuals vs a slow static anchor, not the CV prior
       yaw_dt: 0.1
       min_samples: 60
       min_tracks: 2
