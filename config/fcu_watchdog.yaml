@@ -1,0 +1,24 @@
+# fcu_watchdog (B): autonomy must not drive on EKF dead reckoning after MAVROS dies or the
+# FCU reboots. ekf_local keeps publishing /odom/local with fresh stamps at its own rate,
+# predicting with the last velocity, when its MAVROS inputs stop; the controller's 0.3 s
+# stale-odometry stop never fires. While autonomy commands flow and /mavros/state is missing,
+# stale or not connected, or the MAVROS IMU or raw GPS fix is stale, it requests a
+# command_mux hold; it never releases (the operator clears it with U).
+# Raw MAVROS topics, not the /imu/raw and /gps/fix relays, so a dead relay is not mistaken
+# for a dead FCU and vice versa.
+/**:
+  ros__parameters:
+    # connected turns false only after MAVROS's conn timeout (10 s); the IMU and GPS ages
+    # catch a silent FCU first.
+    state_topic: /mavros/state                     # on every FCU heartbeat, ~1 Hz
+    imu_topic: /mavros/imu/data                    # ~50 Hz (mavros_setup message_rates)
+    gps_topic: /mavros/global_position/raw/fix     # ~5 Hz, published with or without a fix
+    command_topic: /cmd_vel            # Nav2 -> command_mux auto input
+    request_topic: /command_mux/request
+    cause: fcu_link
+    max_state_age_s: 3.0               # receipt age of /mavros/state
+    max_imu_age_s: 0.5
+    max_gps_age_s: 1.5
+    command_window_s: 0.5              # autonomy = an auto command within this window
+    repeat_s: 1.0
+    rate_hz: 10.0
