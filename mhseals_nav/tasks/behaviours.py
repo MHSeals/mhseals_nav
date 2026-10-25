@@ -129,9 +129,14 @@ class Driver(Leaf):
             return
         if self.anchor is None:
             self.anchor = tuple(pose)
-        if (self.driving() != 'RUNNING'
-                and math.dist(pose[:2], self.anchor[:2]) > hold):
+        if self.driving() == 'RUNNING':
+            return
+        if math.dist(pose[:2], self.anchor[:2]) > hold:
             self.drive([self.anchor], why='hold station')
+        elif hasattr(self.navigator, 'hold'):
+            # No command for 0.5 s zeroes the thrusters and the boat drifts freely; a
+            # zero velocity is held against the current by the velocity controller.
+            self.navigator.hold()
 
     def terminate(self, new_status):
         self.stop_driving()
@@ -672,8 +677,6 @@ class Hold(Driver):
             return Status.SUCCESS
         if self.station is not None:
             self.keep_station(self.station)
-            if self.driving() != 'RUNNING' and hasattr(self.navigator, 'hold'):
-                self.navigator.hold()
         return Status.RUNNING
 
 

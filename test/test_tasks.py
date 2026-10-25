@@ -172,6 +172,7 @@ def test_waiting_holds_station_against_drift_then_gives_up():
     assert world.goals and all(goal.route[-1][:2] == pytest.approx((0, 0.05))
                                for goal in world.goals)  # back to where it began waiting
     assert abs(world.state['pose'][1]) < 2.0
+    assert world.holds > 0  # zero velocity between re-goals, not free drift
 
 
 def test_nav_channel_crosses_both_gates():
