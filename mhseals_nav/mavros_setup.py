@@ -248,11 +248,14 @@ def main(args=None):
                           min_hz=policy['rc_min_hz'], min_channels=policy['rc_min_channels'])
         if low != rc_low[0]:
             rc_low[0] = low
-            (node.get_logger().warning if low else node.get_logger().info)(
-                f"rc rate low: /mavros/rc/in under {policy['rc_min_hz']:g} Hz "
-                f"or under {policy['rc_min_channels']} channels; "
-                'MANUAL will be choppy and stick takeover impossible' if low else
-                'rc rate ok')
+            # One severity per call site: rclpy raises when a site changes severity.
+            if low:
+                node.get_logger().warning(
+                    f"rc rate low: /mavros/rc/in under {policy['rc_min_hz']:g} Hz "
+                    f"or under {policy['rc_min_channels']} channels; "
+                    'MANUAL will be choppy and stick takeover impossible')
+            else:
+                node.get_logger().info('rc rate ok')
 
     node.create_subscription(
         RCIn, '/mavros/rc/in',

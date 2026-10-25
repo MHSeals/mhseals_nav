@@ -110,8 +110,11 @@ def node_class():
             now = time.monotonic()
             stale = self.logic.stale_inputs(now)
             if stale != self.was_stale:
-                log = self.get_logger().warning if stale else self.get_logger().info
-                log(f"stale or missing: {', '.join(stale)}" if stale else 'perception fresh')
+                # One severity per call site: rclpy raises when a site changes severity.
+                if stale:
+                    self.get_logger().warning(f"stale or missing: {', '.join(stale)}")
+                else:
+                    self.get_logger().info('perception fresh')
                 self.was_stale = stale
             if self.logic.tick(now):
                 self.get_logger().error(
