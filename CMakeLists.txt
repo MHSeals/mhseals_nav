@@ -35,6 +35,7 @@ set(ENTRY_POINTS
   mavros_setup=mavros_setup
   run_task=tasks.interface
   costmap_watchdog=costmap_watchdog
+  approach_guard=approach_guard
   nearest_obstacle=nearest_obstacle
   link_watchdog=link_watchdog
   fence_watchdog=fence_watchdog

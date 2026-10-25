@@ -1,4 +1,4 @@
-"""navigation.launch.py starts the stale-costmap watchdog only alongside a command_mux."""
+"""navigation.launch.py starts the costmap watchdog and approach guard only beside a mux."""
 
 import importlib.util
 from pathlib import Path
@@ -28,6 +28,7 @@ def test_watchdog_follows_command_mux(mux, started):
             entity.execute(context)
     if mux is not None:
         context.launch_configurations['command_mux'] = mux
-    (watchdog,) = [e for e in entities if isinstance(e, Node)]
-    assert watchdog.node_executable == 'costmap_watchdog'
-    assert watchdog.condition.evaluate(context) is started
+    nodes = [e for e in entities if isinstance(e, Node)]
+    assert [n.node_executable for n in nodes] == ['costmap_watchdog', 'approach_guard']
+    for node in nodes:
+        assert node.condition.evaluate(context) is started

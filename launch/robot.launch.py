@@ -20,7 +20,8 @@ def generate_launch_description():
         ('use_lidar', 'true', 'Enable lidar costmap; false requires supervised operation'),
         ('enable_slam', 'false', 'Enable optional RTABMap lidar-cloud mapping'),
         ('command_mux', 'false',
-         'A command_mux arbitrates /cmd_vel; starts the stale-costmap watchdog that asks it to hold'),
+         'A command_mux arbitrates /cmd_vel; starts the stale-costmap watchdog and the '
+         'approach guard that ask it to hold'),
 
         # MAVROS / FCU
         ('fcu', 'true', 'Start MAVROS; false when the simulator publishes the FCU topics'),

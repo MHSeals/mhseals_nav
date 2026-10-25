@@ -1,0 +1,31 @@
+# approach_guard (B): hold the boat while an obstacle closes in on the hull from any side
+# (S-overtake: MPPI scores only the path ahead). An approach is a lethal cell within
+# trigger_m of the hull more than move_m from every known lethal cell, in the costmap's
+# world frame (odom); known = first lethal min_age_s ago or more and seen again within
+# memory_s. Static buoys and the dock stay known, a hull moving faster than about
+# move_m / min_age_s keeps marking new water.
+# Hold-only like the other watchdogs: a hold ends the task and the operator releases (U).
+/**:
+  ros__parameters:
+    costmap_topic: /perception/costmap
+    updates_topic: /perception/costmap_updates
+    command_topic: /cmd_vel            # Nav2 -> command_mux auto input
+    request_topic: /command_mux/request
+    cause: approach
+    base_frame: base_link
+    half_length_m: 0.5315    # the hull, as nav2_params' footprint without its padding
+    half_width_m: 0.4475
+    lethal: 100              # OccupancyGrid value of a lethal cell
+    trigger_m: 4.0           # hull gap watched; S-overtake holds at about 2.7 m
+    move_m: 0.6              # 4 cells of the 0.15 m costmap: edge flicker stays under
+    min_age_s: 1.0           # so a hull moving at >= 0.6 m/s (world) is seen
+    memory_s: 30.0           # sim: buoys near the hull drop out of the lidar for 7-19 s
+    warmup_s: 5.0            # after a start or a stale spell, learn what is static first
+    crop_m: 6.0              # around the base: past trigger_m + move_m + the hull
+    confirm_s: 1.5           # in every snapshot this long (sim dock reveals: up to 1.0 s)
+    recent_s: 0.5            # an approach counts this long (a timer apart from rate_hz)
+    command_window_s: 0.5    # autonomy = an auto command within this window
+    repeat_s: 1.0
+    max_costmap_age_s: 1.0   # receipt age (5 Hz); stale is costmap_watchdog's hold
+    max_tf_age_s: 1.0
+    rate_hz: 5.0
