@@ -10,11 +10,12 @@ Launch files separate the main responsibilities:
 
 - `robot.launch.py` composes sensors, localization, navigation, and objects. `enable_slam:=true` additionally starts the lidar-cloud RTABMap mapper; navigation and EKF localization run either way. Generally used for simulation; on the boat, launch components on their respective hosts.
 - `sensors.launch.py` starts the Velodyne driver and lidar relay with `sim:=false`, or the ROS TCP endpoint with `sim:=true`. It never starts the camera.
-- `camera.launch.py` is the only launch file the camera host (Jetson Orin) runs: the ZED wrapper with `config/zed_boat.yaml` and `config/custom_object_detection.yaml`, plus lazy `/front_camera/camera_info` and a 2 Hz preview; `slam:=true` adds raw RGB and depth. Start it in the container (`docker exec roboboat_dev bash -c 'ros2 launch mhseals_nav camera.launch.py'`) so `ASTRO_DDS_ADDRESS` pins its DDS profile.
+- `orin.launch.py` is the only launch file the Orin runs: `camera.launch.py`, `objects.launch.py backend:=zed sim:=false` and `sensors.launch.py sim:=false`. Start it in the container (`docker exec roboboat_dev bash -c 'ros2 launch mhseals_nav orin.launch.py'`) so `ASTRO_DDS_ADDRESS` pins the camera's DDS profile.
+- `camera.launch.py` starts the ZED wrapper with `config/zed_boat.yaml` and `config/custom_object_detection.yaml`, plus lazy `/front_camera/camera_info` and a 2 Hz preview; `slam:=true` adds raw RGB and depth.
 - `odom.launch.py` starts MAVROS and measurement relays (`fcu:=true`), robot TF, and `ekf.launch.py` (dual EKFs and Navsat; `start_ekf:=false` leaves them to a separate launch, and `~/.config/mhseals/ekf.yaml` overrides parameters per node).
 - `navigation.launch.py` starts Nav2 servers and lifecycle management. SLAM is optional.
 - `slam.launch.py` starts RTABMap mapping, leaving localization TF with the EKFs.
-- `objects.launch.py` tracks `/detections`; with `sim:=false` it also converts ZED objects into that interface (`objects_topic`).
+- `objects.launch.py` starts one camera backend (`backend:=zed|sim`), the tracker and the perception costmap. With `sim:=false`, `robot.launch.py` starts neither sensors nor perception; the Orin runs them.
 
 ```bash
 ros2 launch mhseals_nav <launch_name>.launch.py param1:=value1 param2:=value2
@@ -38,7 +39,7 @@ Start each component once. `robot` includes navigation, so running it also start
 | `fcu_url` | `robot`, `odom` | Empty selects SITL TCP in simulation or the Cube's `/dev/serial/by-id/usb-CubePilot_CubeOrange+_*-if00` on hardware |
 | `camera_name` | `robot`, `camera`, `odom`, `slam` | `front`; camera namespace and topic prefix |
 | `camera_model`, `slam` | `camera` | `zed2i`, `false`; `slam:=true` also relays raw RGB and depth |
-| `detections_topic`, `objects_topic` | `objects` | `/detections`, `/front/zed_node/obj_det/objects`; tracker input and ZED source |
+| `backend` | `objects` | `sim`; `zed` reads `config/zed_backend.yaml`, `sim` reads `config/sim_backend.yaml` |
 
 Other arguments and defaults are listed by `--show-args`. Keeping `use_lidar:=true` while skipping the local driver lets another host or simulator supply `/points`; stale data never triggers a fallback.
 
@@ -76,8 +77,8 @@ Preserve frame IDs and timestamps, and synchronize clocks across hosts.
 #### Perception
 
 - Canonical outputs: `/detections`, `/objects/map`, `/tracked_objects`, `/detections/markers`, `/front_camera/camera_info`, `/front_camera/preview/compressed`.
-- Orin path: the ZED wrapper (`config/zed_boat.yaml`) runs YOLO-like custom detection on the GPU, and `objects.launch.py` converts `/front/zed_node/obj_det/objects` into `/detections`. Prediction timeouts are 0 so detections stay raw.
-- The converter drops repeated, reordered or over-1 s-old packets; the tracker transforms boxes into `odom` at acquisition time, and confirmed tracks expire after 30 s without observations.
+- Orin path: the ZED wrapper (`config/zed_boat.yaml`) runs YOLO-like custom detection on the GPU with object tracking (GEN_1 positional tracking whose pose is never published), and `zed_backend` turns `/front/zed_node/obj_det/objects` into `/perception/observations`, one array per frame, dropping predicted objects and repeated, reordered or over-1 s-old frames. If tracking misses 12 Hz or costs over 5 ms, set `pos_tracking_enabled` and `enable_tracking` false in `zed_boat.yaml`.
+- The tracker transforms boxes into `odom` at acquisition time, and confirmed tracks expire after 30 s without observations.
 
 The JetPack 5 / Foxy camera host lives on the `legacy/jp5-foxy` branch.
 
