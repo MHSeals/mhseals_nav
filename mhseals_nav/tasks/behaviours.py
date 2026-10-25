@@ -170,38 +170,6 @@ class Driver(Leaf):
         self.stop_driving()
 
 
-class WaitFor(Driver):
-    """RUNNING until at least ``count`` objects with each of ``labels`` are tracked.
-
-    Meanwhile the boat keeps station where it began waiting (``hold`` metres), so
-    wind and current do not carry it out of sight. With a ``timeout``, it fails
-    after that many seconds with nothing seen.
-    """
-
-    phase = 'search'
-
-    def __init__(self, name, labels, count=1, any_of=False, hold=1.5, timeout=None):
-        super().__init__(name)
-        self.labels, self.count, self.any_of = tuple(labels), count, any_of
-        self.hold, self.timeout = hold, timeout
-
-    def initialise(self):
-        super().initialise()
-        self.anchor = self.start = None
-
-    def update(self):
-        seen = [len(self.labelled(label)) >= self.count for label in self.labels]
-        if any(seen) if self.any_of else all(seen):
-            return Status.SUCCESS
-        if self.start is None:
-            self.start = self.board.now
-        if self.timeout is not None and self.board.now - self.start > self.timeout:
-            self.feedback_message = f'nothing seen in {self.timeout:.0f} s'
-            return Status.FAILURE
-        self.keep_station(self.hold)
-        return Status.RUNNING
-
-
 class Seen(Leaf):
     """Condition: SUCCESS if any of ``labels`` is tracked now, else FAILURE."""
 
@@ -571,7 +539,7 @@ class Search(Driver):
 
     phase = 'search'
 
-    def __init__(self, name, labels, distance, step=None):
+    def __init__(self, name, labels, distance):
         super().__init__(name)
         self.labels, self.distance = tuple(labels), distance
 

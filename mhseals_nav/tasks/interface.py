@@ -194,7 +194,7 @@ class TaskRunner(Node):
         self.config = load_config('runner', params.get('runner'))
         self.timeout = float(params.get('timeout', 600.0))
         self.frame = params.get('map_frame', 'map')
-        self.objects, self.tracks, self.memory = [], [], []
+        self.objects, self.tracks, self.memory, self.priors = [], [], [], []
         self.memory_horizon = float(params.get('memory', 5.0))
         self.v2_at = None  # last /perception/tracks message: it supersedes /objects/map
         self.tf = Buffer()
@@ -246,11 +246,12 @@ class TaskRunner(Node):
 
     def _remember(self, seen):
         self.memory = tracks.remember(self.memory, seen, self.now(), self.memory_horizon)
-        self._world(seen)
+        self._world()
 
-    def _world(self, priors=()):
+    def _world(self):
+        """Remembered live tracks, plus the latest course-map priors (kept as tracks expire)."""
         remembered = [track for track, _ in self.memory]
-        self.tracks = remembered + [t for t in priors if t.prior]
+        self.tracks = remembered + self.priors
         self.objects = tracks.objects(remembered)
 
     def _objects(self, message):
@@ -261,7 +262,9 @@ class TaskRunner(Node):
 
     def _tracks(self, message):
         self.v2_at = self.now()
-        self._remember(tracks.from_track_array(message))
+        seen = tracks.from_track_array(message)
+        self.priors = [track for track in seen if track.prior]  # republished while they hold
+        self._remember(seen)
 
     def _status(self, message):
         """Take the camera's field of view from the perception backend's status."""

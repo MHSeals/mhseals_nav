@@ -386,6 +386,11 @@ def test_status_follows_the_mission_and_stale_tracks_expire(monkeypatch):
         clock = [10.0]
         monkeypatch.setattr(runner, 'now', lambda: clock[0])
         runner._remember([Track('red_pole_buoy', 7.0, 1.5, 0.9, None, True, False, '3')])
+        position = SimpleNamespace(x=20.0, y=5.0)
+        runner._tracks(SimpleNamespace(tracks=[SimpleNamespace(  # a course-map prior
+            class_id='green_pole_buoy', confidence=0.0, motion=1, source=1, id=9,
+            pose=SimpleNamespace(covariance=[0.0] * 36, pose=SimpleNamespace(
+                position=position)))]))
         runner.tick()
         assert runner.objects == [('red_pole_buoy', 7.0, 1.5)]
         status = published[-1]
@@ -396,6 +401,7 @@ def test_status_follows_the_mission_and_stale_tracks_expire(monkeypatch):
         clock[0] += runner.memory_horizon + 1  # the tracker went quiet
         runner.tick()
         assert runner.objects == [] and runner.board.objects == []
+        assert [(t.label, t.prior) for t in runner.board.tracks] == [('green_pole_buoy', True)]
     finally:
         if runner is not None:
             runner.destroy_node()
