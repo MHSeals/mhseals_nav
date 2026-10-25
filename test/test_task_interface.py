@@ -403,3 +403,31 @@ def test_status_follows_the_mission_and_stale_tracks_expire(monkeypatch):
         if runner is not None:
             runner.destroy_node()
         rclpy.try_shutdown()
+
+
+def test_no_zero_twist_after_the_run_is_closed():
+    """Navigator.hold sends nothing once an override (or the end) closed the run."""
+    from mhseals_nav.tasks.interface import Navigator
+    sent = []
+    navigator = Navigator.__new__(Navigator)
+    navigator.closed, navigator.goals = False, []
+    navigator.zero = SimpleNamespace(publish=sent.append)
+    navigator.hold()
+    navigator.close()
+    navigator.hold()
+    assert len(sent) == 1
+
+
+def test_settle_reports_goals_still_open(monkeypatch):
+    """When exit_settle_s runs out with a goal open, it is warned and reported."""
+    from mhseals_nav.tasks import interface
+    events, warnings = [], []
+    runner = SimpleNamespace(
+        config={'exit_settle_s': 0.0},
+        navigator=SimpleNamespace(settled=lambda: False, goals=[object()]),
+        get_logger=lambda: SimpleNamespace(warning=warnings.append),
+        report=lambda event, **d: events.append((event, d)))
+    monkeypatch.setattr(interface.rclpy, 'ok', lambda: True)
+    monkeypatch.setattr(interface.rclpy, 'spin_once', lambda *a, **k: None)
+    assert interface.TaskRunner.settle(runner) is False
+    assert events == [('goals_unsettled', {'count': 1})] and warnings

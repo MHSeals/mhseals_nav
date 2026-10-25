@@ -144,8 +144,13 @@ class Navigator:
         return pose
 
     def hold(self):
-        """Command zero velocity through Nav2's smoother: holding still, with no goal on."""
-        self.zero.publish(Twist())
+        """Command zero velocity through Nav2's smoother: holding still, with no goal on.
+
+        Nothing goes out once the run is closed (an override, or the end): the task
+        must not command the boat after a human took it.
+        """
+        if not self.closed:
+            self.zero.publish(Twist())
 
     def ready(self):
         return self.to_pose.server_is_ready() and self.through.server_is_ready()
@@ -488,9 +493,15 @@ class TaskRunner(Node):
         deadline = time.monotonic() + float(self.config['exit_settle_s'])
         while rclpy.ok() and not self.navigator.settled() and time.monotonic() < deadline:
             rclpy.spin_once(self, timeout_sec=0.05)
+        settled = self.navigator.settled()
+        if not settled:  # an operator must know a goal may still be live in Nav2
+            open_goals = len(self.navigator.goals)
+            self.get_logger().warning(f'{open_goals} Nav2 goal(s) still open after '
+                                      f"{self.config['exit_settle_s']} s")
+            self.report('goals_unsettled', count=open_goals)
         for _ in range(5):  # let the final events and status go out
             rclpy.spin_once(self, timeout_sec=0.05)
-        return self.navigator.settled()
+        return settled
 
 
 def config_path(name):
