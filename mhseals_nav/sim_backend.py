@@ -108,8 +108,10 @@ def match_truth(label, xy, elements, max_m):
 
 
 def phantoms(cfg, t):
-    """[(label, position, velocity, size)] in the truth world frame at time t [s]."""
+    """[(label, position, velocity, size)] in the truth world frame at t [s], if enabled."""
     out = []
+    if not cfg.get('enabled', True):
+        return out
     for name in cfg['names']:
         ph = cfg[name]
         w = ph['speed_mps'] / ph['radius_m']

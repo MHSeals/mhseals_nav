@@ -98,8 +98,24 @@ def test_truth_match_takes_the_nearest_same_label_within_reach():
     assert sb.match_truth('red_buoy', (3.0, 0.0), elements, 1.0) is None
 
 
+def test_phantoms_are_off_by_default_so_nav_sims_see_only_the_course():
+    c = cfg()
+    assert c['phantoms']['enabled'] is False
+    assert sb.phantoms(c['phantoms'], 5.0) == []
+    det = [('red_buoy', 0.9, np.array([0.0, 5.0, 0.0]), np.ones(3))]
+    centre = np.array([*c['phantoms']['boat']['centre'], 0.0])
+    looking_at = (np.eye(3), centre - [8.0, 0.0, 0.0])
+    assert len(sb.scene(det, 1.0, looking_at, UNITY_AXES, np.zeros(3), c, [])) == 1
+
+
+def phantom_cfg():
+    c = cfg()
+    c['phantoms']['enabled'] = True
+    return c
+
+
 def test_phantoms_circle_at_their_speed():
-    ph = cfg()['phantoms']
+    ph = phantom_cfg()['phantoms']
     for t in (0.0, 3.3, 17.0):
         [(label, p, v, size)] = sb.phantoms(ph, t)
         assert np.linalg.norm(v) == pytest.approx(0.8)
@@ -108,7 +124,7 @@ def test_phantoms_circle_at_their_speed():
 
 
 def test_scene_adds_truth_ids_and_only_phantoms_in_view():
-    c = cfg()
+    c = phantom_cfg()
     centre = np.array([*c['phantoms']['boat']['centre'], 0.0])
     elements = [{'label': 'red_buoy', 'x': 5.0, 'y': 0.0}]
     looking_at = (np.eye(3), centre - [8.0, 0.0, 0.0])            # phantom ahead

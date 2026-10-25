@@ -27,6 +27,7 @@
         extrinsic_yaw_deg: [0.0, 0.0,  0.0,   3.0,   0.0]
         stamp_offset_s:    [0.0, 0.0,  0.0,   0.1,   0.0]
     phantoms:                              # sim-only moving targets on circles in the truth (world) frame
+      enabled: false                       # opt in: the boat's circle crosses the nav channel's gate 1
       names: [boat]
       boat:
         label: yellow_target_boat
