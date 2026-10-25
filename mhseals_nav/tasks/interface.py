@@ -125,9 +125,10 @@ class Navigator:
     can cancel them all, including one whose request is still in flight.
     """
 
-    def __init__(self, node, frame='map', hold_topic='/cmd_vel_nav'):
+    def __init__(self, node, frame='map', hold_topic='/cmd_vel_nav', backup_wait_s=0.0):
         from ament_index_python.packages import get_package_share_directory
         self.node, self.frame, self.report, self.last = node, frame, None, None
+        self.backup_wait_s, self.backup_since = backup_wait_s, None
         self.goals, self.closed = [], False
         self.zero = node.create_publisher(Twist, hold_topic, 1)
         self.to_pose = ActionClient(node, NavigateToPose, 'navigate_to_pose')
@@ -155,7 +156,23 @@ class Navigator:
             self.zero.publish(Twist())
 
     def ready(self):
-        return self.to_pose.server_is_ready() and self.through.server_is_ready()
+        """Nav2's navigators are up, and the backup behaviour or ``backup_wait_s`` gone by.
+
+        Without the backup server a dock exit drives out instead of reversing, so it is
+        waited for, but only so long: no other task needs it.
+        """
+        if not (self.to_pose.server_is_ready() and self.through.server_is_ready()):
+            return False
+        if self.backup.server_is_ready():
+            return True
+        now = time.monotonic()
+        self.backup_since = self.backup_since or now
+        if now - self.backup_since < self.backup_wait_s:
+            return False
+        self.node.get_logger().warning(
+            f'no backup server after {self.backup_wait_s} s: a dock exit will drive out',
+            once=True)
+        return True
 
     def close(self):
         """Cancel every goal sent; none is sent after this (None, as for a refusal)."""
@@ -250,7 +267,8 @@ class TaskRunner(Node):
         self.board.conditions = self.conditions
         self.board.fov = self.fov
         self.tree = py_trees.trees.BehaviourTree(TREES[task](params))
-        self.navigator = Navigator(self, self.frame, params.get('hold_topic', '/cmd_vel_nav'))
+        self.navigator = Navigator(self, self.frame, params.get('hold_topic', '/cmd_vel_nav'),
+                                   float(self.config['backup_wait_s']))
         self.navigator.report = self.report
         self.tree.setup(timeout=15.0, navigator=self.navigator, report=self.report,
                         preempt=self.preempt, runner=self.config)

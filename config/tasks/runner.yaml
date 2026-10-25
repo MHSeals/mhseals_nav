@@ -3,5 +3,6 @@
 exit_settle_s: 3.0        # s of wall time at exit to see each Nav2 goal rejected, ended or its cancel acknowledged
 tracks_supersede_s: 2.0   # s a /perception/tracks message supersedes /objects/map
 goal_retries: 30          # sends of one route: Nav2 refuses a goal while another winds down
-refusal_s: 1.0            # s; a goal aborted this soon after it was sent was refused, not driven
+backup_wait_s: 15.0       # s of wall time at start to wait for Nav2's backup server (dock exit) once the navigators are up
+refusal_s: 1.0           # s; a goal aborted this soon after it was sent was refused, not driven
 stale_success_m: 1.0      # m; succeeded within refusal_s yet this far from the end: the preempted goal's result, resent

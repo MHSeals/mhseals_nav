@@ -93,10 +93,11 @@ def through(gate, before=1.5, after=1.1):
     return [(x - before * c, y - before * s, yaw), (x + after * c, y + after * s, yaw)]
 
 
-def chain(gates, offset=1.0):
-    """One route through ``gates`` in order, with a mid-point between gates offset sideways.
+def chain(gates, corner_side):
+    """One route through ``gates`` in order, with a mid-point where the route turns.
 
-    Between a gate's exit and the next one's lead-in the path turns; a pose half way,
+    When the next gate's lead-in lies more than ``corner_side`` m to the side of the
+    last gate's line, the path turns between them; a pose half way between the two,
     facing along that leg, keeps the controller from cutting the corner over a buoy.
     """
     route = []
@@ -106,7 +107,7 @@ def chain(gates, offset=1.0):
             last = route[-1]
             yaw = last[2]
             side = -(lead_in[0] - last[0]) * math.sin(yaw) + (lead_in[1] - last[1]) * math.cos(yaw)
-            if abs(side) > offset:
+            if abs(side) > corner_side:
                 route.append(((last[0] + lead_in[0]) / 2, (last[1] + lead_in[1]) / 2,
                               heading(last, lead_in)))
         route += [lead_in, out]

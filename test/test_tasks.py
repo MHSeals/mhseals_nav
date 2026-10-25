@@ -275,7 +275,10 @@ def test_docking_drives_out_when_the_back_out_fails():
                 goal.status = 'ABORTED'  # e.g. no backup plugin or something astern
 
     assert world.run(script=stuck) == 'SUCCESS'
-    assert [goal.reverse is not None for goal in world.goals[-3:]] == [True, True, False]
+    reversed_ = [goal.reverse is not None for goal in world.goals]
+    # each try is resent back_out_resends times, not runner.yaml's 30, then drives out
+    resends = params('docking')['back_out_resends']
+    assert reversed_[-1] is False and reversed_.count(True) == 2 * resends
 
 
 def test_a_back_out_cancelled_outside_the_task_preempts_it_without_driving_out():
@@ -859,7 +862,7 @@ def test_a_success_at_once_far_from_the_end_is_the_preempted_goal_s_and_resent()
 
 def test_a_replaced_back_out_is_kept_and_cancelled_when_driving_stops():
     from mhseals_nav.tasks.behaviours import BackOut
-    driver, goals = replacing_driver([False], BackOut('back out', 'bay_staging', 0.1, 40.0))
+    driver, goals = replacing_driver([False], BackOut('back out', 'bay_staging', 0.1, 40.0, 2))
     driver.drive([(-2, 0, 0)])
     assert len(goals) == 2 and all(goal.reverse for goal in goals)
     assert not goals[0].cancelled and goals[0] in driver.superseded
@@ -887,6 +890,7 @@ def test_drift_never_aborts_a_dock_under_way():
 
 
 def test_offset_gates_get_a_mid_point_so_the_corner_is_not_cut():
-    route = geometry.chain([(19, 0, 0), (24, -2, 0), (30, -2, 0)])
+    route = geometry.chain([(19, 0, 0), (24, -2, 0), (30, -2, 0)],
+                           params('follow_path')['corner_side'])
     assert route[2] == pytest.approx((21.3, -1.0, geometry.heading((20.1, 0), (22.5, -2))))
     assert len(route) == 7  # no mid-point between the two gates in line

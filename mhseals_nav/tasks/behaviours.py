@@ -342,12 +342,18 @@ class BackOut(Navigate):
 
     A goal behind the boat makes the rotation shim turn in place first, which jams
     it crosswise in a dock bay; reversing needs no turn, and the next goal turns
-    once clear. ``speed`` (m/s) and ``seconds`` (allowed) come from the task YAML.
+    once clear. ``speed`` (m/s), ``seconds`` (allowed) and ``resends`` come from the
+    task YAML: BackUp ends at once on a collision ahead, which is not a refusal to
+    resend 30 times.
     """
 
-    def __init__(self, name, key, speed, seconds, **kwargs):
+    def __init__(self, name, key, speed, seconds, resends, **kwargs):
         super().__init__(name, key, **kwargs)
-        self.speed, self.seconds = speed, seconds
+        self.speed, self.seconds, self.resends = speed, seconds, resends
+
+    def setup(self, **kwargs):
+        super().setup(**kwargs)
+        self.limits = dict(self.limits, goal_retries=self.resends)
 
     def action(self, route, precise):
         return 'backup', False
@@ -413,13 +419,14 @@ class GateRun(Driver):
     with ``toward`` (a label) each gate is crossed toward the nearest such object.
     ``red_side`` (port, starboard) fixes the way through each gate by its colour
     order, so a gate crossed the wrong way never counts; ``any`` takes either.
+    ``corner_side`` (m) is when a turn between gates gets a mid-point (geometry.chain).
     The cleared gates go to ``key``; each is reported as ``gate_cleared``.
     """
 
     def __init__(self, name, key, red, green, gates=None, search=10.0, step=5.0,
                  max_width=8.0, min_width=1.0, near=None, radius=None, lookahead=3,
                  replan=0.7, retries=2, exclude=(), toward=None, red_side='any',
-                 first_radius=None, exclude_radius=None, spread=None):
+                 first_radius=None, exclude_radius=None, spread=None, corner_side=None):
         super().__init__(name, reads=((near,) if near else ()) + tuple(exclude),
                          writes=(key,))
         if red_side not in ('port', 'starboard', 'any'):
@@ -429,7 +436,7 @@ class GateRun(Driver):
         self.key, self.red, self.green, self.limit = key, red, green, gates
         self.search, self.step, self.max_width, self.min_width = search, step, max_width, min_width
         self.near, self.radius, self.lookahead = near, radius, lookahead
-        self.replan, self.retries = replan, retries
+        self.replan, self.retries, self.corner_side = replan, retries, corner_side
 
     def initialise(self):
         super().initialise()
@@ -513,7 +520,7 @@ class GateRun(Driver):
             if not self.planned:
                 self.decide('execute', f'{len(chain)} gate(s) ahead: through the middle')
             self.planned, self.looks, self.searched = chain, None, 0.0
-            route = geometry.chain(chain)
+            route = geometry.chain(chain, self.corner_side)
             if geometry.lined_up(chain[0], pose):  # past the lead-in: never turn back to it
                 route = route[1:]
             self.drive(route, why=f'between gate {len(self.cleared) + 1} markers')

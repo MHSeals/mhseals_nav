@@ -7,6 +7,7 @@ report: display
 max_gate_width: 4.0
 search_distance: 30.0   # m; the mark is 40-100 ft past the gate
 first_gate_radius: 30.0 # m; the task's first gate is the nearest within this, any way
+corner_side: 1.0        # m the next gate lies to the side before the route gets a mid-point
 exclude_radius: 2.0     # m; a gate this close to one the channel or path passed is theirs
 circle_radius: 2.5
 circle_clockwise: false # either direction scores

@@ -291,6 +291,7 @@ def test_an_override_before_nav2_accepts_cancels_the_goal_on_the_way_out(monkeyp
         runner = TaskRunner('circle_test', dict(CIRCLE))
         runner.objects = [('yellow_buoy', 9.0, 0.0)]
         monkeypatch.setattr(runner, 'pose', lambda: (1.0, 0.0, 0.5))
+        runner.navigator.backup_wait_s = 0.0  # this fake Nav2 has no backup server
         server = rclpy.create_node('fake_nav2')
         for kind, name in ((NavigateToPose, 'navigate_to_pose'),
                            (NavigateThroughPoses, 'navigate_through_poses')):
@@ -377,6 +378,27 @@ def test_an_override_cancels_a_back_out_in_flight_and_none_goes_out_after(monkey
             if node is not None:
                 node.destroy_node()
         rclpy.try_shutdown()
+
+
+def test_ready_waits_for_the_backup_server_but_not_for_good(monkeypatch):
+    from mhseals_nav.tasks import interface
+    from mhseals_nav.tasks.interface import Navigator
+    navigator = Navigator.__new__(Navigator)
+    up = SimpleNamespace(server_is_ready=lambda: True)
+    backup = [False]
+    navigator.to_pose = navigator.through = up
+    navigator.backup = SimpleNamespace(server_is_ready=lambda: backup[0])
+    navigator.backup_wait_s, navigator.backup_since = 15.0, None
+    warnings = []
+    navigator.node = SimpleNamespace(get_logger=lambda: SimpleNamespace(
+        warning=lambda message, once=False: warnings.append(message)))
+    clock = [100.0]
+    monkeypatch.setattr(interface.time, 'monotonic', lambda: clock[0])
+    assert not navigator.ready()
+    backup[0] = True
+    assert navigator.ready() and not warnings
+    backup[0], clock[0] = False, 116.0  # never came up: start anyway, and say so
+    assert navigator.ready() and len(warnings) == 1
 
 
 def test_cancel_before_acceptance_still_cancels():
