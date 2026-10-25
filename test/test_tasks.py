@@ -575,3 +575,10 @@ def test_recognised_task_is_approached_without_a_layout():
     world.board.register_key(key='view', access=py_trees.common.Access.READ)
     assert world.run(ticks=2) == 'SUCCESS'
     assert world.board.view == [pytest.approx((12.0, -14.0, -math.pi / 2))]
+
+
+def test_a_replanned_gate_route_never_turns_back_to_a_passed_lead_in():
+    world = World('nav_channel', params('nav_channel'))
+    world.state.update(pose=(6.5, 0.0, 0.0), objects=gate(7, 0, 3) + gate(13, 0, 3))
+    world.run(ticks=1)
+    assert world.goals[0].route[0][:2] == pytest.approx((8.1, 0))  # not back to 5.5

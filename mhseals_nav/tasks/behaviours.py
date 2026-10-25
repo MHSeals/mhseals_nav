@@ -468,6 +468,8 @@ class GateRun(Driver):
                 self.decide('execute', f'{len(chain)} gate(s) ahead: through the middle')
             self.planned, self.looks, self.searched = chain, None, 0.0
             route = [pose for gate in chain for pose in geometry.through(gate)]
+            if geometry.lined_up(chain[0], pose):  # past the lead-in: never turn back to it
+                route = route[1:]
             self.drive(route, why=f'between gate {len(self.cleared) + 1} markers')
         state = self.driving()
         if state == 'RUNNING':

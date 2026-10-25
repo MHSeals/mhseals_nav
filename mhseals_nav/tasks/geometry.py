@@ -185,6 +185,14 @@ def along(gate, pose):
     return (pose[0] - gate[0]) * math.cos(gate[2]) + (pose[1] - gate[1]) * math.sin(gate[2])
 
 
+def lined_up(gate, pose, before=1.5, half_width=1.0):
+    """Is ``pose`` between the gate's lead-in pose and its line, near the middle?"""
+    g = math.cos(gate[2]), math.sin(gate[2])
+    dx, dy = pose[0] - gate[0], pose[1] - gate[1]
+    along, across = dx * g[0] + dy * g[1], -dx * g[1] + dy * g[0]
+    return -before + 0.5 < along < 0 and abs(across) <= half_width
+
+
 def crossed(gate, pose, previous=None, beyond=0.6, half_width=2.5):
     """Has the boat crossed ``gate``: past its line, within reach of its middle?
 
