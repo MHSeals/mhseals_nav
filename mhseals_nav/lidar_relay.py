@@ -38,6 +38,45 @@ def decimate(message, max_bytes):
         is_dense=message.is_dense)
 
 
+TWIST_MAX_AGE = 0.3   # s; an older twist leaves the cloud as scanned
+
+
+def deskew(message, yaw_rate, velocity):
+    """The cloud with each point moved to where the sensor saw it at the header stamp.
+
+    A VLP16 scan takes 0.1 s and the driver stamps it at its last packet, with each point's
+    offset from the stamp in the float32 ``time`` field (-0.1..0 s). Turning at w, a point seen
+    t earlier is off by w*t in azimuth: 0.3 m at 10 m range at autonomy's 0.3 rad/s, 1.5 m at
+    the 1.5 rad/s of a manual spin. Constant body twist over the scan (yaw rate and planar
+    velocity, base_link axes, which lidar_link shares): p_stamp = R(w t) p + v t. The lidar's
+    lever arm adds w*0.29 m/s of sway, under 3 cm per scan at 1 rad/s, and is left out.
+    Clouds without x, y and time fields pass unchanged.
+    """
+    import numpy as np
+    fields = {f.name: f for f in message.fields}
+    if not {'x', 'y', 'time'} <= set(fields) or any(
+            fields[name].datatype != 7 for name in ('x', 'y', 'time')):  # 7: FLOAT32
+        return message
+    count = message.width * message.height
+    order = '>' if message.is_bigendian else '<'
+    layout = np.dtype({'names': ['x', 'y', 'time'], 'formats': [order + 'f4'] * 3,
+                       'offsets': [fields[n].offset for n in ('x', 'y', 'time')],
+                       'itemsize': message.point_step})
+    data = bytearray(message.data)
+    # A view over our own copy: assigning through it rewrites the payload.
+    points = np.frombuffer(data, dtype=layout, count=count)
+    t = points['time'].astype(np.float64)
+    x, y = points['x'].astype(np.float64), points['y'].astype(np.float64)
+    c, s = np.cos(yaw_rate * t), np.sin(yaw_rate * t)
+    points['x'] = c * x - s * y + velocity[0] * t
+    points['y'] = s * x + c * y + velocity[1] * t
+    return type(message)(
+        header=message.header, height=message.height, width=message.width,
+        fields=message.fields, is_bigendian=message.is_bigendian,
+        point_step=message.point_step, row_step=message.row_step, data=bytes(data),
+        is_dense=message.is_dense)
+
+
 def _qos(reliable=True):
     from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
     # Reliable is compatible with both RViz's reliable reader and Nav2's
@@ -70,22 +109,33 @@ def publish(pipe, topic):
     os.environ["ROS_AUTOMATIC_DISCOVERY_RANGE"] = "SUBNET"
     os.environ["RMW_FASTRTPS_PUBLICATION_MODE"] = "ASYNCHRONOUS"
     os.environ.pop("ROS_LOCALHOST_ONLY", None)
+    import time
     import rclpy
+    from nav_msgs.msg import Odometry
     from rclpy.serialization import deserialize_message
     from sensor_msgs.msg import PointCloud2
 
     rclpy.init()
     node = rclpy.create_node("lidar_relay_publish")
     publisher = node.create_publisher(PointCloud2, topic, _qos())
-    node.get_logger().info(f"publishing {topic} on the default transport")
+    # The fused body twist (ekf_local, 100 Hz) for deskew; older than TWIST_MAX_AGE, none.
+    twist = {}
+    node.create_subscription(Odometry, "/odom/local", lambda m: twist.update(
+        w=m.twist.twist.angular.z, v=(m.twist.twist.linear.x, m.twist.twist.linear.y),
+        at=time.monotonic()), _qos(False))
+    node.get_logger().info(f"publishing {topic} on the default transport, deskewed by /odom/local")
     while rclpy.ok():
-        if not pipe.poll(0.5):
+        rclpy.spin_once(node, timeout_sec=0)
+        if not pipe.poll(0.01):
             continue
         # Publish only the newest cloud so a slow reader never sees stale scans.
         payload = pipe.recv_bytes()
         while pipe.poll(0):
             payload = pipe.recv_bytes()
-        publisher.publish(deserialize_message(payload, PointCloud2))
+        cloud = deserialize_message(payload, PointCloud2)
+        if time.monotonic() - twist.get("at", -1e9) < TWIST_MAX_AGE:
+            cloud = deskew(cloud, twist["w"], twist["v"])
+        publisher.publish(cloud)
 
 
 def main():
