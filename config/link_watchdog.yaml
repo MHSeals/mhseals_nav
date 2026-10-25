@@ -5,7 +5,8 @@
 # Only beats naming one of operator_hosts count, never one naming B itself (a TUI on B over
 # SSH or tmux is not the operator). Enforced once a heartbeat has arrived this session;
 # require_operator also holds before the first one, since on the water an operator who never
-# reached B looks the same as one who never existed. Sim and bench launches set it false.
+# reached B looks the same as one who never existed. Sim and bench launches must set it false
+# (the navigation.launch.py wiring follows on nav device-launch).
 /**:
   ros__parameters:
     heartbeat_topic: /operator/heartbeat
