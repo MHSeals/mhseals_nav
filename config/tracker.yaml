@@ -20,6 +20,10 @@
     meas:
       min_sigma_m: 0.10
       range_frac: 0.03
+      # Radial (depth) sigma depth_k * range^2, on top of the backend's covariance: ZED 2i
+      # (B 0.12 m, f ~525 px at HD720) with about 0.6 px disparity error in NEURAL_LIGHT on
+      # water: 0.25 m at 5 m, 1 m at 10 m, 4 m at 20 m. Fitted to 2026-10-25 replays.
+      depth_k: 0.01
       # Tangential term: static buoys stay static through the §8 envelope (bias 5 deg plus
       # extrinsic 3 deg, lag plus stamp offset 0.2 s) in the metamorphic suite.
       heading_sigma_deg: 3.0

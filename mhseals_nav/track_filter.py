@@ -179,6 +179,11 @@ class TrackFilter:
             Rz = (R @ cov @ R.T)[:2, :2]
         else:
             Rz = np.eye(2) * max(meas['min_sigma_m'], meas['range_frac'] * rho) ** 2
+        # Stereo depth error grows with range squared (sigma_z = z^2 sigma_d / (f B)), and the
+        # ZED's own object covariance does not carry it: on 2026-10-25 the same buoy came back
+        # 0.6-2.5 m deeper or nearer at 6-10 m against a reported 0.15 m, and started new ids.
+        u = offset / rho
+        Rz = Rz + (meas['depth_k'] * rho ** 2) ** 2 * np.outer(u, u)
         # Heading noise and stamp lag sweep a static object across the bearing.
         n = np.array([-offset[1], offset[0]]) / rho
         tangential = (rho * math.radians(meas['heading_sigma_deg'])) ** 2 + \

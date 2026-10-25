@@ -282,3 +282,27 @@ def test_young_boat_track_does_not_turn_static():
     run(f, lambda t: [ob('yellow_target_boat', 8 + 0.8 * t, 3.0)], 6.0, noise=0.05)
     (track,) = f.tracks
     assert track.motion == MOTION_MOVING and track.static_s == 0
+
+
+def test_a_buoy_returning_deeper_than_the_zed_covariance_keeps_its_id():
+    """2026-10-25: the same pole came back 0.6-2.5 m deeper at 6-10 m, ZED sd 0.15 m."""
+    f = TrackFilter(CFG)
+
+    def zed(x):
+        o = ob('green_pole_buoy', x, 0.5, backend_id='1326')
+        o.position_covariance = [0.0225, 0, 0, 0, 0.0225, 0, 0, 0, 0.0225]
+        return o
+    t = run(f, lambda t: [zed(10.0)], 3.0)
+    (track,) = f.tracks
+    run(f, lambda t: [zed(12.0)], 2.0, start=t)
+    assert [tr.id for tr in f.tracks] == [track.id]
+    assert track.motion == MOTION_STATIC
+
+
+def test_the_depth_term_does_not_merge_two_poles_side_by_side():
+    """The radial sigma is along the bearing only: a pole 1.5 m beside one at 10 m is new."""
+    f = TrackFilter(CFG)
+    t = run(f, lambda t: [ob('green_pole_buoy', 10.0, 0.0)], 3.0)
+    run(f, lambda t: [ob('green_pole_buoy', 10.0, 0.0), ob('green_pole_buoy', 10.0, 1.5)],
+        2.0, start=t)
+    assert len(f.tracks) == 2
