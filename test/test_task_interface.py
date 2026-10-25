@@ -324,6 +324,61 @@ def test_an_override_before_nav2_accepts_cancels_the_goal_on_the_way_out(monkeyp
         rclpy.try_shutdown()
 
 
+def test_an_override_cancels_a_back_out_in_flight_and_none_goes_out_after(monkeypatch):
+    """Track a BackUp goal like a navigation goal: cancel it on the way out."""
+    import threading
+    import time
+    from nav2_msgs.action import BackUp
+    from rclpy.action import ActionServer, CancelResponse
+    from rclpy.executors import MultiThreadedExecutor
+    from mhseals_nav.tasks import interface
+    rclpy.init()
+    runner = server = executor = None
+    cancelled = []
+
+    def execute(handle):
+        deadline = time.monotonic() + 10.0
+        while not handle.is_cancel_requested and time.monotonic() < deadline:
+            time.sleep(0.01)
+        if handle.is_cancel_requested:
+            cancelled.append('BackUp')
+            handle.canceled()
+        else:
+            handle.abort()
+        return BackUp.Result()
+
+    try:
+        runner = TaskRunner('circle_test', dict(CIRCLE))
+        monkeypatch.setattr(runner, 'pose', lambda: None)  # no pose: the tree sends nothing
+        runner.started = runner.get_clock().now().nanoseconds / 1e9  # the task is under way
+        server = rclpy.create_node('fake_behavior_server')
+        ActionServer(server, BackUp, 'backup', execute,
+                     cancel_callback=lambda request: CancelResponse.ACCEPT)
+        assert runner.navigator.backup.wait_for_server(timeout_sec=10.0)
+        reverse = (1.8, 0.1, 40.0)
+        goal = runner.navigator.send([(0.0, 0.0, 0.0)], why='back out', reverse=reverse)
+        assert goal is not None and goal.handle is None  # Nav2 not spinning: in flight
+        runner._authority(SimpleNamespace(data=authority('rc')))
+        assert runner.outcome == 'PREEMPTED'
+        assert runner.navigator.send([(0.0, 0.0, 0.0)], reverse=reverse) is None
+        executor = MultiThreadedExecutor()
+        executor.add_node(server)
+        threading.Thread(target=executor.spin, daemon=True).start()
+        interface.run(runner)
+        assert goal.handle is not None and goal.handle.accepted and goal.settled
+        deadline = time.monotonic() + 3.0
+        while not cancelled and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert cancelled == ['BackUp']
+    finally:
+        if executor is not None:
+            executor.shutdown()
+        for node in (server, runner):
+            if node is not None:
+                node.destroy_node()
+        rclpy.try_shutdown()
+
+
 def test_cancel_before_acceptance_still_cancels():
     """A goal cancelled while its request is in flight is cancelled once accepted."""
     from mhseals_nav.tasks.interface import Goal

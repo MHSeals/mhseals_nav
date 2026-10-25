@@ -278,6 +278,20 @@ def test_docking_drives_out_when_the_back_out_fails():
     assert [goal.reverse is not None for goal in world.goals[-3:]] == [True, True, False]
 
 
+def test_a_back_out_cancelled_outside_the_task_preempts_it_without_driving_out():
+    world = World('docking', params('docking'))
+    world.state['objects'] = [('blue_square', 10, -1), ('red_circle', 10, -3)]
+
+    def revoke(tick, world):
+        for goal in world.goals:
+            if goal.reverse is not None:
+                goal.status = 'CANCELED'  # the TUI's revoke while reversing
+
+    assert world.run(script=revoke) == 'PREEMPTED'
+    assert world.goals[-1].reverse is not None  # no retry and no drive out after it
+    assert 'undocked' not in world.names()
+
+
 def test_speed_challenge_circles_the_mark_and_counts_spills_past_the_gate():
     world = World('speed_challenge', dict(params('speed_challenge'), approach=[0, 0, 0]))
     start = gate(5, 0, 2.5, 'red_buoy', 'green_buoy') + [('black_buoy', 2, 3)]
@@ -794,22 +808,22 @@ def test_gate_reach_and_goal_resends_come_from_yaml():
     assert Conditions().cfg == load_config('mission')['conditions']
 
 
-def replacing_driver(refuse):
+def replacing_driver(refuse, driver=None):
     """Return a Driver on a fake Nav2; ``refuse`` (a one-item list) rejects goals sent."""
     from types import SimpleNamespace
     from mhseals_nav.tasks.behaviours import Hold
     goals = []
 
-    def send(route, precise=False, quiet=False, why=''):
-        goal = SimpleNamespace(route=route, done=refuse[0], cancelled=False,
+    def send(route, precise=False, quiet=False, why='', reverse=None):
+        goal = SimpleNamespace(route=route, done=refuse[0], cancelled=False, reverse=reverse,
                                status='REJECTED' if refuse[0] else None)
         goal.cancel = lambda: setattr(goal, 'cancelled', True)
         goals.append(goal)
         return goal
 
-    driver = Hold('drive', 10.0)  # any Driver
+    driver = driver or Hold('drive', 10.0)  # any Driver
     driver.setup(navigator=SimpleNamespace(send=send), report=None)
-    driver.board = SimpleNamespace(now=0.0, pose=(0.0, 0.0, 0.0))
+    driver.board = SimpleNamespace(now=0.0, pose=(0.0, 0.0, 0.0), exists=lambda key: False)
     driver.initialise()
     driver.drive([(0, 0, 0), (5, 0, 0)])
     assert driver.driving() == 'RUNNING' and len(goals) == 1
@@ -830,6 +844,16 @@ def test_a_replaced_goal_is_cancelled_when_driving_stops_mid_handover():
     driver.drive([(0, 0, 0), (9, 0, 0)])  # same action: the running goal is not cancelled
     assert len(goals) == 2 and not goals[0].cancelled
     driver.stop_driving()  # an override while the replacement is in flight
+    assert goals[0].cancelled and goals[1].cancelled
+
+
+def test_a_replaced_back_out_is_kept_and_cancelled_when_driving_stops():
+    from mhseals_nav.tasks.behaviours import BackOut
+    driver, goals = replacing_driver([False], BackOut('back out', 'bay_staging', 0.1, 40.0))
+    driver.drive([(-2, 0, 0)])
+    assert len(goals) == 2 and all(goal.reverse for goal in goals)
+    assert not goals[0].cancelled and goals[0] in driver.superseded
+    driver.stop_driving()
     assert goals[0].cancelled and goals[1].cancelled
 
 

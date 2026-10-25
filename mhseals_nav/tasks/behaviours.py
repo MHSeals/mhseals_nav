@@ -82,7 +82,7 @@ class Driver(Leaf):
         # A goal for the same Nav2 action preempts the running one without stopping
         # the boat; the other action is refused until the running goal is cancelled.
         preempt = (self.goal is not None and not self.goal.done and q is not None
-                   and action(q['route'], q['precise']) == action(route, precise))
+                   and self.action(q['route'], q['precise']) == self.action(route, precise))
         if self.goal is not None and not self.goal.done:
             if preempt:  # it drives on until Nav2 takes the replacement: kept to cancel
                 self.superseded.append(self.goal)
@@ -143,6 +143,10 @@ class Driver(Leaf):
             self.preempt('goal cancelled outside the task')
         self.goal, self.queued, self.outcome = None, None, status
         return status
+
+    def action(self, route, precise):
+        """Which Nav2 action this leaf sends ``route`` to."""
+        return action(route, precise)
 
     def submit(self, q):
         """Hand the queued route to Nav2 (``q`` as ``drive`` queued it)."""
@@ -337,6 +341,9 @@ class BackOut(Navigate):
     def __init__(self, name, key, speed, seconds, **kwargs):
         super().__init__(name, key, **kwargs)
         self.speed, self.seconds = speed, seconds
+
+    def action(self, route, precise):
+        return 'backup', False
 
     def submit(self, q):
         pose = self.board.pose
