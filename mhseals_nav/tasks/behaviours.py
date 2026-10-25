@@ -399,15 +399,19 @@ class GateRun(Driver):
     gates within ``radius`` of a blackboard point (the black return gate by home);
     gates listed in the ``exclude`` keys (other tasks' cleared gates) are skipped, and
     with ``toward`` (a label) each gate is crossed toward the nearest such object.
+    ``red_side`` (port, starboard) fixes the way through each gate by its colour
+    order, so a gate crossed the wrong way never counts; ``any`` takes either.
     The cleared gates go to ``key``; each is reported as ``gate_cleared``.
     """
 
     def __init__(self, name, key, red, green, gates=None, search=10.0, step=5.0,
                  max_width=8.0, min_width=1.0, near=None, radius=None, lookahead=3,
-                 replan=0.7, retries=2, exclude=(), toward=None):
+                 replan=0.7, retries=2, exclude=(), toward=None, red_side='any'):
         super().__init__(name, reads=((near,) if near else ()) + tuple(exclude),
                          writes=(key,))
-        self.exclude, self.toward = tuple(exclude), toward
+        if red_side not in ('port', 'starboard', 'any'):
+            raise ValueError(f'red_side must be port, starboard or any, not {red_side!r}')
+        self.exclude, self.toward, self.red_side = tuple(exclude), toward, red_side
         self.key, self.red, self.green, self.limit = key, red, green, gates
         self.search, self.step, self.max_width, self.min_width = search, step, max_width, min_width
         self.near, self.radius, self.lookahead = near, radius, lookahead
@@ -422,7 +426,7 @@ class GateRun(Driver):
         reds = self.labelled(self.red)
         greens = reds if self.red == self.green else self.labelled(self.green)
         gates = geometry.gate_midpoints(reds, greens, self.board.pose, self.max_width,
-                                        self.min_width)
+                                        self.min_width, self.red_side)
         if self.near and self.board.exists(self.near):
             centre = self.board.get(self.near)
             if isinstance(centre, list):  # a one-pose route, such as the task's approach

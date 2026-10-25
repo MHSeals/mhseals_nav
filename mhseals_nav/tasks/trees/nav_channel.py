@@ -16,5 +16,6 @@ def build(params):
     return Sequence('nav channel', memory=True, children=[
         look_for('find the channel', (red, green), params),
         GateRun('through the channel', 'channel', red, green, gates=params['gates'],
-                search=params['search_distance'], max_width=params['max_gate_width']),
+                search=params['search_distance'], max_width=params['max_gate_width'],
+                red_side=params['red_side']),
     ])

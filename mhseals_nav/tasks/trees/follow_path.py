@@ -17,7 +17,7 @@ def build(params):
     path = Sequence('path', memory=True, children=[
         look_for('find the path', (red, green), params),
         GateRun('follow the gates', 'path', red, green, search=params['search_distance'],
-                max_width=params['max_gate_width']),
+                max_width=params['max_gate_width'], red_side=params['red_side']),
         ReportCount('report count', 'species', 'species_count',
                     spin=params['report'] == 'spin'),
     ])

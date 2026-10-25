@@ -30,6 +30,30 @@ def test_gates_pair_nearest_markers_and_face_away_from_the_boat():
     assert [g[:2] for g in home] == [(-2.5, 0)] and abs(abs(home[0][2]) - math.pi) < 1e-9
 
 
+def test_the_colour_order_sets_a_gate_s_way_in():
+    red, green = [(10, 1)], [(10, -1)]  # red to port heading +x
+    for origin in ((0, 0, 0), (20, 0, math.pi)):
+        assert geometry.gate_midpoints(red, green, origin, red_side='port')[0][2] == 0
+        starboard = geometry.gate_midpoints(red, green, origin, red_side='starboard')[0]
+        assert abs(starboard[2]) == pytest.approx(math.pi)
+    assert abs(geometry.gate_midpoints(red, green, (20, 0, 0))[0][2]) == pytest.approx(math.pi)
+    # Through with red to starboard (green to port) is the wrong way: never a crossing.
+    gate = geometry.gate_midpoints(red, green, (0, 0, 0), red_side='starboard')[0]
+    assert not geometry.crossed(gate, (12, 0, 0), previous=(8, 0, 0))
+    assert geometry.crossed(gate, (8, 0, math.pi), previous=(12, 0, math.pi))
+
+
+@pytest.mark.parametrize('red_side', ['port', 'starboard'])
+def test_the_channel_enters_each_gate_by_its_colour_order(red_side):
+    world = World('nav_channel', dict(params('nav_channel'), red_side=red_side, gates=1))
+    world.state['objects'] = gate(7, 0, 3)  # red at +y: to port heading +x
+    assert world.run() == 'SUCCESS' and world.names() == ['gate_cleared']
+    way = world.goals[0].route[-1]
+    assert math.cos(way[2]) == pytest.approx(1 if red_side == 'port' else -1)
+    with pytest.raises(ValueError):
+        World('nav_channel', dict(params('nav_channel'), red_side='right'))
+
+
 def test_next_gate_is_ahead_and_not_cleared():
     gates = [(5, 0, 0), (12, 1, 0), (-4, 0, 0)]
     assert geometry.next_gate(gates, (0, 0, 0), []) == (5, 0, 0)

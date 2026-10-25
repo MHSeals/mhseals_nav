@@ -1,6 +1,10 @@
 # Task 1, navigation channel. Labels are the tracker's class ids (/objects/map).
 red: red_pole_buoy
 green: green_pole_buoy
+# The side red is on going through a gate (port | starboard | any): the colour order sets
+# each gate's way in, and a gate crossed the other way does not count. The course
+# (crane roboboat_2025) has red to port on the way out; "red right returning" is starboard.
+red_side: port
 gates: 2
 max_gate_width: 8.0     # m; wider red/green pairs are not one gate
 search_distance: 10.0   # m driven ahead while looking for the next gate

@@ -1,6 +1,7 @@
 # Task 2, follow the path: small red/green gates until none is ahead; count yellow buoys.
 red: red_buoy
 green: green_buoy
+red_side: port          # port | starboard | any, as for nav_channel
 count: yellow_buoy      # endangered species
 report: display         # display (an event for the operator screen) or spin (one turn each)
 max_gate_width: 4.0     # m; keeps a red from pairing with the next gate's green

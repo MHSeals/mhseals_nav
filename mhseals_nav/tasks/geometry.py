@@ -13,14 +13,15 @@ def forward(pose, distance):
     return (x + distance * math.cos(yaw), y + distance * math.sin(yaw), yaw)
 
 
-def gate_midpoints(reds, greens, origin, max_width=8.0, min_width=1.0):
+def gate_midpoints(reds, greens, origin, max_width=8.0, min_width=1.0, red_side='any'):
     """Gates from red/green marker pairs, nearest first.
 
     Each red pairs with its nearest unused green between ``min_width`` and
-    ``max_width`` apart. A gate faces through its pair, away from ``origin``,
-    so the boat passes straight through instead of along the line of markers.
-    Passing the same list twice pairs markers of one colour (the black
-    return gate); each marker is then used once.
+    ``max_width`` apart. A gate faces through its pair: the way that keeps red
+    on ``red_side`` (port or starboard), so the colour order sets the way in;
+    with ``any``, away from ``origin``. The boat passes straight through instead
+    of along the line of markers. Passing the same list twice pairs markers of
+    one colour (the black return gate); each marker is then used once.
     """
     same = reds is greens
     pairs = sorted((math.dist(r, g), i, j) for i, r in enumerate(reds)
@@ -37,10 +38,10 @@ def gate_midpoints(reds, greens, origin, max_width=8.0, min_width=1.0):
             used_green.add(i)
         red, green = reds[i], greens[j]
         middle = ((red[0] + green[0]) / 2, (red[1] + green[1]) / 2)
-        # The two normals of the red-green line; take the one pointing away from origin.
+        # The two normals of the red-green line: this one keeps red to port.
         normal = heading(red, green) + math.pi / 2
-        away = heading(origin, middle)
-        if math.cos(normal - away) < 0:
+        if red_side == 'starboard' or (
+                red_side == 'any' and math.cos(normal - heading(origin, middle)) < 0):
             normal += math.pi
         gates.append((*middle, math.atan2(math.sin(normal), math.cos(normal))))
     return sorted(gates, key=lambda gate: math.dist(origin[:2], gate[:2]))
