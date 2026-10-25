@@ -1,0 +1,16 @@
+# nearest_obstacle: the velocity controller's drift observer stops learning a contact's
+# reaction as current while an obstacle is close. Publishes a Vector3Stamped in base_frame
+# from the nearest point of the hull to the nearest lethal cell (NaN: none within radius_m);
+# silent while the costmap or the TF is stale, which the controller reads as no data.
+/**:
+  ros__parameters:
+    costmap_topic: /perception/costmap
+    updates_topic: /perception/costmap_updates
+    output_topic: /perception/nearest_obstacle
+    base_frame: base_link
+    half_length_m: 0.5315    # the hull, as nav2_params' footprint without its padding
+    half_width_m: 0.4475
+    radius_m: 1.5            # farther obstacles report NaN
+    lethal: 100              # OccupancyGrid value of a lethal cell
+    max_age_s: 1.0           # receipt age of the costmap (5 Hz)
+    rate_hz: 5.0

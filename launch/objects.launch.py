@@ -36,6 +36,9 @@ def nodes(context):
              name='lifecycle_manager_perception', namespace='perception', output='screen',
              parameters=[{'autostart': True, 'node_names': ['costmap'],
                           'bond_timeout': 0.0, **clock}]),
+        # /perception/nearest_obstacle for the velocity controller's drift observer.
+        Node(package='mhseals_nav', executable='nearest_obstacle', output='screen',
+             parameters=[config('nearest_obstacle.yaml'), clock]),
     ]
 
 

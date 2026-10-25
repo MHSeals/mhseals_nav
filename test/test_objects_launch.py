@@ -34,11 +34,13 @@ def object_nodes(sim, backend):
 def test_backend_tracker_and_perception_costmap(sim, backend, executable):
     nodes = object_nodes(sim, backend)
     assert [n['executable'] for n in nodes] == [
-        executable, 'object_tracker', 'nav2_costmap_2d', 'lifecycle_manager']
+        executable, 'object_tracker', 'nav2_costmap_2d', 'lifecycle_manager',
+        'nearest_obstacle']
     clock = {'use_sim_time': sim == 'true'}
     assert nodes[0]['parameters'] == [f'mhseals_nav/config/{executable}.yaml', clock]
     assert nodes[1]['parameters'] == ['mhseals_nav/config/tracker.yaml', clock]
-    costmap, manager = nodes[2:]
+    costmap, manager, nearest = nodes[2:]
+    assert nearest['parameters'] == ['mhseals_nav/config/nearest_obstacle.yaml', clock]
     assert (costmap['namespace'], costmap['name']) == ('perception', 'costmap')
     assert costmap['parameters'] == ['mhseals_nav/config/perception_costmap.yaml', clock]
     assert (manager['namespace'], manager['name']) == ('perception',
