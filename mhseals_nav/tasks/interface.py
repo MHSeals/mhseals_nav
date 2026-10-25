@@ -17,6 +17,7 @@ import argparse
 import json
 import math
 import sys
+import time
 from pathlib import Path
 
 import py_trees
@@ -38,7 +39,7 @@ from vision_msgs.msg import Detection3DArray
 
 from diagnostic_msgs.msg import DiagnosticArray
 
-from mhseals_nav.tasks import tracks
+from mhseals_nav.tasks import load_config, tracks
 from mhseals_nav.tasks.conditions import Conditions, speed as conditions_speed
 from mhseals_nav.tasks.trees import KINDS, TREES
 
@@ -76,7 +77,7 @@ class Goal:
     """One Nav2 goal, polled without blocking."""
 
     def __init__(self, request):
-        self.request, self.handle, self.result = request, None, None
+        self.request, self.handle, self.result, self.cancelling = request, None, None, None
         self.cancel_requested = False
         request.add_done_callback(self._accepted)
 
@@ -85,7 +86,15 @@ class Goal:
         if self.handle.accepted:
             self.result = self.handle.get_result_async()
             if self.cancel_requested:  # cancelled while the request was in flight
-                self.handle.cancel_goal_async()
+                self.cancelling = self.handle.cancel_goal_async()
+
+    @property
+    def settled(self):
+        """Nav2 can no longer drive it: rejected, ended, or its cancel acknowledged."""
+        if self.handle is None:
+            return False
+        return (not self.handle.accepted or self.result.done()
+                or (self.cancelling is not None and self.cancelling.done()))
 
     @property
     def done(self):
@@ -102,16 +111,22 @@ class Goal:
 
     def cancel(self):
         self.cancel_requested = True
-        if self.handle is not None and self.handle.accepted and not self.done:
-            self.handle.cancel_goal_async()
+        if (self.handle is not None and self.handle.accepted and not self.done
+                and self.cancelling is None):
+            self.cancelling = self.handle.cancel_goal_async()
 
 
 class Navigator:
-    """Sends routes of (x, y, yaw) map poses to Nav2 without blocking the tick."""
+    """Sends routes of (x, y, yaw) map poses to Nav2 without blocking the tick.
+
+    Every goal sent stays tracked until Nav2 can no longer drive it, so ``close``
+    can cancel them all, including one whose request is still in flight.
+    """
 
     def __init__(self, node, frame='map', hold_topic='/cmd_vel_nav'):
         from ament_index_python.packages import get_package_share_directory
         self.node, self.frame, self.report, self.last = node, frame, None, None
+        self.goals, self.closed = [], False
         self.zero = node.create_publisher(Twist, hold_topic, 1)
         self.to_pose = ActionClient(node, NavigateToPose, 'navigate_to_pose')
         self.through = ActionClient(node, NavigateThroughPoses, 'navigate_through_poses')
@@ -134,8 +149,21 @@ class Navigator:
     def ready(self):
         return self.to_pose.server_is_ready() and self.through.server_is_ready()
 
+    def close(self):
+        """Cancel every goal sent; none is sent after this (None, as for a refusal)."""
+        self.closed = True
+        for goal in self.goals:
+            goal.cancel()
+
+    def settled(self):
+        """True once Nav2 holds no goal of this run that it could still drive."""
+        self.goals = [goal for goal in self.goals if not goal.settled]
+        return not self.goals
+
     def send(self, route, precise=False, quiet=False, why=''):
         """Send a route; every send is a ``goal`` event unless ``quiet`` (a retry)."""
+        if self.closed:
+            return None
         if route and not quiet:
             x, y, yaw = route[-1]
             self.last = dict(x=round(x, 2), y=round(y, 2), yaw=round(yaw, 2), why=why)
@@ -143,11 +171,15 @@ class Navigator:
                 self.report('goal', **self.last)
         poses = [self.pose(*waypoint) for waypoint in route]
         if len(poses) == 1 or precise:
-            goal = NavigateToPose.Goal(pose=poses[-1])
+            request = NavigateToPose.Goal(pose=poses[-1])
             if precise:
-                goal.behavior_tree = self.precise_tree
-            return Goal(self.to_pose.send_goal_async(goal))
-        return Goal(self.through.send_goal_async(NavigateThroughPoses.Goal(poses=poses)))
+                request.behavior_tree = self.precise_tree
+            goal = Goal(self.to_pose.send_goal_async(request))
+        else:
+            goal = Goal(self.through.send_goal_async(NavigateThroughPoses.Goal(poses=poses)))
+        self.settled()  # forget goals Nav2 is done with
+        self.goals.append(goal)
+        return goal
 
 
 class TaskRunner(Node):
@@ -156,6 +188,7 @@ class TaskRunner(Node):
     def __init__(self, task, params):
         super().__init__(f'task_{task}')
         self.task = task
+        self.config = load_config('runner', params.get('runner'))
         self.timeout = float(params.get('timeout', 600.0))
         self.frame = params.get('map_frame', 'map')
         self.objects, self.tracks, self.memory = [], [], []
@@ -412,10 +445,24 @@ class TaskRunner(Node):
 
     def finish(self, outcome):
         self.outcome = outcome
-        self.tree.root.stop(py_trees.common.Status.INVALID)  # cancels a running Nav2 goal
+        self.navigator.close()  # every goal sent is cancelled; none goes out after
+        self.tree.root.stop(py_trees.common.Status.INVALID)
         self.report('task_finished', outcome=outcome)
         if self.started is not None:
             self.publish_status(outcome, force=True)
+
+    def settle(self):
+        """Spin until Nav2 holds no goal of this run, at most ``exit_settle_s`` (wall).
+
+        A goal still in flight is cancelled once Nav2 accepts it, so the process must
+        live until then: else Nav2 drives an orphan as soon as the mux returns to auto.
+        """
+        deadline = time.monotonic() + float(self.config['exit_settle_s'])
+        while rclpy.ok() and not self.navigator.settled() and time.monotonic() < deadline:
+            rclpy.spin_once(self, timeout_sec=0.05)
+        for _ in range(5):  # let the final events and status go out
+            rclpy.spin_once(self, timeout_sec=0.05)
+        return self.navigator.settled()
 
 
 def config_path(name):
@@ -440,6 +487,19 @@ def load_params(task, path=None):
     return params
 
 
+def run(runner):
+    """Tick until the task ends, then stay until Nav2 holds none of its goals."""
+    try:
+        while rclpy.ok() and runner.outcome is None:
+            rclpy.spin_once(runner, timeout_sec=0.1)
+    except KeyboardInterrupt:
+        runner.finish('FAILURE')
+    try:
+        runner.settle()
+    except KeyboardInterrupt:  # a second Ctrl+C: leave now
+        pass
+
+
 def main(args=None):
     parser = argparse.ArgumentParser(description='Run one RoboBoat task tree')
     parser.add_argument('--task', required=True, choices=sorted(TREES))
@@ -451,12 +511,7 @@ def main(args=None):
     rclpy.init(args=args, signal_handler_options=SignalHandlerOptions.NO)
     runner = TaskRunner(options.task, load_params(options.task, options.params))
     try:
-        while rclpy.ok() and runner.outcome is None:
-            rclpy.spin_once(runner, timeout_sec=0.1)
-        for _ in range(5):  # let the final events and status go out
-            rclpy.spin_once(runner, timeout_sec=0.05)
-    except KeyboardInterrupt:
-        runner.finish('FAILURE')
+        run(runner)
     finally:
         runner.destroy_node()
         rclpy.try_shutdown()

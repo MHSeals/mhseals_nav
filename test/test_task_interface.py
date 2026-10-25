@@ -86,6 +86,7 @@ def reporting_navigator(events):
     client = SimpleNamespace(send_goal_async=lambda goal: SimpleNamespace(
         done=lambda: False, result=lambda: None, add_done_callback=lambda f: None))
     navigator.to_pose = navigator.through = client
+    navigator.goals, navigator.closed = [], False
     return navigator
 
 
@@ -96,7 +97,7 @@ def board(route, pose=(0.0, 0.0, 0.0)):
 def test_navigate_reports_one_goal_across_retries(monkeypatch):
     from mhseals_nav.tasks import interface
     from mhseals_nav.tasks.behaviours import Navigate
-    refused = SimpleNamespace(done=True, status='REJECTED', cancel=lambda: None)
+    refused = SimpleNamespace(done=True, status='REJECTED', cancel=lambda: None, settled=True)
     monkeypatch.setattr(interface, 'Goal', lambda future: refused)
     monkeypatch.setattr(interface, 'NavigateToPose', SimpleNamespace(Goal=lambda **k: None))
     monkeypatch.setattr(interface, 'NavigateThroughPoses', SimpleNamespace(Goal=lambda **k: None))
@@ -125,7 +126,8 @@ def test_navigate_on_an_empty_route_fails_without_event_or_raising():
 
 def test_empty_route_send_reports_nothing(monkeypatch):
     from mhseals_nav.tasks import interface
-    monkeypatch.setattr(interface, 'Goal', lambda future: SimpleNamespace(done=False))
+    monkeypatch.setattr(interface, 'Goal', lambda future: SimpleNamespace(
+        done=False, settled=False))
     monkeypatch.setattr(interface, 'NavigateThroughPoses', SimpleNamespace(Goal=lambda **k: None))
     events = []
     reporting_navigator(events).send([])
@@ -136,7 +138,8 @@ def test_pass_gates_through_a_gate_reports_one_goal(monkeypatch):
     from mhseals_nav.tasks import geometry, interface
     events = []
     navigator = reporting_navigator(events)
-    monkeypatch.setattr(interface, 'Goal', lambda future: SimpleNamespace(done=False))
+    monkeypatch.setattr(interface, 'Goal', lambda future: SimpleNamespace(
+        done=False, settled=False))
     monkeypatch.setattr(interface, 'NavigateThroughPoses', SimpleNamespace(Goal=lambda **k: None))
     navigator.send(geometry.through((10.0, 0.0, 0.0)))
     assert len(events) == 1 and events[0][0] == 'goal'
@@ -192,6 +195,75 @@ def test_human_override_ends_the_task_at_once_and_never_resumes(monkeypatch):
     finally:
         if runner is not None:
             runner.destroy_node()
+        rclpy.try_shutdown()
+
+
+CIRCLE = dict(mark='yellow_buoy', search_distance=15.0, circle_radius=3.0,
+              circle_clockwise=False, circle_points=12)
+
+
+def test_an_override_before_nav2_accepts_cancels_the_goal_on_the_way_out(monkeypatch):
+    """The real exit path: a goal still in flight at an override is cancelled once Nav2
+    accepts it, however busy high-rate topics keep the executor; never left to drive."""
+    import threading
+    import time
+    from geometry_msgs.msg import Twist
+    from nav2_msgs.action import NavigateThroughPoses, NavigateToPose
+    from nav_msgs.msg import Odometry
+    from rclpy.action import ActionServer, CancelResponse
+    from rclpy.executors import MultiThreadedExecutor
+    from mhseals_nav.tasks import interface
+    rclpy.init()
+    runner = server = executor = None
+    cancelled = []
+
+    def server_for(kind):
+        def execute(handle):
+            deadline = time.monotonic() + 10.0
+            while not handle.is_cancel_requested and time.monotonic() < deadline:
+                time.sleep(0.01)
+            if handle.is_cancel_requested:
+                cancelled.append(kind.__name__)
+                handle.canceled()
+            else:
+                handle.abort()  # left driving: what the fix prevents
+            return kind.Result()
+        return execute
+
+    try:
+        runner = TaskRunner('circle_test', dict(CIRCLE))
+        runner.objects = [('yellow_buoy', 9.0, 0.0)]
+        monkeypatch.setattr(runner, 'pose', lambda: (1.0, 0.0, 0.5))
+        server = rclpy.create_node('fake_nav2')
+        for kind, name in ((NavigateToPose, 'navigate_to_pose'),
+                           (NavigateThroughPoses, 'navigate_through_poses')):
+            ActionServer(server, kind, name, server_for(kind),
+                         cancel_callback=lambda request: CancelResponse.ACCEPT)
+        odom = server.create_publisher(Odometry, '/odom/local', 10)
+        applied = server.create_publisher(Twist, '/cmd_vel/applied', 10)
+        server.create_timer(0.001, lambda: (odom.publish(Odometry()), applied.publish(Twist())))
+        deadline = time.monotonic() + 10.0  # Nav2 not spinning: the goal stays unaccepted
+        while not runner.navigator.goals and time.monotonic() < deadline:
+            rclpy.spin_once(runner, timeout_sec=0.05)
+        goal = runner.navigator.goals[0]
+        assert goal.handle is None
+        runner._authority(SimpleNamespace(data=authority('rc')))
+        assert runner.outcome == 'PREEMPTED'
+        executor = MultiThreadedExecutor()
+        executor.add_node(server)
+        threading.Thread(target=executor.spin, daemon=True).start()  # Nav2 wakes up, busy
+        interface.run(runner)  # what main() does before the process exits
+        assert goal.handle is not None and goal.handle.accepted and goal.settled
+        deadline = time.monotonic() + 3.0
+        while not cancelled and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert cancelled == ['NavigateToPose']
+    finally:
+        if executor is not None:
+            executor.shutdown()
+        for node in (server, runner):
+            if node is not None:
+                node.destroy_node()
         rclpy.try_shutdown()
 
 
