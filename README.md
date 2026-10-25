@@ -153,16 +153,23 @@ The RoboBoat 2025 tasks (handbook section 3.2; task 5, the deliveries, is not at
 
 | Task | Tree |
 | --- | --- |
-| `nav_channel` | Through two red/green pole gates; sweeps and drives on if the second is out of view |
-| `follow_path` | Gate after gate of small red/green buoys until none is ahead, avoiding yellow buoys and vessels; reports the yellow count |
+| `nav_channel` | Through two red/green pole gates in one route; looks along unexplored bearings if the second is out of view |
+| `follow_path` | Gate after gate of small red/green buoys, the visible chain as one route, until none is ahead; reports the yellow count |
 | `docking` | Finds the banner of the day, picks an empty bay under it, stages, slides in, holds, backs out |
-| `speed_challenge` | Through the gate, finds the blue mark, circles it, back through the gate; reports the black count (no light panel yet) |
+| `speed_challenge` | Through the gate, finds the blue mark, then the lap and the return through the gate as one route; reports the black count (no light panel yet) |
 | `return_home` | Back through the black-buoy gate by the start |
-| `mission` | All of them in order, each under a time limit; a failed task is skipped, the channel is required |
+| `mission` | All of them in order, each under a time limit and up to its `attempts`; a failed task is then skipped, the channel is required |
 
-A task with `approach: [x, y, yaw]` first drives to that map pose, taken from the day's course layout. Counts are reported as an event for the operator display, or with `report: spin` as one turn per object.
+A task with `approach: [x, y, yaw]` first drives to that map pose, taken from the day's course layout; without one it drives to where the recogniser has seen that task, if anywhere. Counts are reported as an event for the operator display, or with `report: spin` as one turn per object.
 
-Parameters (class labels, distances, routes, timeouts) are in `config/tasks/<task>.yaml`. Each run publishes `/task/events` (JSON, one per event), a latched `/task/status` with the running leaf, and exits 0 on success, 1 on failure, 2 on timeout. `mhseals_testing`'s mission rehearsal launches these and scores the events.
+When a task's objects are not in sight, it searches rather than waits (`tasks/search.py`, `config/tasks/search.yaml`): it looks at course-map priors and low-confidence tracks first, then turns the camera toward the least-seen bearing ahead, then picks next views by information gain over a coverage grid of where the camera has looked, and finally sweeps the course area. `tasks/tracks.py` reads `/objects/map` today and `/perception/tracks` (with priors and covariance) when it is published. `tasks/recognition.py` infers which task stands where from object configurations (`config/tasks/recognition.yaml`).
+
+Parameters (class labels, distances, routes, timeouts) are in `config/tasks/<task>.yaml`. Each run publishes:
+- `/task/events`: JSON, one per event; `decision` events carry a short reason for the operator.
+- `/task/status`: latched JSON `mhseals.mission_status/1` with the stage, phase, goal and why, and per-stage attempts.
+- `/task/hypotheses`: latched JSON `mhseals.task_hypotheses/1` (fixtures in `test/fixtures/`).
+
+It exits 0 on success, 1 on failure, 2 on timeout and 3 when a human override (rc, keyboard, hold) stopped it. A task never resumes after an override. `mhseals_testing`'s mission rehearsal launches these and scores the events.
 
 Two commissioning tasks use the same stack; start localization, object tracking and Nav2 first:
 
