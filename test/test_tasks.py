@@ -583,3 +583,58 @@ def test_a_replanned_gate_route_never_turns_back_to_a_passed_lead_in():
     world.state.update(pose=(6.5, 0.0, 0.0), objects=gate(7, 0, 3) + gate(13, 0, 3))
     world.run(ticks=1)
     assert world.goals[0].route[0][:2] == pytest.approx((8.1, 0))  # not back to 5.5
+
+
+def test_conditions_gate_precise_tasks_and_catch_a_weak_thruster():
+    from mhseals_nav.tasks.conditions import Conditions
+    c = Conditions()
+    assert c.precise() is None  # nothing known: never blocks
+    c.fix = 5
+    assert c.precise() is None  # float: dock from perception
+    c.fix = 4
+    assert 'GPS fix 4' in c.precise()
+    c = Conditions(dict(float_policy='skip'))
+    c.fix = 5
+    assert c.precise()
+    c = Conditions()
+    for t in range(12):
+        c.drift(0.5, float(t))
+    assert 'drift' in c.precise()
+    c.drift(0.1, 12.0)
+    assert c.precise() is None
+    for t in range(7):  # off the command while saturated
+        c.tracking((0.4, 0.0), (0.1, 0.0), (1.0, 0.0, 0.2), float(t))
+    assert c.thrusters()
+    c.tracking((0.4, 0.0), (0.1, 0.0), (0.5, 0.0, 0.2), 8.0)  # not saturated: just slow
+    assert c.thrusters() is None
+
+
+def test_mission_skips_docking_without_rtk_and_aborts_a_task_on_weak_thrusters():
+    from mhseals_nav.tasks.conditions import Conditions
+    settings = dict(tasks=['nav_channel', 'docking', 'return_home'])
+    for name in settings['tasks']:
+        settings[name] = params(name)
+    world = World('mission', settings)
+    world.board.register_key(key='conditions', access=py_trees.common.Access.WRITE)
+    world.board.conditions = conditions = Conditions()
+    conditions.fix = 3
+    world.state['objects'] = gate(7, 0, 3) + gate(13, 0, 3) + [
+        ('blue_square', 10, -5), ('black_buoy', -2.5, 1.6), ('black_buoy', -2.5, -1.6)]
+    assert world.run(ticks=1500) == 'SUCCESS'
+    assert 'docked' not in world.names()
+    reasons = [d['reason'] for e, d in world.events if e == 'decision']
+    assert 'no-go: GPS fix 3 < 6' in reasons
+
+    world = World('mission', settings)
+    world.board.register_key(key='conditions', access=py_trees.common.Access.WRITE)
+    world.board.conditions = conditions = Conditions()
+    world.state['objects'] = gate(7, 0, 3) + gate(13, 0, 3)
+
+    def weaken(tick, world):
+        conditions.weak_s = 6.0 if tick > 0 else 0.0
+
+    assert world.run(ticks=60, script=weaken) == 'FAILURE'  # the channel is mandatory
+    assert 'no-go: thrusters saturate, velocity off' in [
+        d['reason'] for e, d in world.events if e == 'decision']
+    assert world.goals and all(goal.cancelled for goal in world.goals)  # stopped at once
+    assert 'gate_cleared' not in world.names()

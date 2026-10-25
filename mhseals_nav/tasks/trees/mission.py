@@ -5,11 +5,12 @@ fails is tried again up to its ``attempts`` while its time limit lasts; then it 
 reported as skipped and the run moves on, ending with the return home.
 """
 
-from py_trees.common import Status
-from py_trees.composites import Selector, Sequence
+from py_trees.common import ParallelPolicy, Status
+from py_trees.composites import Parallel, Selector, Sequence
 from py_trees.decorators import Decorator
 
 from mhseals_nav.tasks.behaviours import Deadline, Report
+from mhseals_nav.tasks.conditions import Gate, Watch
 
 
 class Attempts(Decorator):
@@ -49,13 +50,18 @@ def build(params):
         settings = dict(params[name], search={**(params.get('search') or {}),
                                               **(params[name].get('search') or {})})
         following = names[index + 1] if index + 1 < len(names) else None
-        task = Deadline(f'{name} time', Attempts(f'{name} attempts', TREES[name](settings),
-                                                 name, settings.get('attempts', 1)),
-                        settings['time_limit'])
+        precise = settings.get('precise', False)
+        attempts = Attempts(f'{name} attempts', TREES[name](settings), name,
+                            settings.get('attempts', 1))
+        # The boat's state can stop a task (tasks/conditions.py): never start one.
+        watched = Parallel(f'{name} watched', policy=ParallelPolicy.SuccessOnSelected(
+            [attempts]), children=[attempts, Watch(f'{name} fit', precise)])
+        task = Deadline(f'{name} time', watched, settings['time_limit'])
         attempt = Sequence(f'{name} attempt', memory=True, children=[
             Report(f'{name} start', 'stage_started', stage=name),
             Report(f'{name} decision', 'decision', stage=name, kind='start',
                    reason=f'starting {name}'),
+            Gate(f'{name} go', precise),
             task,
             Report(f'{name} done', 'stage_completed', stage=name),
         ])

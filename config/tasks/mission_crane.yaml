@@ -7,3 +7,18 @@ timeout: 1800.0
 search: {area: [[-8.0, -26.0], [40.0, 18.0]]}
 docking: {approach: [12.0, -14.0, -1.5708]}
 speed_challenge: {approach: [-1.0, 11.0, 0.0]}
+# Go/no-go gates (tasks/conditions.py; tuning plant study). They only stop or skip; a
+# topic set to '' disables its gate, and a topic nobody publishes never blocks.
+conditions:
+  fix_topic: /mavros/gpsstatus/gps1/raw              # GPS_RAW_INT fix_type
+  precise_min_fix: 6        # RTK fixed for precise tasks (docking)
+  float_policy: perception  # at RTK float (5): perception (dock anyway) | skip
+  drift_topic: /calibrated_velocity_controller/drift
+  drift_max: 0.35           # m/s drift estimate held drift_s s: skip precise tasks
+  drift_s: 10.0
+  command_topic: /cmd_vel/applied
+  odom_topic: /odom/local
+  effort_topic: /cmd_vel_effort
+  track_err_max: [0.15, 0.15]   # m/s, rad/s off the command while the effort saturates
+  track_err_s: 5.0              # s held: abort the task, skip precise ones
+  sat_effort: 0.95

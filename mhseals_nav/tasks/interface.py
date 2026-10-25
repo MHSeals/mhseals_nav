@@ -27,7 +27,9 @@ from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.signals import SignalHandlerOptions
 from rclpy.time import Time
 import yaml
-from geometry_msgs.msg import PoseStamped, Twist
+from geometry_msgs.msg import PoseStamped, Twist, Vector3Stamped
+from mavros_msgs.msg import GPSRAW
+from nav_msgs.msg import Odometry
 from nav2_msgs.action import NavigateThroughPoses, NavigateToPose
 from action_msgs.msg import GoalStatus
 from std_msgs.msg import String
@@ -37,6 +39,7 @@ from vision_msgs.msg import Detection3DArray
 from diagnostic_msgs.msg import DiagnosticArray
 
 from mhseals_nav.tasks import tracks
+from mhseals_nav.tasks.conditions import Conditions, speed as conditions_speed
 from mhseals_nav.tasks.trees import KINDS, TREES
 
 try:  # perception v2 messages (pv2-track); without them only /objects/map is read
@@ -168,6 +171,7 @@ class TaskRunner(Node):
         search = load_search(params.get('search'))
         self.fov = (math.radians(float(search['hfov_deg'])), float(search['range_m']))
         self.create_subscription(DiagnosticArray, '/perception/status', self._status, 10)
+        self.conditions = self.watch_conditions(params.get('conditions') or {})
         self.coverage_config = search
         latched = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL,
                              reliability=ReliabilityPolicy.RELIABLE)
@@ -188,9 +192,11 @@ class TaskRunner(Node):
         self.suspended, self.owner = False, None
         self.create_subscription(String, AUTHORITY_TOPIC, self._authority, latched)
         self.board = py_trees.blackboard.Client(name='runner')
-        for key in ('objects', 'tracks', 'pose', 'now', 'home', 'fov', 'coverage', 'hypotheses'):
+        for key in ('objects', 'tracks', 'pose', 'now', 'home', 'fov', 'coverage', 'hypotheses',
+                    'conditions'):
             self.board.register_key(key=key, access=py_trees.common.Access.WRITE)
         self.board.home = self.board.coverage = None
+        self.board.conditions = self.conditions
         self.board.fov = self.fov
         self.tree = py_trees.trees.BehaviourTree(TREES[task](params))
         self.navigator = Navigator(self, self.frame, params.get('hold_topic', '/cmd_vel_nav'))
@@ -229,6 +235,36 @@ class TaskRunner(Node):
                                 float(values['range_m']))
             except ValueError:
                 pass
+
+    def watch_conditions(self, config):
+        """Feed tasks/conditions.py from small live topics; an empty topic disables one.
+
+        GPS_RAW_INT and the drift estimate arrive at a few Hz. The velocity check keeps
+        only the latest applied command, odometry twist and effort, judged at the tick.
+        """
+        conditions = Conditions(config)
+        topics = {**dict(fix_topic='/mavros/gpsstatus/gps1/raw',
+                         drift_topic='/calibrated_velocity_controller/drift',
+                         command_topic='/cmd_vel/applied', odom_topic='/odom/local',
+                         effort_topic='/cmd_vel_effort'), **config}
+        self.velocity = dict(command=None, measured=None, effort=None)
+        if topics['fix_topic']:
+            self.create_subscription(GPSRAW, topics['fix_topic'],
+                                     lambda m: setattr(conditions, 'fix', m.fix_type), 1)
+        if topics['drift_topic']:
+            self.create_subscription(
+                Vector3Stamped, topics['drift_topic'],
+                lambda m: conditions.drift(conditions_speed(m.vector), self.now()), 1)
+        if topics['command_topic'] and topics['odom_topic'] and topics['effort_topic']:
+            def keep(key, value):
+                self.velocity[key] = value
+            self.create_subscription(Twist, topics['command_topic'], lambda m: keep(
+                'command', (m.linear.x, m.angular.z)), 1)
+            self.create_subscription(Odometry, topics['odom_topic'], lambda m: keep(
+                'measured', (m.twist.twist.linear.x, m.twist.twist.angular.z)), 1)
+            self.create_subscription(Twist, topics['effort_topic'], lambda m: keep(
+                'effort', (m.linear.x, m.linear.y, m.angular.z)), 1)
+        return conditions
 
     def _authority(self, message):
         try:
@@ -329,6 +365,9 @@ class TaskRunner(Node):
                                            c['forget_s'])
         if self.board.coverage is not None:
             self.board.coverage.observe(pose, self.fov, now)
+        if None not in self.velocity.values():
+            self.conditions.tracking(self.velocity['command'], self.velocity['measured'],
+                                     self.velocity['effort'], now)
         self.recognise(now)
         self.tree.tick()
         status = self.tree.root.status.name
