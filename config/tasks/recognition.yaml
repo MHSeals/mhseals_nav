@@ -1,0 +1,64 @@
+# Task recognition (mhseals_nav/tasks/recognition.py): task hypotheses from tracks.
+# Distances in m, times in s, labels are the tracker's class ids.
+confirm: 0.7            # confidence at which a hypothesis may become confirmed
+confirm_s: 2.0          # and it must have existed this long first
+forget_s: 10.0          # an unsupported hypothesis or confirmed task is dropped after this
+match_radius: 6.0       # a candidate keeps the id of the same-type hypothesis this near
+min_confidence: 0.3     # tracks below this are ignored
+use_priors: true        # course-map priors (not yet seen) may support hypotheses
+# A track supports one hypothesis at most; earlier types claim theirs first.
+priority: [home_gate, nav_channel, follow_path, speed_gate, dock]
+
+home_gate:              # two black buoys near the start
+  marker: black_buoy
+  min_width: 1.0
+  max_width: 4.0
+  home_radius: 8.0      # only black pairs this close to home
+  margin: 1.0           # extent padding around the buoys
+
+nav_channel:            # two red/green pole gates in a row
+  red: red_pole_buoy
+  green: green_pole_buoy
+  min_width: 1.5
+  max_width: 8.0
+  gates: 2              # gates for full completeness (one gate: 0.5)
+  align_deg: 30.0       # the gates' normals may differ by this much
+  min_spacing: 3.0      # gate-to-gate distance along the entrance normal
+  max_spacing: 35.0
+  margin: 1.0
+
+follow_path:            # a chain of small red/green gates, yellow species among them
+  red: red_buoy
+  green: green_buoy
+  species: yellow_buoy
+  min_width: 1.0
+  max_width: 4.0
+  link_min: 3.0         # gate-to-gate distance that chains two gates
+  link_max: 10.0
+  gates: 2              # a chain needs this many gates; fewer is no path
+  margin: 1.0           # species this far outside the gates' hull still count
+
+speed_gate:             # a red/green gate with a blue mark out along its normal
+  red: red_buoy
+  green: green_buoy
+  mark: blue_buoy
+  spill: black_buoy     # obstacles inside the corridor join its support
+  min_width: 1.0
+  max_width: 5.0
+  mark_min: 8.0         # mark distance along the gate normal, either side
+  mark_max: 40.0
+  mark_lateral: 5.0     # and at most this far off the gate's axis
+  margin: 1.5           # corridor padding (also the mark's extent)
+
+dock:                   # banners standing in a line along the dock's spine
+  banners: [red_circle, red_triangle, red_square, red_plus,
+            green_circle, green_triangle, green_square, green_plus,
+            blue_circle, blue_triangle, blue_square, blue_plus]
+  vessels: [yellow_target_boat, black_target_boat]
+  link_min: 0.5         # banner-to-banner spacing that groups them
+  link_max: 4.0
+  collinear: 0.75       # banners may sit this far off the spine line
+  count: 3              # banners for full completeness
+  depth: 3.0            # how far the bays reach out from the spine
+  vessel_radius: 8.0    # target vessels this near the dock join its support
+  margin: 1.0
