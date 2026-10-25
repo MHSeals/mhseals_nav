@@ -12,7 +12,7 @@
     # catch a silent FCU first.
     state_topic: /mavros/state                     # on every FCU heartbeat, ~1 Hz
     imu_topic: /mavros/imu/data                    # ~50 Hz (mavros_setup message_rates)
-    gps_topic: /mavros/global_position/raw/fix     # ~5 Hz, published with or without a fix
+    gps_topic: /mavros/global_position/raw/fix     # ~10 Hz, published with or without a fix
     command_topic: /cmd_vel            # Nav2 -> command_mux auto input
     request_topic: /command_mux/request
     cause: fcu_link

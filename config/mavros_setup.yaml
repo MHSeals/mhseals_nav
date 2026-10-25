@@ -3,11 +3,14 @@ mavros_setup:
     # Desired requests, repeated on reconnect; delivery remains unverified.
     # ATTITUDE (30) feeds /mavros/imu/data -> /imu/raw. At SCHED_LOOP_RATE 50 the FCU
     # refuses 50 Hz and keeps SR0_EXTRA1's 4 Hz; 25 Hz is accepted (2026-10-25).
+    # GPS_RAW_INT (24) matches the Here4's 10 Hz (its node GPS1_RATE_MS 100, config/fcu/
+    # blastoise_gnss_proposal.param). The FCU repeats the last fix at the requested rate, so
+    # request no more than the receiver makes: until the node runs at 10 Hz each fix comes twice.
     message_rates:
       - '33:20'
       - '30:25'
       - '31:25'
-      - '24:5'
+      - '24:10'
       - '27:10'
       - '1:2'
       - '193:2'

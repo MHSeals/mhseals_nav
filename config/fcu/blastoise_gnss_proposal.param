@@ -1,0 +1,44 @@
+# GNSS proposal for Blastoise (ArduRover 4.6.3, CubeOrange+, Here4 rover on DroneCAN node 124), 2026-10-25.
+# PROPOSAL ONLY: the owner writes these, on land and disarmed, then reboots and snapshots into this
+# directory (README "FCU parameters"). Diff against blastoise.param first. Each line is NAME,value.
+#
+# Rate: 10 Hz with RTK, not 20 Hz.
+# - ArduPilot 4.6 allows GPS1_RATE_MS 50..200, but a DroneCAN GPS ignores the FCU's value
+#   (AP_GPS_DroneCAN never reads it, Rover-4.6.3). The rate is the Here4 node's own GPS1_RATE_MS
+#   (CubePilot GNSSPeriph Parameters.cpp; older node firmware calls it GPS_RATE_MS).
+# - u-blox F9P maximum RTK rate (ZED-F9P datasheet): 4 GNSS 8 Hz, 3 GNSS 10 Hz, 2 GNSS 15 Hz,
+#   GPS only 20 Hz. The Here4 manual's "up to 20 Hz" is GPS only, which halves the satellites and
+#   makes fixes slower and less robust (the 10-24/25 tests already struggled for a fix).
+# - So 10 Hz with GPS+GLONASS+Galileo (BeiDou off) is the highest rate that keeps multi-GNSS RTK.
+#   MAVROS asks GPS_RAW_INT at 10 Hz to match (config/mavros_setup.yaml '24:10').
+#
+# Here4 node 124 parameters: set these in Mission Planner > Setup > Optional Hardware > DroneCAN,
+# node 124 > Parameters (not in this FCU file), then reboot the node:
+#   GPS1_RATE_MS   100   (was 200)   10 Hz
+#   GPS1_GNSS_MODE 69    (was 0)     GPS 1 + Galileo 4 + GLONASS 64; BeiDou off for the 10 Hz RTK limit
+#   GPS_AUTO_CONFIG 1    (keep)      the node writes rate and GNSS to the F9P at boot
+# Back out: node GPS1_RATE_MS 200, GPS1_GNSS_MODE 0, and '24:5' in mavros_setup.yaml.
+#
+# FCU parameters:
+# Ignored for DroneCAN; kept equal to the node's rate so a reader is not misled.
+GPS1_RATE_MS,100
+# Measurement lag the EKF compensates. 0 = the driver's default, which for a DroneCAN GPS is the
+# generic 200 ms (GPS_Backend.h); the serial u-blox driver uses 120 ms for an F9 (AP_GPS_UBLOX.cpp).
+GPS1_DELAY_MS,120
+# Antenna lever arm in FRD metres from the CoM: gps_link in description/blastoise/blastoise.xacro
+# (x 0.051, y -0.127, z 0.234 up) with y and z negated. Heights are not measured yet: tape z.
+GPS1_POS_X,0.051
+GPS1_POS_Y,0.127
+GPS1_POS_Z,-0.234
+# The IMU offset makes the CoM the body origin, so GPS1_POS_* above are from the CoM: imu_link
+# (x -0.051, y -0.127, z 0) with y negated; the Cube's three IMUs share the board.
+INS_POS1_X,-0.051
+INS_POS1_Y,0.127
+INS_POS1_Z,0
+INS_POS2_X,-0.051
+INS_POS2_Y,0.127
+INS_POS2_Z,0
+INS_POS3_X,-0.051
+INS_POS3_Y,0.127
+INS_POS3_Z,0
+# Unchanged on purpose: GPS_INJECT_TO 127 (corrections reach the Here4), GPS1_TYPE 9, GPS_AUTO_CONFIG 1.

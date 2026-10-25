@@ -97,7 +97,7 @@ The JetPack 5 / Foxy camera host lives on the `legacy/jp5-foxy` branch.
 | `ATTITUDE`, `ATTITUDE_QUATERNION` | 50 Hz | `config/mavros_setup.yaml` |
 | `RC_CHANNELS` | 25 Hz | `config/mavros_setup.yaml` |
 | `RAW_IMU` | 10 Hz | `config/mavros_setup.yaml` |
-| `GPS_RAW_INT` | 5 Hz | `config/mavros_setup.yaml` |
+| `GPS_RAW_INT` | 10 Hz (the Here4's RTK rate; `config/fcu/blastoise_gnss_proposal.param`) | `config/mavros_setup.yaml` |
 | `SYS_STATUS`, `EKF_STATUS_REPORT` | 2 Hz | `config/mavros_setup.yaml` |
 | Local EKF | 30 Hz | `config/ekf_local.yaml` |
 | Global EKF | 20 Hz | `config/ekf_global.yaml` |
@@ -141,8 +141,12 @@ Heading comes from the calibrated external compass (fixed-yaw magcal) with the i
 | `COMPASS_USE2`, `COMPASS_USE3` | 0 | Internal compass disabled |
 | `COMPASS_OFS_X/Y/Z` | from magcal | Never hand-typed |
 | `SYSID_MYGCS` | 255 | Matches MAVROS `system_id` |
-| `GPS1_POS_X/Y` | `gps_link` x, −y | Antenna lever arm; the URDF is the source, FRD negates y |
+| `GPS1_POS_X/Y/Z` | `gps_link` x, −y, −z | Antenna lever arm; the URDF is the source, FRD negates y and z |
 | `INS_POS1..3_X/Y` | `imu_link` x, −y | Cube IMU offset from the CoM, same source |
+| `GPS1_DELAY_MS` | 120 | The F9 lag ArduPilot's u-blox driver uses; 0 gives a DroneCAN GPS 200 ms |
+| Here4 node `GPS1_RATE_MS`, `GPS1_GNSS_MODE` | 100, 69 | 10 Hz RTK needs at most 3 GNSS on the F9P; set on DroneCAN node 124 |
+
+`config/fcu/blastoise_gnss_proposal.param` holds the GNSS values with their sources.
 
 ### Tasks
 
