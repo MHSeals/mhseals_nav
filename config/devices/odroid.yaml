@@ -1,0 +1,14 @@
+# The boat computer: MAVROS and odometry, the EKFs, SLAM, Nav2 and the mission runner.
+# The thruster driver and command_mux are not parts: the TUI on this computer starts them with arming.
+requires: [mavros]
+args: {sim: 'false'}
+parts:
+  # start_ekf:=false keeps odom.launch.py from starting a second set of EKFs (rv1-35).
+  odometry: {launch: odom.launch.py, args: {fcu: 'true', start_ekf: 'false'}, nodes: [robot_state_publisher]}
+  ekf: {launch: ekf.launch.py, args: {ekf_startup_context: included},
+        nodes: [ekf_local, ekf_global, navsat_transform]}
+  mapping: {launch: slam.launch.py, nodes: [rtabmap]}
+  # command_mux:=true starts the stale-costmap watchdog, which asks the mux to hold.
+  navigation: {launch: navigation.launch.py, args: {command_mux: 'true'}, nodes: [bt_navigator],
+               kind: commander}
+  mission: {launch: task.launch.py, nodes: [run_task], kind: commander}

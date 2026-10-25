@@ -1,0 +1,4 @@
+# The operator laptop: the USB RTK base, sending corrections to MAVROS (the rover side is in odometry).
+requires: []
+parts:
+  rtk_base: {run: [mhseals_testing, rtk_base], nodes: [rtk_base]}

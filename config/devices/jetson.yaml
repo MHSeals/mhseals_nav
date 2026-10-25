@@ -1,0 +1,9 @@
+# The camera computer (Orin + ZED 2i + VLP16): camera, perception and the lidar, no motion.
+# Started on demand (the TUI, through a unit), never on container start.
+requires: [zed, gpu]
+args: {sim: 'false'}
+parts:
+  camera: {launch: camera.launch.py, nodes: [zed_node]}
+  # Backend, tracker and the perception costmap (/perception/costmap).
+  objects: {launch: objects.launch.py, args: {backend: zed}, nodes: [zed_backend, object_tracker, costmap]}
+  sensors: {launch: sensors.launch.py, nodes: [velodyne_driver]}

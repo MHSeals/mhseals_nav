@@ -1,4 +1,4 @@
-"""ZED wrapper plus its named, lazy relays; orin.launch.py includes it."""
+"""ZED wrapper plus its named, lazy relays; the jetson device profile starts it."""
 
 import os
 import tempfile

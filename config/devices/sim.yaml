@@ -1,0 +1,11 @@
+# One machine runs the boat and camera parts against the Unity simulator (crane_ml), which
+# publishes the sensors, images and detections; sensors starts only its ROS-TCP endpoint.
+extends: [odroid, jetson]
+requires: []
+args: {sim: 'true'}
+parts:
+  odometry: {args: {fcu: 'false'}}
+  ekf: {args: {ekf_startup_context: standalone}}
+  camera: {enabled: false}
+  objects: {args: {backend: sim}, nodes: [object_tracker]}
+  sensors: {nodes: []}

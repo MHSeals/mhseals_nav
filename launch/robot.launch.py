@@ -79,7 +79,7 @@ def generate_launch_description():
         launch_configurations[name] = lc
         declare_arguments.append(DeclareLaunchArgument(name, default_value=default_value, description=description))
 
-    # On the boat the Orin runs sensors and perception (orin.launch.py).
+    # On the boat the Orin runs sensors and perception (device.launch.py device:=jetson).
     sensors_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([
             PathJoinSubstitution([mhseals_nav_dir, 'launch', 'sensors.launch.py'])
