@@ -100,6 +100,7 @@ def test_tracker_publishes_every_output(ros):
 
 def test_course_map_saved_through_toll_and_loaded_as_priors(tmp_path, monkeypatch):
     from geometry_msgs.msg import TransformStamped
+    from nav_msgs.msg import Odometry
     from rclpy.executors import SingleThreadedExecutor
     from robot_localization.srv import FromLL, ToLL
     from tf2_ros import TransformBroadcaster
@@ -129,6 +130,8 @@ def test_course_map_saved_through_toll_and_loaded_as_priors(tmp_path, monkeypatc
         probe.create_service(FromLL, '/fromLL', from_ll)
         tf = TransformBroadcaster(probe)
         pub = probe.create_publisher(ObservationArray, '/perception/observations', OBSERVATIONS)
+        gps = probe.create_publisher(Odometry, '/odom/gps', 1)
+        datum = {'set': False}       # navsat publishes odometry/gps once its datum is set
 
         def spin(tracker, seconds, observe, until):
             ex = SingleThreadedExecutor()
@@ -146,6 +149,8 @@ def test_course_map_saved_through_toll_and_loaded_as_priors(tmp_path, monkeypatc
                     t.transform.rotation.w = 1.0
                     out.append(t)
                 tf.sendTransform(out)
+                if datum['set']:
+                    gps.publish(Odometry())
                 if observe:                 # True: a buoy and a boat; 'nothing': empty frames
                     msg = ObservationArray(backend='sim')
                     msg.header.stamp, msg.header.frame_id = stamp, 'cam'
@@ -181,6 +186,9 @@ def test_course_map_saved_through_toll_and_loaded_as_priors(tmp_path, monkeypatc
         assert rows[0]['lon'] == pytest.approx(-71.0 + 7.0e-5, abs=1e-6)   # map x = 2 + 5
 
         second = ObjectTracker()
+        spin(second, 2.5, False, lambda: second.filter.tracks)
+        assert not second.filter.tracks, 'priors adopted before the navsat datum'
+        datum['set'] = True
         spin(second, 5.0, False, lambda: second.filter.tracks)
         (prior,) = second.filter.tracks
         assert prior.source == Track.SOURCE_PRIOR and prior.hits == 0

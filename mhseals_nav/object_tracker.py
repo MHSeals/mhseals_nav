@@ -17,7 +17,7 @@ from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy
 from rclpy.time import Time
 from diagnostic_msgs.msg import DiagnosticArray
-from nav_msgs.msg import OccupancyGrid
+from nav_msgs.msg import OccupancyGrid, Odometry
 from tf2_ros import Buffer, TransformException, TransformListener
 from vision_msgs.msg import Detection3D, Detection3DArray, ObjectHypothesisWithPose
 from visualization_msgs.msg import MarkerArray
@@ -103,6 +103,10 @@ class ObjectTracker(Node):
         self.dirty = False
         self.create_timer(cm['save_period_s'], self.save_course_map)
         if self.loading:
+            # navsat_transform answers /fromLL with zeros until its datum is set, and
+            # publishes odometry/gps only after that, so the first fix gates the load.
+            self.datum_sub = self.create_subscription(
+                Odometry, cm['datum_topic'], self.datum_set, RELIABLE)
             self.load_timer = self.create_timer(1.0, self.load_course_map)
 
     # ------------------------------------------------------------------ TF
@@ -284,7 +288,15 @@ class ObjectTracker(Node):
         self.status_pub.publish(array)
 
     # ------------------------------------------------------------ course map
+    def datum_set(self, _msg):
+        self.destroy_subscription(self.datum_sub)
+        self.datum_sub = None
+
     def load_course_map(self):
+        if self.datum_sub is not None:
+            self.get_logger().info('course map waiting for the navsat datum',
+                                   throttle_duration_sec=30.0)
+            return
         if not self.from_ll.service_is_ready():
             self.get_logger().info('course map waiting for fromLL', throttle_duration_sec=30.0)
             return

@@ -111,3 +111,4 @@
       max_age_days: 3.0
       to_ll_service: /toLL       # navsat_transform on B (root namespace)
       from_ll_service: /fromLL
+      datum_topic: /odom/gps     # navsat's odometry/gps: published only once its datum is set
