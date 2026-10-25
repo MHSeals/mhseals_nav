@@ -41,7 +41,6 @@
   <exec_depend>mavros_msgs</exec_depend>
   <exec_depend>ros2launch</exec_depend>
   <exec_depend>rviz2</exec_depend>
-  <exec_depend>diagnostic_msgs</exec_depend>
   <exec_depend>vision_msgs</exec_depend>
   <exec_depend>vision_msgs_rviz_plugins</exec_depend>
   <exec_depend>rclpy</exec_depend>
