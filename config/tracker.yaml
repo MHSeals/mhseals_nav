@@ -88,7 +88,7 @@
       size_m: 24.0
       resolution: 0.15
       rate_hz: 5.0
-      max_extra_m: 0.5
+      max_extra_m: 0.1      # 2-sigma growth cap; 0.5 closed 2.4 m gates in sim
       horizon_s: 3.0
       step_s: 0.25
       gamma: 1.0

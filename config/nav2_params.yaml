@@ -155,7 +155,8 @@ local_costmap:
       width: 12
       height: 12
       resolution: 0.05
-      # Padding covers tracking error at speed and buoy position noise.
+      # Padding covers buoy range noise the tracker discs (max_extra_m 0.1) do not: ZED depth
+      # error is about 0.25 m at 5 m, so 0.05 would leave ~1 sigma.
       footprint: "[[0.5315, 0.4475], [0.5315, -0.4475], [-0.5315, -0.4475], [-0.5315, 0.4475]]"
       footprint_padding: 0.1
       # StaticLayer reads these from the costmap, not from its own namespace.
@@ -224,7 +225,8 @@ global_costmap:
       width: 100
       height: 100
       resolution: 0.20
-      # Padding covers tracking error at speed and buoy position noise.
+      # Padding covers buoy range noise the tracker discs (max_extra_m 0.1) do not: ZED depth
+      # error is about 0.25 m at 5 m, so 0.05 would leave ~1 sigma.
       footprint: "[[0.5315, 0.4475], [0.5315, -0.4475], [-0.5315, -0.4475], [-0.5315, 0.4475]]"
       footprint_padding: 0.1
       # StaticLayer reads these from the costmap, not from its own namespace.

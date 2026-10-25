@@ -7,7 +7,9 @@ import numpy as np
 from tracker_fixtures import CFG
 from mhseals_nav.track_grid import cells, grid_origin, rasterize
 
-GRID = {**CFG['grid'], 'radius': CFG['radius']}
+# The rasterizer's geometry is checked at a wide growth cap, so rings and growth span
+# several cells; the shipped cap (config/tracker.yaml) is smaller.
+GRID = {**CFG['grid'], 'radius': CFG['radius'], 'max_extra_m': 0.5}
 
 
 def track(x, y, vx=0.0, vy=0.0, motion=1, cls='red_buoy', sigma=0.05):
