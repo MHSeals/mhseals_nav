@@ -24,7 +24,7 @@ def robot_factory():
     def record(*args, **kwargs): return SimpleNamespace(args=args, **kwargs)
     ns = {name: record for name in (
         'DeclareLaunchArgument', 'IncludeLaunchDescription', 'TimerAction', 'OpaqueFunction',
-        'PythonLaunchDescriptionSource', 'IfCondition')}
+        'PythonLaunchDescriptionSource', 'IfCondition', 'Node', 'ParameterValue')}
     ns.update(LaunchConfiguration=Configuration, LaunchDescription=lambda x: x,
               PathJoinSubstitution=lambda x: '/'.join(map(str, x)),
               FindPackageShare=lambda x: x, persistent_limits_path=persistent_limits_path,
@@ -121,3 +121,15 @@ def test_hardware_robot_leaves_sensors_and_perception_to_the_orin():
     for include in includes.values():
         assert include.condition.args[0].name == 'sim'
     assert dict(includes['objects'].launch_arguments) == {'sim': 'true', 'backend': 'sim'}
+
+
+def test_costmap_watchdog_starts_with_navigation_only_alongside_a_mux():
+    entities = robot_factory()
+    declared = {e.args[0]: e.default_value for e in entities if hasattr(e, 'default_value')}
+    assert declared['command_mux'] == 'false'
+    timer = next(e for e in entities if getattr(e, 'period', None) == 5.0)
+    watchdog = timer.actions[1]
+    assert (watchdog.executable, watchdog.name) == ('costmap_watchdog', 'costmap_watchdog')
+    assert watchdog.condition.args[0].name == 'command_mux'
+    assert watchdog.parameters[0].endswith('/config/costmap_watchdog.yaml')
+    assert watchdog.parameters[1]['use_sim_time'].args[0].name == 'sim'
