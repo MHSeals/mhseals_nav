@@ -197,7 +197,7 @@ def test_the_sim_watchdogs_need_no_operator_or_fcu_and_fence_a_map_box():
 @pytest.mark.parametrize('arguments, message', [
     ({'fence_points': '[1, 2, x'}, 'fence_points: not a list'),
     ({'fence_points': '[1, true]'}, 'flat list of numbers'),
-    ({'require_operator': 'maybe'}, 'require_operator: true or false'),
+    ({'require_operator': 'maybe'}, 'require_operator: invalid launch boolean: maybe'),
 ])
 def test_bad_watchdog_arguments_are_refused(arguments, message):
     with pytest.raises(ValueError, match=message):

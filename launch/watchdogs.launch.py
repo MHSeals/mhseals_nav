@@ -9,13 +9,16 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from mhseals_nav.startup_projection import boolean
 import yaml
 
 
 def truth(name, text):
-    if text.lower() not in ('true', 'false'):
-        raise ValueError(f'{name}: true or false, not {text!r}')
-    return text.lower() == 'true'
+    """The launch boolean ``text``, naming the argument when it is not one."""
+    try:
+        return boolean(text)
+    except ValueError as error:
+        raise ValueError(f'{name}: {error}') from None
 
 
 def points(text):
