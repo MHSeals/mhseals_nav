@@ -165,11 +165,11 @@ A task with `approach: [x, y, yaw]` first drives to that map pose, taken from th
 When a task's objects are not in sight, it searches rather than waits (`tasks/search.py`, `config/tasks/search.yaml`): it looks at course-map priors and low-confidence tracks first, then turns the camera toward the least-seen bearing ahead, then picks next views by information gain over a coverage grid of where the camera has looked, and finally sweeps the course area. `tasks/tracks.py` reads `/objects/map` today and `/perception/tracks` (with priors and covariance) when it is published. `tasks/recognition.py` infers which task stands where from object configurations (`config/tasks/recognition.yaml`).
 
 Parameters (class labels, distances, routes, timeouts) are in `config/tasks/<task>.yaml`. Each run publishes:
-- `/task/events`: JSON, one per event; `decision` events carry a short reason for the operator.
+- `/task/events`: JSON `mhseals.task_events/1`, one per event; `decision` events carry a short reason for the operator.
 - `/task/status`: latched JSON `mhseals.mission_status/1` with the stage, phase, goal and why, and per-stage attempts.
 - `/task/hypotheses`: latched JSON `mhseals.task_hypotheses/1` (fixtures in `test/fixtures/`).
 
-It exits 0 on success, 1 on failure, 2 on timeout and 3 when a human override (rc, keyboard, hold) stopped it. A task never resumes after an override. `mhseals_testing`'s mission rehearsal launches these and scores the events.
+It exits 0 on success, 1 on failure, 2 on timeout and 3 when a human override (rc, keyboard, hold) stopped it; a Nav2 goal cancelled by anyone but the task counts as an override. A task never resumes after an override, and one started while a human has control refuses to start (exit 4, "human has control"). On exit it waits up to `exit_settle_s` (`config/tasks/runner.yaml`) until Nav2 holds none of its goals. `mhseals_testing`'s mission rehearsal launches these and scores the events.
 
 Two commissioning tasks use the same stack; start localization, object tracking and Nav2 first:
 

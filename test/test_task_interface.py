@@ -178,10 +178,6 @@ def test_human_override_ends_the_task_at_once_and_never_resumes(monkeypatch):
         monkeypatch.setattr(runner.navigator, 'send', send)
         monkeypatch.setattr(runner, 'pose', lambda: (1.0, 0.0, 0.5))
         monkeypatch.setattr(runner, 'report', lambda event, **d: events.append(event))
-        # A human owner before the start only delays it.
-        runner._authority(SimpleNamespace(data=authority('hold')))
-        runner.tick()
-        assert runner.started is None and not goals
         runner._authority(SimpleNamespace(data=authority('none')))
         runner.tick()
         assert len(goals) == 1 and not cancels
@@ -200,6 +196,36 @@ def test_human_override_ends_the_task_at_once_and_never_resumes(monkeypatch):
 
 CIRCLE = dict(mark='yellow_buoy', search_distance=15.0, circle_radius=3.0,
               circle_clockwise=False, circle_points=12)
+
+
+@pytest.mark.parametrize('owner', ['rc', 'keyboard', 'hold'])
+def test_a_task_started_while_a_human_has_control_refuses_and_never_starts(
+        monkeypatch, owner):
+    from mhseals_nav.tasks.interface import EXIT_CODES
+    rclpy.init()
+    runner = None
+    goals, events = [], []
+    try:
+        runner = TaskRunner('circle_test', dict(CIRCLE))
+        runner.objects = [('yellow_buoy', 9.0, 0.0)]
+        monkeypatch.setattr(runner.navigator, 'ready', lambda: True)
+        monkeypatch.setattr(runner.navigator, 'send', lambda *a, **k: goals.append(a))
+        monkeypatch.setattr(runner, 'pose', lambda: (1.0, 0.0, 0.5))
+        monkeypatch.setattr(runner, 'report', lambda event, **d: events.append((event, d)))
+        runner._authority(SimpleNamespace(data=authority(owner)))
+        assert runner.outcome == 'REFUSED' and EXIT_CODES['REFUSED'] == 4
+        assert ('task_refused', dict(owner=owner)) in events
+        assert f'{owner} has control: not starting' in [
+            d.get('reason') for e, d in events if e == 'decision']
+        runner._authority(SimpleNamespace(data=authority('none')))  # released
+        for _ in range(3):
+            runner.tick()
+        assert runner.started is None and not goals
+        assert 'task_started' not in [e for e, _ in events]
+    finally:
+        if runner is not None:
+            runner.destroy_node()
+        rclpy.try_shutdown()
 
 
 def test_a_goal_cancelled_by_someone_else_ends_the_run_after_the_tick(monkeypatch):

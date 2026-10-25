@@ -8,10 +8,11 @@ Interface the test suite scores and the TUI shows (all reliable, transient local
                     tip, stage, phase, behaviour, goal, stages, remaining, recent}; on change
                     (at most 5 Hz) and at 1 Hz
   /task/hypotheses  std_msgs/String JSON, mhseals.task_hypotheses/1 (tasks/recognition.py)
-  exit code         0 succeeded, 1 failed, 2 timed out, 3 stopped by a human override
+  exit code         0 succeeded, 1 failed, 2 timed out, 3 stopped by a human override,
+                    4 refused: a human had control when it was started
 
-A human override (rc, keyboard, hold) ends the task at once, cancelling its Nav2 goal; it
-never resumes by itself. Before the task starts, a human owner only delays the start.
+A human override (rc, keyboard, hold) ends the task at once, cancelling its Nav2 goals; it
+never resumes by itself. Started while a human has control, the task refuses to start.
 """
 
 import argparse
@@ -72,7 +73,7 @@ def claim_suspended(record):
         return False
 
 
-EXIT_CODES = {'SUCCESS': 0, 'FAILURE': 1, 'TIMEOUT': 2, 'PREEMPTED': 3}
+EXIT_CODES = {'SUCCESS': 0, 'FAILURE': 1, 'TIMEOUT': 2, 'PREEMPTED': 3, 'REFUSED': 4}
 
 
 class Goal:
@@ -309,8 +310,16 @@ class TaskRunner(Node):
         except (ValueError, AttributeError, TypeError):
             self.owner = None
         self.suspended = claim_suspended(message.data)
-        if self.suspended and self.started is not None and self.outcome is None:
+        if self.suspended and self.outcome is None and self.started is not None:
             self.preempt()
+        elif self.suspended and self.outcome is None:
+            self.refuse()
+
+    def refuse(self):
+        """A human has control: do not start, and never start later by itself."""
+        self.decide('give_up', f'{self.owner} has control: not starting')
+        self.report('task_refused', owner=self.owner)
+        self.finish('REFUSED')
 
     def preempt(self, why=None):
         """Yield to the human at once: cancel every goal and end; never resume.
@@ -381,8 +390,6 @@ class TaskRunner(Node):
         if self.outcome is not None:
             return
         now = self.now()
-        if self.suspended:  # a human holds the boat: the task has not started yet
-            return
         pose = self.pose()
         if self.started is None:
             if now == 0:  # waiting for /clock
