@@ -5,7 +5,7 @@
 # stale or not connected, or the MAVROS IMU or raw GPS fix is stale, it requests a
 # command_mux hold; it never releases (the operator clears it with U).
 # Raw MAVROS topics, not the /imu/raw and /gps/fix relays, so a dead relay is not mistaken
-# for a dead FCU and vice versa.
+# for a dead FCU and vice versa; ekf_input_watchdog holds on dead relays.
 /**:
   ros__parameters:
     # connected turns false only after MAVROS's conn timeout (10 s); the IMU and GPS ages

@@ -13,5 +13,5 @@ parts:
   # crane course lies within about 15 m of it and the shore about 75 m away.
   watchdogs: {args: {require_operator: 'false', fcu_watchdog: 'false', fence_frame: map,
                      fence_points: '[-40, -40, 40, -40, 40, 40, -40, 40]'},
-              nodes: [link_watchdog, fence_watchdog]}
+              nodes: [link_watchdog, fence_watchdog, ekf_input_watchdog]}
   host_diagnostic: {enabled: false}       # it reports the Orin's temperature and power mode

@@ -40,6 +40,7 @@ set(ENTRY_POINTS
   link_watchdog=link_watchdog
   fence_watchdog=fence_watchdog
   fcu_watchdog=fcu_watchdog
+  ekf_input_watchdog=ekf_input_watchdog
 )
 foreach(entry ${ENTRY_POINTS})
   string(REPLACE "=" ";" entry "${entry}")

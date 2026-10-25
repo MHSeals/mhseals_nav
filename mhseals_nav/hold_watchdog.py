@@ -1,4 +1,4 @@
-"""The shape shared by the hold-only safety watchdogs (costmap, link, fence and FCU).
+"""The shape shared by the hold-only safety watchdogs (costmap, link, fence, FCU, EKF inputs).
 
 Each watches one condition. While it is bad and autonomy commands flow (an auto command
 within command_window_s), the watchdog asks command_mux for a hold with its own cause and

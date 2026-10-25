@@ -1,0 +1,22 @@
+# ekf_input_watchdog (B): autonomy must not drive on EKF prediction when the inputs the EKFs
+# fuse stop, MAVROS alive or not. fcu_watchdog watches raw MAVROS; this watches what the
+# EKFs consume: the /imu/raw and /gps/fix relays and the /odom/mavros adapter (in the
+# simulator, the simulator publishes them). While autonomy commands flow and any is missing
+# or stale it requests a command_mux hold; it never releases (the operator clears it with U).
+# Ages are receipt ages on the monotonic clock, so a clock skew cannot hold or pass it.
+/**:
+  ros__parameters:
+    imu_topic: /imu/raw                # ~25 Hz, field gaps to 0.26 s
+    gps_topic: /gps/fix                # ~5 Hz, published with or without a fix
+    # ~20 Hz, but with velocity_source gps one per receiver sample (~5 Hz) until the
+    # receiver is mavros_velocity_max_age (1.5 s) stale; receiver gaps reach 1.1 s.
+    odom_topic: /odom/mavros
+    max_imu_age_s: 1.0                 # the ODROID stalls past 0.5 s under load
+    max_gps_age_s: 1.5
+    max_odom_age_s: 2.0
+    command_topic: /cmd_vel            # Nav2 -> command_mux auto input
+    request_topic: /command_mux/request
+    cause: ekf_inputs
+    command_window_s: 0.5              # autonomy = an auto command within this window
+    repeat_s: 1.0
+    rate_hz: 10.0

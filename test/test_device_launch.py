@@ -169,22 +169,24 @@ def watchdog_nodes(**arguments):
     defaults = {'sim': 'false', 'require_operator': '', 'fence_frame': '', 'fence_points': '',
                 'fcu_watchdog': 'true'}
     context.launch_configurations.update({**defaults, **arguments})
-    assert len(module.watchdogs(context)) in (2, 3)          # the launch builds the nodes
+    assert len(module.watchdogs(context)) in (3, 4)          # the launch builds the nodes
     return dict(module.watchdog_parameters(lambda name: {**defaults, **arguments}[name]))
 
 
-def test_the_boat_runs_all_three_watchdogs_on_their_yaml():
+def test_the_boat_runs_all_four_watchdogs_on_their_yaml():
     arguments = expand(device='odroid', only='watchdogs')['watchdogs.launch.py'][1]
     assert arguments == {'sim': 'false'}
     nodes = watchdog_nodes(**arguments)
-    assert list(nodes) == ['link_watchdog', 'fence_watchdog', 'fcu_watchdog']
+    assert list(nodes) == ['link_watchdog', 'fence_watchdog', 'fcu_watchdog',
+                           'ekf_input_watchdog']
     assert all(parameters == {'use_sim_time': False} for parameters in nodes.values())
 
 
 def test_the_sim_watchdogs_need_no_operator_or_fcu_and_fence_a_map_box():
     arguments = expand(device='sim', only='watchdogs')['watchdogs.launch.py'][1]
     nodes = watchdog_nodes(**arguments)
-    assert list(nodes) == ['link_watchdog', 'fence_watchdog']
+    assert list(nodes) == ['link_watchdog', 'fence_watchdog', 'ekf_input_watchdog']
+    assert nodes['ekf_input_watchdog'] == {'use_sim_time': True}
     assert nodes['link_watchdog'] == {'use_sim_time': True, 'require_operator': False}
     fence = nodes['fence_watchdog']
     # An operator file cannot move it.

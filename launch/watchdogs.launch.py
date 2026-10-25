@@ -1,4 +1,4 @@
-"""The boat's hold-only safety watchdogs: operator link, geofence and FCU link.
+"""The boat's hold-only safety watchdogs: operator link, geofence, FCU link and EKF inputs.
 
 Each asks command_mux to hold while autonomy commands flow and never releases. Their settings
 are config/<name>.yaml; an argument given here overrides one, and an empty one keeps the YAML.
@@ -46,6 +46,7 @@ def watchdog_parameters(value):
     nodes = [('link_watchdog', link), ('fence_watchdog', fence)]
     if truth('fcu_watchdog', value('fcu_watchdog')):
         nodes.append(('fcu_watchdog', common))
+    nodes.append(('ekf_input_watchdog', common))   # the simulator publishes its inputs too
     return nodes
 
 

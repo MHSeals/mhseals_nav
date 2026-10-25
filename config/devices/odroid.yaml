@@ -12,5 +12,7 @@ parts:
   navigation: {launch: navigation.launch.py, args: {command_mux: 'true'}, nodes: [bt_navigator],
                kind: commander}
   mission: {launch: task.launch.py, nodes: [run_task], kind: commander}
-  # Hold-only (operator link, geofence, FCU link): they ask the mux to hold and never release.
-  watchdogs: {launch: watchdogs.launch.py, nodes: [link_watchdog, fence_watchdog, fcu_watchdog]}
+  # Hold-only (operator link, geofence, FCU link, EKF inputs): they ask the mux to hold and
+  # never release.
+  watchdogs: {launch: watchdogs.launch.py,
+              nodes: [link_watchdog, fence_watchdog, fcu_watchdog, ekf_input_watchdog]}
