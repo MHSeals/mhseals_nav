@@ -27,6 +27,10 @@ class HoldGate:
     def reason(self, now):
         raise NotImplementedError
 
+    def describe(self, why):
+        """The reason as logged: may add detail that changes too often to compare."""
+        return why
+
     def command(self, now):
         self.command_at = now
 
@@ -77,7 +81,7 @@ def node_class(name, filename, logic, subscribe):
             why = self.logic.reason(now)
             if why != self.was:   # one call site per severity, as rclpy requires
                 if why:
-                    self.get_logger().warning(why)
+                    self.get_logger().warning(self.logic.describe(why))
                 else:
                     self.get_logger().info('ok')
                 self.was = why

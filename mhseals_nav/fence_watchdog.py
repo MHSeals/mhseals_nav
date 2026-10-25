@@ -15,6 +15,7 @@ from mhseals_nav.hold_watchdog import fresh, HoldGate, node_class as watchdog_cl
 import yaml
 
 EARTH_RADIUS_M = 6371000.0
+NEAR_EDGE = 'within the margin heading outward'
 
 
 def polygon(frame, points):
@@ -63,6 +64,7 @@ class FenceWatchdog(HoldGate):
         self.poly = polygon(self.frame, cfg.get('fence_points', []))
         self.p, self.p_at = None, None
         self.yaw, self.v, self.motion_at = 0.0, (0.0, 0.0), None
+        self.edge_m = None
 
     def position(self, now, a, b):
         """(lat, lon) for a lat/lon fence, else (x, y) in map."""
@@ -99,8 +101,12 @@ class FenceWatchdog(HoldGate):
             nx, ny = dx / d, dy / d
             if self.v[0] * nx + self.v[1] * ny > cfg['outward_speed_mps'] or \
                     math.cos(self.yaw) * nx + math.sin(self.yaw) * ny > cos_limit:
-                return f'{d:.1f} m from the fence heading outward'
+                self.edge_m = d    # kept out of the reason, which is compared every tick
+                return NEAR_EDGE
         return ''
+
+    def describe(self, why):
+        return f'{why} ({self.edge_m:.1f} m)' if why == NEAR_EDGE else why
 
 
 def load_fence(cfg):
