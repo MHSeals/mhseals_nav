@@ -1,0 +1,123 @@
+# Perception v2: Orin costmap, track grid, tracks and detections (fixed frame map).
+Panels:
+- Class: rviz_common/Displays
+  Name: Displays
+- Class: rviz_common/Views
+  Name: Views
+Visualization Manager:
+  Class: ''
+  Displays:
+  - Class: rviz_default_plugins/Grid
+    Name: Grid
+    Enabled: true
+    Value: true
+    Reference Frame: <Fixed Frame>
+    Cell Size: 1
+    Plane Cell Count: 40
+  - Class: rviz_default_plugins/TF
+    Name: TF
+    Enabled: false
+    Value: false
+  - Class: rviz_default_plugins/Map
+    Name: Perception costmap (Orin)
+    Enabled: true
+    Alpha: 0.7
+    Color Scheme: costmap
+    Draw Behind: true
+    Topic:
+      Depth: 1
+      Durability Policy: Transient Local
+      History Policy: Keep Last
+      Reliability Policy: Reliable
+      Value: /perception/costmap
+    Update Topic:
+      Depth: 10
+      Durability Policy: Volatile
+      History Policy: Keep Last
+      Reliability Policy: Reliable
+      Value: /perception/costmap_updates
+    Use Timestamp: false
+    Value: true
+  - Class: rviz_default_plugins/Map
+    Name: Track grid
+    Enabled: false
+    Alpha: 0.7
+    Color Scheme: costmap
+    Draw Behind: true
+    Topic:
+      Depth: 1
+      Durability Policy: Transient Local
+      History Policy: Keep Last
+      Reliability Policy: Reliable
+      Value: /perception/track_grid
+    Update Topic:
+      Depth: 10
+      Durability Policy: Volatile
+      History Policy: Keep Last
+      Reliability Policy: Reliable
+      Value: /perception/track_grid_updates
+    Use Timestamp: false
+    Value: false
+  - Class: rviz_default_plugins/Map
+    Name: Local costmap (B)
+    Enabled: false
+    Alpha: 0.5
+    Color Scheme: costmap
+    Draw Behind: true
+    Topic:
+      Depth: 1
+      Durability Policy: Transient Local
+      History Policy: Keep Last
+      Reliability Policy: Reliable
+      Value: /local_costmap/costmap
+    Update Topic:
+      Depth: 10
+      Durability Policy: Volatile
+      History Policy: Keep Last
+      Reliability Policy: Reliable
+      Value: /local_costmap/costmap_updates
+    Use Timestamp: false
+    Value: false
+  - Class: rviz_default_plugins/MarkerArray
+    Name: Tracks
+    Enabled: true
+    Namespaces: {}
+    Topic:
+      Depth: 1
+      Durability Policy: Volatile
+      History Policy: Keep Last
+      Reliability Policy: Reliable
+      Value: /tracked_objects
+    Value: true
+  - Class: rviz_default_plugins/MarkerArray
+    Name: Detections
+    Enabled: true
+    Namespaces: {}
+    Topic:
+      Depth: 1
+      Durability Policy: Volatile
+      History Policy: Keep Last
+      Reliability Policy: Reliable
+      Value: /perception/detection_markers
+    Value: true
+  Enabled: true
+  Global Options:
+    Background Color: 48; 48; 48
+    Fixed Frame: map
+    Frame Rate: 30
+  Name: root
+  Tools:
+  - Class: rviz_default_plugins/MoveCamera
+  - Class: rviz_default_plugins/Select
+  Value: true
+  Views:
+    Current:
+      Class: rviz_default_plugins/TopDownOrtho
+      Name: Current View
+      Scale: 25
+      Target Frame: base_link
+      Value: TopDownOrtho (rviz_default_plugins)
+    Saved: null
+Window Geometry:
+  Height: 900
+  Width: 1400
