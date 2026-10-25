@@ -2,17 +2,19 @@
 # The operator host (tranquility) publishes its host name on heartbeat_topic at ~2 Hz. While
 # autonomy commands flow and the newest heartbeat is older than max_age_s, it requests a
 # command_mux hold; it never releases (the operator clears it with U once the link is back).
-# Enforced once a heartbeat has arrived this session. require_operator also holds before the
-# first one: safer on the water, where an operator who never reached B looks the same as one
-# who never existed; off by default so headless sim and bench runs are not held.
+# Only beats naming one of operator_hosts count, never one naming B itself (a TUI on B over
+# SSH or tmux is not the operator). Enforced once a heartbeat has arrived this session;
+# require_operator also holds before the first one, since on the water an operator who never
+# reached B looks the same as one who never existed. Sim and bench launches set it false.
 /**:
   ros__parameters:
     heartbeat_topic: /operator/heartbeat
+    operator_hosts: [tranquility]      # host names the operator station publishes
     command_topic: /cmd_vel            # Nav2 -> command_mux auto input
     request_topic: /command_mux/request
     cause: operator_link
     max_age_s: 3.0                     # receipt age of the newest heartbeat (~2 Hz)
-    require_operator: false
+    require_operator: true
     command_window_s: 0.5              # autonomy = an auto command within this window
     repeat_s: 1.0
     rate_hz: 10.0
