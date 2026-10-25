@@ -101,6 +101,13 @@ def test_mavros_relays_preserve_sensor_abstraction_at_safe_rates(tmp_path):
     assert observation['path'] == str(expected) and observation['fallback'] is False
 
 
+def test_imu_orientation_stdev_is_a_heading_sigma_not_the_mavros_default():
+    """The EKF yaw comes from /imu/raw; MAVROS's 1 rad default left it near 12.7 deg."""
+    config = yaml.safe_load((ROOT / 'config/mavros.yaml').read_text())
+    stdev = config['/mavros/imu']['ros__parameters']['orientation_stdev']
+    assert 0.02 <= stdev <= 0.2
+
+
 def test_mavros_loads_only_the_plugins_the_stack_uses():
     config = yaml.safe_load((ROOT / 'config/mavros.yaml').read_text())
     plugins = config['/**']['ros__parameters']['plugin_allowlist']
