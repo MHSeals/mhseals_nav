@@ -139,6 +139,8 @@ Heading comes from the calibrated external compass (fixed-yaw magcal) with the i
 | `COMPASS_USE2`, `COMPASS_USE3` | 0 | Internal compass disabled |
 | `COMPASS_OFS_X/Y/Z` | from magcal | Never hand-typed |
 | `SYSID_MYGCS` | 255 | Matches MAVROS `system_id` |
+| `GPS1_POS_X/Y` | `gps_link` x, −y | Antenna lever arm; the URDF is the source, FRD negates y |
+| `INS_POS1..3_X/Y` | `imu_link` x, −y | Cube IMU offset from the CoM, same source |
 
 ### Tasks
 

@@ -170,17 +170,20 @@
     <origin xyz="0.01270 0 0.29035" rpy="0 0 0"/>
   </joint>
 
+  <!-- Here4 antenna and CubeOrange+, taped from the CoM on 2026-10-25 (heights not measured).
+       The FCU's GPS1_POS_* and INS_POS1..3_* are these in FRD: x as is, y negated. -->
   <link name="gps_link"/>
   <joint name="gps_link_joint" type="fixed">
     <parent link="base_link"/>
     <child link="gps_link"/>
-    <origin xyz="0.12529 0 0.23439"/>
+    <origin xyz="0.051 -0.127 0.23439"/>
   </joint>
-  
+
   <link name="imu_link"/>
   <joint name="imu_link_joint" type="fixed">
     <parent link="base_link"/>
     <child link="imu_link"/>
+    <origin xyz="-0.051 -0.127 0"/>
   </joint>
 
   <!-- ================= THRUSTERS ================= -->
