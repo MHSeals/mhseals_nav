@@ -275,10 +275,15 @@ def test_docking_drives_out_when_the_back_out_fails():
                 goal.status = 'ABORTED'  # e.g. no backup plugin or something astern
 
     assert world.run(script=stuck) == 'SUCCESS'
-    reversed_ = [goal.reverse is not None for goal in world.goals]
+    backs = [goal for goal in world.goals if goal.reverse is not None]
     # each try is resent back_out_resends times, not runner.yaml's 30, then drives out
-    resends = params('docking')['back_out_resends']
-    assert reversed_[-1] is False and reversed_.count(True) == 2 * resends
+    docking = params('docking')
+    assert world.goals[-1].reverse is None
+    assert len(backs) == docking['back_out_resends'] * (1 + docking['back_out_retries'])
+    # and each retry waits back_out_pause, held still, so the costmap can settle
+    tries = backs[::docking['back_out_resends']]
+    gaps = [b.sent - a.sent for a, b in zip(tries, tries[1:])]
+    assert min(gaps) >= docking['back_out_pause'] * 10 and world.holds > 0
 
 
 def test_a_back_out_cancelled_outside_the_task_preempts_it_without_driving_out():
@@ -862,7 +867,8 @@ def test_a_success_at_once_far_from_the_end_is_the_preempted_goal_s_and_resent()
 
 def test_a_replaced_back_out_is_kept_and_cancelled_when_driving_stops():
     from mhseals_nav.tasks.behaviours import BackOut
-    driver, goals = replacing_driver([False], BackOut('back out', 'bay_staging', 0.1, 40.0, 2))
+    back_out = BackOut('back out', 'bay_staging', 0.1, 40.0, 2, 2.0)
+    driver, goals = replacing_driver([False], back_out)
     driver.drive([(-2, 0, 0)])
     assert len(goals) == 2 and all(goal.reverse for goal in goals)
     assert not goals[0].cancelled and goals[0] in driver.superseded

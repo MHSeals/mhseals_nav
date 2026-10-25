@@ -332,9 +332,12 @@ class Navigate(Driver):
         if self.failures < self.retries:
             self.failures += 1
             self.decide('retry', f'{self.name}: {state.lower()}, retry {self.failures}')
-            self.drive(self.route, self.precise, self.why)
+            self.retry()
             return Status.RUNNING
         return Status.FAILURE
+
+    def retry(self):
+        self.drive(self.route, self.precise, self.why)
 
 
 class BackOut(Navigate):
@@ -342,18 +345,37 @@ class BackOut(Navigate):
 
     A goal behind the boat makes the rotation shim turn in place first, which jams
     it crosswise in a dock bay; reversing needs no turn, and the next goal turns
-    once clear. ``speed`` (m/s), ``seconds`` (allowed) and ``resends`` come from the
-    task YAML: BackUp ends at once on a collision ahead, which is not a refusal to
-    resend 30 times.
+    once clear. ``speed`` (m/s), ``seconds`` (allowed), ``resends`` and ``pause`` come
+    from the task YAML. BackUp stops at once on a collision ahead in the costmap, which
+    is not a refusal to resend 30 times: the boat holds still ``pause`` seconds, for
+    the costmap to settle, before each retry.
     """
 
-    def __init__(self, name, key, speed, seconds, resends, **kwargs):
+    def __init__(self, name, key, speed, seconds, resends, pause, **kwargs):
         super().__init__(name, key, **kwargs)
-        self.speed, self.seconds, self.resends = speed, seconds, resends
+        self.speed, self.seconds, self.resends, self.pause = speed, seconds, resends, pause
 
     def setup(self, **kwargs):
         super().setup(**kwargs)
         self.limits = dict(self.limits, goal_retries=self.resends)
+
+    def initialise(self):
+        self.paused_until = None
+        super().initialise()
+
+    def retry(self):
+        self.paused_until = self.board.now + self.pause
+
+    def update(self):
+        if self.paused_until is None:
+            return super().update()
+        if self.board.now < self.paused_until:
+            if hasattr(self.navigator, 'hold'):
+                self.navigator.hold()  # sends nothing once a human has the boat
+            return Status.RUNNING
+        self.paused_until = None
+        self.drive(self.route, self.precise, self.why)
+        return Status.RUNNING
 
     def action(self, route, precise):
         return 'backup', False

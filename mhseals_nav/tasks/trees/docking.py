@@ -41,7 +41,8 @@ def build(params):
         # planning there instead turns in the bay first and jams the boat crosswise.
         Selector('leave the bay', memory=True, children=[
             BackOut('back out', 'bay_staging', params['back_out_speed'],
-                    params['back_out_time'], params['back_out_resends'], retries=1, accept=1.0,
+                    params['back_out_time'], params['back_out_resends'],
+                    params['back_out_pause'], retries=params['back_out_retries'], accept=1.0,
                     why='back out of the bay'),
             Navigate('drive out', 'bay_staging', retries=1, accept=1.0,
                      why='drive out of the bay'),
