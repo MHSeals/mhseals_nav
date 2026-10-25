@@ -1,4 +1,4 @@
-"""The only launch file the camera host runs: ZED wrapper plus its named, lazy relays."""
+"""ZED wrapper plus its named, lazy relays; orin.launch.py includes it."""
 
 import os
 import tempfile

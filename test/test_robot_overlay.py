@@ -106,3 +106,18 @@ def test_tui_actual_path_and_component_argv(monkeypatch, override, xdg, tmp_path
         assert requested.values['contexts'] == authority.values['contexts']
         assert requested.inputs[0] == authority.inputs[0]
         assert requested.inputs[-1]['path'] == str(selected)
+
+
+def test_hardware_robot_leaves_sensors_and_perception_to_the_orin():
+    """sim:=false runs neither; sim:=true runs objects with the sim backend."""
+    includes = {}
+    for entity in robot_factory():
+        source = (getattr(entity, 'args', ()) or (None,))[0]
+        path = str((getattr(source, 'args', ()) or ('',))[0])
+        for name in ('sensors', 'objects'):
+            if f'{name}.launch.py' in path:
+                includes[name] = entity
+    assert set(includes) == {'sensors', 'objects'}
+    for include in includes.values():
+        assert include.condition.args[0].name == 'sim'
+    assert dict(includes['objects'].launch_arguments) == {'sim': 'true', 'backend': 'sim'}

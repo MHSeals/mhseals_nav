@@ -77,10 +77,12 @@ def generate_launch_description():
         launch_configurations[name] = lc
         declare_arguments.append(DeclareLaunchArgument(name, default_value=default_value, description=description))
 
+    # On the boat the Orin runs sensors and perception (orin.launch.py).
     sensors_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([
             PathJoinSubstitution([mhseals_nav_dir, 'launch', 'sensors.launch.py'])
         ]),
+        condition=IfCondition(launch_configurations['sim']),
         launch_arguments={**launch_configurations, 'lidar_required_frame': 'lidar_link'}.items()
     )
 
@@ -132,11 +134,8 @@ def generate_launch_description():
     objects_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(PathJoinSubstitution(
             [mhseals_nav_dir, 'launch', 'objects.launch.py'])),
-        launch_arguments={
-            'sim': launch_configurations['sim'],
-            'objects_topic': ['/', launch_configurations['camera_name'],
-                              '/zed_node/obj_det/objects'],
-        }.items())
+        condition=IfCondition(launch_configurations['sim']),
+        launch_arguments={'sim': 'true', 'backend': 'sim'}.items())
 
     return LaunchDescription(declare_arguments + [
         OpaqueFunction(function=endpoint_preflight),
