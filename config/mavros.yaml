@@ -16,9 +16,9 @@
       - setpoint_velocity
       - mag_calibration_status
 # /imu/raw (relayed /mavros/imu/data) feeds the EKFs' yaw. MAVROS's default orientation_stdev
-# of 1.0 rad held the EKF yaw sigma near 12.7 deg on 2026-10-25. 0.1 rad (5.7 deg) is
-# conservative: the FCU's compass innovation ratio was 0.42 under way, but ArduRover has
-# no compassmot here and the known-heading magcal is still pending.
+# of 1.0 rad held the EKF yaw sigma near 12.7 deg on 2026-10-25. 0.2 rad (11.5 deg) while the
+# Here4 has no known-heading magcal and ArduRover no compassmot: a compass bias goes straight
+# into the map frame. Tighten to 0.1 only after the magcal and a straight-leg heading check.
 /mavros/imu:
   ros__parameters:
-    orientation_stdev: 0.1
+    orientation_stdev: 0.2
