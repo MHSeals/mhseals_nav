@@ -8,13 +8,14 @@ species) there were before leaving the task.
 from py_trees.common import ParallelPolicy
 from py_trees.composites import Parallel, Sequence
 
-from mhseals_nav.tasks.behaviours import CountObjects, GateRun, ReportCount, WaitFor
+from mhseals_nav.tasks.behaviours import CountObjects, GateRun, ReportCount
 
 
 def build(params):
+    from mhseals_nav.tasks.trees import look_for
     red, green = params['red'], params['green']
     path = Sequence('path', memory=True, children=[
-        WaitFor('path visible', (red, green)),
+        look_for('find the path', (red, green), params),
         GateRun('follow the gates', 'path', red, green, search=params['search_distance'],
                 max_width=params['max_gate_width']),
         ReportCount('report count', 'species', 'species_count',

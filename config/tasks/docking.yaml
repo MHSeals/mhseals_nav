@@ -8,6 +8,8 @@ berth: 1.2              # m from the banner to the boat's centre: bow 0.67 m off
 staging: 3.0            # m out from the banner, lined up before sliding in
 bay_depth: 1.5          # m the bay reaches out from the spine
 dock_time: 5.0          # s held in the bay
+berth_accept: 0.5       # m from the berth that counts as in the bay if Nav2 gives up
+attempts: 2             # tries within the mission's time limit
 search_distance: 20.0
 time_limit: 360.0       # includes driving to the task area
 timeout: 240.0
