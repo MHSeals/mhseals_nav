@@ -2,7 +2,8 @@
 
 Acceptance check for perception-v2 §6: a StaticLayer in a rolling costmap resamples the
 odom-frame perception costmap through TF, keeps graded costs (trinary off), and follows
-the robot when the rolling origin moves.
+the robot when the rolling origin moves. On the Orin, lidar marks and the track grid
+combine by max: a free track cell never clears a lidar mark.
 """
 
 from pathlib import Path
@@ -63,6 +64,8 @@ def test_static_layer_in_rolling_costmaps_keeps_graded_costs_through_tf():
     from nav_msgs.msg import OccupancyGrid
     from rclpy.executors import SingleThreadedExecutor
     from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy
+    from sensor_msgs.msg import PointCloud2
+    from sensor_msgs_py import point_cloud2
     from tf2_ros import TransformBroadcaster
 
     tmp = Path(tempfile.mkdtemp())
@@ -87,6 +90,9 @@ def test_static_layer_in_rolling_costmaps_keeps_graded_costs_through_tf():
         latched = QoSProfile(depth=1, reliability=QoSReliabilityPolicy.RELIABLE,
                              durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
         grid_pub = node.create_publisher(OccupancyGrid, '/perception/track_grid', latched)
+        cloud_pub = node.create_publisher(PointCloud2, '/points', 10)
+        # Lidar returns (world xy): one where the track grid is free, one on a graded track.
+        lidar = [(5.0, 3.0), (6.0, -3.0)]
         got = {}
         node.create_subscription(OccupancyGrid, '/perception/costmap',
                                  lambda m: got.__setitem__('o', m), latched)
@@ -110,7 +116,8 @@ def test_static_layer_in_rolling_costmaps_keeps_graded_costs_through_tf():
         robot = [0.0, 0.0]
 
         def grid(centre):
-            # Odom-frame 24 m grid like the tracker's: lethal 100 at (3, 1), graded 60 at (3, -2).
+            # Odom-frame 24 m grid like the tracker's: lethal 100 at (3, 1), graded 60 at
+            # (3, -2) and at (6, -3), under a lidar return.
             msg = OccupancyGrid()
             msg.header.frame_id = 'odom'
             msg.header.stamp = node.get_clock().now().to_msg()
@@ -119,7 +126,7 @@ def test_static_layer_in_rolling_costmaps_keeps_graded_costs_through_tf():
             msg.info.origin.position.x, msg.info.origin.position.y = map(float, origin)
             msg.info.origin.orientation.w = 1.0
             data = np.zeros((160, 160), dtype=np.int8)
-            for (x, y), value in (((3.0, 1.0), 100), ((3.0, -2.0), 60)):
+            for (x, y), value in (((3.0, 1.0), 100), ((3.0, -2.0), 60), ((6.0, -3.0), 60)):
                 i, j = (np.array([x, y]) - origin) / 0.15
                 data[int(j) - 2:int(j) + 3, int(i) - 2:int(i) + 3] = value
             msg.data = data.ravel().tolist()
@@ -134,6 +141,9 @@ def test_static_layer_in_rolling_costmaps_keeps_graded_costs_through_tf():
                 t.transform.translation.x, t.transform.translation.y = robot
                 t.transform.rotation.w = 1.0
                 tf.sendTransform(t)
+                points = [(x + dx - robot[0], y + dy - robot[1], 0.5) for x, y in lidar
+                          for dx in (-0.05, 0.0, 0.05) for dy in (-0.05, 0.0, 0.05)]
+                cloud_pub.publish(point_cloud2.create_cloud_xyz32(t.header, points))
                 ex.spin_once(timeout_sec=0.05)
                 if until():
                     return True
@@ -143,7 +153,9 @@ def test_static_layer_in_rolling_costmaps_keeps_graded_costs_through_tf():
             b = got.get('b')
             centred = b is not None and abs(
                 b.metadata.origin.position.x + b_params['width'] / 2 - robot[0]) < 0.2
-            return centred and cost_at(b, 3.0, 1.0) == 254
+            o = got.get('o')
+            marked = o is not None and all(cost_at(o, x, y) == 100 for x, y in lidar)
+            return centred and marked and cost_at(b, 3.0, 1.0) == 254
 
         def state():
             lines = (tmp / 'nodes.log').read_text().splitlines(True)
@@ -159,6 +171,8 @@ def test_static_layer_in_rolling_costmaps_keeps_graded_costs_through_tf():
         graded = cost_at(b, 3.0, -2.0)
         assert 120 <= graded < 253                           # graded survives B's StaticLayer
         assert b.header.frame_id == b_params['global_frame']
+        for x, y in lidar:                                   # max-combine, then lethal on B
+            assert cost_at(o, x, y) == 100 and cost_at(b, x, y) == 254
 
         # Roll: the robot moves 2 m; the same world cells keep their cost on B.
         robot[:] = [2.0, 0.0]
