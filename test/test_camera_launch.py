@@ -122,7 +122,7 @@ def test_camera_dds_profile_whitelists_the_boat_address(monkeypatch):
            if d.findtext(ns + 'type') == 'UDPv4']
     assert udp
     for d in udp:
-        assert [a.text for a in d.iter(ns + 'address')] == ['192.168.8.20']
+        assert [a.text for a in d.iter(ns + 'address')] == ['192.168.8.20', '127.0.0.1']
         assert d.findtext(ns + 'maxMessageSize') == '1400'
 
 

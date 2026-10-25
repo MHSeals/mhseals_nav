@@ -17,7 +17,7 @@ FASTDDS_NS = 'http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles'
 
 
 def pinned_profile(profile, address):
-    """The profile itself, or a temp copy whose UDPv4 transport only uses `address`.
+    """The profile itself, or a temp copy whose UDPv4 transport uses only `address` and loopback.
 
     Same pin as ros_net in astro_dock's dev.bashrc: without it Fast DDS advertises
     docker0 and other interfaces, and discovery works while data goes nowhere.
@@ -28,9 +28,11 @@ def pinned_profile(profile, address):
     tree = ET.parse(profile)
     for udp in tree.iter(f'{{{FASTDDS_NS}}}transport_descriptor'):
         if udp.findtext(f'{{{FASTDDS_NS}}}type') == 'UDPv4':
-            allow = ET.SubElement(ET.SubElement(udp, f'{{{FASTDDS_NS}}}interfaceWhiteList'),
-                                  f'{{{FASTDDS_NS}}}address')
-            allow.text = address
+            allowed = ET.SubElement(udp, f'{{{FASTDDS_NS}}}interfaceWhiteList')
+            # Loopback too, as ros_net does: same-host peers on the default profile
+            # announce 127.0.0.1 and are unreachable without it.
+            for allow in (address, '127.0.0.1'):
+                ET.SubElement(allowed, f'{{{FASTDDS_NS}}}address').text = allow
     descriptor, path = tempfile.mkstemp(prefix='camera_dds_', suffix='.xml')
     os.close(descriptor)
     tree.write(path, xml_declaration=True, encoding='UTF-8')
