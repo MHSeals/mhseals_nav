@@ -72,6 +72,17 @@ def test_gate_pass_prefers_the_nearest_pairs_globally():
     assert sorted((round(tr.x[1]), tr.id) for tr in f.tracks) == [(0, ids[0][1]), (2, ids[1][1])]
 
 
+@pytest.mark.parametrize('rng, gap', [(10.0, 2.0), (15.0, 3.0), (20.0, 4.0), (20.0, 2.0)])
+def test_second_same_class_buoy_beside_a_tracked_one_gets_its_own_track(rng, gap):
+    f = TrackFilter(CFG)
+    t = run(f, lambda t: [ob('red_buoy', rng, 0.0)], 2.0, noise=0.05)
+    # The neighbour comes into view: the first track takes its own observation, so it
+    # must not count against the neighbour's exclusion gate.
+    run(f, lambda t: [ob('red_buoy', rng, 0.0), ob('red_buoy', rng, gap)], 2.0, start=t,
+        noise=0.05)
+    assert sorted(round(tr.x[1] / gap) for tr in f.tracks) == [0, 1]
+
+
 def test_class_mismatch_does_not_associate():
     f = TrackFilter(CFG)
     run(f, lambda t: [ob('red_buoy', 5.0, 0.0)], 1.0)

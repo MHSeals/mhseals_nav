@@ -244,7 +244,7 @@ class TrackFilter:
                     matched_tracks.add(k)
                 break
         # Gate pass: global order of increasing d2.
-        candidates, nearest = [], [math.inf] * len(rows)
+        candidates, d2s = [], []
         for i, (ob, z, Rz, vel) in enumerate(rows):
             if i in matched_obs:
                 continue
@@ -252,7 +252,7 @@ class TrackFilter:
                 if k in matched_tracks or not self._compatible(track, ob.class_id):
                     continue
                 gate = self._innovation(track, z, Rz, vel)
-                nearest[i] = min(nearest[i], gate[0])
+                d2s.append((i, k, gate[0]))
                 limit = self.cfg['gate_chi2_v'] if gate[4] else self.cfg['gate_chi2']
                 if gate[0] < limit:
                     candidates.append((gate[0], i, k, gate))
@@ -272,8 +272,13 @@ class TrackFilter:
         for track, xy in held:
             if id(track) not in updated:
                 track.x[:2] = xy            # P keeps its predicted growth
+        # A tail outlier of an existing track must not seed its duplicate. Only tracks left
+        # unmatched count: one that took its own observation must not hide a neighbour.
+        nearest = [math.inf] * len(rows)
+        for i, k, d2 in d2s:
+            if k not in matched_tracks:
+                nearest[i] = min(nearest[i], d2)
         for i, (ob, z, Rz, vel) in enumerate(rows):
-            # A tail outlier of an existing track must not seed its duplicate.
             if i not in matched_obs and nearest[i] >= self.cfg['candidate']['exclusion_chi2']:
                 self._start(ob, obs.backend, z, Rz, vel, t)
         self._miss_in_fov(R, p, frame, live, matched_tracks, t)
