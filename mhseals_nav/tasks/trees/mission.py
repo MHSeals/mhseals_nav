@@ -21,7 +21,7 @@ class Attempts(Decorator):
         self.stage, self.attempts = stage, attempts
 
     def setup(self, **kwargs):
-        self.report = kwargs.get('report')
+        self.report, self.navigator = kwargs.get('report'), kwargs.get('navigator')
 
     def initialise(self):
         self.failures = 0
@@ -29,6 +29,8 @@ class Attempts(Decorator):
     def update(self):
         if self.decorated.status != Status.FAILURE:
             return self.decorated.status
+        if getattr(self.navigator, 'closed', False):  # preempted: the run is over
+            return Status.FAILURE
         self.failures += 1
         last = self.failures >= self.attempts
         why = self.decorated.tip().feedback_message if self.decorated.tip() else ''

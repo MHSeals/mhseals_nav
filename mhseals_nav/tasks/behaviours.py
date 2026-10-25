@@ -38,6 +38,7 @@ class Leaf(py_trees.behaviour.Behaviour):
 
     def setup(self, **kwargs):
         self.navigator, self.report = kwargs.get('navigator'), kwargs.get('report')
+        self.preempt = kwargs.get('preempt')  # the runner's: end the task, never resume
 
     def decide(self, kind, reason, **details):
         """Publish a decision: a short reason the operator reads in the TUI log."""
@@ -61,7 +62,7 @@ class Driver(Leaf):
     for the cancelled goal to finish, and a refused goal is sent again. Call
     ``driving()`` every tick: RUNNING while a goal is on, else the last goal's end
     (SUCCEEDED, ABORTED, ...), or None when nothing was sent. Any end of the leaf
-    cancels its goal.
+    cancels its goal. A goal cancelled by anyone but the task preempts the run.
     """
 
     RETRIES = 30  # sends of one route: a goal just cancelled elsewhere can take a moment
@@ -134,6 +135,11 @@ class Driver(Leaf):
             return self.driving()
         if refused:  # the replacement never took over: stop the old route
             self.drop_superseded()
+        if (status == 'CANCELED' and not getattr(self.goal, 'cancel_requested', False)
+                and self.preempt is not None):
+            # Not the task's cancel: a human (the TUI revokes before the authority
+            # record changes). Treat it as the override itself.
+            self.preempt('goal cancelled outside the task')
         self.goal, self.queued, self.outcome = None, None, status
         return status
 

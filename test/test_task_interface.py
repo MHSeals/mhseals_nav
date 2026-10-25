@@ -202,6 +202,39 @@ CIRCLE = dict(mark='yellow_buoy', search_distance=15.0, circle_radius=3.0,
               circle_clockwise=False, circle_points=12)
 
 
+def test_a_goal_cancelled_by_someone_else_ends_the_run_after_the_tick(monkeypatch):
+    rclpy.init()
+    runner = None
+    goals, events = [], []
+
+    def send(route, precise=False, quiet=False, why=''):
+        if runner.navigator.closed:
+            return None
+        goals.append(SimpleNamespace(done=False, status=None, cancel_requested=False,
+                                     cancel=lambda: None))
+        return goals[-1]
+
+    try:
+        runner = TaskRunner('circle_test', dict(CIRCLE))
+        runner.objects = [('yellow_buoy', 9.0, 0.0)]
+        monkeypatch.setattr(runner.navigator, 'ready', lambda: True)
+        monkeypatch.setattr(runner.navigator, 'send', send)
+        monkeypatch.setattr(runner, 'pose', lambda: (1.0, 0.0, 0.5))
+        monkeypatch.setattr(runner, 'report', lambda event, **d: events.append((event, d)))
+        runner.tick()
+        goals[0].done, goals[0].status = True, 'CANCELED'  # the TUI revoked it
+        runner.tick()
+        assert runner.outcome == 'PREEMPTED' and len(goals) == 1
+        assert ('task_finished', dict(outcome='PREEMPTED')) in events
+        for _ in range(3):
+            runner.tick()
+        assert len(goals) == 1
+    finally:
+        if runner is not None:
+            runner.destroy_node()
+        rclpy.try_shutdown()
+
+
 def test_an_override_before_nav2_accepts_cancels_the_goal_on_the_way_out(monkeypatch):
     """The real exit path: a goal still in flight at an override is cancelled once Nav2
     accepts it, however busy high-rate topics keep the executor; never left to drive."""

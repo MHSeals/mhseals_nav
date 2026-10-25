@@ -223,6 +223,7 @@ class TaskRunner(Node):
         self.stage, self.recent = None, []
         # A human override (rc, keyboard, hold) ends the task the moment it arrives.
         self.suspended, self.owner = False, None
+        self.preempting = self.ticking = False
         self.create_subscription(String, AUTHORITY_TOPIC, self._authority, latched)
         self.board = py_trees.blackboard.Client(name='runner')
         for key in ('objects', 'tracks', 'pose', 'now', 'home', 'fov', 'coverage', 'hypotheses',
@@ -234,7 +235,8 @@ class TaskRunner(Node):
         self.tree = py_trees.trees.BehaviourTree(TREES[task](params))
         self.navigator = Navigator(self, self.frame, params.get('hold_topic', '/cmd_vel_nav'))
         self.navigator.report = self.report
-        self.tree.setup(timeout=15.0, navigator=self.navigator, report=self.report)
+        self.tree.setup(timeout=15.0, navigator=self.navigator, report=self.report,
+                        preempt=self.preempt)
         self.started = None
         self.outcome = None
         self.create_timer(1.0 / float(params.get('tick_hz', 10.0)), self.tick)
@@ -308,11 +310,20 @@ class TaskRunner(Node):
         if self.suspended and self.started is not None and self.outcome is None:
             self.preempt()
 
-    def preempt(self):
-        """Yield to the human at once: cancel the goal and end; never resume."""
-        self.decide('give_up', f'{self.owner or "human"} override: stopped, no resume')
+    def preempt(self, why=None):
+        """Yield to the human at once: cancel every goal and end; never resume.
+
+        From inside a tick (a leaf saw its goal cancelled by someone else) the tree is
+        stopped once the tick returns; no goal goes out meanwhile.
+        """
+        if self.outcome is not None or self.preempting:
+            return
+        self.preempting = True
+        self.navigator.close()
+        self.decide('give_up', f'{why or (self.owner or "human") + " override"}: stopped, no resume')
         self.report('task_suspended', owner=self.owner)
-        self.finish('PREEMPTED')
+        if not self.ticking:
+            self.finish('PREEMPTED')
 
     def now(self):
         return self.get_clock().now().nanoseconds / 1e9
@@ -402,9 +413,15 @@ class TaskRunner(Node):
             self.conditions.tracking(self.velocity['command'], self.velocity['measured'],
                                      self.velocity['effort'], now)
         self.recognise(now)
-        self.tree.tick()
+        self.ticking = True
+        try:
+            self.tree.tick()
+        finally:
+            self.ticking = False
         status = self.tree.root.status.name
-        if status in ('SUCCESS', 'FAILURE'):
+        if self.preempting:
+            self.finish('PREEMPTED')
+        elif status in ('SUCCESS', 'FAILURE'):
             self.finish(status)
         elif now - self.started > self.timeout:
             self.finish('TIMEOUT')

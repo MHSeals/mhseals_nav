@@ -105,21 +105,34 @@ class World:
 
     def __init__(self, task, params):
         py_trees.blackboard.Blackboard.clear()  # one run per process, as for real
-        self.state = dict(objects=[], pose=(0.0, 0.0, 0.0))
-        self.events, self.goals = [], []
-        self.tree = py_trees.trees.BehaviourTree(TREES[task](params))
-        self.tree.setup(navigator=self, report=lambda event, **details: self.events.append(
-            (event, details)))
+        self.state = dict(objects=[], pose=(0.0, 0.0, 0.0), tracks=[])
+        self.events, self.goals, self.preempted = [], [], None
+        self.use(TREES[task](params))
         self.board = py_trees.blackboard.Client(name='world')
         for key in ('objects', 'tracks', 'pose', 'now', 'home', 'fov', 'coverage'):
             self.board.register_key(key=key, access=py_trees.common.Access.WRITE)
         self.board.home = self.board.coverage = None
         self.board.tracks, self.board.fov = [], (1.9, 20.0)
 
+    def use(self, root):
+        self.tree = py_trees.trees.BehaviourTree(root)
+        self.tree.setup(navigator=self, preempt=self.preempt,
+                        report=lambda event, **details: self.events.append((event, details)))
+
     def hold(self):
         self.holds = getattr(self, 'holds', 0) + 1
 
+    def preempt(self, why):
+        """As the runner does: no goal goes out after this, and the run ends."""
+        self.preempted = why
+
+    @property
+    def closed(self):
+        return bool(self.preempted)
+
     def send(self, route, precise=False, quiet=False, why=''):
+        if self.preempted:
+            return None
         self.goals.append(Goal(self.state, route, precise))
         return self.goals[-1]
 
@@ -131,10 +144,13 @@ class World:
             self.board.objects, self.board.pose, self.board.now = (
                 self.state['objects'], self.state['pose'], tick / 10)
             self.board.tracks = [Track(label, x, y, 1.0, None, True, False, '')
-                                 for label, x, y in self.state['objects']]
+                                 for label, x, y in self.state['objects']] + self.state['tracks']
             if self.board.home is None:
                 self.board.home = self.state['pose']
             self.tree.tick()
+            if self.preempted:
+                self.tree.root.stop(py_trees.common.Status.INVALID)
+                return 'PREEMPTED'
             if self.tree.root.status in (py_trees.common.Status.SUCCESS,
                                          py_trees.common.Status.FAILURE):
                 return self.tree.root.status.name
@@ -434,9 +450,10 @@ def test_commissioning_nav_failure_prevents_completion(task, goal_index):
 
     def abort(tick, world):
         if len(world.goals) > goal_index:
-            world.goals[goal_index].status = 'CANCELED'  # not retried
+            world.goals[goal_index].status = 'CANCELED'  # not the task's: an override
 
-    assert world.run(script=abort) == 'FAILURE'
+    assert world.run(script=abort) == 'PREEMPTED'
+    assert len(world.goals) == goal_index + 1
     completion = 'pair_returned' if task == 'pair_test' else 'returned_home'
     assert completion not in world.names()
 
@@ -638,6 +655,76 @@ def test_mission_skips_docking_without_rtk_and_aborts_a_task_on_weak_thrusters()
         d['reason'] for e, d in world.events if e == 'decision']
     assert world.goals and all(goal.cancelled for goal in world.goals)  # stopped at once
     assert 'gate_cleared' not in world.names()
+
+
+def mission_retrying_the_channel():
+    settings = dict(tasks=['nav_channel', 'return_home'])
+    for name in settings['tasks']:
+        settings[name] = params(name)
+    settings['nav_channel']['attempts'] = 2
+    world = World('mission', settings)
+    world.state['objects'] = gate(7, 0, 3) + gate(13, 0, 3)
+    return world
+
+
+def searching(*strategies, tracks=()):
+    """A search with only ``strategies`` enabled, the next one ready to carry on."""
+    from mhseals_nav.tasks import search
+    world = World('nav_channel', params('nav_channel'))
+    world.use(search.search('find', ('red_pole_buoy',), search.load_config({'enable': {
+        key: key in strategies for key in ('priors', 'scan', 'next_view', 'sweep')}})))
+    world.state['tracks'] = list(tracks)
+    return world
+
+
+def reporting_a_spin():
+    from mhseals_nav.tasks.behaviours import ReportCount
+    world = World('nav_channel', params('nav_channel'))
+    world.board.register_key(key='count', access=py_trees.common.Access.WRITE)
+    world.board.count = 2
+    world.use(ReportCount('report', 'count', 'species_count', spin=True))
+    return world
+
+
+def holding_station():
+    from mhseals_nav.tasks.behaviours import Hold
+    world = World('docking', params('docking'))
+    world.use(Hold('hold', 30.0, station=0.5))
+    world.state['pose'] = (0.0, 0.0, 0.0)
+
+    def drift(tick, world):
+        if not world.goals:
+            x, y, yaw = world.state['pose']
+            world.state['pose'] = (x, y + 0.1, yaw)
+    return world, drift
+
+
+@pytest.mark.parametrize('scenario', [
+    lambda: World('docking', dict(params('docking'), approach=[12.0, -14.0, -1.57])),
+    mission_retrying_the_channel,
+    lambda: searching('priors', 'scan', tracks=[
+        Track('red_pole_buoy', 20.0, 5.0, 0.3, None, True, True, 'p')]),
+    lambda: searching('scan', 'next_view'),
+    lambda: searching('next_view', 'sweep'),
+    reporting_a_spin,
+    holding_station,
+], ids=['approach', 'attempts', 'priors', 'scan', 'next_view', 'report_count', 'keep_station'])
+def test_a_goal_cancelled_outside_the_task_preempts_it(scenario):
+    """A CANCELED the task never asked for is an override (the TUI's revoke): nothing
+    carries on, retries, or sends another goal."""
+    world, script = scenario(), None
+    if isinstance(world, tuple):
+        world, script = world
+
+    def revoke(tick, world):
+        if script:
+            script(tick, world)
+        if world.goals:
+            world.goals[0].status = 'CANCELED'
+
+    assert world.run(script=revoke) == 'PREEMPTED'
+    assert world.preempted and len(world.goals) == 1
+    assert 'stage_failed' not in world.names()
 
 
 def replacing_driver(refuse):
