@@ -1,10 +1,12 @@
 mavros_setup:
   ros__parameters:
     # Desired requests, repeated on reconnect; delivery remains unverified.
+    # ATTITUDE (30) feeds /mavros/imu/data -> /imu/raw. At SCHED_LOOP_RATE 50 the FCU
+    # refuses 50 Hz and keeps SR0_EXTRA1's 4 Hz; 25 Hz is accepted (2026-10-25).
     message_rates:
       - '33:20'
-      - '30:50'
-      - '31:50'
+      - '30:25'
+      - '31:25'
       - '24:5'
       - '27:10'
       - '1:2'

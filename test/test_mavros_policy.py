@@ -244,11 +244,11 @@ def test_actual_verify_requests_again_only_the_short_ids(monkeypatch):
     seen.now += 10.
     verify()
     assert seen.sets == [True]
-    assert any('30 at 4.0 of 50 Hz' in line for line in seen.logs)
+    assert any('30 at 4.0 of 25 Hz' in line for line in seen.logs)
     requested = []
     seen.worker.__globals__['request_rates'] = lambda rates, *a, **kw: requested.append(rates)
     seen.worker()
-    assert requested == [[(30, 50.), (31, 50.)]]
+    assert requested == [[(30, 25.), (31, 25.)]]
 
 
 def test_actual_verify_waits_for_a_full_span_and_a_connection(monkeypatch):

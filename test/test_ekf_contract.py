@@ -74,7 +74,7 @@ def test_mavros_relays_preserve_sensor_abstraction_at_safe_rates(tmp_path):
     parameters = resolve_setup(ROOT / 'config/mavros_setup.yaml')
     rates = {int(message_id): float(hz)
              for message_id, hz in (entry.split(':') for entry in parameters['message_rates'])}
-    assert rates == {33: 20., 30: 50., 31: 50., 24: 5., 27: 10., 1: 2., 193: 2., 65: 25.}
+    assert rates == {33: 20., 30: 25., 31: 25., 24: 5., 27: 10., 1: 2., 193: 2., 65: 25.}
     assert 127 not in rates and 128 not in rates  # a Here4 never emits GPS_RTK
     assert ALIASES == {'mavros_odom_rate': (33,), 'mavros_imu_rate': (30, 31),
                        'mavros_gps_rate': (24,), 'mavros_rc_rate': (65,)}
