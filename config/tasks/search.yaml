@@ -1,0 +1,52 @@
+# Search defaults for every task (mhseals_nav/tasks/search.py). A task overrides any
+# key with its own dict passed to load_config; `enable` merges key by key.
+
+# Coverage grid: where the camera has looked.
+area: null            # [[xmin, ymin], [xmax, ymax]] map-frame course box; null: square below
+radius: 60.0          # m; half-side of the square around home when area is null
+cell: 1.5             # m; grid cell side
+forget_s: 120.0       # s; a seen cell is worth a fresh look again after this long
+
+# Camera fallback, used until /perception/status reports hfov_deg and range_m.
+hfov_deg: 110.0
+range_m: 20.0
+
+# When the target counts as found: live tracks of all (or any) labels at this confidence.
+need: all             # all | any
+min_confidence: 0.5
+
+# LookAtPriors: course-map priors and weak live tracks are looked at from standoff.
+revisit_confidence: 0.6   # live tracks below this are revisited
+revisit_sigma: 1.5        # m; live tracks less certain than this are revisited
+standoff: 6.0             # m from the target, on the boat's side, facing it
+
+# Scan: drive scan_step m along the least-seen bearing within +-scan_spread of travel.
+scan_spread_deg: 60.0
+scan_step: 6.0            # m
+max_scans: 4
+
+# NextView: candidate views on rings around the boat, a few headings each.
+rings: [8.0, 16.0]        # m
+ring_points: 12           # candidates per ring
+headings_deg: [-45.0, 0.0, 45.0]   # relative to facing straight out from the boat
+min_gain: 20.0            # m^2 of weighted unseen area; less is not worth a look
+track_bonus: 60.0         # m^2 added for a prior or weak wanted track in view
+sigma_gain: 20.0          # m^2 per m of a wanted track's sigma in view
+travel_cost: 0.05         # per m driven
+turn_cost: 0.5            # per rad turned (to set off, then to face the view)
+max_views: 6
+
+# Shared by Scan and NextView: no re-planning every tick, no dithering.
+hysteresis: 0.3           # switch only to a view this much (30 %) better
+replan_s: 2.0             # s between checks for a better view while driving
+lead: 1.5                 # m; plan the next goal this close to the current one's end
+
+# Sweep: the bounded fallback, one route.
+pattern: lawnmower        # lawnmower | expanding_square
+spacing_frac: 0.8         # leg spacing as a fraction of camera range
+
+enable:
+  priors: true
+  scan: true
+  next_view: true
+  sweep: true
