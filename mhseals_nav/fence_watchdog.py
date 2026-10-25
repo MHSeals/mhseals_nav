@@ -5,6 +5,11 @@ polygon in lat/lon (the map origin moves with every start, navsat wait_for_datum
 or in map metres; fence_file, the day's course area, overrides the package YAML. Position
 comes from the EKF (/gps/filtered for lat/lon, /odom/global for map), heading and velocity
 from /odom/global. No valid fence, or no fresh position or odometry, holds too.
+
+It also publishes the fence it enforces, in map metres, on fence_topic (latched JSON, see
+``state``): the TUI's goal gates refuse goals beyond it or within its margin from this one
+source. A lat/lon fence reaches map through the offset between the latest fresh fix and the
+EKF's map position.
 """
 
 from array import array
@@ -64,6 +69,7 @@ class FenceWatchdog(HoldGate):
         self.poly = polygon(self.frame, cfg.get('fence_points', []))
         self.p, self.p_at = None, None
         self.yaw, self.v, self.motion_at = 0.0, (0.0, 0.0), None
+        self.map_p = None                # the EKF's map position at motion_at
         self.edge_m = None
 
     def position(self, now, a, b):
@@ -74,10 +80,41 @@ class FenceWatchdog(HoldGate):
         self.p = project(points[:2], a, b) if self.frame == 'latlon' else (a, b)
         self.p_at = now
 
-    def motion(self, now, yaw, vx, vy):
-        """Heading and body velocity; the velocity is rotated into the fence plane (ENU)."""
+    def motion(self, now, yaw, vx, vy, map_p=None):
+        """Heading and body velocity; the velocity is rotated into the fence plane (ENU).
+
+        ``map_p`` is the EKF's (x, y) in map, which places a lat/lon fence in map.
+        """
         c, s = math.cos(yaw), math.sin(yaw)
         self.yaw, self.v, self.motion_at = yaw, (vx * c - vy * s, vx * s + vy * c), now
+        self.map_p = map_p
+
+    def state(self, now, stamp_ns=0):
+        """Return what fence_topic carries: the fence in map metres and its margin rules.
+
+        Always the same keys. ``points`` is a flat [x, y, ...] list in map when ``valid``; else
+        None with ``error`` saying why (no valid fence, or for lat/lon no fresh fix and map
+        position to place it: an old offset is never reused). ``reason`` is the hold reason
+        now ('' while all is well); ``stamp_ns`` the node's clock. A reader treats a message
+        older than three periods (3 / fence_rate_hz) as no fence.
+        """
+        cfg = self.cfg
+        points, error = None, ''
+        if self.poly is None:
+            error = 'no valid fence configured'
+        elif self.frame == 'map':
+            points = [v for p in self.poly for v in p]
+        elif not (fresh(self.p_at, now, cfg['max_age_s'])
+                  and fresh(self.motion_at, now, cfg['max_age_s']) and self.map_p is not None):
+            error = 'no fresh fix and map position to place the lat/lon fence in map'
+        else:
+            dx, dy = self.map_p[0] - self.p[0], self.map_p[1] - self.p[1]
+            points = [v for x, y in self.poly for v in (x + dx, y + dy)]
+        return {'valid': points is not None, 'frame': 'map', 'points': points,
+                'source_frame': self.frame, 'margin_m': cfg['margin_m'],
+                'outward_angle_deg': cfg['outward_angle_deg'],
+                'outward_speed_mps': cfg['outward_speed_mps'], 'reason': self.reason(now),
+                'error': error, 'stamp_ns': stamp_ns}
 
     def reason(self, now):
         cfg = self.cfg
@@ -129,16 +166,30 @@ def load_fence(cfg):
 
 
 def node_class():
+    import json
     import time
     from nav_msgs.msg import Odometry
-    from rclpy.qos import qos_profile_sensor_data
+    from rclpy.qos import DurabilityPolicy, qos_profile_sensor_data, QoSProfile, ReliabilityPolicy
     from sensor_msgs.msg import NavSatFix, NavSatStatus
+    from std_msgs.msg import String
 
     def logic(cfg):
         return FenceWatchdog(load_fence(cfg))
 
     def subscribe(node):
         cfg, dog = node.logic.cfg, node.logic
+        latched = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL,
+                             reliability=ReliabilityPolicy.RELIABLE)
+        fence = node.create_publisher(String, cfg['fence_topic'], latched)
+
+        def publish_fence():     # its own timer: a failure here never touches the holds
+            try:
+                state = dog.state(time.monotonic(), node.get_clock().now().nanoseconds)
+                fence.publish(String(data=json.dumps(state)))
+            except Exception as error:      # noqa: BLE001 - logged, the hold timer goes on
+                node.get_logger().error(f'fence publish failed: {error}',
+                                        throttle_duration_sec=10.0)
+        node.create_timer(1.0 / cfg['fence_rate_hz'], publish_fence)
         if dog.poly is None:
             node.get_logger().error(f"no valid fence (fence_file {cfg['fence_file']!r}): "
                                     'autonomy will be held')
@@ -149,7 +200,8 @@ def node_class():
             q = msg.pose.pose.orientation
             yaw = math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z))
             now = time.monotonic()
-            dog.motion(now, yaw, msg.twist.twist.linear.x, msg.twist.twist.linear.y)
+            dog.motion(now, yaw, msg.twist.twist.linear.x, msg.twist.twist.linear.y,
+                       (msg.pose.pose.position.x, msg.pose.pose.position.y))
             if dog.frame == 'map':
                 dog.position(now, msg.pose.pose.position.x, msg.pose.pose.position.y)
 

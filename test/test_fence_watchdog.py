@@ -144,6 +144,53 @@ def test_unreadable_fence_file_holds(tmp_path, monkeypatch):
     assert dog.poly is None and at(dog, 0.0, 50.0, 25.0)
 
 
+STATE_KEYS = {'valid', 'frame', 'points', 'source_frame', 'margin_m', 'outward_angle_deg',
+              'outward_speed_mps', 'reason', 'error', 'stamp_ns'}
+
+
+def test_state_of_a_map_fence_is_its_points():
+    dog = FenceWatchdog(MAP)
+    state = dog.state(0.0, 7)
+    assert set(state) == STATE_KEYS
+    assert state['valid'] and state['frame'] == state['source_frame'] == 'map'
+    assert state['points'] == BOX and state['stamp_ns'] == 7 and not state['error']
+    assert state['margin_m'] == CFG['margin_m']
+    assert state['reason'] == 'position missing or stale'
+    at(dog, 0.0, 99.0, 25.0)
+    assert dog.state(0.0)['reason'] == 'within the margin heading outward'
+    assert json.loads(json.dumps(state)) == state
+
+
+def test_state_without_a_fence_is_invalid():
+    state = FenceWatchdog(dict(MAP, fence_points=[])).state(0.0)
+    assert set(state) == STATE_KEYS
+    assert not state['valid'] and state['points'] is None and state['error']
+
+
+def test_state_places_a_lat_lon_fence_in_map_only_from_a_fresh_pair():
+    lat0, lon0, d = 42.0, -71.0, 0.001
+    dog = FenceWatchdog(dict(CFG, fence_frame='latlon', fence_points=[
+        lat0, lon0, lat0, lon0 + d, lat0 + d, lon0 + d, lat0 + d, lon0]))
+    assert not dog.state(0.0)['valid']                        # no fix, no map pose yet
+    east, north = project((lat0, lon0), lat0 + d / 2, lon0 + d / 2)
+    dog.position(0.0, lat0 + d / 2, lon0 + d / 2)
+    dog.motion(0.0, 0.0, 0.0, 0.0, (10.0, -5.0))             # map (10, -5) is that fix
+    state = dog.state(0.0)
+    assert state['valid'] and state['frame'] == 'map' and state['source_frame'] == 'latlon'
+    xs, ys = state['points'][::2], state['points'][1::2]
+    assert (xs[0], ys[0]) == pytest.approx((10.0 - east, -5.0 - north))
+    assert (xs[2], ys[2]) == pytest.approx((10.0 + east, -5.0 + north), abs=0.2)
+    late = CFG['max_age_s'] + 0.01                           # the pair went stale: no old offset
+    stale = dog.state(late)
+    assert not stale['valid'] and stale['points'] is None and 'fresh' in stale['error']
+    dog.motion(late, 0.0, 0.0, 0.0, (10.0, -5.0))            # map pose fresh, fix still old
+    assert not dog.state(late)['valid']
+    dog = FenceWatchdog(dog.cfg)
+    dog.position(0.0, lat0, lon0)
+    dog.motion(0.0, 0.0, 0.0, 0.0)                           # odometry without a map pose
+    assert not dog.state(0.0)['valid']
+
+
 def test_back_inside_never_releases():
     dog = FenceWatchdog(MAP)
     assert at(dog, 0.0, 120.0, 25.0)
@@ -157,6 +204,7 @@ def test_node_holds_outside_a_map_fence():
     from nav_msgs.msg import Odometry
     from rclpy.executors import SingleThreadedExecutor
     from rclpy.parameter import Parameter
+    from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
     from std_msgs.msg import String
     from ros_domain import require_isolated_domain
     from watchdog_cycle import flip_twice
@@ -212,5 +260,23 @@ def test_node_holds_outside_a_map_fence():
         assert {g['op'] for g in got} == {'hold'}
         assert {g['cause'] for g in got} == {'geofence'}
         assert {g['by'] for g in got} == {'fence_watchdog'} and all(g['token'] for g in got)
+
+        # The fence it enforces is latched on fence_topic: a late subscriber gets it.
+        fences = []
+        latched = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL,
+                             reliability=ReliabilityPolicy.RELIABLE)
+        drive(50.0, 1.2)
+        probe.create_subscription(String, CFG['fence_topic'],
+                                  lambda m: fences.append(json.loads(m.data)), latched)
+        drive(50.0, 1.0, until=lambda: fences)
+        assert fences and fences[0]['valid'] and fences[0]['points'] == BOX
+
+        # A failing publish never stops the holds.
+        def broken(*_, **__):
+            raise ValueError('boom')
+        dog.logic.state = broken
+        got.clear()
+        drive(101.0, 3.0, until=lambda: len(got) >= 2)
+        assert len(got) >= 2
     finally:
         rclpy.try_shutdown()
