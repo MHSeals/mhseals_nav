@@ -25,7 +25,7 @@ def test_nondefault_complete_consumer_fixture(base):
     result = validated_merge_limits(base, patch())
     follow = result['controller_server']['ros__parameters']['FollowPath']
     assert follow['model_dt'] == .05
-    assert [follow[k] for k in ('vx_std', 'vy_std', 'wz_std')] == [.15, .1, .2]
+    assert [follow[k] for k in ('vx_std', 'vy_std', 'wz_std')] == [.1, .07, .15]
     assert follow['prune_distance'] == 3.0
     assert follow['rotate_to_heading_angular_vel'] == .2
     assert follow['max_angular_accel'] == .5
