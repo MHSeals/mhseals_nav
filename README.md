@@ -10,12 +10,12 @@ Launch files separate the main responsibilities:
 
 - `robot.launch.py` composes sensors, localization, navigation, and objects. `enable_slam:=true` additionally starts the lidar-cloud RTABMap mapper; navigation and EKF localization run either way. Generally used for simulation; on the boat, launch components on their respective hosts.
 - `sensors.launch.py` starts the Velodyne driver and lidar relay with `sim:=false`, or the ROS TCP endpoint with `sim:=true`. It never starts the camera.
-- `camera.launch.py` is the only launch file the camera host (Jetson Orin, JetPack 6, ZED SDK 5, domain 42) runs. It starts the ZED wrapper with `config/zed_boat.yaml` (HD720, positional tracking off, object detection on) and `config/custom_object_detection.yaml`, publishes no pose TF, and starts lazy relays: `/front_camera/camera_info` and a 2 Hz `/front_camera/preview/compressed`. `slam:=true` adds raw `/front_camera/rgb/image` and `/front_camera/depth/image`. Start it through the container (`docker exec roboboat_dev bash -c 'ros2 launch mhseals_nav camera.launch.py'`) so `ASTRO_DDS_ADDRESS` is set; the launch then pins its camera DDS profile (`config/camera_dds.xml`, 1400-byte messages) to that address.
+- `camera.launch.py` is the only launch file the camera host (Jetson Orin) runs: the ZED wrapper with `config/zed_boat.yaml` and `config/custom_object_detection.yaml`, plus lazy `/front_camera/camera_info` and a 2 Hz preview; `slam:=true` adds raw RGB and depth. Start it in the container (`docker exec roboboat_dev bash -c 'ros2 launch mhseals_nav camera.launch.py'`) so `ASTRO_DDS_ADDRESS` pins its DDS profile.
 - `odom.launch.py` starts MAVROS and measurement relays (`fcu:=true`), robot TF, and `ekf.launch.py` (dual EKFs and Navsat; `start_ekf:=false` leaves them to a separate launch, and `~/.config/mhseals/ekf.yaml` overrides parameters per node).
 - `navigation.launch.py` starts Nav2 servers and lifecycle management. SLAM is optional.
 - `slam.launch.py` starts RTABMap mapping, leaving localization TF with the EKFs.
-- `objects.launch.py` always tracks `/detections`. With `sim:=false`, it also converts ZED objects into that interface, remapping the adapter input to `objects_topic`. On the boat it takes no rosbridge arguments: the Orin's wrapper is on the same graph, so the converter subscribes `/front/zed_node/obj_det/objects` directly (`rosbridge_url` and `camera_root_frame` are only for the retiring JetPack 5 host). `config/zed_boat.yaml` sets `prediction_timeout: 0` and `custom_object_detection.yaml` sets `prediction_timeout_s: 0` per class, so `/detections` stays raw.
-- `legacy_zed.launch.py` starts the retiring JetPack 5 / ZED SDK 4 camera, TensorRT buoy detector, and rosbridge. Never run it together with `camera.launch.py`; start each camera only once.
+- `objects.launch.py` tracks `/detections`; with `sim:=false` it also converts ZED objects into that interface (`objects_topic`). `rosbridge_url` and `camera_root_frame` are only for the legacy host.
+- `legacy_zed.launch.py` starts the legacy JetPack 5 camera host (see Architecture).
 
 ```bash
 ros2 launch mhseals_nav <launch_name>.launch.py param1:=value1 param2:=value2
@@ -42,61 +42,84 @@ Start each component once. `robot` includes navigation, so running it also start
 | `detections_topic`, `objects_topic` | `objects` | `/detections`, `/front/zed_node/obj_det/objects`; tracker input and ZED source |
 | `rosbridge_url`, `camera_root_frame` | `objects` | Empty; with `sim:=false`, select the legacy JetPack 5 transport and its calibrated camera subtree root. Leave unset on the boat |
 
-Configuration paths, device addresses, and rate overrides are listed by `ros2 launch mhseals_nav <launch_name>.launch.py --show-args`. Keeping `use_lidar:=true` while skipping the local driver allows another host or simulator to supply `/points`. Disabling LiDAR is explicit; stale data never triggers an automatic fallback.
+Other arguments and defaults are listed by `--show-args`. Keeping `use_lidar:=true` while skipping the local driver lets another host or simulator supply `/points`; stale data never triggers a fallback.
 
 ### Architecture
 
-[`astro_dock`](https://github.com/1unarzDev/astro_dock) provides the ROS tooling and container workspace for these components. Simulation and hardware producers satisfy the interfaces below.
+[`astro_dock`](https://github.com/1unarzDev/astro_dock) provides the ROS container workspace. Everything is topic based; simulated or physical producers satisfy the interfaces below.
 
-The architecture is deliberately topic based: simulated or physical sensors feed
-localization, object tracking, and navigation; the global EKF owns `map → odom`,
-the local EKF owns `odom → base_link`, and sensor mounts come from the robot
-description. Keep the boat on one ROS domain; the Orin camera host joins it directly, so consumers bind only to the canonical names (`/detections`, `/front_camera/*`) and never to `/front/zed_node/*`, except the objects converter.
+#### Data flow
 
-Required interfaces depend on which components are running:
+- Sensors: MAVROS (FCU odometry, IMU, GPS), the VLP16 LiDAR and the ZED camera.
+- Localization: a local EKF (`odom → base_link`) and a global EKF with navsat (`map → odom`).
+- Navigation: Nav2 with MPPI (Omni model, 10 Hz) and rolling LiDAR costmaps. Camera tracks never become obstacle geometry.
+- Perception: ZED detections → `/detections` → tracker → `/objects/map` (tasks) and `/tracked_objects` (RViz).
+- Tasks: py_trees trees consume `/objects/map` and the map pose, and send Nav2 goals.
+- One ROS domain for the whole boat; consumers bind only to the canonical names (`/detections`, `/front_camera/*`), never `/front/zed_node/*`.
 
-| Consumer | Required topics / interfaces |
+#### Interfaces
+
+| Consumer | Required topics |
 | --- | --- |
-| Localization | `/odom/mavros` (`Odometry`, body velocity), `/imu/raw` (`Imu`, FCU heading/yaw rate), `/gps/fix` (`NavSatFix`) |
-| Navigation | `/odom/local` (`Odometry`), `/points` (`PointCloud2`, when `use_lidar:=true`), navigation action goals in `map` |
-| Object tracking | `/detections` (`Detection3DArray`, metres, acquisition timestamps, actual source frame, labels in `results[].hypothesis.class_id`) |
-| Optional SLAM | `/points` (`PointCloud2`), `odom → base_link` TF, and synchronized clocks; camera topics are disabled in the lidar-only profile |
-| Simulation | `/clock`, plus the inputs required by the enabled components |
+| Localization | `/odom/mavros` (`Odometry`, body velocity), `/imu/raw` (`Imu`, FCU-fused MAVROS `/imu/data`), `/gps/fix` |
+| Navigation | `/odom/local`, `/points` (when `use_lidar:=true`), action goals in `map` |
+| Object tracking | `/detections` (`Detection3DArray`, metres, acquisition timestamps, labels in `results[].hypothesis.class_id`) |
+| SLAM (optional) | `/points`, `odom → base_link` TF, synchronized clocks |
+| Simulation | `/clock` plus the inputs of the enabled components |
 
-Navigation and tracking also require `/tf` and `/tf_static` with `map → odom → base_link → sensor` connectivity. The global EKF owns `map → odom`, the local EKF owns `odom → base_link`, and the robot description owns sensor mounts. Preserve measurement frame IDs and timestamps, and synchronize clocks across hosts. `/imu/raw` is the legacy name for FCU-fused MAVROS `/imu/data`, rather than `/imu/data_raw`.
+#### TF ownership
 
-Navigation uses MPPI with the Omni model at 10 Hz (the boat can sway) and rolling costmaps of decaying voxels, fed by the LiDAR. Camera tracks retain class and position for task planning and RViz; they do not synthesize obstacle geometry. The characterization's Nav2 overlay gives MPPI the boat's measured limits at the tested effort. RTABMap mapping consumes the live lidar cloud and external EKF odometry; it does not publish a competing localization transform.
+- `map → odom`: global EKF
+- `odom → base_link`: local EKF
+- `base_link → sensors`: robot description
 
-The rest of this section describes the retiring JetPack 5 host. On JetPack 5, SDK 4 cannot run `CUSTOM_YOLOLIKE_BOX_OBJECTS`. The legacy detector runs the checked-in 640-pixel ONNX model with TensorRT 8 and sends 2D boxes to the SDK 4 wrapper's `CUSTOM_BOX_OBJECTS` input. The JP5 image includes a wrapper patch that holds each grabbed frame until its matching inference arrives (up to 500 ms); the SDK supplies positions and eight 3D box corners in the reported camera frame. The bridge derives RViz extents from those corners, including depth; no surface-thickness estimate is added. Its first start compiles a GPU-specific FP16 engine; the ZED resources volume retains that cache across container rebuilds. TensorRT/CUDA come from JetPack; OpenCV, NumPy, and PyYAML are required.
+Preserve frame IDs and timestamps, and synchronize clocks across hosts.
 
-The legacy profile uses native 1080p, automatic exposure/white balance, and a camera-scoped 64 MiB DDS shared-memory transport. Alongside the full image, three overlapping 720-pixel crops preserve small buoys near the central water band; same-class duplicates are merged in original pixel coordinates. Use `tile_size:=0` to disable detail crops; `tile_count` sets how many and `tile_center` (fraction of image height, default 0.5) aims the row at the water band, since the horizon follows camera pitch. The optional JPEG preview is capped at 1280 pixels wide to keep it from delaying inference. Stereo settings in `config/legacy_zed.yaml` use a 0.5–20 m range and stricter confidence filtering; backlighting can still prevent reliable depth.
+#### Perception
+
+- Canonical outputs: `/detections`, `/objects/map`, `/tracked_objects`, `/detections/markers`, `/front_camera/camera_info`, `/front_camera/preview/compressed`.
+- Orin path: the ZED wrapper (`config/zed_boat.yaml`) runs YOLO-like custom detection on the GPU, and `objects.launch.py` converts `/front/zed_node/obj_det/objects` into `/detections`. Prediction timeouts are 0 so detections stay raw.
+- The converter drops repeated, reordered or over-1 s-old packets; the tracker transforms boxes into `odom` at acquisition time, and confirmed tracks expire after 30 s without observations.
+
+#### Legacy JP5 camera host
+
+Retiring Jetson (JetPack 5, ZED SDK 4) that runs the camera, a TensorRT buoy detector and rosbridge. Never run it with `camera.launch.py`.
 
 ```bash
-# Squirtle container (Foxy, domain 142), after building:
-source /opt/zed_ros2/setup.bash && source install/setup.bash
+# camera host
 ros2 launch mhseals_nav legacy_zed.launch.py
-# ODROID host: resolve the current address, then pass it into its Jazzy container:
-JETSON_IP=$(getent ahostsv4 squirtle-jetson.local | awk 'NR==1 {print $1}')
-docker exec -it roboboat_dev bash -lc "source /opt/ros/jazzy/setup.bash && source install/setup.bash && ros2 launch mhseals_nav objects.launch.py sim:=false rosbridge_url:=ws://${JETSON_IP}:9090 camera_root_frame:=front_camera_link"
+# navigation host
+ros2 launch mhseals_nav objects.launch.py sim:=false rosbridge_url:=ws://<camera-host>:9090 camera_root_frame:=front_camera_link
 ```
 
-Run the ODROID's odometry and sensors as usual. The bridge reconnects after connection loss, retries subscriptions when the camera starts later, and relays only object measurements and camera-internal static TF; ODROID localization and the robot description retain TF ownership. Just like Unity, its tracker publishes `/objects/map` (`Detection3DArray`, `map`) for tasks and `/tracked_objects` (`MarkerArray`) for RViz. Confirmed objects expire after 30 seconds without observations. Keep host clocks synchronized; stale measurements are rejected. The optional annotated camera view is `/buoy_detector/image/compressed`. Low light can prevent detection or stereo depth; indoors, GPS corrections can move `map`, so use `odom` to assess local stability.
+#### LiDAR relay and markers
 
-The hardware sensor launch also starts the boat's LiDAR relay. It reduces clouds before they cross the LAN and publishes one reliable `/points` writer on normal DDS for both ODROID navigation and remote viewers. Viewers subscribe directly; stop older viewer relays to avoid duplicate scans. astro_dock's default DDS profile keeps map, costmap and cloud packets below the LAN MTU.
-
-RViz markers retain their track IDs across update gaps and expire with `track_timeout`; a temporary TF lookup failure does not delete valid tracks. The ZED converter rejects repeated, reordered, or more than one-second-old packets. The tracker transforms accepted boxes into `odom` at acquisition time, then publishes outlines and 10 cm confidence percentages in `map` on `/detections/markers`, using the same current map correction as semantic tracks. This keeps the laptop independent of delayed camera TF. Raw boxes clear after one second without a fresh packet. Use RViz's standard `MarkerArray` display for this topic to avoid the detection-array outline plugin's origin jump on failed transforms. `/objects/map` retains classed positions and the latest observed confidence, without box geometry; use `/tracked_objects` to visualize that semantic history separately from live detections.
+- `sensors.launch.py` also starts `lidar_relay`, which downsamples the cloud and republishes `/points` with one reliable writer for Nav2 and RViz. Stop older viewer relays to avoid duplicates.
+- Use RViz's `MarkerArray` display for `/detections/markers`; it shows outlines and confidence in `map`.
 
 ### Mapping and rates
 
-The validated `crane_ml` RoboBoat stack is the reference for the live navigation contract: authoritative `odom → base_link` at 50 Hz, a 10 Hz 3-D LiDAR cloud, and LiDAR-fed rolling costmaps at 10 Hz local / 5 Hz global. It deliberately validates authoritative-odometry navigation rather than SLAM ([baseline](https://github.com/1unarzDev/crane_ml/blob/main/Docs/RoboBoatNavigationBaseline.md)). This package preserves that contract on the boat while adding optional lidar-cloud RTABMap mapping.
+| Stream | Rate | Set in |
+| --- | --- | --- |
+| `GLOBAL_POSITION_INT` | 20 Hz | `config/mavros_setup.yaml` |
+| `ATTITUDE`, `ATTITUDE_QUATERNION` | 50 Hz | `config/mavros_setup.yaml` |
+| `RC_CHANNELS` | 25 Hz | `config/mavros_setup.yaml` |
+| `RAW_IMU` | 10 Hz | `config/mavros_setup.yaml` |
+| `GPS_RAW_INT` | 5 Hz | `config/mavros_setup.yaml` |
+| `SYS_STATUS`, `EKF_STATUS_REPORT` | 2 Hz | `config/mavros_setup.yaml` |
+| Local EKF | 30 Hz | `config/ekf_local.yaml` |
+| Global EKF | 20 Hz | `config/ekf_global.yaml` |
+| VLP16 scans | 10 Hz (600 RPM) | `config/lidar.yaml` |
+| Local costmap | 10 Hz | `config/nav2_params.yaml` |
+| Global costmap | 2 Hz (published 1 Hz) | `config/nav2_params.yaml` |
+| Planner | 1 Hz | `config/nav2_params.yaml` |
+| Controller | 10 Hz | `config/nav2_params.yaml` |
 
-On the physical ArduPilot path, `odom.launch.py` starts `mavros_setup`, which requests the MAVLink message rates (`GLOBAL_POSITION_INT` 20 Hz, `ATTITUDE`/`ATTITUDE_QUATERNION` 20, `GPS_RAW_INT` 5, `RAW_IMU` 10, `RC_CHANNELS` 25, `SYS_STATUS` and `EKF_STATUS_REPORT` 2) and repeats them whenever `/mavros/state` reconnects, adapts `/mavros/global_position/local` to `/odom/mavros`, and publishes the local EKF at 30 Hz. The adapter rotates ENU linear velocity into body FLU using the message’s FCU attitude and replaces unknown covariance with `mavros_velocity_stddev` (default 0.3 m/s per axis; in the default GPS velocity mode each `GPS_RAW_INT` sample is fused once with the receiver's `vel_acc` as sigma). Simulation with `fcu:=false` already supplies body velocity. `/mavros/local_position/odom` is silent on the rover profile and unused. The VLP16 driver runs at 600 RPM (10 scans/s); `sensors.launch.py` gives the driver/transform pair the large-data profile in `config/fastdds_large_data.xml`, while odometry and TF use normal DDS. On the sensor host, the `lidar_relay` executable republishes the cloud on normal DDS with one reliable writer compatible with both RViz and Nav2, so each timestamp represents one scan. Its bounded cloud uses an odd sampling stride to retain all 16 laser rings.
+Rates are requested again whenever the FCU reconnects. Restart `navigation.launch.py` after changing Nav2 parameters.
 
-The FCU must supply a calibrated absolute heading: ROS ENU yaw = 90° − compass heading (195° bow heading means −105° ENU). Check `/mavros/global_position/compass_hdg` outside, away from metal, against the physical bow. Enable the intended calibrated compass in Mission Planner; board orientation and compass rotation describe their actual mounts. Do not hide an FCU heading error with URDF rotation or `navsat_transform.yaw_offset`.
+**Heading:** ROS ENU yaw = 90° − compass heading (195° bow heading is −105°). Never hide a heading error with the URDF or `navsat_transform.yaw_offset`; fix the FCU.
 
-Use `navigation.launch.py limits_file:=<measured-limits.yaml>` for characterization output; it merges with the current `params_file` and recalculates pruning distance against the current controller horizon. Regenerate old full-profile characterization files.
-
-Start mapping only after the sensor and odometry stacks are live:
+Start mapping once sensors and odometry are live:
 
 ```bash
 ros2 launch mhseals_nav slam.launch.py sim:=false
@@ -105,26 +128,27 @@ ros2 topic hz /odom/local
 ros2 topic echo /info --once
 ```
 
-RTABMap should report a live input frequency and publish `/map` while the boat moves. `slam.launch.py` disables RGB/depth synchronization because those camera topics live on the Jetson's separate ROS domain. Nav2 paths and costmaps remain independent of RTABMap and use the EKF `map → odom → base_link` tree.
+RTABMap should report a live input rate and publish `/map` while the boat moves. It does not publish TF; Nav2 keeps using the EKF tree.
 
-The checked-in Nav2 profile updates the local costmap at 10 Hz and the global costmap at 2 Hz (published at 1 Hz) with 0.20 m cells, below the `crane_ml` baseline of 5 Hz, to spare the ODROID; planning runs at 1 Hz. Restart `navigation.launch.py` after changing these parameters; an already active lifecycle node retains its previous values.
+`navigation.launch.py limits_file:=<measured-limits.yaml>` merges characterization limits into the Nav2 parameters.
 
 ### FCU parameters
 
-`config/fcu/blastoise.param` is the FCU's as-found state on 2026-10-22 (ArduRover 4.6.3, Cube Orange+), still holding the test-night values `EK3_SRC1_YAW=8` (GSF) and `COMPASS_USE=0`: no compass is used, so the EKF yaw stays 0 and the EKF sits in `CONST_POS_MODE`. Odometry from that window is invalid for heading and velocity. Diff each write against the file, write the batch on land, reboot, then snapshot again. Target values:
+`config/fcu/blastoise.param` is the reference snapshot (ArduRover, Cube Orange+).
 
-| Param | Now | Target | Why |
-|---|---|---|---|
-| `EK3_SRC1_YAW` | 8 | 1 | Compass yaw |
-| `COMPASS_USE` | 0 | 1 | The Here4 (RM3100) is the cleanest, external compass |
-| `COMPASS_USE2`, `COMPASS_USE3` | 0 | 0 | The internal mag reads 3x the expected horizontal field |
-| `COMPASS_OFS_X/Y/Z` | -529/-873/864 | from the fixed-yaw calibration (MAV_CMD 42006), never hand-typed | The stored offsets give \|B\| 1669 mG against about 470 expected |
-| `GPS1_POS_X/Y/Z` | 0 | measured Here4 offset from the Cube (FRD, m) | Lever arm for RTK and velocity under yaw rate |
-| `SYSID_MYGCS` | 42 | 255 | Match MAVROS `system_id` |
-| `GPS_DRV_OPTIONS` | 0 | 64 for one diagnostic boot, then 0 | Logs each injected RTCM frame |
-| `LOG_DISARMED` | 0 | 1 during RTK and calibration tests only | Logs while on the trailer |
+1. Diff the intended change against the snapshot.
+2. Write on land while disarmed, then reboot.
+3. Snapshot again into `config/fcu/`.
 
-Leave `EK3_MAG_CAL`, the `EK3_GSF_*` masks (the emergency yaw reset), `GPS_INJECT_TO` and `SR0_*` alone: message rates come from `mavros_setup`, not the FCU. Once the compass yaw is restored, lower MAVROS's `/mavros/imu` `orientation_stdev` from its 1.0 rad default so the EKF can use it.
+Heading comes from the calibrated external compass (fixed-yaw magcal) with the internal compass disabled. Message rates come from `mavros_setup`, not the `SR*` params.
+
+| Param | Value | Why |
+| --- | --- | --- |
+| `EK3_SRC1_YAW` | 1 | Compass yaw |
+| `COMPASS_USE` | 1 | External compass |
+| `COMPASS_USE2`, `COMPASS_USE3` | 0 | Internal compass disabled |
+| `COMPASS_OFS_X/Y/Z` | from magcal | Never hand-typed |
+| `SYSID_MYGCS` | 255 | Matches MAVROS `system_id` |
 
 ### Tasks
 
@@ -157,7 +181,7 @@ ros2 launch mhseals_nav task.launch.py task:=pair_test
 ros2 launch mhseals_nav task.launch.py task:=circle_test
 ```
 
-`pair_test` crosses the nearest red/green pole pair ahead in either colour order, continues 3 m beyond its centre, turns around, then crosses the same pair back. `circle_test` searches ahead for a yellow buoy, approaches its near side, circles once at a 3 m radius, then returns to the run's initial map position and heading. The pair search sweeps and advances up to 10 m; the yellow search advances up to 15 m. Missing targets fail the test. Adjust distances, circle direction and timeouts in their task YAMLs (`params_file:=...`); add `sim:=true` in simulation. Run one task at a time, or choose it under `t` in `boat_test` for supervised operation and scoring.
+`pair_test` crosses the nearest red/green pole pair and back; `circle_test` circles the nearest yellow buoy and returns to its start pose. Distances, direction and timeouts are in their task YAMLs (`params_file:=...`); add `sim:=true` in simulation. Run one task at a time.
 
 ### Boat tests
 
@@ -187,5 +211,4 @@ ros2 run tf2_ros tf2_echo map base_link
 
 `setup.py` registers `console_scripts` for `ros2 run mhseals_nav <executable>` and installs launch files, configurations, robot descriptions, and behavior trees. Register new runnable nodes there, declare dependencies in `package.xml`, and rebuild/source after installed assets change. Tuning lives in `config/`, physical frames in `description/`, and navigation behavior in `mhseals_nav/behavior_trees/`.
 
-Keep changes lean and scoped. Open a pull request explaining what changed, why, and how it was tested, including any interface changes. Update the README when usage or architecture changes. Run ROS runtime probes in an isolated container/domain without boat hardware.
-
+Keep changes lean and scoped; update this README when usage or architecture changes.

@@ -3,6 +3,14 @@ Strict fresh-start inputs for the shipped robot_localization 3.8.3 graph.
 
 Fusion vectors follow x/y/z, roll/pitch/yaw, linear velocities, angular
 velocities, accelerations. Covariance and additional sensor slots are unsupported.
+
+The ``ekf_local.yaml``, ``ekf_global.yaml`` and ``navsat_transform.yaml`` bases are
+validated, then the overlay (``ekf_overlay_file``, else the optional
+``~/.config/mhseals/ekf.yaml``) is applied per node, flat or under a sole
+``ros__parameters``. An explicit overlay path must exist; unknown fields, duplicate keys
+and changes to the fixed graph identities (frames, odom0/imu0/odom1 topics) are refused.
+Fusion arrays replace whole arrays and need exactly 15 booleans. The clock selection
+comes from the ``sim`` argument only.
 """
 from dataclasses import dataclass
 from hashlib import sha256

@@ -2,6 +2,19 @@
 
 The SDK 4 wrapper cannot run CUSTOM_YOLOLIKE_BOX_OBJECTS. Keep its camera and
 calibration; feed 2D detections back to its CUSTOM_BOX_OBJECTS input.
+
+The JP5 image patches the wrapper to hold each grabbed frame until its inference
+arrives (up to 500 ms); the SDK then supplies positions and eight 3D box corners in
+the camera frame, and RViz extents (including depth) derive from those corners.
+The first start compiles a GPU-specific FP16 TensorRT engine into ``engine_cache``;
+the ZED resources volume keeps it across container rebuilds.
+
+Alongside the full image, ``tile_count`` overlapping ``tile_size`` px crops centred at
+``tile_center`` (fraction of image height; the horizon follows camera pitch) keep small
+buoys detectable. Same-class duplicates merge in original pixel coordinates;
+``tile_size:=0`` disables crops. The optional JPEG preview
+(``/buoy_detector/image/compressed``) is capped at 1280 px wide so it cannot delay
+inference. Needs TensorRT/CUDA from JetPack plus OpenCV, NumPy and PyYAML.
 """
 
 import ctypes
