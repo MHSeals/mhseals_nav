@@ -1,0 +1,12 @@
+# zed_backend: ZED wrapper objects -> /perception/observations.
+/**:
+  ros__parameters:
+    backend: zed_native                # stage name under /perception/status
+    objects_topic: /front/zed_node/obj_det/objects
+    camera_info_topic: /front/zed_node/rgb/color/rect/camera_info
+    box2d_scale: 2.0                   # 2D boxes are in grab pixels; = zed_boat pub_downscale_factor
+    max_detection_age: 1.0             # s; older frames are dropped
+    velocity_kind: none                # none | relative | world, set by the bench turn test
+    fov:
+      hfov_deg: 110.0
+      range_m: 20.0                    # = zed_boat object_detection.max_range
