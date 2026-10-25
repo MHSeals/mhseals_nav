@@ -137,11 +137,17 @@ def _calibration(reference, source, share):
 
 
 def resolve_lidar(selected='', deployment='', overrides=None, *, share=package_share,
-                  required_frame=''):
-    """Compile defaults < deployment < operator file < explicit endpoint aliases."""
+                  required_frame='', fallback_ip=''):
+    """Compile fallback_ip < defaults < deployment < operator file < explicit endpoint aliases.
+
+    The package YAML has no address: ``fallback_ip`` is LIDAR_IP from boat-network.env.
+    """
     paths = [Path(share('mhseals_nav')) / 'config/lidar.yaml']
     paths += [path for path in (deployment, selected) if path != '']
     values, origins, sources = {}, {}, []
+    if fallback_ip:
+        values['lidar.endpoint.ip'] = fallback_ip
+        origins['lidar.endpoint.ip'] = 'boat-network.env LIDAR_IP'
     for path in paths:
         layer, identity = _layer(path)
         values.update(layer)
@@ -159,6 +165,9 @@ def resolve_lidar(selected='', deployment='', overrides=None, *, share=package_s
         else:
             values['lidar.endpoint.ip'] = value
         origins['lidar.endpoint.' + alias[len('velodyne_'):]] = '<explicit>'
+    if 'lidar.endpoint.ip' not in values:
+        raise ValueError('no lidar address: set LIDAR_IP in $ROS_WS/config/boat-network.env '
+                         'or pass velodyne_ip:=')
     validate_values(values)
     if required_frame and values['lidar.frame'] != required_frame:
         raise ValueError('full robot lidar frame must match fixed URDF lidar_link contract')

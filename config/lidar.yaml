@@ -6,6 +6,5 @@ lidar:
   calibration:
     package: velodyne_pointcloud
     path: params/VLP16db.yaml
-  endpoint:
-    ip: 192.168.0.201
+  endpoint:   # ip: LIDAR_IP from $ROS_WS/config/boat-network.env (a layer or velodyne_ip may set it)
     port: 2368

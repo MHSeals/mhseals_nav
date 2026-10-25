@@ -5,6 +5,7 @@ from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
+from mhseals_nav import boat_network
 from mhseals_nav.endpoint_configuration import (
     from_launch as endpoint_from_launch, LAYER_ARGUMENTS as ENDPOINT_LAYERS, UNSET_GCS)
 from mhseals_nav.lidar_configuration import resolve_lidar
@@ -37,7 +38,9 @@ def sensor_nodes(context):
     aliases = {name: LaunchConfiguration(name).perform(context)
                for name in ('velodyne_ip', 'velodyne_port')}
     required_frame = LaunchConfiguration('lidar_required_frame').perform(context)
-    lidar = resolve_lidar(selected, deployment, aliases, required_frame=required_frame)
+    # The address lives in boat-network.env (LIDAR_IP); lidar YAML layers and velodyne_ip override it.
+    lidar = resolve_lidar(selected, deployment, aliases, required_frame=required_frame,
+                          fallback_ip=boat_network.value('LIDAR_IP'))
     # Validate the complete pair before constructing either physical node.
     velodyne_driver_node = Node(
         package='velodyne_driver',
@@ -70,7 +73,7 @@ def generate_launch_description():
         ('lidar_params_file', '', 'Optional selected lidar YAML over package/deployment defaults'),
         ('lidar_deployment_file', '', 'Optional deployment lidar YAML layer'),
         ('lidar_required_frame', '', 'Internal full-robot fixed frame contract'),
-        ('velodyne_ip', '', 'Explicit device IP override; empty inherits YAML'),
+        ('velodyne_ip', '', 'Explicit device IP override; empty inherits YAML, then LIDAR_IP'),
         ('velodyne_port', '', 'Explicit UDP port override; empty inherits YAML'),
         ('ros_ip', '', 'IP address of the Unity ROS TCP Endpoint'),
         ('ros_port', '', 'Port of the Unity ROS TCP Endpoint'),

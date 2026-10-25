@@ -37,7 +37,8 @@ def test_velodyne_driver_and_transform_use_same_model(tmp_path):
     from test_lidar_startup import context, sensor_factory
 
     share = calibration_share.__wrapped__(tmp_path)
-    resolved = resolve_lidar(share=share)  # authoritative package YAML + validated calibration
+    # authoritative package YAML + validated calibration + LIDAR_IP from the test env file
+    resolved = resolve_lidar(share=share, fallback_ip='192.168.0.201')
     nodes = sensor_factory(share)['sensor_nodes'](context())
     driver, transform = [node['parameters'][0] for node in nodes[:2]]
     assert driver == resolved['driver']

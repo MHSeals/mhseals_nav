@@ -2,6 +2,7 @@
 import ast
 from pathlib import Path
 
+from mhseals_nav import boat_network
 from mhseals_nav.endpoint_configuration import (
     LAYER_ARGUMENTS as ENDPOINT_LAYERS, resolve_endpoints, UNSET_GCS)
 from mhseals_nav.lidar_configuration import resolve_lidar
@@ -24,7 +25,7 @@ def factory(lidar_resolver=resolve_lidar):
             return context[self.name]
     namespace = {'LaunchConfiguration': Configuration, 'Node': lambda **kw: kw,
                  'PathJoinSubstitution': lambda x: x, 'FindPackageShare': lambda x: x,
-                 'large_data_env': {}, 'resolve_lidar': lidar_resolver,
+                 'large_data_env': {}, 'resolve_lidar': lidar_resolver, 'boat_network': boat_network,
                  'endpoint_from_launch': lambda context: resolve_endpoints(
                      Path(__file__).parents[1] / 'config/endpoint_startup.yaml'),
                  'ENDPOINT_LAYERS': ENDPOINT_LAYERS, 'UNSET_GCS': UNSET_GCS,

@@ -30,11 +30,12 @@ def overlay(tmp_path, data):
 
 def test_defaults_deployment_selection_and_explicit_aliases(share, tmp_path):
     """Resolve the single authoritative endpoint plus an explicit deployment overlay."""
-    standalone = resolve_lidar(share=share)
+    standalone = resolve_lidar(share=share, fallback_ip='192.168.0.201')
     deployment = overlay(tmp_path, {'endpoint': {'ip': '192.168.7.9'}})
-    robot = resolve_lidar(deployment=deployment, share=share)
+    robot = resolve_lidar(deployment=deployment, share=share, fallback_ip='192.168.0.201')
     assert standalone['driver']['device_ip'] == '192.168.0.201'
-    assert robot['driver']['device_ip'] == '192.168.7.9'
+    assert standalone['origins']['lidar.endpoint.ip'] == 'boat-network.env LIDAR_IP'
+    assert robot['driver']['device_ip'] == '192.168.7.9'     # a YAML layer beats LIDAR_IP
     assert not (ROOT / 'config/lidar_robot.yaml').exists()
     selected = overlay(tmp_path, {'endpoint': {'ip': '10.1.2.3'}, 'rpm': 420})
     custom = resolve_lidar(selected, deployment,
@@ -81,13 +82,15 @@ def test_custom_calibration_relative_origin_and_content_identity(share, tmp_path
     path = tmp_path / 'custom.yaml'
     path.write_bytes(raw)
     selected = overlay(tmp_path, {'calibration': {'file': 'custom.yaml'}})
-    result = resolve_lidar(selected, overrides={'velodyne_port': '1234'}, share=share)
+    result = resolve_lidar(selected, overrides={'velodyne_port': '1234'}, share=share,
+                           fallback_ip='192.168.0.201')
     assert result['transform']['calibration'] == str(path)
     assert result['calibration'] == {'path': str(path), 'sha256': sha256(raw).hexdigest()}
     assert result['origins']['lidar.calibration'] == str(Path(selected).resolve())
     assert result['origins']['lidar.endpoint.port'] == '<explicit>'
     path.write_bytes(raw.replace(b'distance_resolution: 0.002', b'distance_resolution: 0.003'))
-    assert resolve_lidar(selected, share=share)['calibration']['sha256'] != sha256(raw).hexdigest()
+    changed = resolve_lidar(selected, share=share, fallback_ip='192.168.0.201')
+    assert changed['calibration']['sha256'] != sha256(raw).hexdigest()
 
 
 @pytest.mark.parametrize('alias,value', [
@@ -135,5 +138,14 @@ def test_invalid_operator_endpoint_is_not_hidden_by_alias(share, tmp_path, endpo
 def test_unused_shadowed_calibration_only_requires_valid_reference(share, tmp_path):
     """Validate shadowed reference schema without reading an unconsumed file."""
     deployment = overlay(tmp_path, {'calibration': {'file': '/missing/unused-calibration'}})
-    result = resolve_lidar(ROOT / 'config/lidar.yaml', deployment, share=share)
+    result = resolve_lidar(ROOT / 'config/lidar.yaml', deployment, share=share,
+                           fallback_ip='192.168.0.201')
     assert result['transform']['calibration'].endswith('/params/VLP16db.yaml')
+
+
+def test_no_address_anywhere_is_a_clear_error(share):
+    """No literal IP ships: without LIDAR_IP, a YAML layer or velodyne_ip the launch refuses."""
+    with pytest.raises(ValueError, match='set LIDAR_IP in .*boat-network.env'):
+        resolve_lidar(share=share)
+    assert resolve_lidar(overrides={'velodyne_ip': '10.0.0.9'}, share=share,
+                         fallback_ip='192.168.0.201')['driver']['device_ip'] == '10.0.0.9'
