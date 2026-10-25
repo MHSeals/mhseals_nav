@@ -1,0 +1,64 @@
+# Orin perception costmap (perception-v2 §6): node `costmap` in namespace `perception`,
+# so it publishes /perception/costmap(+_updates) for B's StaticLayer. No inflation here;
+# B inflates. 160 x 160 cells = 25.6 KB per full map, inside the 32 KB transport budget.
+/**:
+  ros__parameters:
+    use_sim_time: false
+    global_frame: odom
+    robot_base_frame: base_link
+    rolling_window: true
+    width: 24
+    height: 24
+    resolution: 0.15
+    update_frequency: 5.0
+    publish_frequency: 5.0
+    always_send_full_costmap: false
+    # StaticLayer reads these three from the costmap, not from its own namespace.
+    track_unknown_space: false
+    trinary_costmap: false       # keep the tracker's graded swath
+    use_maximum: true            # tracks add to lidar marks, never clear them
+    transform_tolerance: 0.3
+    footprint: "[[0.5315, 0.4475], [0.5315, -0.4475], [-0.5315, -0.4475], [-0.5315, 0.4475]]"
+    footprint_padding: 0.1
+    plugins: [lidar_layer, track_layer]
+    # Spatio-temporal voxels that decay: over open water a LiDAR's rays mostly return
+    # nothing, so nothing would ever clear a mark; marks let go after 3 s.
+    lidar_layer:
+      plugin: spatio_temporal_voxel_layer/SpatioTemporalVoxelLayer
+      enabled: true
+      voxel_decay: 3.0
+      decay_model: 0             # linear, seconds
+      voxel_size: 0.05
+      track_unknown_space: false
+      mark_threshold: 0
+      update_footprint_enabled: true
+      combination_method: 1
+      publish_voxel_map: false
+      transform_tolerance: 0.2
+      mapping_mode: false
+      map_save_duration: 60.0
+      observation_sources: pointcloud
+      pointcloud:
+        topic: /points
+        data_type: PointCloud2
+        marking: true
+        clearing: true
+        min_obstacle_height: -0.10       # waterline + 0.10: no spray or wave crests
+        max_obstacle_height: 3.0
+        obstacle_range: 12.0             # the grid's half width
+        expected_update_rate: 0.5
+        # Period in seconds, not Hz. Missing observations make the costmap stale.
+        observation_persistence: 0.0
+        inf_is_valid: false
+        clear_after_reading: true
+        model_type: 1            # 3-D LiDAR frustum: VLP-16, 360 by +-15 degrees
+        vertical_fov_angle: 0.52
+        horizontal_fov_angle: 6.28
+        decay_acceleration: 5.0
+    # The tracker's grid: lethal discs and the graded swath of moving tracks, kept graded.
+    track_layer:
+      plugin: nav2_costmap_2d::StaticLayer
+      map_topic: /perception/track_grid
+      map_subscribe_transient_local: true
+      subscribe_to_updates: false
+      footprint_clearing_enabled: false

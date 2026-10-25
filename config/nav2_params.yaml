@@ -153,41 +153,19 @@ local_costmap:
       # Padding covers tracking error at speed and buoy position noise.
       footprint: "[[0.5315, 0.4475], [0.5315, -0.4475], [-0.5315, -0.4475], [-0.5315, 0.4475]]"
       footprint_padding: 0.1
-      plugins: [obstacle_layer, inflation_layer]
-      # Spatio-temporal voxels that decay: over open water a LiDAR's rays mostly
-      # return nothing, so nothing would ever clear a mark; the local map lets go after 3 s.
-      obstacle_layer:
-        plugin: spatio_temporal_voxel_layer/SpatioTemporalVoxelLayer
-        enabled: true
-        voxel_decay: 3.0
-        decay_model: 0             # linear, seconds
-        voxel_size: 0.05
-        track_unknown_space: false
-        mark_threshold: 0
-        update_footprint_enabled: true
-        combination_method: 1
-        publish_voxel_map: false
-        transform_tolerance: 0.2
-        mapping_mode: false
-        map_save_duration: 60.0
-        observation_sources: pointcloud
-        pointcloud:
-          topic: /points
-          data_type: PointCloud2
-          marking: true
-          clearing: true
-          min_obstacle_height: -0.10       # waterline + 0.10: no spray or wave crests
-          max_obstacle_height: 3.0
-          obstacle_range: 20.0
-          expected_update_rate: 0.5
-          # Period in seconds, not Hz. Missing observations make the costmap stale.
-          observation_persistence: 0.0
-          inf_is_valid: false
-          clear_after_reading: true
-          model_type: 1            # 3-D LiDAR frustum: VLP-16, 360 by +-15 degrees
-          vertical_fov_angle: 0.52
-          horizontal_fov_angle: 6.28
-          decay_acceleration: 5.0
+      # StaticLayer reads these from the costmap, not from its own namespace.
+      trinary_costmap: false     # keep the Orin's graded costs
+      use_maximum: false
+      transform_tolerance: 0.3
+      plugins: [perception_layer, inflation_layer]
+      # The Orin's /perception/costmap (lidar STVL + tracks, graded): resampled through TF
+      # into this rolling map. It has no timeout; costmap_watchdog holds the boat if stale.
+      perception_layer:
+        plugin: nav2_costmap_2d::StaticLayer
+        map_topic: /perception/costmap
+        map_subscribe_transient_local: true
+        subscribe_to_updates: true
+        footprint_clearing_enabled: false
       # Past the hull's padded circumscribed radius (0.84 m), so MPPI knows when
       # to check the whole footprint, and wide enough that the gap between two
       # buoys is not free water: the planner squeezes through only when it must.
@@ -244,41 +222,19 @@ global_costmap:
       # Padding covers tracking error at speed and buoy position noise.
       footprint: "[[0.5315, 0.4475], [0.5315, -0.4475], [-0.5315, -0.4475], [-0.5315, 0.4475]]"
       footprint_padding: 0.1
-      plugins: [obstacle_layer, inflation_layer]
-      # Spatio-temporal voxels that decay: over open water a LiDAR's rays mostly
-      # return nothing, so nothing would ever clear a mark; the global map keeps a buoy 15 s after it leaves view.
-      obstacle_layer:
-        plugin: spatio_temporal_voxel_layer/SpatioTemporalVoxelLayer
-        enabled: true
-        voxel_decay: 15.0
-        decay_model: 0             # linear, seconds
-        voxel_size: 0.10
-        track_unknown_space: false
-        mark_threshold: 0
-        update_footprint_enabled: true
-        combination_method: 1
-        publish_voxel_map: false
-        transform_tolerance: 0.2
-        mapping_mode: false
-        map_save_duration: 60.0
-        observation_sources: pointcloud
-        pointcloud:
-          topic: /points
-          data_type: PointCloud2
-          marking: true
-          clearing: true
-          min_obstacle_height: -0.10       # waterline + 0.10: no spray or wave crests
-          max_obstacle_height: 3.0
-          obstacle_range: 20.0
-          expected_update_rate: 1.0
-          # Period in seconds, not Hz. Missing observations make the costmap stale.
-          observation_persistence: 0.0
-          inf_is_valid: false
-          clear_after_reading: true
-          model_type: 1            # 3-D LiDAR frustum: VLP-16, 360 by +-15 degrees
-          vertical_fov_angle: 0.52
-          horizontal_fov_angle: 6.28
-          decay_acceleration: 5.0
+      # StaticLayer reads these from the costmap, not from its own namespace.
+      trinary_costmap: false     # keep the Orin's graded costs
+      use_maximum: false
+      transform_tolerance: 0.3
+      plugins: [perception_layer, inflation_layer]
+      # The Orin's /perception/costmap (lidar STVL + tracks, graded): resampled through TF
+      # into this rolling map. It has no timeout; costmap_watchdog holds the boat if stale.
+      perception_layer:
+        plugin: nav2_costmap_2d::StaticLayer
+        map_topic: /perception/costmap
+        map_subscribe_transient_local: true
+        subscribe_to_updates: true
+        footprint_clearing_enabled: false
       # Past the hull's padded circumscribed radius (0.84 m), so MPPI knows when
       # to check the whole footprint, and wide enough that the gap between two
       # buoys is not free water: the planner squeezes through only when it must.

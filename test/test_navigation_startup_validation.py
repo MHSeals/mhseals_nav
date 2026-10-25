@@ -215,7 +215,7 @@ def test_actual_factory_consumes_final_projection(base, tmp_path):
     for name in ('local_costmap', 'global_costmap'):
         costmap = effective[name][name]['ros__parameters']
         assert costmap['use_sim_time'] is True
-        assert costmap['obstacle_layer']['enabled'] is False
+        assert 'obstacle_layer' not in costmap
     tree = ns['share'] / 'behavior_trees/nav_to_pose.xml'
     assert effective['bt_navigator']['ros__parameters']['default_nav_to_pose_bt_xml'] == str(tree)
     assert effective['lifecycle_manager_navigation']['ros__parameters']['use_sim_time'] is True

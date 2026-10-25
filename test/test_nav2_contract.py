@@ -78,10 +78,15 @@ def test_costmaps_do_not_require_slam_and_check_sensor_freshness():
         assert len(footprint) >= 3
         assert any(x > 0 for x, _ in footprint)
         assert any(x < 0 for x, _ in footprint)
-        assert params['obstacle_layer']['pointcloud']['expected_update_rate'] > 0
-        assert params['obstacle_layer']['pointcloud']['min_obstacle_height'] >= -0.2  # no underwater marks
-        assert params['obstacle_layer']['observation_sources'] == 'pointcloud'
-        assert params['obstacle_layer']['pointcloud']['topic'] == '/points'
+        # Obstacles come only from the Orin's perception costmap, kept graded.
+        assert params['plugins'] == ['perception_layer', 'inflation_layer']
+        layer = params['perception_layer']
+        assert layer['plugin'] == 'nav2_costmap_2d::StaticLayer'
+        assert layer['map_topic'] == '/perception/costmap'
+        assert layer['subscribe_to_updates'] is True
+        assert layer['footprint_clearing_enabled'] is False
+        assert params['trinary_costmap'] is False and params['use_maximum'] is False
+        assert 'trinary_costmap' not in layer   # StaticLayer reads it from the costmap
         if name == 'local_costmap':
             assert params['update_frequency'] >= 10.0
             assert params['publish_frequency'] >= 10.0
@@ -206,4 +211,5 @@ def test_factory_emits_installed_behavior_trees_and_lidar(use_lidar):
         assert tree.find('.//FollowPath') is not None
     for name in ('local_costmap', 'global_costmap'):
         params = emitted[name][name]['ros__parameters']
-        assert params['obstacle_layer']['enabled'] is use_lidar
+        assert 'obstacle_layer' not in params    # lidar reaches B inside /perception/costmap
+        assert params['perception_layer']['map_topic'] == '/perception/costmap'
