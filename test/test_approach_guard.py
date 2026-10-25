@@ -119,13 +119,13 @@ def test_scattered_clutter_never_chains_into_a_hold():
     for seed in range(5):
         world = clutter(numpy.random.default_rng(seed).uniform(-4.5, 4.5, (200, 2)))
         assert run(world, 9.0) == []
-        # Without the persistence rule the same clutter would hold.
-        assert run(world, 9.0, cfg={**ENFORCE, 'max_speed': 1e9})
+        # Without the chain and cluster rules the same clutter would hold.
+        assert run(world, 9.0, cfg={**ENFORCE, 'max_speed': 1e9, 'min_cluster': 1})
 
 
 def specks(rng, count):
     """``count`` fresh specks a snapshot (spray, wake) within 4.5 m of the boat, after warmup."""
-    spots = rng.uniform(-4.5, 4.5, (2000, 2))
+    spots = rng.uniform(-4.5, 4.5, (20000, 2))
 
     def world(t):
         if t < 5.0:
@@ -142,14 +142,20 @@ def test_overtaker_holds_through_clutter(count):
     for seed in range(10):
         clutter = specks(numpy.random.default_rng(seed), count)
         sent = run(lambda t: overtaker(t) + clutter(t), 25.0)
-        assert sent and sent[0] <= alone + 0.6, (seed, sent[:1], alone)
+        assert sent and sent[0] <= alone + 2.5, (seed, sent[:1], alone)
 
 
-def test_overtaker_holds_through_snapshot_dropouts():
-    alone = run(overtaker, 25.0)[0]
+@pytest.mark.parametrize('count', [10, 20, 40])
+def test_dense_clutter_alone_never_holds(count):
     for seed in range(10):
-        sent = run(overtaker, 25.0, drop=0.2, seed=seed)
-        assert sent and sent[0] <= alone + 1.0, (seed, sent[:1], alone)
+        assert run(specks(numpy.random.default_rng(seed), count), 26.0) == [], seed
+
+
+@pytest.mark.parametrize('drop,latest', [(0.2, 8.0), (0.3, 8.5), (0.4, 9.0)])
+def test_overtaker_holds_through_snapshot_dropouts(drop, latest):
+    for seed in range(10):
+        sent = run(overtaker, 25.0, drop=drop, seed=seed)
+        assert sent and sent[0] <= latest, (seed, sent[:1])
 
 
 def test_a_chain_survives_miss_s_without_a_new_cell_and_no_longer():

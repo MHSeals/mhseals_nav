@@ -7,6 +7,8 @@
 # The new cells must also chain (each within max_speed of the last, through up to miss_s
 # of dropouts), so scattered clutter (spray, wake) does not chain. Slower than move_m / min_age_s
 # (0.6 m/s, odom frame) is never new: a boat closing that slowly is not held for.
+# Dense flicker (about 10+ specks a snapshot for tens of seconds) turns cells known and
+# masks an approach: it fails open, and is for the water bags to size.
 # Hold-only like the other watchdogs: a hold ends the task and the operator releases (U).
 # Autonomy includes a station-keeping zero, so a boat holding station is guarded too.
 # enforce false only logs ("closing in on the hull" warnings) and reports on report_topic
@@ -32,9 +34,11 @@
     memory_s: 30.0           # sim: buoys near the hull drop out of the lidar for 7-19 s
     warmup_s: 5.0            # after a start or a stale spell, learn what is static first
     max_speed: 2.0           # m/s an approaching edge may move between snapshots
+    cluster_m: 0.25          # new cells this close (a cell and its diagonal) are one cluster
+    min_cluster: 6           # cells: spray and wake are specks, a 1 x 0.5 m hull is about 28
     miss_s: 0.4              # snapshots without a new cell a chain survives (2 at 5 Hz)
     max_chains: 20           # chains followed at once, oldest first
-    min_hits: 0.8            # share of a chain's snapshots that must extend it
+    min_hits: 0.6            # share of a chain's snapshots that must extend it
     crop_m: 6.0              # around the base: past trigger_m + move_m + the hull
     confirm_s: 1.5           # a chain this long (sim dock reveals: up to 1.0 s)
     recent_s: 0.5            # an approach counts this long (a timer apart from rate_hz)

@@ -9,7 +9,9 @@ a moving hull's leading edge keeps marking cells that were free a moment ago.
 
 So: lethal cells within ``trigger_m`` of the hull rectangle that lie more than ``move_m``
 from every known lethal cell (first lethal ``min_age_s`` ago or more in more than one
-snapshot, last within ``memory_s``) are new. They are an approach once they form a chain
+snapshot, last within ``memory_s``) are new, if they lie in a connected cluster of
+``min_cluster`` cells (``cluster_m`` links): a hull is one, spray and wake are specks.
+New cells are an approach once they form a chain
 for ``confirm_s`` (``follow``): each step within ``max_speed`` of the last, so scattered
 clutter (spray, wake) cannot chain, and up to ``miss_s`` without a new cell (lidar
 dropouts) keeps a chain. Then, while autonomy
@@ -40,6 +42,30 @@ def lethal_points(cells, resolution, origin, centre, radius, lethal=100):
     ys, xs = numpy.nonzero(cells[rows, cols] >= lethal)
     return numpy.column_stack((origin[0] + (xs + cols.start + 0.5) * resolution,
                                origin[1] + (ys + rows.start + 0.5) * resolution))
+
+
+def clusters(points, link, size):
+    """Mask of the points in a connected cluster (links of at most ``link`` m) of ``size``+."""
+    n = len(points)
+    keep = numpy.zeros(n, bool)
+    if n < size:
+        return keep
+    near = numpy.hypot(points[:, None, 0] - points[None, :, 0],
+                       points[:, None, 1] - points[None, :, 1]) <= link
+    seen = numpy.zeros(n, bool)
+    for first in range(n):
+        if seen[first]:
+            continue
+        member, frontier = numpy.zeros(n, bool), [first]
+        member[first] = seen[first] = True
+        while frontier:
+            fresh = near[frontier].any(axis=0) & ~member
+            member |= fresh
+            frontier = list(numpy.nonzero(fresh)[0])
+        seen |= member
+        if member.sum() >= size:
+            keep |= member
+    return keep
 
 
 def hull_gap(points, pose, half):
@@ -99,6 +125,8 @@ class Guard(HoldGate):
                                       ).min(axis=1) > cfg['move_m']
                 if new.any():
                     fresh, fresh_gaps = near[new], gaps[close][new]
+                    solid = clusters(fresh, cfg['cluster_m'], cfg['min_cluster'])
+                    fresh, fresh_gaps = fresh[solid], fresh_gaps[solid]
         self.follow(now, fresh, fresh_gaps)
 
     def follow(self, now, fresh, gaps):
