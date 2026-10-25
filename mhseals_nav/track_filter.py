@@ -257,20 +257,23 @@ class TrackFilter:
                 for ob in obs.observations]
         live = list(self.all)
         matched_obs, matched_tracks, pairs = set(), set(), []
-        # Id pass: the backend's own id wins over a nearer track without it.
+        # Id pass: the backend's own id wins over a nearer track without it. Several tracks
+        # can carry the id (a candidate restarted from it), so the nearest one in gate wins.
         for i, (ob, z, Rz, vel) in enumerate(rows):
             if not ob.backend_id:
                 continue
+            best = None
             for k, track in enumerate(live):
                 if k in matched_tracks or track.backend != obs.backend or \
                         track.backend_id != ob.backend_id or track.class_id != ob.class_id:
                     continue
                 gate = self._innovation(track, z, Rz, vel)
-                if gate[0] < self.cfg['gate_chi2_id']:
-                    pairs.append((i, k, gate, 'id'))
-                    matched_obs.add(i)
-                    matched_tracks.add(k)
-                break
+                if gate[0] < self.cfg['gate_chi2_id'] and (best is None or gate[0] < best[1][0]):
+                    best = (k, gate)
+            if best is not None:
+                pairs.append((i, best[0], best[1], 'id'))
+                matched_obs.add(i)
+                matched_tracks.add(best[0])
         # Gate pass: global order of increasing d2.
         candidates, d2s = [], []
         for i, (ob, z, Rz, vel) in enumerate(rows):

@@ -63,6 +63,22 @@ def test_id_pass_beats_a_nearer_track_without_the_id():
     assert track_b.backend_id == 'b'
 
 
+def test_id_pass_tries_every_track_with_the_id():
+    f = TrackFilter(CFG)
+    run(f, lambda t: [ob('red_buoy', 5.0, 0.0, 'a')], 1.0)
+    (first,) = f.tracks
+    # Far away, the same backend id starts another track (ids are a hint, not authority).
+    t = run(f, lambda t: [ob('red_buoy', 5.0, 6.0, 'a')], 0.5, start=1.0)
+    second = next(tr for tr in f.tracks if tr.id != first.id)
+    hits = second.hits
+    # Listed first, the old track out of gate must not stop the id pass from the new one.
+    assert f.all.index(first) < f.all.index(second)
+    t += 1 / RATE
+    by_id = f.assoc['id']
+    f.step(frame(t, [ob('red_buoy', 5.0, 6.0, 'a')]), t, fixed_pose)
+    assert second.hits == hits + 1 and f.assoc['id'] == by_id + 1
+
+
 def test_gate_pass_prefers_the_nearest_pairs_globally():
     f = TrackFilter(CFG)
     run(f, lambda t: [ob('red_buoy', 5.0, 0.0), ob('red_buoy', 5.0, 2.0)], 1.0)
