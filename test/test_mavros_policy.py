@@ -3,6 +3,7 @@ import ast
 from pathlib import Path
 import struct
 import sys
+import threading
 from types import SimpleNamespace as NS
 
 from mhseals_nav import mavros_setup as setup
@@ -69,7 +70,8 @@ def inert_main(monkeypatch, overrides=None):
     ns = dict(vars(setup), Node=Node, installed_setup_defaults=lambda: resolve_setup(
         ROOT / 'config/mavros_setup.yaml'),
         rclpy=NS(init=lambda **kw: None, ok=lambda: next(active), try_shutdown=lambda: None),
-        threading=NS(Event=Event, Thread=thread), time=NS(monotonic=lambda: seen.now),
+        threading=NS(Event=Event, Thread=thread, Lock=threading.Lock),
+        time=NS(monotonic=lambda: seen.now),
         MessageInterval=NS(Request=lambda **kw: NS(**kw)), DiagnosticStatus=NS,
         KeyValue=NS, Mavlink=NS, RCIn=NS, State=NS, qos_profile_sensor_data=None,
         spin_until_shutdown=lambda node: None)
@@ -281,3 +283,24 @@ def test_reconnect_after_a_partial_retry_requests_the_whole_list(monkeypatch):
     seen.worker.__globals__['request_rates'] = lambda rates, *a, **kw: requested.append(rates)
     seen.worker()
     assert requested == [validate_rates(list(seen.params['message_rates']))]
+
+
+def test_a_rates_change_after_a_partial_retry_requests_the_whole_new_list(monkeypatch):
+    """A message_rates change landing before the worker reads a retry is not narrowed."""
+    monkeypatch.setitem(sys.modules, 'rcl_interfaces', NS())
+    monkeypatch.setitem(sys.modules, 'rcl_interfaces.msg', NS(SetParametersResult=NS))
+    seen = inert_main(monkeypatch, {'verify_period': 10.})
+    seen.callbacks['/mavros/state'](NS(connected=True))
+    verify = seen.timers[1][1]
+    verify()
+    seen.now += 10.
+    for _ in range(250):                      # all but 30 and 31 arrive on time
+        for msgid in (33, 24, 27, 1, 193, 65):
+            seen.callbacks['/uas1/mavlink_source'](fcu(msgid))
+    verify()                                  # wakes the worker for 30 and 31 only
+    result = seen.setter([NS(name='message_rates', value=['33:10', '30:25', '65:5'])])
+    assert result.successful
+    requested = []
+    seen.worker.__globals__['request_rates'] = lambda rates, *a, **kw: requested.append(rates)
+    seen.worker()
+    assert requested == [[(33, 10.), (30, 25.), (65, 5.)]]

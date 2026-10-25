@@ -173,11 +173,21 @@ def main(args=None):
     policy = validate_setup({name: node.get_parameter(name).value for name in defaults})
     # A changed list is requested at once; the FCU keeps the latest request.
     live = LiveParams(node, {'message_rates': rates_rule},
-                      on_change=lambda values, changed: wanted.set())
+                      on_change=lambda values, changed: want())
     client = node.create_client(MessageInterval, '/mavros/set_message_interval')
     wanted = threading.Event()
     subset = [None]       # ids to request on the next wake; None is the whole list
     busy = [False]        # a request round is running: its arrivals are not counted
+    lock = threading.Lock()   # subset and wanted change together
+
+    def want(ids=None):
+        """Wake the worker for ``ids``, or the whole list; a pending whole list wins."""
+        with lock:
+            if ids is None or (wanted.is_set() and subset[0] is None):
+                subset[0] = None
+            else:
+                subset[0] = set(ids) | (subset[0] or set())
+            wanted.set()
     # Not set at start: the first connected /mavros/state is a False->True edge and asks.
     connected = [False]
     last_reboot = [None]
@@ -186,8 +196,7 @@ def main(args=None):
         # One reboot shows as both a state edge and a boot-clock reset; ask once.
         now = time.monotonic()
         if not is_duplicate_trigger(last_reboot[0], now, policy['reboot_dedupe_window']):
-            subset[0] = None
-            wanted.set()
+            want()
             last_reboot[0] = now
 
     def receive_state(state):
@@ -205,9 +214,10 @@ def main(args=None):
     def work():
         while rclpy.ok():
             wanted.wait()
-            wanted.clear()
-            rates, ids = live['message_rates'], subset[0]
-            subset[0] = None
+            with lock:
+                wanted.clear()
+                ids, subset[0] = subset[0], None
+            rates = live['message_rates']
             if ids is not None:
                 rates = [(i, hz) for i, hz in rates if i in ids]
             if client.wait_for_service(timeout_sec=policy['service_wait']):
@@ -244,8 +254,7 @@ def main(args=None):
         if short:
             node.get_logger().info('rates short, requesting again: ' + ', '.join(
                 f'{i} at {got:.1f} of {hz:g} Hz' for i, hz, got in short))
-            subset[0] = {i for i, _, _ in short}
-            wanted.set()
+            want({i for i, _, _ in short})
 
     def receive_mavlink(msg):
         if not from_fcu(msg.sysid, msg.compid, policy['fcu_sysid']):
