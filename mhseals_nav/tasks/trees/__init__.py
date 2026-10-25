@@ -7,15 +7,14 @@ first drives there, so it starts where its objects are in view.
 
 import math
 
-from py_trees.composites import Sequence
-from py_trees.decorators import FailureIsSuccess
-
 from mhseals_nav.tasks import search
 from mhseals_nav.tasks.behaviours import Navigate, PlanHypothesis, PlanPose
 from mhseals_nav.tasks.trees import (
     circle_test, docking, follow_path, mission, nav_channel, pair_test,
     return_home, speed_challenge,
 )
+from py_trees.composites import Sequence
+from py_trees.decorators import FailureIsSuccess
 
 
 # What the recogniser calls each task (tasks/recognition.py).
@@ -24,15 +23,15 @@ KINDS = {'nav_channel': 'nav_channel', 'follow_path': 'follow_path', 'docking': 
 
 
 def look_for(name, labels, params, **overrides):
-    """The search subtree (tasks/search.py) with the task's own ``search`` overrides."""
+    """Return the search subtree (tasks/search.py) with the task's ``search`` overrides."""
     return search.search(name, labels, search.load_config(
         {**(params.get('search') or {}), **overrides}))
 
 
 def gate_options(params):
-    """GateRun's YAML: the first gate's reach, and its look spread (search's scan spread)."""
+    """Return GateRun's YAML: the first gate's reach, and its look (Scan's spread)."""
     spread = search.load_config(params.get('search'))['scan_spread_deg']
-    return dict(first_radius=params['first_gate_radius'], spread=math.radians(spread))
+    return {'first_radius': params['first_gate_radius'], 'spread': math.radians(spread)}
 
 
 def approached(task, build):

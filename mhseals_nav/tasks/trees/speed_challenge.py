@@ -6,13 +6,12 @@ gate to the gate is what scores, so once the mark is known the lap and the retur
 through the gate are one route: the boat never stops between them.
 """
 
-from py_trees.common import ParallelPolicy
-from py_trees.composites import Parallel, Selector, Sequence
-
 from mhseals_nav.tasks.behaviours import (
     CountObjects, GateRun, Navigate, PlanCircle, PlanConcat, PlanGatePass, PlanView, Report,
     ReportCount, Search,
 )
+from py_trees.common import ParallelPolicy
+from py_trees.composites import Parallel, Selector, Sequence
 
 
 def build(params):

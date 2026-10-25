@@ -14,10 +14,9 @@ Gates only stop or skip; they never start or resume anything.
 
 import math
 
-from py_trees.common import Status
-
 from mhseals_nav.tasks import load_config
 from mhseals_nav.tasks.behaviours import Leaf
+from py_trees.common import Status
 
 
 class Conditions:
@@ -32,7 +31,7 @@ class Conditions:
         self.since = {}  # condition -> time it began to hold
 
     def held(self, name, bad, now):
-        """Seconds the condition ``name`` has held (0 when it does not)."""
+        """Return the seconds the condition has held (0 when it does not)."""
         if not bad:
             self.since.pop(name, None)
             return 0.0

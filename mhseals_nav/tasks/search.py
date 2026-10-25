@@ -13,13 +13,12 @@ clearly (``hysteresis``) better, so the boat turns while moving and never dither
 import math
 from pathlib import Path
 
-import numpy as np
-import py_trees
-from py_trees.common import Status
-
 from mhseals_nav.tasks import geometry
 from mhseals_nav.tasks.behaviours import Driver, Leaf
 from mhseals_nav.tasks.tracks import Track
+import numpy as np
+import py_trees
+from py_trees.common import Status
 
 
 def wrap(angle):

@@ -1,8 +1,7 @@
 """Task 6, return to home: back through the gate of two black buoys by the start."""
 
-from py_trees.composites import Sequence
-
 from mhseals_nav.tasks.behaviours import GateRun, Navigate, PlanHome, Report
+from py_trees.composites import Sequence
 
 
 def build(params):

@@ -6,8 +6,8 @@ course-map priors. Both become ``Track`` tuples, so leaves never see a message t
 The functions take duck-typed messages, so they are testable without ROS.
 """
 
-import math
 from collections import namedtuple
+import math
 
 # sigma: 1-sigma position uncertainty in m (None when the source gives none).
 # prior: loaded from the course map and not yet seen this run (v2 only).
@@ -62,6 +62,6 @@ def remember(memory, seen, now, horizon=5.0, separation=1.0):
 
 
 def objects(tracks, min_confidence=0.0):
-    """The (label, x, y) view of live tracks the task leaves plan with."""
+    """Return the (label, x, y) view of live tracks the task leaves plan with."""
     return [(t.label, t.x, t.y) for t in tracks
             if not t.prior and t.confidence >= min_confidence]

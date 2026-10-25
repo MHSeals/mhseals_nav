@@ -5,12 +5,11 @@ fails is tried again up to its ``attempts`` while its time limit lasts; then it 
 reported as skipped and the run moves on, ending with the return home.
 """
 
+from mhseals_nav.tasks.behaviours import Deadline, Report
+from mhseals_nav.tasks.conditions import Gate, Watch
 from py_trees.common import ParallelPolicy, Status
 from py_trees.composites import Parallel, Selector, Sequence
 from py_trees.decorators import Decorator
-
-from mhseals_nav.tasks.behaviours import Deadline, Report
-from mhseals_nav.tasks.conditions import Gate, Watch
 
 
 class Attempts(Decorator):

@@ -1,10 +1,9 @@
 import importlib.util
 import math
 
-import pytest
-
 from mhseals_nav.tasks import geometry
 from mhseals_nav.tasks.tracks import Track
+import pytest
 
 # Never a module-level importorskip: Jazzy's launch_testing plugin turns it into a skip
 # of the whole test directory.
@@ -13,6 +12,8 @@ pytestmark = pytest.mark.skipif(importlib.util.find_spec('py_trees') is None,
 if importlib.util.find_spec('py_trees') is not None:
     import py_trees
     from mhseals_nav.tasks.trees import TREES
+
+NO_SEARCH = {'priors': False, 'scan': False, 'next_view': False, 'sweep': False}
 
 
 def test_gates_pair_nearest_markers_and_face_away_from_the_boat():
@@ -129,7 +130,7 @@ class World:
 
     def __init__(self, task, params):
         py_trees.blackboard.Blackboard.clear()  # one run per process, as for real
-        self.state = dict(objects=[], pose=(0.0, 0.0, 0.0), tracks=[])
+        self.state = {'objects': [], 'pose': (0.0, 0.0, 0.0), 'tracks': []}
         self.events, self.goals, self.preempted = [], [], None
         self.use(TREES[task](params))
         self.board = py_trees.blackboard.Client(name='world')
@@ -272,7 +273,8 @@ def test_speed_challenge_circles_the_mark_and_counts_spills_past_the_gate():
 
     assert world.run(script=mark) == 'SUCCESS'
     names = world.names()
-    assert names.index('speed_started') < names.index('spill_count') < names.index('speed_finished')
+    assert names.index('speed_started') < names.index('spill_count') < names.index(
+        'speed_finished')
     assert world.event('spill_count')['count'] == 2  # the one before the gate is not in the task
     # The lap and the return through the gate are one route: no stop at the mark.
     lap = next(goal.route for goal in world.goals if len(goal.route) == 10)
@@ -295,7 +297,7 @@ def test_return_home_finds_the_black_gate_by_home():
 
 
 def test_mission_skips_a_failed_task_and_still_returns_home():
-    settings = dict(tasks=['nav_channel', 'follow_path', 'return_home'])
+    settings = {'tasks': ['nav_channel', 'follow_path', 'return_home']}
     for name in settings['tasks']:
         settings[name] = params(name)
     settings['follow_path']['time_limit'] = 3.0  # no path in sight: it times out
@@ -309,7 +311,7 @@ def test_mission_skips_a_failed_task_and_still_returns_home():
 
 
 def test_mission_needs_the_channel():
-    settings = dict(tasks=['nav_channel', 'return_home'])
+    settings = {'tasks': ['nav_channel', 'return_home']}
     for name in settings['tasks']:
         settings[name] = params(name)
     settings['nav_channel']['time_limit'] = 2.0
@@ -352,7 +354,8 @@ def test_docking_looks_along_the_dock_when_no_empty_bay_is_in_view():
     world.state['objects'] = list(occupied)
 
     def turn(tick, world):
-        if any(len(goal.route) == 1 and goal.route[0][:2] == world.goals[0].route[-1][:2] for goal in world.goals[1:]):  # the sweep shows the rest
+        if any(len(goal.route) == 1 and goal.route[0][:2] == world.goals[0].route[-1][:2]
+               for goal in world.goals[1:]):  # the sweep shows the rest
             world.state['objects'] = occupied + [('red_circle', 10, -3), ('blue_square', 10, -5)]
 
     assert world.run(script=turn) == 'SUCCESS'
@@ -399,8 +402,8 @@ def test_pair_test_remembers_the_pair_after_tracks_disappear():
     assert world.goals[-1].route[-1][:2] == pytest.approx((5.5, 0))
 
 
-@pytest.mark.parametrize('objects', [[], [('red_pole_buoy', 7, 1.5)],
-                                      gate(7, 0, 0.5), gate(7, 0, 12)])
+@pytest.mark.parametrize('objects', [
+    [], [('red_pole_buoy', 7, 1.5)], gate(7, 0, 0.5), gate(7, 0, 12)])
 def test_pair_test_fails_after_bounded_search_without_a_valid_pair(objects):
     settings = params('pair_test')
     world = World('pair_test', settings)
@@ -511,7 +514,7 @@ def test_gate_run_retries_an_aborted_gate_and_keeps_a_lost_gate():
 
     assert world.run(script=trouble) == 'SUCCESS'
     assert world.names() == ['gate_cleared', 'gate_cleared']
-    assert ('decision', dict(kind='retry', reason='gate 1 aborted: retry')) in world.events
+    assert ('decision', {'kind': 'retry', 'reason': 'gate 1 aborted: retry'}) in world.events
     assert world.goals[1].route[-1][:2] == pytest.approx((14.1, 0))
 
 
@@ -541,11 +544,10 @@ def test_channel_with_one_colour_in_view_searches_instead_of_waiting():
 
 
 def test_mission_retries_a_failed_task_then_skips_it_with_reasons():
-    settings = dict(tasks=['nav_channel', 'docking', 'return_home'])
+    settings = {'tasks': ['nav_channel', 'docking', 'return_home']}
     for name in settings['tasks']:
         settings[name] = params(name)
-    settings['docking'].update(attempts=2, search={'enable': dict(
-        priors=False, scan=False, next_view=False, sweep=False)})
+    settings['docking'].update(attempts=2, search={'enable': NO_SEARCH})
     world = World('mission', settings)
     world.state['objects'] = gate(7, 0, 3) + gate(13, 0, 3) + [
         ('black_buoy', -2.5, 1.6), ('black_buoy', -2.5, -1.6)]
@@ -604,11 +606,11 @@ def test_spin_report_turns_one_quarter_goal_at_a_time():
 
 
 def test_a_task_approach_is_its_own_and_does_not_leak_to_the_next():
-    settings = dict(tasks=['nav_channel', 'docking', 'speed_challenge'])
+    settings = {'tasks': ['nav_channel', 'docking', 'speed_challenge']}
     for name in settings['tasks']:
         settings[name] = params(name)
-    settings['docking'].update(approach=[10.0, -5.0, 0.0], search={'enable': dict(
-        priors=False, scan=False, next_view=False, sweep=False)})  # nothing there: skipped
+    settings['docking'].update(approach=[10.0, -5.0, 0.0],
+                               search={'enable': NO_SEARCH})  # nothing there: skipped
     world = World('mission', settings)
     speed = gate(20, 11, 2.5, 'red_buoy', 'green_buoy') + [('blue_buoy', 36, 11)]
     world.state['objects'] = gate(7, 0, 3) + gate(13, 0, 3) + speed
@@ -620,8 +622,8 @@ def test_recognised_task_is_approached_without_a_layout():
     from mhseals_nav.tasks.behaviours import PlanHypothesis
     world = World('nav_channel', params('nav_channel'))
     world.board.register_key(key='hypotheses', access=py_trees.common.Access.WRITE)
-    world.board.hypotheses = [dict(type='dock', state='confirmed', confidence=0.9,
-                                   pose=[12.0, -20.0, -math.pi / 2])]
+    world.board.hypotheses = [{'type': 'dock', 'state': 'confirmed', 'confidence': 0.9,
+                               'pose': [12.0, -20.0, -math.pi / 2]}]
     world.tree = py_trees.trees.BehaviourTree(PlanHypothesis('dock', 'view', 'dock'))
     world.tree.setup(navigator=world, report=lambda event, **details: None)
     world.board.register_key(key='view', access=py_trees.common.Access.READ)
@@ -644,7 +646,7 @@ def test_conditions_gate_precise_tasks_and_catch_a_weak_thruster():
     assert c.precise() is None  # float: dock from perception
     c.fix = 4
     assert 'GPS fix 4' in c.precise()
-    c = Conditions(dict(float_policy='skip'))
+    c = Conditions({'float_policy': 'skip'})
     c.fix = 5
     assert c.precise()
     c = Conditions()
@@ -662,7 +664,7 @@ def test_conditions_gate_precise_tasks_and_catch_a_weak_thruster():
 
 def test_mission_skips_docking_without_rtk_and_aborts_a_task_on_weak_thrusters():
     from mhseals_nav.tasks.conditions import Conditions
-    settings = dict(tasks=['nav_channel', 'docking', 'return_home'])
+    settings = {'tasks': ['nav_channel', 'docking', 'return_home']}
     for name in settings['tasks']:
         settings[name] = params(name)
     world = World('mission', settings)
@@ -692,7 +694,7 @@ def test_mission_skips_docking_without_rtk_and_aborts_a_task_on_weak_thrusters()
 
 
 def mission_retrying_the_channel():
-    settings = dict(tasks=['nav_channel', 'return_home'])
+    settings = {'tasks': ['nav_channel', 'return_home']}
     for name in settings['tasks']:
         settings[name] = params(name)
     settings['nav_channel']['attempts'] = 2
@@ -702,7 +704,7 @@ def mission_retrying_the_channel():
 
 
 def searching(*strategies, tracks=()):
-    """A search with only ``strategies`` enabled, the next one ready to carry on."""
+    """Return a world searching with only ``strategies``, the next ready to carry on."""
     from mhseals_nav.tasks import search
     world = World('nav_channel', params('nav_channel'))
     world.use(search.search('find', ('red_pole_buoy',), search.load_config({'enable': {
@@ -744,8 +746,10 @@ def holding_station():
     holding_station,
 ], ids=['approach', 'attempts', 'priors', 'scan', 'next_view', 'report_count', 'keep_station'])
 def test_a_goal_cancelled_outside_the_task_preempts_it(scenario):
-    """A CANCELED the task never asked for is an override (the TUI's revoke): nothing
-    carries on, retries, or sends another goal."""
+    """Treat a CANCELED the task never asked for as an override (the TUI's revoke).
+
+    Nothing carries on, retries, or sends another goal.
+    """
     world, script = scenario(), None
     if isinstance(world, tuple):
         world, script = world
@@ -774,7 +778,7 @@ def test_gate_reach_and_goal_resends_come_from_yaml():
 
 
 def replacing_driver(refuse):
-    """A Driver on a fake Nav2; ``refuse`` (a one-item list) rejects the goals sent."""
+    """Return a Driver on a fake Nav2; ``refuse`` (a one-item list) rejects goals sent."""
     from types import SimpleNamespace
     from mhseals_nav.tasks.behaviours import Hold
     goals = []

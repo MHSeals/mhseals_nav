@@ -5,9 +5,8 @@ searches (tasks/search.py); if the second gate is not in sight after the first, 
 looks along the unexplored bearings ahead and drives on until it is.
 """
 
-from py_trees.composites import Sequence
-
 from mhseals_nav.tasks.behaviours import GateRun
+from py_trees.composites import Sequence
 
 
 def build(params):

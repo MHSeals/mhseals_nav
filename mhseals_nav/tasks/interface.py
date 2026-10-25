@@ -18,10 +18,21 @@ never resumes by itself. Started while a human has control, the task refuses to 
 import argparse
 import json
 import math
+from pathlib import Path
 import sys
 import time
-from pathlib import Path
 
+from action_msgs.msg import GoalStatus
+from diagnostic_msgs.msg import DiagnosticArray
+from geometry_msgs.msg import PoseStamped, Twist, Vector3Stamped
+from mavros_msgs.msg import GPSRAW
+from mhseals_nav.tasks import load_config, tracks
+from mhseals_nav.tasks.conditions import Conditions, speed as conditions_speed
+from mhseals_nav.tasks.recognition import Recogniser
+from mhseals_nav.tasks.search import Coverage, load_config as load_search
+from mhseals_nav.tasks.trees import KINDS, TREES
+from nav2_msgs.action import NavigateThroughPoses, NavigateToPose
+from nav_msgs.msg import Odometry
 import py_trees
 import rclpy
 from rclpy.action import ActionClient
@@ -29,28 +40,15 @@ from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.signals import SignalHandlerOptions
 from rclpy.time import Time
-import yaml
-from geometry_msgs.msg import PoseStamped, Twist, Vector3Stamped
-from mavros_msgs.msg import GPSRAW
-from nav_msgs.msg import Odometry
-from nav2_msgs.action import NavigateThroughPoses, NavigateToPose
-from action_msgs.msg import GoalStatus
 from std_msgs.msg import String
 from tf2_ros import Buffer, TransformException, TransformListener
 from vision_msgs.msg import Detection3DArray
-
-from diagnostic_msgs.msg import DiagnosticArray
-
-from mhseals_nav.tasks import load_config, tracks
-from mhseals_nav.tasks.conditions import Conditions, speed as conditions_speed
-from mhseals_nav.tasks.trees import KINDS, TREES
+import yaml
 
 try:  # perception v2 messages (pv2-track); without them only /objects/map is read
     from mhseals_nav.msg import TrackArray
 except ImportError:
     TrackArray = None
-from mhseals_nav.tasks.search import Coverage, load_config as load_search
-from mhseals_nav.tasks.recognition import Recogniser
 
 AUTHORITY_TOPIC = '/mhseals_testing/authority'
 EVENTS_SCHEMA = 'mhseals.task_events/1'  # every /task/events message (test/fixtures)
@@ -60,7 +58,7 @@ HUMAN_OWNERS = ('rc', 'keyboard', 'hold')
 
 
 def claim_suspended(record):
-    """True when an authority record (JSON text) is owned by a human.
+    """Tell whether an authority record (JSON text) is owned by a human.
 
     The arbiter never publishes a task claim: a running task is only a source,
     so a human owner (rc, keyboard, hold) is what suspends it. A missing or
@@ -159,7 +157,7 @@ class Navigator:
             goal.cancel()
 
     def settled(self):
-        """True once Nav2 holds no goal of this run that it could still drive."""
+        """Tell whether Nav2 holds no goal of this run that it could still drive."""
         self.goals = [goal for goal in self.goals if not goal.settled]
         return not self.goals
 
@@ -169,7 +167,7 @@ class Navigator:
             return None
         if route and not quiet:
             x, y, yaw = route[-1]
-            self.last = dict(x=round(x, 2), y=round(y, 2), yaw=round(yaw, 2), why=why)
+            self.last = {'x': round(x, 2), 'y': round(y, 2), 'yaw': round(yaw, 2), 'why': why}
             if self.report is not None:
                 self.report('goal', **self.last)
         poses = [self.pose(*waypoint) for waypoint in route]
@@ -221,8 +219,8 @@ class TaskRunner(Node):
         self.recogniser = Recogniser.from_yaml(config_path('recognition.yaml'))
         self.status_at, self.status_last, self.hypotheses_at = None, None, None
         stages = params.get('tasks', [task] if task != 'mission' else [])
-        self.stages = {name: dict(state='pending', attempts=0, failures=0, elapsed=0.0,
-                                  since=None) for name in stages}
+        self.stages = {name: {'state': 'pending', 'attempts': 0, 'failures': 0,
+                              'elapsed': 0.0, 'since': None} for name in stages}
         self.stage, self.recent = None, []
         # A human override (rc, keyboard, hold) ends the task the moment it arrives.
         self.suspended, self.owner = False, None
@@ -285,7 +283,7 @@ class TaskRunner(Node):
         """
         conditions = Conditions(config)
         topics = conditions.cfg
-        self.velocity = dict(command=None, measured=None, effort=None)
+        self.velocity = {'command': None, 'measured': None, 'effort': None}
         if topics['fix_topic']:
             self.create_subscription(GPSRAW, topics['fix_topic'],
                                      lambda m: setattr(conditions, 'fix', m.fix_type), 1)
@@ -316,7 +314,7 @@ class TaskRunner(Node):
             self.refuse()
 
     def refuse(self):
-        """A human has control: do not start, and never start later by itself."""
+        """Do not start while a human has control, nor later by itself."""
         self.decide('give_up', f'{self.owner} has control: not starting')
         self.report('task_refused', owner=self.owner)
         self.finish('REFUSED')
@@ -331,7 +329,8 @@ class TaskRunner(Node):
             return
         self.preempting = True
         self.navigator.close()
-        self.decide('give_up', f'{why or (self.owner or "human") + " override"}: stopped, no resume')
+        why = why or f'{self.owner or "human"} override'
+        self.decide('give_up', f'{why}: stopped, no resume')
         self.report('task_suspended', owner=self.owner)
         if not self.ticking:
             self.finish('PREEMPTED')
@@ -355,8 +354,9 @@ class TaskRunner(Node):
         now = self.now()
         if event == 'decision' and self.stage and 'stage' not in details:
             details['stage'] = self.stage
-        payload = dict(schema=EVENTS_SCHEMA, task=self.task, event=event, time=now,
-                       elapsed=now - self.started if self.started is not None else 0.0, **details)
+        payload = {'schema': EVENTS_SCHEMA, 'task': self.task, 'event': event, 'time': now,
+                   'elapsed': now - self.started if self.started is not None else 0.0,
+                   **details}
         self.events.publish(String(data=json.dumps(payload, default=str)))
         self.get_logger().info(f'{event} {details}')
         self.follow(event, details, payload)
@@ -374,8 +374,8 @@ class TaskRunner(Node):
             kind = KINDS.get(details['stage'])
             if kind and event != 'stage_failed':
                 self.recogniser.mark(kind, 'done' if event == 'stage_completed' else 'failed')
-            stage['state'] = dict(stage_completed='done', stage_skipped='skipped',
-                                  stage_failed='running')[event]
+            stage['state'] = {'stage_completed': 'done', 'stage_skipped': 'skipped',
+                              'stage_failed': 'running'}[event]
             if event == 'stage_failed':
                 stage['failures'] += 1
             if stage['since'] is not None:
@@ -460,14 +460,16 @@ class TaskRunner(Node):
         for name, stage in self.stages.items():
             if stage['state'] == 'running' and stage['since'] is not None:
                 stages[name]['elapsed'] = round(now - stage['since'], 1)
-        self.status.publish(String(data=json.dumps(dict(
-            schema='mhseals.mission_status/1', task=self.task, status=self.outcome or status,
-            elapsed=round(now - (self.started or now), 1), tip=tip.name if tip else None,
-            stage=self.stage or (self.task if self.task != 'mission' else None),
-            phase=getattr(tip, 'phase', None) if self.outcome is None else 'done',
-            behaviour=tip.name if tip else None, goal=self.navigator.last, stages=stages,
-            remaining=[n for n, st in self.stages.items() if st['state'] == 'pending'],
-            recent=self.recent), default=str)))
+        self.status.publish(String(data=json.dumps({
+            'schema': 'mhseals.mission_status/1', 'task': self.task,
+            'status': self.outcome or status, 'elapsed': round(now - (self.started or now), 1),
+            'tip': tip.name if tip else None,
+            'stage': self.stage or (self.task if self.task != 'mission' else None),
+            'phase': getattr(tip, 'phase', None) if self.outcome is None else 'done',
+            'behaviour': tip.name if tip else None, 'goal': self.navigator.last,
+            'stages': stages,
+            'remaining': [n for n, st in self.stages.items() if st['state'] == 'pending'],
+            'recent': self.recent}, default=str)))
 
     def finish(self, outcome):
         self.outcome = outcome
@@ -492,7 +494,7 @@ class TaskRunner(Node):
 
 
 def config_path(name):
-    """A task YAML from the installed share, else from this source tree."""
+    """Return a task YAML's path in the installed share, else in this source tree."""
     from ament_index_python.packages import get_package_share_directory, PackageNotFoundError
     try:
         path = Path(get_package_share_directory('mhseals_nav')) / 'config/tasks' / name

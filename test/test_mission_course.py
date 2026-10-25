@@ -10,10 +10,9 @@ import importlib.util
 import math
 from pathlib import Path
 
+from mhseals_nav.tasks.tracks import Track
 import pytest
 import yaml
-
-from mhseals_nav.tasks.tracks import Track
 
 pytestmark = pytest.mark.skipif(importlib.util.find_spec('py_trees') is None,
                                 reason='needs py_trees')

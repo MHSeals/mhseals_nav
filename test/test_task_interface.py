@@ -15,6 +15,9 @@ if not pytestmark.args[0]:
     import rclpy
     from mhseals_nav.tasks.interface import TaskRunner
 
+CIRCLE = {'mark': 'yellow_buoy', 'search_distance': 15.0, 'circle_radius': 3.0,
+          'circle_clockwise': False, 'circle_points': 12}
+
 
 def test_circle_waits_for_initial_tf_before_planning(monkeypatch):
     """A late TF subscriber must not fail a task with an already-visible buoy."""
@@ -27,9 +30,7 @@ def test_circle_waits_for_initial_tf_before_planning(monkeypatch):
         return SimpleNamespace(done=False, cancel=lambda: None)
 
     try:
-        runner = TaskRunner('circle_test', dict(
-            mark='yellow_buoy', search_distance=15.0, circle_radius=3.0,
-            circle_clockwise=False, circle_points=12))
+        runner = TaskRunner('circle_test', dict(CIRCLE))
         runner.objects = [('yellow_buoy', 9.0, 0.0)]
         monkeypatch.setattr(runner.navigator, 'ready', lambda: True)
         monkeypatch.setattr(runner.navigator, 'send', send)
@@ -56,9 +57,7 @@ def test_home_reported_once_and_goal_per_send(monkeypatch):
     rclpy.init()
     runner = None
     try:
-        runner = TaskRunner('circle_test', dict(
-            mark='yellow_buoy', search_distance=15.0, circle_radius=3.0,
-            circle_clockwise=False, circle_points=12))
+        runner = TaskRunner('circle_test', dict(CIRCLE))
         runner.objects = [('yellow_buoy', 9.0, 0.0)]
         events = []
         monkeypatch.setattr(runner, 'report', lambda event, **d: events.append((event, d)))
@@ -70,7 +69,7 @@ def test_home_reported_once_and_goal_per_send(monkeypatch):
         for _ in range(3):
             runner.tick()
         homes = [d for e, d in events if e == 'home']
-        assert homes == [dict(x=1.0, y=2.0)]
+        assert homes == [{'x': 1.0, 'y': 2.0}]
     finally:
         if runner is not None:
             runner.destroy_node()
@@ -78,7 +77,7 @@ def test_home_reported_once_and_goal_per_send(monkeypatch):
 
 
 def reporting_navigator(events):
-    """A real Navigator whose Nav2 clients are stubbed, so ``send`` reports for real."""
+    """Return a real Navigator with stubbed Nav2 clients, so ``send`` reports for real."""
     from mhseals_nav.tasks.interface import Navigator
     navigator = Navigator.__new__(Navigator)
     navigator.report = lambda event, **d: events.append((event, d))
@@ -109,7 +108,7 @@ def test_navigate_reports_one_goal_across_retries(monkeypatch):
     node.initialise()
     for _ in range(40):
         node.update()
-    assert events == [('goal', dict(x=4.0, y=5.0, yaw=1.5, why='go'))]
+    assert events == [('goal', {'x': 4.0, 'y': 5.0, 'yaw': 1.5, 'why': 'go'})]
 
 
 def test_navigate_on_an_empty_route_fails_without_event_or_raising():
@@ -147,9 +146,10 @@ def test_pass_gates_through_a_gate_reports_one_goal(monkeypatch):
 
 
 def authority(owner):
-    """An authority record shaped like harness/authority.derive output."""
-    return json.dumps(dict(schema='mhseals.authority/1', owner=owner, source=None,
-                           claims=[], task=dict(state='RUNNING') if owner == 'task' else None))
+    """Return an authority record shaped like harness/authority.derive output."""
+    return json.dumps({'schema': 'mhseals.authority/1', 'owner': owner, 'source': None,
+                       'claims': [],
+                       'task': {'state': 'RUNNING'} if owner == 'task' else None})
 
 
 def test_human_override_ends_the_task_at_once_and_never_resumes(monkeypatch):
@@ -171,9 +171,7 @@ def test_human_override_ends_the_task_at_once_and_never_resumes(monkeypatch):
         return SimpleNamespace(done=False, cancel=lambda: cancels.append(1))
 
     try:
-        runner = TaskRunner('circle_test', dict(
-            mark='yellow_buoy', search_distance=15.0, circle_radius=3.0,
-            circle_clockwise=False, circle_points=12))
+        runner = TaskRunner('circle_test', dict(CIRCLE))
         runner.objects = [('yellow_buoy', 9.0, 0.0)]
         monkeypatch.setattr(runner.navigator, 'ready', lambda: True)
         monkeypatch.setattr(runner.navigator, 'send', send)
@@ -195,10 +193,6 @@ def test_human_override_ends_the_task_at_once_and_never_resumes(monkeypatch):
         rclpy.try_shutdown()
 
 
-CIRCLE = dict(mark='yellow_buoy', search_distance=15.0, circle_radius=3.0,
-              circle_clockwise=False, circle_points=12)
-
-
 @pytest.mark.parametrize('owner', ['rc', 'keyboard', 'hold'])
 def test_a_task_started_while_a_human_has_control_refuses_and_never_starts(
         monkeypatch, owner):
@@ -215,7 +209,7 @@ def test_a_task_started_while_a_human_has_control_refuses_and_never_starts(
         monkeypatch.setattr(runner, 'report', lambda event, **d: events.append((event, d)))
         runner._authority(SimpleNamespace(data=authority(owner)))
         assert runner.outcome == 'REFUSED' and EXIT_CODES['REFUSED'] == 4
-        assert ('task_refused', dict(owner=owner)) in events
+        assert ('task_refused', {'owner': owner}) in events
         assert f'{owner} has control: not starting' in [
             d.get('reason') for e, d in events if e == 'decision']
         runner._authority(SimpleNamespace(data=authority('none')))  # released
@@ -252,7 +246,7 @@ def test_a_goal_cancelled_by_someone_else_ends_the_run_after_the_tick(monkeypatc
         goals[0].done, goals[0].status = True, 'CANCELED'  # the TUI revoked it
         runner.tick()
         assert runner.outcome == 'PREEMPTED' and len(goals) == 1
-        assert ('task_finished', dict(outcome='PREEMPTED')) in events
+        assert ('task_finished', {'outcome': 'PREEMPTED'}) in events
         for _ in range(3):
             runner.tick()
         assert len(goals) == 1
@@ -263,8 +257,11 @@ def test_a_goal_cancelled_by_someone_else_ends_the_run_after_the_tick(monkeypatc
 
 
 def test_an_override_before_nav2_accepts_cancels_the_goal_on_the_way_out(monkeypatch):
-    """The real exit path: a goal still in flight at an override is cancelled once Nav2
-    accepts it, however busy high-rate topics keep the executor; never left to drive."""
+    """Cancel a goal still in flight at an override on the real exit path.
+
+    Once Nav2 accepts it, however busy high-rate topics keep the executor, it is
+    cancelled and never left to drive.
+    """
     import threading
     import time
     from geometry_msgs.msg import Twist
@@ -371,7 +368,7 @@ def test_status_follows_the_mission_and_stale_tracks_expire(monkeypatch):
     rclpy.init()
     runner = None
     try:
-        params = dict(tasks=['nav_channel', 'return_home'], timeout=100.0)
+        params = {'tasks': ['nav_channel', 'return_home'], 'timeout': 100.0}
         from mhseals_nav.tasks.interface import load_params
         for name in params['tasks']:
             params[name] = load_params(name)

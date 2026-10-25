@@ -4,9 +4,8 @@ Find the banner, choose a bay under it (skipping any with a vessel in it),
 stage in front, slide in with the precise goal checker, hold, and back out.
 """
 
-from py_trees.composites import Selector, Sequence
-
 from mhseals_nav.tasks.behaviours import Hold, Navigate, PlanBay, PlanLook, Report
+from py_trees.composites import Selector, Sequence
 
 
 def plan_bay(params, name):

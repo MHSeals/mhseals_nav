@@ -8,7 +8,7 @@ def heading(a, b):
 
 
 def forward(pose, distance):
-    """The point ``distance`` metres ahead of ``pose``, facing the same way."""
+    """Return the point ``distance`` metres ahead of ``pose``, facing the same way."""
     x, y, yaw = pose
     return (x + distance * math.cos(yaw), y + distance * math.sin(yaw), yaw)
 
@@ -64,7 +64,7 @@ def circle(center, radius, points, clockwise, start):
 
 
 def reverse(route):
-    """The same waypoints in reverse, each turned around."""
+    """Return the same waypoints in reverse, each turned around."""
     return [(x, y, math.atan2(math.sin(yaw + math.pi), math.cos(yaw + math.pi)))
             for x, y, yaw in reversed(route)]
 
@@ -187,7 +187,7 @@ def along(gate, pose):
 
 
 def lined_up(gate, pose, before=1.5, half_width=1.0):
-    """Is ``pose`` between the gate's lead-in pose and its line, near the middle?"""
+    """Tell whether ``pose`` is between the gate's lead-in and its line, near the middle."""
     g = math.cos(gate[2]), math.sin(gate[2])
     dx, dy = pose[0] - gate[0], pose[1] - gate[1]
     along, across = dx * g[0] + dy * g[1], -dx * g[1] + dy * g[0]
@@ -195,7 +195,7 @@ def lined_up(gate, pose, before=1.5, half_width=1.0):
 
 
 def crossed(gate, pose, previous=None, beyond=0.6, half_width=2.5):
-    """Has the boat crossed ``gate``: past its line, within reach of its middle?
+    """Tell whether the boat crossed ``gate``: past its line, within reach of its middle.
 
     With ``previous`` (the pose a tick before), a crossing between the two counts
     too, so a fast boat or a slow tick cannot skip over the check.
@@ -221,7 +221,7 @@ def crossed(gate, pose, previous=None, beyond=0.6, half_width=2.5):
 
 
 def look_around(pose, angle=1.05):
-    """A forward camera's sweep: turn in place to one side, then to the other.
+    """Return a forward camera's sweep: turn in place to one side, then to the other.
 
     Two single-pose routes, sent one after the other: Nav2 drops waypoints within
     a metre of the boat and calls a route done when the boat already sits at its

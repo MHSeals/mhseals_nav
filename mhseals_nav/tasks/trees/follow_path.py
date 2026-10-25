@@ -5,10 +5,9 @@ yellow buoys and vessels, then report how many yellow buoys (endangered
 species) there were before leaving the task.
 """
 
+from mhseals_nav.tasks.behaviours import CountObjects, GateRun, ReportCount
 from py_trees.common import ParallelPolicy
 from py_trees.composites import Parallel, Sequence
-
-from mhseals_nav.tasks.behaviours import CountObjects, GateRun, ReportCount
 
 
 def build(params):

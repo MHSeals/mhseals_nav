@@ -13,11 +13,10 @@ Leaves pass routes to each other through keys named in their arguments.
 
 import math
 
+from mhseals_nav.tasks import geometry, load_config
 import py_trees
 from py_trees.common import Access, Status
 from py_trees.decorators import Decorator
-
-from mhseals_nav.tasks import geometry, load_config
 
 
 class Leaf(py_trees.behaviour.Behaviour):
@@ -91,7 +90,7 @@ class Driver(Leaf):
                 self.goal.cancel()
                 self.old = self.goal
         self.goal, self.outcome = None, None
-        self.queued = dict(route=list(route), precise=precise, why=why, tries=0)
+        self.queued = {'route': list(route), 'precise': precise, 'why': why, 'tries': 0}
         self.driving()
 
     def drop_superseded(self):
@@ -225,8 +224,7 @@ class PlanCircle(Leaf):
     """
 
     def __init__(self, name, key, labels, radius, clockwise, points=6):
-        super().__init__(name, writes=(key, key + '_rest', key + '_target',
-                                      key + '_entry'))
+        super().__init__(name, writes=(key, key + '_rest', key + '_target', key + '_entry'))
         self.key, self.labels, self.radius = key, tuple(labels), radius
         self.clockwise, self.points = clockwise, points
 
@@ -424,7 +422,7 @@ class GateRun(Driver):
         return gates
 
     def plan(self):
-        """The chain of uncleared gates ahead, and whether it differs from the route sent.
+        """Return the chain of uncleared gates ahead, and whether it differs from the route sent.
 
         A planned gate stays planned while its markers drop out of sight (a lost
         track is not a lost gate); it moves only when re-seen over ``replan`` metres
