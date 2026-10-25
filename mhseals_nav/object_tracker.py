@@ -8,6 +8,7 @@ track_grid and course_map.
 from collections import deque
 from datetime import datetime, timezone
 import math
+import os
 from socket import gethostname
 
 import numpy as np
@@ -86,7 +87,8 @@ class ObjectTracker(Node):
 
         cm = cfg['course_map']
         sim = self.get_parameter('use_sim_time').value
-        self.map_file = course_map.path('sim' if sim else cm['name'])
+        self.map_file = course_map.path(
+            course_map.name_for(cm, sim, datetime.now(timezone.utc), os.getpid()))
         from robot_localization.srv import FromLL, ToLL
         self.ToLL, self.FromLL = ToLL, FromLL
         self.to_ll = self.create_client(ToLL, cm['to_ll_service'])

@@ -25,6 +25,17 @@ def path(name, root=None):
     return Path(root or data_root()) / 'course_map' / f'{name}.json'
 
 
+def name_for(cfg, sim, now, pid):
+    """Return the course map name: ``cfg['name']`` on the boat, a per-run file in sim.
+
+    A sim run gets a file of its own under ``sim_dir``, so concurrent or successive sims
+    (other seeds, other courses) never share priors.
+    """
+    if not sim:
+        return cfg['name']
+    return f"{cfg['sim_dir']}/{now.astimezone(timezone.utc):%Y%m%dT%H%M%SZ}_{pid}"
+
+
 def iso(when):
     return when.astimezone(timezone.utc).isoformat(timespec='seconds')
 

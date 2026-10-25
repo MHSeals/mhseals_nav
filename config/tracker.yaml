@@ -101,7 +101,10 @@
       lag_warn_s: 0.05
       lag_error_s: 0.15
     course_map:
-      name: boat                 # forced to `sim` under use_sim_time
+      name: boat
+      # Under use_sim_time each run writes its own <sim_dir>/<UTC start>_<pid>.json and so
+      # never loads priors: concurrent or successive sims never share a course map.
+      sim_dir: sim
       load: true
       save_period_s: 10.0
       save_min_hits: 20

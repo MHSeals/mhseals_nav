@@ -40,6 +40,17 @@ def test_round_trip_through_lat_lon(tmp_path, monkeypatch):
     assert {(t.motion, t.source, t.hits) for t in f.tracks} == {(MOTION_STATIC, SOURCE_PRIOR, 0)}
 
 
+def test_each_sim_run_has_its_own_map(tmp_path, monkeypatch):
+    monkeypatch.setenv('MHSEALS_DATA', str(tmp_path))
+    cm, now = CFG['course_map'], datetime(2026, 10, 25, 12, tzinfo=timezone.utc)
+    assert course_map.name_for(cm, False, now, 7) == cm['name']
+    names = {course_map.name_for(cm, True, now, pid) for pid in (7, 8)}
+    names.add(course_map.name_for(cm, True, now + timedelta(seconds=1), 7))
+    assert len(names) == 3
+    assert all(course_map.path(n).parent == tmp_path / 'course_map' / cm['sim_dir']
+               for n in names)
+
+
 def test_old_entries_and_bad_files_are_ignored(tmp_path):
     now = datetime(2026, 10, 25, tzinfo=timezone.utc)
     file = tmp_path / 'm.json'
