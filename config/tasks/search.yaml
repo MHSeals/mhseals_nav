@@ -42,7 +42,7 @@ replan_s: 2.0             # s between checks for a better view while driving
 lead: 1.5                 # m; plan the next goal this close to the current one's end
 
 # Sweep: the bounded fallback, one route.
-pattern: lawnmower        # lawnmower | expanding_square
+pattern: auto             # lawnmower | expanding_square | auto: lawnmower with an area
 spacing_frac: 0.8         # leg spacing as a fraction of camera range
 
 enable:

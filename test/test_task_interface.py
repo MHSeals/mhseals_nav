@@ -237,7 +237,7 @@ def test_status_follows_the_mission_and_stale_tracks_expire(monkeypatch):
         assert set(fixture) <= set(status) and status['stage'] == 'nav_channel'
         assert status['stages']['nav_channel']['state'] == 'running'
         assert status['remaining'] == ['return_home']
-        assert status['recent'][-1]['reason'] == 'starting nav_channel'
+        assert 'starting nav_channel' in [d['reason'] for d in status['recent']]
         clock[0] += runner.memory_horizon + 1  # the tracker went quiet
         runner.tick()
         assert runner.objects == [] and runner.board.objects == []

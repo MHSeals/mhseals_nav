@@ -500,8 +500,9 @@ class GateRun(Driver):
             self.decide('search', 'no gate ahead: looking around')
             self.looks = 2 if coverage is not None else geometry.look_around(
                 (*pose[:2], direction))
-        if coverage is not None and self.looks:
+        if coverage is not None and self.looks and self.searched < self.search:
             self.looks -= 1
+            self.searched += self.step  # a look drives a leg too
             bearing = coverage.bearing_gaps(pose, self.board.fov, math.radians(60), direction)
             if bearing is not None:
                 self.drive([(*geometry.forward((*pose[:2], bearing), self.step)[:2], bearing)],

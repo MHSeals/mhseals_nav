@@ -169,8 +169,18 @@ def test_full_mission_with_the_day_layout_runs_every_task_in_succession():
 
 
 def test_full_mission_without_a_layout_searches_and_recognises_its_way():
+    """With no approaches, tasks are found by search and recognition alone.
+
+    Without the day's layout (or a course area) the dock and speed course can lie
+    out of reach of a bounded search, so only the required stages must succeed here;
+    every stage must still be attempted in order, each search explained.
+    """
     world = Course(mission('mission.yaml'))
-    elapsed = check(world, *world.run())
+    outcome, elapsed = world.run()
+    names = world.names()
+    assert outcome == 'SUCCESS' and names[-2:] == ['returned_home', 'stage_completed']
+    assert names.count('stage_started') == 5
+    assert 'speed_finished' in names  # found by its mark
     reasons = [d['reason'] for e, d in world.events if e == 'decision']
-    assert any('heading there' in r or 'look' in r or 'view' in r for r in reasons)
+    assert any(r.startswith('red_circle not seen') for r in reasons)
     assert elapsed < 1400

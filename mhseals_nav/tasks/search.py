@@ -232,6 +232,8 @@ class SearchLeaf(Driver):
         return self.own
 
     def send(self, route, why):
+        if self.target is None:  # this strategy's first goal: tell the operator why
+            self.decide('search', f'{self.labels[0]} not seen: {why}')
         self.target = route[-1]
         self.drive(route, why=why[:60])
 
@@ -359,11 +361,15 @@ class Sweep(SearchLeaf):
             return Status.FAILURE
         self.started, pose, cfg = True, self.board.pose, self.cfg
         area, spacing = self.coverage().area, cfg['spacing_frac'] * self.fov()[1]
-        if cfg['pattern'] == 'lawnmower':
+        # auto: a known course area is mown; around an unknown one, spiral out from here.
+        pattern = cfg['pattern']
+        if pattern == 'auto':
+            pattern = 'lawnmower' if cfg['area'] else 'expanding_square'
+        if pattern == 'lawnmower':
             route = lawnmower(area, pose, spacing)
         else:
             route = expanding_square(pose, spacing, area)
-        self.send(route, f'{cfg["pattern"]} sweep, {len(route)} poses')
+        self.send(route, f'{pattern} sweep, {len(route)} poses')
         return Status.RUNNING
 
 
