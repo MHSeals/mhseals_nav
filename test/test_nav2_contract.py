@@ -105,6 +105,14 @@ def test_recovery_trees_do_not_command_blind_motion():
         assert root.find('.//FollowPath') is not None
 
 
+def test_a_failed_replan_waits_without_failing_the_goal():
+    for name in ['nav_to_pose.xml', 'nav_replan_recov.xml']:
+        root = ET.parse(ROOT / 'mhseals_nav/behavior_trees' / name).getroot()
+        replan = root.find('.//RateController/RecoveryNode')
+        assert replan is not None and replan[1].tag == 'Wait'
+        assert any(n.tag.startswith('ComputePath') for n in replan[0].iter())
+
+
 def test_launch_responsibilities_and_velocity_output():
     launch = (ROOT / 'launch/navigation.launch.py').read_text()
     assert "('cmd_vel_smoothed', 'cmd_vel')" in launch
