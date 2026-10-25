@@ -1,0 +1,69 @@
+# PROPOSED FCU change set: odom-100hz (blastoise, CubeOrange+, ArduRover 4.6.3). NOT APPLIED.
+# Agents never write FCU parameters. The owner applies this with the snapshot/diff discipline
+# in .handoff/specs/fcu_changes.md: snapshot, diff the "was" column against the live FCU, write,
+# reboot (SCHED_LOOP_RATE needs it), snapshot again, diff, log the entry.
+#
+# Why: ATTITUDE_QUATERNION (31) feeds /mavros/imu/data -> /imu/raw. MAVROS uses 31 once it has
+# arrived and then ignores ATTITUDE (30). ArduPilot refuses any interval shorter than
+# 1.25 loop periods (GCS_MAVLINK::cap_message_interval, 4.6.3): at SCHED_LOOP_RATE 50 the
+# fastest stream is 40 Hz and the update ticks deliver 25 Hz; at 200 the fastest is 160 Hz, so
+# the 100 Hz request in config/mavros_setup.yaml is accepted.
+# Until this is applied that request is DENIED (statustext "Requested rate for message ID 31
+# too fast"), MAVROS keeps using ATTITUDE (30) at its 25 Hz request, and mavros_setup logs
+# "rates short" every 30 s. That log stops once the loop rate is 200.
+#
+# Our use of the Cube: AHRS/EKF3 attitude, GPS (Here4 on DroneCAN) with RTCM injection,
+# compass, and RC input passed through MAVROS rc/in. The ODROID drives the thrusters. The FCU
+# is never armed (testing health flags an armed FCU as unsafe), so Rover's modes, steering and
+# speed controllers, and its logging (LOG_DISARMED 0), never run.
+#
+# Format: NAME,VALUE   # was OLD | why. Unlisted parameters stay as in the latest snapshot.
+
+# --- A. Loop and IMU rate -------------------------------------------------------------------
+# Range 50-400, RebootRequired (AP_Scheduler.cpp 4.6.3). 200, not 400: 100 Hz streams need only
+# 160 Hz, and EKF3 runs at most every 12 ms (EKF_TARGET_DT) whatever the loop rate. The H7
+# runs Copter's 400 Hz, so 200 Hz Rover has headroom. Check SYS_STATUS.load (permille) < 500
+# and no "Main loop slow" statustext after the reboot.
+SCHED_LOOP_RATE,200          # was 50 | 100 Hz ATTITUDE_QUATERNION for the 100 Hz EKF
+# ATTITUDE/ATTITUDE_QUATERNION body rates are the INS-filtered gyro. Rover's 4 Hz default
+# suits its 50 Hz loop and lags the yaw rate about 40 ms (1/(2*pi*4)); 20 Hz is the Copter
+# default and lags 8 ms. EKF3 attitude uses delta angles and is not affected.
+# Check VIBRATION (streamed) and the /imu/raw angular_velocity.z noise at rest after the change.
+INS_GYRO_FILTER,20           # was 4 | yaw-rate lag 40 ms -> 8 ms at the new loop rate
+# Persistent fallback: the stream rate survives reboots on its own, so /imu/raw stays at
+# 25 Hz (ATTITUDE) even if MAVROS's interval requests never land. It also sends AHRS2 at 25 Hz.
+SR0_EXTRA1,25                # was 4 | ATTITUDE 25 Hz without any MAVROS request (USB link)
+
+# --- B. Rover features we do not use --------------------------------------------------------
+# The Cube must never drive the thrusters. 73/74 are ThrottleLeft/ThrottleRight on MAIN 1-4.
+# Disabled outputs are not driven at all; Rover then refuses to arm ("no throttle/steering"),
+# which is an extra guard since we never arm it.
+SERVO1_FUNCTION,0            # was 73 | Cube does not drive thrusters
+SERVO2_FUNCTION,0            # was 74 | Cube does not drive thrusters
+SERVO3_FUNCTION,0            # was 73 | Cube does not drive thrusters
+SERVO4_FUNCTION,0            # was 74 | Cube does not drive thrusters
+# Avoidance only acts in auto modes with a fence or proximity sensor; neither exists
+# (FENCE_ENABLE 0, PRX1_TYPE 0, OA_TYPE 0). Off removes the per-loop avoidance update.
+AVOID_ENABLE,0               # was 3 | our own geofence and costmaps own avoidance
+# Only applies while armed or with LOG_DISARMED 1; never true today. Minimal useful set if
+# someone arms it or logs disarmed for a bench test: Medium Attitude 2, GPS 4,
+# System Performance 8, IMU 128, Battery 512, Compass 2048, RC in/out 16384.
+# Drops Fast Attitude (every loop, 4x at 200 Hz), Throttle, Nav tuning, Mission, Steering.
+LOG_BITMASK,19086            # was 65535 | no loop-rate logging at 200 Hz
+
+# --- Kept, checked against our code (no change) ---------------------------------------------
+# AHRS_EKF_TYPE 3, EK3_* sources (compass yaw, GPS): the attitude we consume.
+# EK3_IMU_MASK 7: three lanes. A lane switch can step yaw, but Copter runs three lanes at 400 Hz
+#   on this H7, so the CPU is not the reason to drop one; revisit only with lane-switch evidence.
+# INS_FAST_SAMPLE 7, INS_ACCEL_FILTER 10: unchanged (accel not fused by our EKFs).
+# GPS1_TYPE 9, CAN_*, GPS_INJECT_TO 127: Here4 on DroneCAN and RTCM injection.
+# COMPASS_*: compass yaw (magcal entries in fcu_changes.md).
+# RC*, MODE_CH, FS_THR_ENABLE 0, FS_ACTION, FS_GCS_ENABLE 0, RC_OPTIONS: rc/in passthrough
+#   for the mux and e-stop; their loss handling lives in our driver (estop_on_rc_loss).
+# ARMING_CHECK 1, ARMING_REQUIRE 1: arming stays blocked.
+# FENCE_ENABLE 0, OA_TYPE 0, RALLY_TOTAL 0, SCR_ENABLE 0, CAM1_TYPE 0, MNT1/2_TYPE 0,
+#   PRX1_TYPE 0, RNGFND1_TYPE 0, VISO_TYPE 0, OSD_TYPE 0: already off.
+# SR0_* other streams: MAVROS requests what it needs by interval (config/mavros_setup.yaml).
+# Owner check, not in this set: SERIAL1/SERIAL2 (MAVLink 57600) and SERIAL5 (MAVLink1) are
+#   enabled. If nothing is plugged into TELEM1, TELEM2 or SERIAL5, set their _PROTOCOL to -1.
+#   Their streams are 1-4 Hz, so this is tidiness, not load.

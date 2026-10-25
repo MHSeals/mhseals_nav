@@ -148,6 +148,8 @@ Heading comes from the calibrated external compass (fixed-yaw magcal) with the i
 
 `config/fcu/blastoise_gnss_proposal.param` holds the GNSS values with their sources.
 
+`config/fcu/odom-100hz.proposed.param` (not yet applied) raises `SCHED_LOOP_RATE` to 200 so the FCU accepts the 100 Hz `ATTITUDE_QUATERNION` request behind `/imu/raw`, with the gyro filter, a persistent `SR0_EXTRA1` fallback and the Rover features we do not use; each line gives the old value and why.
+
 ### Tasks
 
 RoboBoat tasks are [py_trees](https://py-trees.readthedocs.io) behaviour trees in `mhseals_nav/tasks/`, layered on Nav2: Nav2's XML trees decide *how to drive* (plan, follow, recover), the task trees decide *what to do* (which gates, which beacon, when to report). Leaves are plain Python over a blackboard of tracked objects (`/objects/map`), the boat's map pose and the time, so they are testable without ROS.
