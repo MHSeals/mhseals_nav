@@ -313,6 +313,29 @@ def test_cancel_before_acceptance_still_cancels():
     assert cancelled == [1]
 
 
+def test_events_carry_their_schema_and_the_fixture_keys(monkeypatch):
+    from pathlib import Path
+    from mhseals_nav.tasks.interface import EVENTS_SCHEMA
+    fixture = json.loads((Path(__file__).parent / 'fixtures/task_events.json').read_text())
+    assert {e['schema'] for e in fixture} == {EVENTS_SCHEMA}
+    decision = next(e for e in fixture if e['event'] == 'decision')
+    rclpy.init()
+    runner = None
+    try:
+        runner = TaskRunner('circle_test', dict(CIRCLE))
+        published = []
+        monkeypatch.setattr(runner.events, 'publish', lambda m: published.append(
+            json.loads(m.data)))
+        runner.stage = 'docking'
+        runner.decide('start', 'starting docking')
+        assert set(decision) <= set(published[-1])
+        assert published[-1]['schema'] == EVENTS_SCHEMA
+    finally:
+        if runner is not None:
+            runner.destroy_node()
+        rclpy.try_shutdown()
+
+
 def test_status_follows_the_mission_and_stale_tracks_expire(monkeypatch):
     """The status carries the fixture's keys; tracks the tracker stopped sending go."""
     from pathlib import Path

@@ -1,0 +1,12 @@
+[
+ {"schema": "mhseals.task_events/1", "task": "mission", "event": "task_started",
+  "time": 1012.4, "elapsed": 0.0},
+ {"schema": "mhseals.task_events/1", "task": "mission", "event": "goal", "time": 1013.0,
+  "elapsed": 0.6, "x": 8.1, "y": 0.0, "yaw": 0.0, "why": "between gate 1 markers"},
+ {"schema": "mhseals.task_events/1", "task": "mission", "event": "gate_cleared",
+  "time": 1020.7, "elapsed": 8.3, "gate": 1, "position": [7.0, 0.0]},
+ {"schema": "mhseals.task_events/1", "task": "mission", "event": "decision", "time": 1129.2,
+  "elapsed": 116.8, "kind": "start", "reason": "starting docking", "stage": "docking"},
+ {"schema": "mhseals.task_events/1", "task": "mission", "event": "task_finished",
+  "time": 1220.5, "elapsed": 208.1, "outcome": "PREEMPTED"}
+]

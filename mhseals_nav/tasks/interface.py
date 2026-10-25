@@ -1,8 +1,9 @@
 """run_task: tick one task tree on ROS time and report what it does.
 
 Interface the test suite scores and the TUI shows (all reliable, transient local):
-  /task/events      std_msgs/String JSON, one per event: {task, event, time, elapsed, ...};
-                    ``decision`` events carry {kind, reason} for the operator's log
+  /task/events      std_msgs/String JSON, mhseals.task_events/1, one per event: {schema,
+                    task, event, time, elapsed, ...}; ``decision`` events carry {kind,
+                    reason} for the operator's log
   /task/status      std_msgs/String JSON, mhseals.mission_status/1: {task, status, elapsed,
                     tip, stage, phase, behaviour, goal, stages, remaining, recent}; on change
                     (at most 5 Hz) and at 1 Hz
@@ -51,6 +52,7 @@ from mhseals_nav.tasks.search import Coverage, load_config as load_search
 from mhseals_nav.tasks.recognition import Recogniser
 
 AUTHORITY_TOPIC = '/mhseals_testing/authority'
+EVENTS_SCHEMA = 'mhseals.task_events/1'  # every /task/events message (test/fixtures)
 
 
 HUMAN_OWNERS = ('rc', 'keyboard', 'hold')
@@ -344,7 +346,7 @@ class TaskRunner(Node):
         now = self.now()
         if event == 'decision' and self.stage and 'stage' not in details:
             details['stage'] = self.stage
-        payload = dict(task=self.task, event=event, time=now,
+        payload = dict(schema=EVENTS_SCHEMA, task=self.task, event=event, time=now,
                        elapsed=now - self.started if self.started is not None else 0.0, **details)
         self.events.publish(String(data=json.dumps(payload, default=str)))
         self.get_logger().info(f'{event} {details}')
