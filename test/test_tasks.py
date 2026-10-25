@@ -92,6 +92,8 @@ class Goal:
         left = self.ticks - (self.world.get('tick', 0) - self.sent)
         if left <= 1 and not self.cancelled and (self.arrives or self.status == 'SUCCEEDED'):
             self.world['pose'] = self.route[-1]
+        elif left == 2 and len(self.route) > 1 and not self.cancelled:
+            self.world['pose'] = self.route[0]  # on the way, at its first pose
         return left <= 0 or self.cancelled
 
     def cancel(self):
@@ -102,6 +104,7 @@ class World:
     """Ticks a task tree with a fake Nav2 and scripted object sightings."""
 
     def __init__(self, task, params):
+        py_trees.blackboard.Blackboard.clear()  # one run per process, as for real
         self.state = dict(objects=[], pose=(0.0, 0.0, 0.0))
         self.events, self.goals = [], []
         self.tree = py_trees.trees.BehaviourTree(TREES[task](params))
@@ -112,6 +115,9 @@ class World:
             self.board.register_key(key=key, access=py_trees.common.Access.WRITE)
         self.board.home = self.board.coverage = None
         self.board.tracks, self.board.fov = [], (1.9, 20.0)
+
+    def hold(self):
+        self.holds = getattr(self, 'holds', 0) + 1
 
     def send(self, route, precise=False, quiet=False, why=''):
         self.goals.append(Goal(self.state, route, precise))
@@ -215,7 +221,7 @@ def test_docking_skips_the_occupied_bay():
 
 
 def test_speed_challenge_circles_the_mark_and_counts_spills_past_the_gate():
-    world = World('speed_challenge', params('speed_challenge'))
+    world = World('speed_challenge', dict(params('speed_challenge'), approach=[0, 0, 0]))
     start = gate(5, 0, 2.5, 'red_buoy', 'green_buoy') + [('black_buoy', 2, 3)]
     world.state['objects'] = list(start)
 
@@ -233,6 +239,7 @@ def test_speed_challenge_circles_the_mark_and_counts_spills_past_the_gate():
     assert all(math.dist(p[:2], (20, 0)) == pytest.approx(2.5) for p in lap[:8])
     assert lap[-1][0] < 5 and abs(abs(lap[-1][2]) - math.pi) < 1e-9
     assert world.goals[-1].route is lap
+    assert world.goals[0].route == [(0, 0, 0)]  # its approach
 
 
 def test_return_home_finds_the_black_gate_by_home():
@@ -530,6 +537,7 @@ def test_berth_counts_when_nav2_gives_up_inside_the_bay_and_keeps_station():
     berth = next(goal.route[-1] for goal in world.goals if goal.precise)
     assert any(goal.route == [pytest.approx(berth)] and not goal.precise
                for goal in world.goals)  # drove back in while holding
+    assert world.holds > 0  # and otherwise held zero velocity
 
 
 def test_spin_report_turns_one_quarter_goal_at_a_time():
@@ -550,7 +558,7 @@ def test_a_task_approach_is_its_own_and_does_not_leak_to_the_next():
     settings['docking'].update(approach=[10.0, -5.0, 0.0], search={'enable': dict(
         priors=False, scan=False, next_view=False, sweep=False)})  # nothing there: skipped
     world = World('mission', settings)
-    speed = gate(3, 11, 2.5, 'red_buoy', 'green_buoy') + [('blue_buoy', 19, 11)]
+    speed = gate(20, 11, 2.5, 'red_buoy', 'green_buoy') + [('blue_buoy', 36, 11)]
     world.state['objects'] = gate(7, 0, 3) + gate(13, 0, 3) + speed
     world.run(ticks=1500)
     assert 'speed_started' in world.names()  # its gate was not filtered by the dock's area

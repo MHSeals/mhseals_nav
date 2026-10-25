@@ -180,6 +180,11 @@ def remember(memory, seen, now, horizon=5.0, separation=1.0):
     return kept
 
 
+def along(gate, pose):
+    """How far ``pose`` is past ``gate``'s line, along the way through it (m)."""
+    return (pose[0] - gate[0]) * math.cos(gate[2]) + (pose[1] - gate[1]) * math.sin(gate[2])
+
+
 def crossed(gate, pose, previous=None, beyond=0.6, half_width=2.5):
     """Has the boat crossed ``gate``: past its line, within reach of its middle?
 

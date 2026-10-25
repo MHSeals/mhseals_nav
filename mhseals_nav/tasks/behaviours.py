@@ -370,14 +370,18 @@ class GateRun(Driver):
     cleared when the hull crosses its line. Nav2 giving up is retried ``retries``
     times. With no gate ahead the camera sweeps the unexplored side, then the boat
     drives ``step`` metre legs up to ``search`` metres. ``near``/``radius`` keep only
-    gates within ``radius`` of a blackboard point (the black return gate by home).
+    gates within ``radius`` of a blackboard point (the black return gate by home);
+    gates listed in the ``exclude`` keys (other tasks' cleared gates) are skipped, and
+    with ``toward`` (a label) each gate is crossed toward the nearest such object.
     The cleared gates go to ``key``; each is reported as ``gate_cleared``.
     """
 
     def __init__(self, name, key, red, green, gates=None, search=10.0, step=5.0,
                  max_width=8.0, min_width=1.0, near=None, radius=None, lookahead=3,
-                 replan=0.7, retries=2):
-        super().__init__(name, reads=(near,) if near else (), writes=(key,))
+                 replan=0.7, retries=2, exclude=(), toward=None):
+        super().__init__(name, reads=((near,) if near else ()) + tuple(exclude),
+                         writes=(key,))
+        self.exclude, self.toward = tuple(exclude), toward
         self.key, self.red, self.green, self.limit = key, red, green, gates
         self.search, self.step, self.max_width, self.min_width = search, step, max_width, min_width
         self.near, self.radius, self.lookahead = near, radius, lookahead
@@ -386,7 +390,7 @@ class GateRun(Driver):
     def initialise(self):
         super().initialise()
         self.cleared, self.planned, self.failures = [], [], 0
-        self.searched, self.looks, self.last = 0.0, None, None
+        self.searched, self.looks, self.last, self.approached = 0.0, None, None, set()
 
     def visible_gates(self):
         reds = self.labelled(self.red)
@@ -398,6 +402,15 @@ class GateRun(Driver):
             if isinstance(centre, list):  # a one-pose route, such as the task's approach
                 centre = centre[0]
             gates = [g for g in gates if centre and math.dist(g[:2], centre[:2]) <= self.radius]
+        # Gates another task already passed are not this task's (red/green look alike).
+        done = [g for key in self.exclude if self.board.exists(key)
+                for g in self.board.get(key) or []]
+        gates = [g for g in gates if all(math.dist(g[:2], d[:2]) > 2.0 for d in done)]
+        marks = self.labelled(self.toward) if self.toward else []
+        if marks:  # crossed toward the mark, whichever side the boat comes from
+            gates = [g if math.cos(g[2] - geometry.heading(g, min(
+                marks, key=lambda m: math.dist(m, g[:2])))) >= 0 else
+                (g[0], g[1], math.atan2(-math.sin(g[2]), -math.cos(g[2]))) for g in gates]
         return gates
 
     def plan(self):
@@ -411,6 +424,8 @@ class GateRun(Driver):
         for gate in self.planned:
             seen = min(gates, key=lambda g: math.dist(g[:2], gate[:2]), default=None)
             if seen is not None and self.replan < math.dist(seen[:2], gate[:2]) <= 2.0:
+                if gate[:2] in self.approached:
+                    self.approached.add(seen[:2])
                 gate, changed = seen, True
             plan.append(gate)
         room = self.lookahead if self.limit is None else self.limit - len(self.cleared)
@@ -433,8 +448,12 @@ class GateRun(Driver):
         if pose is None:
             return Status.RUNNING
         last, self.last = self.last or pose, pose
+        for gate in self.planned:  # a crossing counts only from the near side of the line
+            if geometry.along(gate, pose) < 0:
+                self.approached.add(gate[:2])
         for gate in self.planned:
-            if gate not in self.cleared and geometry.crossed(gate, pose, last):
+            if (gate not in self.cleared and gate[:2] in self.approached
+                    and geometry.crossed(gate, pose, last)):
                 self.cleared.append(gate)
                 self.board.set(self.key, list(self.cleared), overwrite=True)
                 self.report('gate_cleared', gate=len(self.cleared),
@@ -453,7 +472,8 @@ class GateRun(Driver):
         state = self.driving()
         if state == 'RUNNING':
             return Status.RUNNING
-        if self.planned and state not in (None, 'SUCCEEDED'):
+        if self.planned and state is not None:  # ended, or arrived short of a gate
+            state = 'SHORT' if state == 'SUCCEEDED' else state
             self.failures += 1
             if self.failures > self.retries or state == 'CANCELED':
                 self.feedback_message = f'gate {len(self.cleared) + 1}: {state}'
@@ -629,8 +649,9 @@ class PlanBay(Leaf):
 class Hold(Driver):
     """RUNNING for ``seconds`` of ROS time, then SUCCESS; with ``station``, keep station.
 
-    Nav2 stops steering once a goal is reached, so wind would carry a berthed boat
-    out: beyond ``station`` metres it drives back to where the hold began.
+    Nav2 stops steering once a goal is reached, so the boat is commanded to zero
+    velocity, which the velocity controller holds against the current; should it still
+    drift ``station`` metres off, it drives back to where the hold began.
     """
 
     def __init__(self, name, seconds, station=None):
@@ -648,6 +669,8 @@ class Hold(Driver):
             return Status.SUCCESS
         if self.station is not None:
             self.keep_station(self.station)
+            if self.driving() != 'RUNNING' and hasattr(self.navigator, 'hold'):
+                self.navigator.hold()
         return Status.RUNNING
 
 
@@ -787,4 +810,23 @@ class PlanHypothesis(Leaf):
         view = (x - self.standoff * math.cos(yaw), y - self.standoff * math.sin(yaw), yaw)
         self.board.set(self.key, [view], overwrite=True)
         self.decide('recognise', f'{self.kind} seen at ({x:.0f}, {y:.0f}): heading there')
+        return Status.SUCCESS
+
+
+class PlanView(Leaf):
+    """Write a view of the nearest ``label``, ``standoff`` m off on the boat's side, to ``key``."""
+
+    def __init__(self, name, key, label, standoff=8.0):
+        super().__init__(name, writes=(key,))
+        self.key, self.label, self.standoff = key, label, standoff
+
+    def update(self):
+        pose, targets = self.board.pose, self.labelled(self.label)
+        if pose is None or not targets:
+            return Status.FAILURE
+        target = min(targets, key=lambda t: math.dist(t, pose[:2]))
+        away = geometry.heading(target, pose)
+        point = (target[0] + self.standoff * math.cos(away),
+                 target[1] + self.standoff * math.sin(away))
+        self.board.set(self.key, [(*point, geometry.heading(point, target))], overwrite=True)
         return Status.SUCCESS
