@@ -32,6 +32,7 @@ set(ENTRY_POINTS
   mavros_odometry=mavros_odometry
   mavros_setup=mavros_setup
   run_task=tasks.interface
+  costmap_watchdog=costmap_watchdog
 )
 foreach(entry ${ENTRY_POINTS})
   string(REPLACE "=" ";" entry "${entry}")

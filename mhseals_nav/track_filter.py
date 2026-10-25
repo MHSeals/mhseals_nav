@@ -86,7 +86,7 @@ class TrackFilter:
         self.next_id = 1
         self.last_stamp = -math.inf
         self.heading_samples = []   # (t, a, r, track_id), cleared at the start of step()
-        self.assoc = dict(id=0, gate=0)
+        self.assoc = {'id': 0, 'gate': 0}
         self._groups = {}
 
     @property
@@ -336,7 +336,7 @@ class TrackFilter:
         track.confirmed = self.cfg['candidate']['hits'] <= 1
         self.all.append(track)
 
-    def add_prior(self, class_id, xy, sigma_m, now):
+        """Add a course-map entry as a SOURCE_PRIOR STATIC track (§5.6)."""
         """A course-map entry as a SOURCE_PRIOR STATIC track (§5.6)."""
         cm = self.cfg['course_map']
         spec = self._spec(class_id)
@@ -353,7 +353,7 @@ class TrackFilter:
         return track
 
     def in_fov(self, R, p, frame, xy):
-        """Inside the backend's horizontal FOV and range; optical frames look along z."""
+        """Return whether xy is in the backend FOV and range; optical frames look along z."""
         fov = self.cfg['fov']
         forward = R[:, 2] if 'optical' in frame else R[:, 0]
         offset = np.asarray(xy) - p[:2]

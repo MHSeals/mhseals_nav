@@ -28,9 +28,9 @@ class HeadingCheck:
         per_track = defaultdict(list)
         for _, a, r, ident in self.samples:
             per_track[ident].append((a, r))
-        out = dict(level=OK, lag_s=0.0, rho=0.0, agree=0.0, n=len(self.samples),
-                   tracks=sum(len(v) >= cfg['min_samples_track'] for v in per_track.values()),
-                   yaw_rate_std=0.0, excited=False, message='insufficient excitation')
+        out = {'level': OK, 'lag_s': 0.0, 'rho': 0.0, 'agree': 0.0, 'n': len(self.samples),
+               'tracks': sum(len(v) >= cfg['min_samples_track'] for v in per_track.values()),
+               'yaw_rate_std': 0.0, 'excited': False, 'message': 'insufficient excitation'}
         if not self.samples:
             return out
         a = np.array([s[1] for s in self.samples])
