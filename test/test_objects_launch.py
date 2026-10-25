@@ -7,12 +7,11 @@ import pytest
 import yaml
 
 
-def object_nodes(sim, url='', root=''):
+def object_nodes(sim):
     source = Path(__file__).parents[1] / 'launch/objects.launch.py'
     factory = next(node for node in ast.parse(source.read_text()).body
                    if isinstance(node, ast.FunctionDef) and node.name == 'nodes')
-    values = dict(sim=sim, rosbridge_url=url, camera_root_frame=root,
-                  detections_topic='/detections',
+    values = dict(sim=sim, detections_topic='/detections',
                   objects_topic='/front/zed_node/obj_det/objects')
 
     class Configuration:
@@ -48,29 +47,14 @@ def test_zed_adapter_remaps_input_and_preserves_tracker_contract():
         assert dict(node['remappings'])['detections'].perform(None) == '/detections'
 
 
-def test_bridge_uses_remote_topic_name_rather_than_local_ros_remapping():
-    _, adapter = object_nodes('false', 'ws://camera:9090', 'front_camera_link')
-    params = adapter['parameters'][0]
-    assert params['rosbridge_url'] == 'ws://camera:9090'
-    assert params['objects_topic'].perform(None) == '/front/zed_node/obj_det/objects'
-    assert 'objects' not in dict(adapter['remappings'])
-
-
-@pytest.mark.parametrize('sim,url,root', [
-    ('invalid', '', ''),
-    ('true', 'ws://camera:9090', 'front_camera_link'),
-    ('false', 'ws://camera:9090', ''),
-])
-def test_invalid_source_combinations_fail_before_nodes_start(sim, url, root):
+def test_invalid_sim_fails_before_nodes_start():
     with pytest.raises(ValueError):
-        object_nodes(sim, url, root)
+        object_nodes('invalid')
 
 
-def test_bridge_arguments_are_declared_with_empty_defaults():
-    source = Path(__file__).parents[1] / 'launch/objects.launch.py'
-    text = source.read_text()
-    for name in ('rosbridge_url', 'camera_root_frame'):
-        assert f'DeclareLaunchArgument("{name}", default_value="")' in text
+def test_legacy_bridge_arguments_are_gone():
+    text = (Path(__file__).parents[1] / 'launch/objects.launch.py').read_text()
+    assert 'rosbridge_url' not in text and 'camera_root_frame' not in text
 
 
 def test_jp6_wrapper_disables_sdk_predictions():

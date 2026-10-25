@@ -17,7 +17,6 @@ from mhseals_nav.zed_detections_converter import (
     ZedDetectionsConverter, convert_objects, confidence_markers, detection_markers,
 )
 from mhseals_nav.object_tracker import ObjectTracker
-from mhseals_nav.camera_static_tf import CameraStaticTF
 from mhseals_nav.perception_status import StageClock
 from ros_domain import require_isolated_domain
 
@@ -205,23 +204,6 @@ def test_moving_boat_uses_acquisition_tf_and_map_correction(tracker):
     assert not arrays[-1].detections
     assert len(markers[-1].markers) == 2
     assert all(m.action == Marker.DELETE for m in markers[-1].markers)
-
-
-def test_camera_tf_allowlist():
-    from rosidl_runtime_py.convert import message_to_ordereddict
-
-    selector = CameraStaticTF("camera_root")
-    items = [
-        transform("map", "odom", 0),
-        transform("odom", "camera_root", 0),
-        transform("camera_root", "left_camera", 0),
-        transform("left_camera", "left_optical", 0),
-        transform("another_camera", "other_optical", 0),
-    ]
-    result = selector.update(
-        dict(transforms=[message_to_ordereddict(t) for t in items])
-    )
-    assert {t.child_frame_id for t in result} == {"left_camera", "left_optical"}
 
 
 def test_missing_tf_retries_then_stale_packets_are_dropped(tracker):

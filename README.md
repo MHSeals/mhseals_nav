@@ -14,8 +14,7 @@ Launch files separate the main responsibilities:
 - `odom.launch.py` starts MAVROS and measurement relays (`fcu:=true`), robot TF, and `ekf.launch.py` (dual EKFs and Navsat; `start_ekf:=false` leaves them to a separate launch, and `~/.config/mhseals/ekf.yaml` overrides parameters per node).
 - `navigation.launch.py` starts Nav2 servers and lifecycle management. SLAM is optional.
 - `slam.launch.py` starts RTABMap mapping, leaving localization TF with the EKFs.
-- `objects.launch.py` tracks `/detections`; with `sim:=false` it also converts ZED objects into that interface (`objects_topic`). `rosbridge_url` and `camera_root_frame` are only for the legacy host.
-- `legacy_zed.launch.py` starts the legacy JetPack 5 camera host (see Architecture).
+- `objects.launch.py` tracks `/detections`; with `sim:=false` it also converts ZED objects into that interface (`objects_topic`).
 
 ```bash
 ros2 launch mhseals_nav <launch_name>.launch.py param1:=value1 param2:=value2
@@ -40,7 +39,6 @@ Start each component once. `robot` includes navigation, so running it also start
 | `camera_name` | `robot`, `camera`, `odom`, `slam` | `front`; camera namespace and topic prefix |
 | `camera_model`, `slam` | `camera` | `zed2i`, `false`; `slam:=true` also relays raw RGB and depth |
 | `detections_topic`, `objects_topic` | `objects` | `/detections`, `/front/zed_node/obj_det/objects`; tracker input and ZED source |
-| `rosbridge_url`, `camera_root_frame` | `objects` | Empty; with `sim:=false`, select the legacy JetPack 5 transport and its calibrated camera subtree root. Leave unset on the boat |
 
 Other arguments and defaults are listed by `--show-args`. Keeping `use_lidar:=true` while skipping the local driver lets another host or simulator supply `/points`; stale data never triggers a fallback.
 
@@ -81,16 +79,7 @@ Preserve frame IDs and timestamps, and synchronize clocks across hosts.
 - Orin path: the ZED wrapper (`config/zed_boat.yaml`) runs YOLO-like custom detection on the GPU, and `objects.launch.py` converts `/front/zed_node/obj_det/objects` into `/detections`. Prediction timeouts are 0 so detections stay raw.
 - The converter drops repeated, reordered or over-1 s-old packets; the tracker transforms boxes into `odom` at acquisition time, and confirmed tracks expire after 30 s without observations.
 
-#### Legacy JP5 camera host
-
-Retiring Jetson (JetPack 5, ZED SDK 4) that runs the camera, a TensorRT buoy detector and rosbridge. Never run it with `camera.launch.py`.
-
-```bash
-# camera host
-ros2 launch mhseals_nav legacy_zed.launch.py
-# navigation host
-ros2 launch mhseals_nav objects.launch.py sim:=false rosbridge_url:=ws://<camera-host>:9090 camera_root_frame:=front_camera_link
-```
+The JetPack 5 / Foxy camera host lives on the `legacy/jp5-foxy` branch.
 
 #### LiDAR relay and markers
 
