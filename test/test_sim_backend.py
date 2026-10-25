@@ -1,6 +1,5 @@
 """sim_backend pure parts: injection geometry, schedules, truth ids, phantoms, ZED packet."""
 import math
-from importlib.util import find_spec
 from pathlib import Path
 
 from mhseals_nav import sim_backend as sb
@@ -141,9 +140,8 @@ def test_zed_packet_carries_ids_tracking_ok_and_a_box_around_the_centre():
     assert u0 < u < u1 and v0 < v < v1 and u > 640  # right of the optical axis
 
 
-@pytest.mark.skipif(find_spec('rclpy') is None or find_spec('mhseals_nav.zed_backend') is None,
-                    reason='zed mode needs ROS and zed_backend (nav-camera)')
 def test_zed_mode_runs_the_boat_conversion():
+    pytest.importorskip('rclpy')
     from mhseals_nav.msg import Observation
     objects = [obj([0.5, 6.0, 0.1], v=[0.2, 0.0, 0.0], truth_id=3), obj([0.0, 9.0, 0.0])]
     K = sb.pinhole((1280, 720), 110.0)

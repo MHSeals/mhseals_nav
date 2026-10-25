@@ -81,10 +81,9 @@ SINGLES = [case(bias=5), case(bias=-5), case(lag=0.1), case(ext=3), case(ext=-3)
 CORNERS = [case(b, 0.1, e, o) for b, e, o in product((-5, 5), (-3, 3), (-0.1, 0.1))]
 ENVELOPE = [BASELINE] + SINGLES + CORNERS
 LAGS = [case(lag=tau) for tau in (0.0, 0.1, 0.2, 0.3)]
-# zed mode runs zed_backend, which needs ROS and lands with nav-camera: skipped per test
-# until both are here, never for the whole module.
-ZED = find_spec('rclpy') is not None and find_spec('mhseals_nav.zed_backend') is not None
-needs_zed = pytest.mark.skipif(not ZED, reason='zed mode needs ROS and zed_backend')
+# zed mode runs zed_backend, which needs ROS: skipped per test, never for the whole module.
+ZED = find_spec('rclpy') is not None
+needs_zed = pytest.mark.skipif(not ZED, reason='zed mode runs zed_backend, which needs ROS')
 MODES = ['plain', pytest.param('zed', marks=needs_zed)]
 
 
