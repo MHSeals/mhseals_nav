@@ -27,7 +27,7 @@ from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.signals import SignalHandlerOptions
 from rclpy.time import Time
 import yaml
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped, Twist
 from nav2_msgs.action import NavigateThroughPoses, NavigateToPose
 from action_msgs.msg import GoalStatus
 from std_msgs.msg import String
@@ -106,9 +106,10 @@ class Goal:
 class Navigator:
     """Sends routes of (x, y, yaw) map poses to Nav2 without blocking the tick."""
 
-    def __init__(self, node, frame='map'):
+    def __init__(self, node, frame='map', hold_topic='/cmd_vel_nav'):
         from ament_index_python.packages import get_package_share_directory
         self.node, self.frame, self.report, self.last = node, frame, None, None
+        self.zero = node.create_publisher(Twist, hold_topic, 1)
         self.to_pose = ActionClient(node, NavigateToPose, 'navigate_to_pose')
         self.through = ActionClient(node, NavigateThroughPoses, 'navigate_through_poses')
         # Docking ends on the tight goal checker (behavior_trees/nav_precise.xml).
@@ -122,6 +123,10 @@ class Navigator:
         pose.pose.position.x, pose.pose.position.y = float(x), float(y)
         pose.pose.orientation.z, pose.pose.orientation.w = math.sin(yaw / 2), math.cos(yaw / 2)
         return pose
+
+    def hold(self):
+        """Command zero velocity through Nav2's smoother: holding still, with no goal on."""
+        self.zero.publish(Twist())
 
     def ready(self):
         return self.to_pose.server_is_ready() and self.through.server_is_ready()
@@ -188,7 +193,7 @@ class TaskRunner(Node):
         self.board.home = self.board.coverage = None
         self.board.fov = self.fov
         self.tree = py_trees.trees.BehaviourTree(TREES[task](params))
-        self.navigator = Navigator(self, self.frame)
+        self.navigator = Navigator(self, self.frame, params.get('hold_topic', '/cmd_vel_nav'))
         self.navigator.report = self.report
         self.tree.setup(timeout=15.0, navigator=self.navigator, report=self.report)
         self.started = None
