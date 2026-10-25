@@ -13,12 +13,17 @@
       depth_mode: NEURAL_LIGHT
       min_depth: 0.3
       max_depth: 20.0
+    # OD tracking (stable ids) needs positional tracking. Its pose is never used: camera.launch.py
+    # turns off every ZED TF, and the EKFs own odom and map. Budget: >= 12 Hz and <= +5 ms
+    # proc_ms over tracking off; otherwise set pos_tracking_enabled and enable_tracking false.
     pos_tracking:
-      pos_tracking_enabled: false    # nothing consumes ZED odometry; the EKFs own odom and map
+      pos_tracking_enabled: true
+      pos_tracking_mode: GEN_1       # cheapest; the pose accuracy is never consumed
+      area_memory: false             # no relocalization map growing over a run
     object_detection:
       od_enabled: true
-      enable_tracking: false         # object_tracker tracks in odom
-      prediction_timeout: 0.0        # raw detections only; classes also set prediction_timeout_s: 0
+      enable_tracking: true          # stable label_id; zed_backend still drops non-OK states
+      prediction_timeout: 0.5        # ids survive a 0.5 s occlusion; classes set prediction_timeout_s
       max_range: 20.0                # cannot exceed depth.max_depth
     # The name carries the node name because image_transport strips only the namespace (/front).
     # Publish only the compressed transport of the colour image: no theora or zstd encoding.
