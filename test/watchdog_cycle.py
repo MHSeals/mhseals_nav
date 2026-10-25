@@ -12,7 +12,7 @@ def spin(ex, feed, seconds, until=None):
 
 
 def flip_twice(ex, got, bad, good, wait=4.0):
-    """bad and good each publish one round of inputs and an autonomy command.
+    """Feed bad, good, bad, good; each feed publishes inputs and an autonomy command.
 
     Each bad phase must bring a repeated hold, each good phase none once it settles. A
     callback that raises (rclpy's logger severity check) propagates out of spin_once.

@@ -28,7 +28,7 @@ class HoldGate:
         raise NotImplementedError
 
     def describe(self, why):
-        """The reason as logged: may add detail that changes too often to compare."""
+        """Return the reason as logged, with detail that changes too often to compare."""
         return why
 
     def command(self, now):

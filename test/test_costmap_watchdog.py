@@ -122,7 +122,7 @@ def test_node_publishes_hold_requests_only():
 
 
 def test_node_survives_stale_fresh_flips_and_holds():
-    """rclpy raises if one log call site changes severity; the node must outlive flips."""
+    """Outlive flips: rclpy raises if one log call site changes severity."""
     rclpy = pytest.importorskip('rclpy')
     from geometry_msgs.msg import Twist
     from map_msgs.msg import OccupancyGridUpdate
