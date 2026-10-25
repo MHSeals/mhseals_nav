@@ -1,0 +1,89 @@
+# object_tracker: world-frame CV Kalman tracker (perception-v2 §5). Loaded from the
+# installed share as defaults; launch parameters override single keys.
+/**:
+  ros__parameters:
+    tracking_frame: odom
+    map_frame: map
+    base_frame: base_link
+    observations_topic: /perception/observations
+    rate_hz: 10.0
+    markers_hz: 2.0
+    status_hz: 1.0
+    max_detection_age: 1.0
+    # Mahalanobis gates: chi2 2-dof 0.99 / 0.999, 4-dof 0.99.
+    gate_chi2: 9.21
+    gate_chi2_id: 13.8
+    gate_chi2_v: 13.3
+    group_match: false
+    candidate: {hits: 3, time: 0.5, timeout: 1.0}
+    meas:
+      min_sigma_m: 0.10
+      range_frac: 0.03
+      heading_sigma_deg: 1.0     # tangential term: makes static buoys robust to heading noise
+      lag_sigma_s: 0.05
+      cam_vel_dt: 0.05
+    use_backend_velocity: false
+    velocity_sigma: 0.5          # m/s, when the backend gives no velocity covariance
+    score_alpha: 0.3
+    size_alpha: 0.3
+    # Classes match the first group whose patterns fit (fnmatch); others are `unknown`.
+    class_groups:
+      buoy: {match: ['*_buoy', black_cross, black_triangle], prior: static,
+             q: 0.005, sigma_v0: 0.3, n_move: 12, n_static: 4}
+      boat: {match: ['*_target_boat'], prior: moving,
+             q: 0.5, sigma_v0: 1.5, n_move: 3, n_static: 20}
+      unknown: {match: ['?'], prior: unknown,
+                q: 0.1, sigma_v0: 1.0, n_move: 6, n_static: 8}
+    motion: {k_sigma: 3.0, floor_mps: 0.25, release_frac: 0.5, n_unknown_min: 5}
+    tau: {static: 300.0, moving: 2.0, unknown: 5.0}
+    timeout: {static: 900.0, moving: 3.0, unknown: 10.0}
+    miss_in_fov_s: 5.0
+    fov: {hfov_deg: 110.0, range_m: 20.0}   # mirrors the backend YAML
+    # Disc radius per class (m), copied from mhseals_testing/config/minimap.yaml.
+    radius:
+      default: 0.20
+      red_pole_buoy: 0.25
+      red_buoy: 0.20
+      red_light_buoy: 0.25
+      green_pole_buoy: 0.25
+      green_buoy: 0.20
+      green_light_buoy: 0.25
+      yellow_buoy: 0.20
+      black_buoy: 0.20
+      blue_buoy: 0.30
+      yellow_target_boat: 0.60
+      black_target_boat: 0.60
+      black_triangle: 0.30
+      black_cross: 0.30
+    grid:
+      topic: /perception/track_grid
+      size_m: 24.0
+      resolution: 0.15
+      rate_hz: 5.0
+      max_extra_m: 0.5
+      horizon_s: 3.0
+      step_s: 0.25
+      gamma: 1.0
+      min_cost: 40
+    heading_check:
+      window_s: 60.0
+      min_hits: 10
+      yaw_dt: 0.1
+      min_samples: 60
+      min_tracks: 2
+      min_samples_track: 10
+      min_yaw_rate_std: 0.08
+      rho_warn: 0.5
+      agree_min: 0.75
+      lag_warn_s: 0.05
+      lag_error_s: 0.15
+    course_map:
+      name: boat                 # forced to `sim` under use_sim_time
+      load: true
+      save_period_s: 10.0
+      save_min_hits: 20
+      prior_confidence: 0.5
+      prior_sigma_m: 0.5
+      max_age_days: 3.0
+      to_ll_service: /toLL       # navsat_transform on B (root namespace)
+      from_ll_service: /fromLL
