@@ -180,13 +180,30 @@ def remember(memory, seen, now, horizon=5.0, separation=1.0):
     return kept
 
 
-def crossed(gate, pose, beyond=0.6, half_width=2.5):
-    """Has the boat at ``pose`` crossed ``gate``: past its line, within reach of its middle?"""
+def crossed(gate, pose, previous=None, beyond=0.6, half_width=2.5):
+    """Has the boat crossed ``gate``: past its line, within reach of its middle?
+
+    With ``previous`` (the pose a tick before), a crossing between the two counts
+    too, so a fast boat or a slow tick cannot skip over the check.
+    """
     x, y, yaw = gate
-    dx, dy = pose[0] - x, pose[1] - y
-    along = dx * math.cos(yaw) + dy * math.sin(yaw)
-    across = -dx * math.sin(yaw) + dy * math.cos(yaw)
-    return along >= beyond and abs(across) <= half_width
+    c, s = math.cos(yaw), math.sin(yaw)
+
+    def frame(p):
+        return (p[0] - x) * c + (p[1] - y) * s, -(p[0] - x) * s + (p[1] - y) * c
+
+    along, across = frame(pose)
+    if along < beyond:
+        return False
+    if abs(across) <= half_width:
+        return True
+    if previous is None:
+        return False
+    before, side = frame(previous)
+    if before >= 0:
+        return False
+    at = side + (across - side) * (0 - before) / (along - before)  # where it met the line
+    return abs(at) <= half_width
 
 
 def look_around(pose, angle=1.05):

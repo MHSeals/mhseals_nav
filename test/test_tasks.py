@@ -1,11 +1,18 @@
+import importlib.util
 import math
 
 import pytest
 
 from mhseals_nav.tasks import geometry
+from mhseals_nav.tasks.tracks import Track
 
-py_trees = pytest.importorskip('py_trees')
-from mhseals_nav.tasks.trees import TREES  # noqa: E402
+# Never a module-level importorskip: Jazzy's launch_testing plugin turns it into a skip
+# of the whole test directory.
+pytestmark = pytest.mark.skipif(importlib.util.find_spec('py_trees') is None,
+                                reason='needs py_trees')
+if importlib.util.find_spec('py_trees') is not None:
+    import py_trees
+    from mhseals_nav.tasks.trees import TREES
 
 
 def test_gates_pair_nearest_markers_and_face_away_from_the_boat():
@@ -77,14 +84,15 @@ class Goal:
     def __init__(self, world, route, precise=False, ticks=3, status='SUCCEEDED'):
         self.world, self.route, self.precise = world, route, precise
         self.ticks, self.cancelled, self.status = ticks, False, status
+        self.sent, self.arrives = world.get('tick', 0), None  # arrives: even if not SUCCEEDED
 
     @property
     def done(self):
         # The boat arrives a tick before Nav2 reports success, as it would for real.
-        self.ticks -= 1
-        if self.ticks <= 1 and not self.cancelled:
+        left = self.ticks - (self.world.get('tick', 0) - self.sent)
+        if left <= 1 and not self.cancelled and (self.arrives or self.status == 'SUCCEEDED'):
             self.world['pose'] = self.route[-1]
-        return self.ticks <= 0 or self.cancelled
+        return left <= 0 or self.cancelled
 
     def cancel(self):
         self.cancelled = True
@@ -100,20 +108,24 @@ class World:
         self.tree.setup(navigator=self, report=lambda event, **details: self.events.append(
             (event, details)))
         self.board = py_trees.blackboard.Client(name='world')
-        for key in ('objects', 'pose', 'now', 'home'):
+        for key in ('objects', 'tracks', 'pose', 'now', 'home', 'fov', 'coverage'):
             self.board.register_key(key=key, access=py_trees.common.Access.WRITE)
-        self.board.home = None
+        self.board.home = self.board.coverage = None
+        self.board.tracks, self.board.fov = [], (1.9, 20.0)
 
-    def send(self, route, precise=False, quiet=False):
+    def send(self, route, precise=False, quiet=False, why=''):
         self.goals.append(Goal(self.state, route, precise))
         return self.goals[-1]
 
     def run(self, ticks=400, script=None):
         for tick in range(ticks):
+            self.state['tick'] = tick
             if script:
                 script(tick, self)
             self.board.objects, self.board.pose, self.board.now = (
                 self.state['objects'], self.state['pose'], tick / 10)
+            self.board.tracks = [Track(label, x, y, 1.0, None, True, False, '')
+                                 for label, x, y in self.state['objects']]
             if self.board.home is None:
                 self.board.home = self.state['pose']
             self.tree.tick()
@@ -124,7 +136,7 @@ class World:
 
     def names(self):
         # Navigation goals are reported too, but these tests follow the task's own events.
-        return [event for event, _ in self.events if event != 'goal']
+        return [event for event, _ in self.events if event not in ('goal', 'decision')]
 
     def event(self, name):
         return next(details for event, details in self.events if event == name)
@@ -161,7 +173,10 @@ def test_nav_channel_crosses_both_gates():
     world.state['objects'] = gate(7, 0, 3) + gate(13, 0, 3)
     assert world.run() == 'SUCCESS'
     assert world.names() == ['gate_cleared', 'gate_cleared']
-    assert [goal.route[-1][:2] for goal in world.goals] == [(8.1, 0.0), (14.1, 0.0)]
+    # One flowing route through both gates: no stop between them.
+    assert len(world.goals) == 1
+    route = [p[:2] for p in world.goals[0].route]
+    assert route == [(5.5, 0.0), (8.1, 0.0), (11.5, 0.0), (14.1, 0.0)]
 
 
 def test_nav_channel_searches_ahead_for_the_second_gate():
@@ -205,7 +220,7 @@ def test_speed_challenge_circles_the_mark_and_counts_spills_past_the_gate():
     world.state['objects'] = list(start)
 
     def mark(tick, world):
-        if tick == 20:
+        if tick == 5:  # seen while driving on from the gate
             world.state['objects'] = start + [
                 ('black_buoy', 12, 1.5), ('black_buoy', 15, -1.5), ('blue_buoy', 20, 0)]
 
@@ -213,12 +228,11 @@ def test_speed_challenge_circles_the_mark_and_counts_spills_past_the_gate():
     names = world.names()
     assert names.index('speed_started') < names.index('spill_count') < names.index('speed_finished')
     assert world.event('spill_count')['count'] == 2  # the one before the gate is not in the task
-    halves = [goal.route for goal in world.goals if len(goal.route) == 4]
-    assert len(halves) == 2  # two halves, each ending away from where it began
-    circle = halves[0] + halves[1]
-    assert all(math.dist(p[:2], (20, 0)) == pytest.approx(2.5) for p in circle)
-    back = world.goals[-1].route
-    assert back[-1][0] < 5 and abs(abs(back[-1][2]) - math.pi) < 1e-9
+    # The lap and the return through the gate are one route: no stop at the mark.
+    lap = next(goal.route for goal in world.goals if len(goal.route) == 10)
+    assert all(math.dist(p[:2], (20, 0)) == pytest.approx(2.5) for p in lap[:8])
+    assert lap[-1][0] < 5 and abs(abs(lap[-1][2]) - math.pi) < 1e-9
+    assert world.goals[-1].route is lap
 
 
 def test_return_home_finds_the_black_gate_by_home():
@@ -345,7 +359,7 @@ def test_pair_test_fails_after_bounded_search_without_a_valid_pair(objects):
     world = World('pair_test', settings)
     world.state['objects'] = objects
     assert world.run() == 'FAILURE'
-    assert not world.events
+    assert not world.names()
     positions = [(0, 0)] + [goal.route[-1][:2] for goal in world.goals]
     distance = sum(math.dist(a, b) for a, b in zip(positions, positions[1:]))
     assert distance == pytest.approx(settings['search_distance'])
@@ -388,7 +402,7 @@ def test_circle_test_keeps_the_origin_from_before_searching():
             world.state['objects'] = [('yellow_buoy', x, y)]
 
     assert world.run(script=appear) == 'SUCCESS'
-    assert world.goals[0].cancelled
+    assert len(world.goals[0].route) == 1  # one search leg, not stop-and-go steps
     assert world.goals[-1].route == [home]
 
 
@@ -397,7 +411,7 @@ def test_circle_test_fails_if_search_only_finds_other_buoys():
     world = World('circle_test', settings)
     world.state['objects'] = [('blue_buoy', 8, 0), ('red_pole_buoy', 6, 2)]
     assert world.run() == 'FAILURE'
-    assert not world.events
+    assert not world.names()
     assert world.state['pose'][0] == pytest.approx(settings['search_distance'])
 
 
@@ -412,7 +426,7 @@ def test_commissioning_nav_failure_prevents_completion(task, goal_index):
 
     def abort(tick, world):
         if len(world.goals) > goal_index:
-            world.goals[goal_index].status = 'CANCELED'
+            world.goals[goal_index].status = 'CANCELED'  # not retried
 
     assert world.run(script=abort) == 'FAILURE'
     completion = 'pair_returned' if task == 'pair_test' else 'returned_home'
@@ -426,3 +440,130 @@ def test_commissioning_tasks_cancel_navigation_when_stopped(task):
     assert world.run(ticks=1) == 'RUNNING'
     world.tree.root.stop(py_trees.common.Status.INVALID)
     assert world.goals[-1].cancelled
+
+
+# Audit fixes: failure handling, lost tracks, partial detections, retries, flow.
+
+def test_crossing_between_ticks_counts():
+    gate = (10, 0, 0)
+    assert geometry.crossed(gate, (11, 3.5, 0), previous=(9, -1, 0))  # met the line at 1.25
+    assert not geometry.crossed(gate, (11, 6, 0), previous=(9, 5, 0))  # passed beside it
+
+
+def test_gate_run_retries_an_aborted_gate_and_keeps_a_lost_gate():
+    world = World('nav_channel', params('nav_channel'))
+    world.state['objects'] = gate(7, 0, 3) + gate(13, 0, 3)
+
+    def trouble(tick, world):
+        if len(world.goals) == 1:
+            world.goals[0].status = 'ABORTED'  # Nav2 gives up once
+            world.goals[0].ticks = 20
+        if len(world.goals) == 2:
+            world.state['objects'] = []  # and the tracks drop out
+
+    assert world.run(script=trouble) == 'SUCCESS'
+    assert world.names() == ['gate_cleared', 'gate_cleared']
+    assert ('decision', dict(kind='retry', reason='gate 1 aborted: retry')) in world.events
+    assert world.goals[1].route[-1][:2] == pytest.approx((14.1, 0))
+
+
+def test_gate_run_gives_up_after_its_retries():
+    world = World('nav_channel', params('nav_channel'))
+    world.state['objects'] = gate(7, 0, 3)
+
+    def abort(tick, world):
+        for goal in world.goals:
+            goal.status, goal.ticks = 'ABORTED', 20  # never reaches the gate
+
+    assert world.run(script=abort) == 'FAILURE'
+    assert sum(1 for e, d in world.events if d.get('kind') == 'retry') == 2
+
+
+def test_channel_with_one_colour_in_view_searches_instead_of_waiting():
+    world = World('nav_channel', params('nav_channel'))
+    world.state['objects'] = [('red_pole_buoy', 7, 1.5)]
+
+    def green(tick, world):
+        if len(world.goals) == 2:  # the search turned the camera onto the green pole
+            world.state['objects'] = gate(7, 0, 3) + gate(13, 0, 3)
+
+    assert world.run(script=green) == 'SUCCESS'
+    assert world.goals[0].route[-1][:2] != pytest.approx((0, 0))  # it moved to look
+    assert world.names() == ['gate_cleared', 'gate_cleared']
+
+
+def test_mission_retries_a_failed_task_then_skips_it_with_reasons():
+    settings = dict(tasks=['nav_channel', 'docking', 'return_home'])
+    for name in settings['tasks']:
+        settings[name] = params(name)
+    settings['docking'].update(attempts=2, search={'enable': dict(
+        priors=False, scan=False, next_view=False, sweep=False)})
+    world = World('mission', settings)
+    world.state['objects'] = gate(7, 0, 3) + gate(13, 0, 3) + [
+        ('black_buoy', -2.5, 1.6), ('black_buoy', -2.5, -1.6)]
+    assert world.run(ticks=1500) == 'SUCCESS'
+    failed = [d for e, d in world.events if e == 'stage_failed']
+    assert [d['attempt'] for d in failed] == [1, 2]
+    reasons = [d['reason'] for e, d in world.events if e == 'decision']
+    assert 'docking failed: attempt 2' in reasons
+    assert 'docking failed 2x: giving up' in reasons
+    assert 'skipping docking: on to return_home' in reasons
+    assert all(len(r) <= 60 for r in reasons)
+
+
+def test_berth_counts_when_nav2_gives_up_inside_the_bay_and_keeps_station():
+    world = World('docking', params('docking'))
+    world.state['objects'] = [('blue_square', 10, -1), ('red_circle', 10, -3),
+                              ('blue_square', 10, -5)]
+
+    def stubborn(tick, world):
+        for goal in world.goals:
+            if goal.precise:
+                goal.status, goal.arrives = 'ABORTED', True  # waves upset the stopped checker
+        docked = any(e == 'docked' for e, _ in world.events)
+        if docked and not any(e == 'undocked' for e, _ in world.events):
+            x, y, yaw = world.state['pose']
+            world.state['pose'] = (x - 0.1, y, yaw)  # wind pushes it out
+
+    assert world.run(script=stubborn) == 'SUCCESS'
+    assert world.names() == ['docked', 'undocked']
+    berth = next(goal.route[-1] for goal in world.goals if goal.precise)
+    assert any(goal.route == [pytest.approx(berth)] and not goal.precise
+               for goal in world.goals)  # drove back in while holding
+
+
+def test_spin_report_turns_one_quarter_goal_at_a_time():
+    settings = dict(params('follow_path'), report='spin')
+    world = World('follow_path', settings)
+    world.state['objects'] = gate(5, 0, 2.4, 'red_buoy', 'green_buoy') + [
+        ('yellow_buoy', 7.5, 0.5)]
+    assert world.run() == 'SUCCESS'
+    turns = [goal.route for goal in world.goals if len(goal.route) == 1
+             and goal.route[0][:2] == pytest.approx(world.state['pose'][:2])]
+    assert len(turns) >= 4  # four quarter turns for one buoy
+
+
+def test_a_task_approach_is_its_own_and_does_not_leak_to_the_next():
+    settings = dict(tasks=['nav_channel', 'docking', 'speed_challenge'])
+    for name in settings['tasks']:
+        settings[name] = params(name)
+    settings['docking'].update(approach=[10.0, -5.0, 0.0], search={'enable': dict(
+        priors=False, scan=False, next_view=False, sweep=False)})  # nothing there: skipped
+    world = World('mission', settings)
+    speed = gate(3, 11, 2.5, 'red_buoy', 'green_buoy') + [('blue_buoy', 19, 11)]
+    world.state['objects'] = gate(7, 0, 3) + gate(13, 0, 3) + speed
+    world.run(ticks=1500)
+    assert 'speed_started' in world.names()  # its gate was not filtered by the dock's area
+
+
+def test_recognised_task_is_approached_without_a_layout():
+    from mhseals_nav.tasks.behaviours import PlanHypothesis
+    world = World('nav_channel', params('nav_channel'))
+    world.board.register_key(key='hypotheses', access=py_trees.common.Access.WRITE)
+    world.board.hypotheses = [dict(type='dock', state='confirmed', confidence=0.9,
+                                   pose=[12.0, -20.0, -math.pi / 2])]
+    world.tree = py_trees.trees.BehaviourTree(PlanHypothesis('dock', 'view', 'dock'))
+    world.tree.setup(navigator=world, report=lambda event, **details: None)
+    world.board.register_key(key='view', access=py_trees.common.Access.READ)
+    assert world.run(ticks=2) == 'SUCCESS'
+    assert world.board.view == [pytest.approx((12.0, -14.0, -math.pi / 2))]

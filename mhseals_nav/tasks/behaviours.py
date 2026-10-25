@@ -1,10 +1,13 @@
 """Reusable task leaves. Each reads and writes the blackboard; only Navigate talks to Nav2.
 
 Blackboard keys filled by the runner every tick:
-  objects  tracked objects as (label, x, y) in the map frame
-  pose     the boat's (x, y, yaw) in the map frame, or None
-  now      ROS time in seconds
-  home     where the run started (x, y, yaw), for the return
+  objects   live tracked objects as (label, x, y) in the map frame
+  tracks    every track as tasks.tracks.Track, priors and remembered ones included
+  pose      the boat's (x, y, yaw) in the map frame, or None
+  now       ROS time in seconds
+  home      where the run started (x, y, yaw), for the return
+  fov       the camera's (hfov rad, range m)
+  coverage  tasks.search.Coverage: where the camera has looked
 Leaves pass routes to each other through keys named in their arguments.
 """
 
@@ -18,39 +21,140 @@ from mhseals_nav.tasks import geometry
 
 
 class Leaf(py_trees.behaviour.Behaviour):
-    """A behaviour with a blackboard client for the shared world keys."""
+    """A behaviour with a blackboard client for the shared world keys.
+
+    ``phase`` (approach, search, execute, report) is what the mission status shows.
+    """
+
+    phase = 'execute'
 
     def __init__(self, name, reads=(), writes=()):
         super().__init__(name)
         self.board = self.attach_blackboard_client(name=name)
-        for key in ('objects', 'pose', 'now', 'home', *reads):
+        for key in ('objects', 'tracks', 'pose', 'now', 'home', 'fov', 'coverage', *reads):
             self.board.register_key(key=key, access=Access.READ)
         for key in writes:
             self.board.register_key(key=key, access=Access.WRITE)
+
+    def setup(self, **kwargs):
+        self.navigator, self.report = kwargs.get('navigator'), kwargs.get('report')
+
+    def decide(self, kind, reason, **details):
+        """Publish a decision: a short reason the operator reads in the TUI log."""
+        if self.report is not None:
+            self.report('decision', kind=kind, reason=reason[:60], **details)
 
     def labelled(self, *labels):
         return [(x, y) for label, x, y in self.board.objects if label in labels]
 
 
-class WaitFor(Leaf):
+def action(route, precise):
+    """Which Nav2 action a route goes to (see interface.Navigator.send)."""
+    return 'to_pose' if len(route) == 1 or precise else 'through_poses', precise
+
+
+class Driver(Leaf):
+    """A leaf that drives: one Nav2 goal at a time, handed over cleanly.
+
+    ``drive(route)`` replaces whatever this leaf is driving. Nav2 runs one navigation
+    at a time and refuses a new one while another winds down, so a replacement waits
+    for the cancelled goal to finish, and a refused goal is sent again. Call
+    ``driving()`` every tick: RUNNING while a goal is on, else the last goal's end
+    (SUCCEEDED, ABORTED, ...), or None when nothing was sent. Any end of the leaf
+    cancels its goal.
+    """
+
+    RETRIES = 30  # sends of one route: a goal just cancelled elsewhere can take a moment
+
+    def initialise(self):
+        self.goal = self.old = self.queued = self.outcome = self.anchor = None
+
+    def drive(self, route, precise=False, why=''):
+        if not route or self.navigator is None:
+            self.stop_driving()
+            self.outcome = 'EMPTY'
+            return
+        q = self.queued
+        # A goal for the same Nav2 action preempts the running one without stopping
+        # the boat; the other action is refused until the running goal is cancelled.
+        preempt = (self.goal is not None and not self.goal.done and q is not None
+                   and action(q['route'], q['precise']) == action(route, precise))
+        if self.goal is not None and not self.goal.done and not preempt:
+            self.goal.cancel()
+            self.old = self.goal
+        self.goal, self.outcome = None, None
+        self.queued = dict(route=list(route), precise=precise, why=why, tries=0)
+        self.driving()
+
+    def stop_driving(self):
+        self.queued = None
+        if self.goal is not None and not self.goal.done:
+            self.goal.cancel()
+            self.old = self.goal
+        self.goal = None
+
+    def driving(self):
+        if self.old is not None:
+            if not self.old.done:
+                return 'RUNNING'
+            self.old = None
+        now = self.board.now
+        if self.queued is not None and self.goal is None:
+            q = self.queued
+            self.goal = self.navigator.send(q['route'], precise=q['precise'],
+                                            quiet=q['tries'] > 0, why=q['why'])
+            q['tries'], q['sent'] = q['tries'] + 1, now
+            if self.goal is None:
+                self.queued, self.outcome = None, 'REJECTED'
+                return self.outcome
+        if self.goal is None:
+            return self.outcome
+        if not self.goal.done:
+            return 'RUNNING'
+        status, q = self.goal.status, self.queued
+        # Refused while another navigation winds down: rejected, or accepted and at
+        # once aborted. Either way, send it again.
+        refused = status == 'REJECTED' or (status == 'ABORTED' and q is not None
+                                           and now - q['sent'] < 1.0)
+        if refused and q is not None and q['tries'] < self.RETRIES:
+            self.goal = None
+            return self.driving()
+        self.goal, self.queued, self.outcome = None, None, status
+        return status
+
+    def keep_station(self, hold):
+        """Hold the pose this was first called at: drive back once ``hold`` metres off."""
+        pose = self.board.pose
+        if pose is None:
+            return
+        if self.anchor is None:
+            self.anchor = tuple(pose)
+        if (self.driving() != 'RUNNING'
+                and math.dist(pose[:2], self.anchor[:2]) > hold):
+            self.drive([self.anchor], why='hold station')
+
+    def terminate(self, new_status):
+        self.stop_driving()
+
+
+class WaitFor(Driver):
     """RUNNING until at least ``count`` objects with each of ``labels`` are tracked.
 
-    Meanwhile the boat holds where it began waiting: wind and current would carry
-    it off, and out of sight of what it waits for. Once it is ``hold`` metres off,
-    Nav2 brings it back. With a ``timeout``, it fails after that many seconds
-    with nothing seen; otherwise the task's own deadline bounds the wait.
+    Meanwhile the boat keeps station where it began waiting (``hold`` metres), so
+    wind and current do not carry it out of sight. With a ``timeout``, it fails
+    after that many seconds with nothing seen.
     """
+
+    phase = 'search'
 
     def __init__(self, name, labels, count=1, any_of=False, hold=1.5, timeout=None):
         super().__init__(name)
         self.labels, self.count, self.any_of = tuple(labels), count, any_of
-        self.hold, self.timeout, self.navigator = hold, timeout, None
-
-    def setup(self, **kwargs):
-        self.navigator = kwargs.get('navigator')
+        self.hold, self.timeout = hold, timeout
 
     def initialise(self):
-        self.anchor = self.start = self.goal = None
+        super().initialise()
+        self.anchor = self.start = None
 
     def update(self):
         seen = [len(self.labelled(label)) >= self.count for label in self.labels]
@@ -61,19 +165,8 @@ class WaitFor(Leaf):
         if self.timeout is not None and self.board.now - self.start > self.timeout:
             self.feedback_message = f'nothing seen in {self.timeout:.0f} s'
             return Status.FAILURE
-        pose = self.board.pose
-        if pose is None or self.navigator is None:
-            return Status.RUNNING
-        if self.anchor is None:
-            self.anchor = list(pose)
-        if ((self.goal is None or self.goal.done)
-                and math.dist(pose[:2], self.anchor[:2]) > self.hold):
-            self.goal = self.navigator.send([self.anchor])
+        self.keep_station(self.hold)
         return Status.RUNNING
-
-    def terminate(self, new_status):
-        if new_status == Status.INVALID and self.goal is not None:
-            self.goal.cancel()
 
 
 class Seen(Leaf):
@@ -189,62 +282,55 @@ class PlanRoute(Leaf):
         return Status.FAILURE
 
 
-class Navigate(Leaf):
+class Navigate(Driver):
     """Drive the route in ``key`` with Nav2; cancels the goal if the tree preempts it.
 
-    ``precise`` uses the tight goal checker (docking), ``key_index`` drives one
-    pose of the route.
+    ``precise`` uses the tight goal checker (docking). A goal Nav2 gives up on is
+    sent again up to ``retries`` times; with ``accept`` (m), ending that close to
+    the route's end counts as arrived, since Nav2 may give up on the last metres.
     """
 
-    def __init__(self, name, key, precise=False):
+    def __init__(self, name, key, precise=False, retries=1, accept=None, why='', phase=None):
         super().__init__(name, reads=(key,))
-        self.key, self.precise, self.navigator, self.goal = key, precise, None, None
-        self.report = None
-
-    def setup(self, **kwargs):
-        self.navigator, self.report = kwargs['navigator'], kwargs.get('report')
-
-    RETRIES = 30  # ticks: a goal just cancelled elsewhere can take a moment to clear
+        self.phase = phase or self.phase
+        self.key, self.precise, self.retries, self.accept = key, precise, retries, accept
+        self.why = why or name
 
     def initialise(self):
-        self.tries = 0
-        self.send()
-
-    def send(self, retry=False):
-        self.goal = self.navigator.send(
-            self.board.get(self.key), precise=self.precise, quiet=retry)
-        self.sent = self.board.now
+        super().initialise()
+        self.failures = 0
+        self.route = self.board.get(self.key) if self.board.exists(self.key) else None
+        self.drive(self.route, self.precise, self.why)
 
     def update(self):
-        if self.goal is None:
+        state = self.driving()
+        if state == 'RUNNING':
+            return Status.RUNNING
+        self.feedback_message = state or 'no route'
+        if state == 'SUCCEEDED':
+            return Status.SUCCESS
+        if state in (None, 'EMPTY', 'CANCELED'):  # cancelled by someone else: not ours
             return Status.FAILURE
-        # Nav2 runs one navigation at a time: while another winds down it rejects ours,
-        # or accepts and at once aborts it. Either way, try again.
-        refused = self.goal.done and (self.goal.status == 'REJECTED' or (
-            self.goal.status == 'ABORTED' and self.board.now - self.sent < 1.0))
-        if refused and self.tries < self.RETRIES:
-            self.tries += 1
-            self.send(retry=True)
+        pose = self.board.pose
+        if self.accept and pose and math.dist(pose[:2], self.route[-1][:2]) <= self.accept:
+            self.decide('accept', f'{self.name}: {state.lower()} but there')
+            return Status.SUCCESS
+        if self.failures < self.retries:
+            self.failures += 1
+            self.decide('retry', f'{self.name}: {state.lower()}, retry {self.failures}')
+            self.drive(self.route, self.precise, self.why)
             return Status.RUNNING
-        if not self.goal.done:
-            return Status.RUNNING
-        self.feedback_message = self.goal.status
-        return Status.SUCCESS if self.goal.status == 'SUCCEEDED' else Status.FAILURE
-
-    def terminate(self, new_status):
-        if new_status == Status.INVALID and self.goal is not None:
-            self.goal.cancel()
+        return Status.FAILURE
 
 
 class Report(Leaf):
     """Publish a task event; ``include`` copies blackboard keys into it."""
 
+    phase = 'report'
+
     def __init__(self, name, event, include=(), **fields):
         super().__init__(name, reads=include)
         self.event, self.include, self.fields = event, tuple(include), fields
-
-    def setup(self, **kwargs):
-        self.report = kwargs['report']
 
     def update(self):
         details = dict(self.fields, **{key: self.board.get(key) for key in self.include})
@@ -265,9 +351,6 @@ class ReportObjects(Leaf):
         self.event, self.labels, self.separation = event, tuple(labels), separation
         self.reported = []
 
-    def setup(self, **kwargs):
-        self.report = kwargs['report']
-
     def update(self):
         for label, x, y in self.board.objects:
             if label in self.labels and not any(
@@ -278,32 +361,34 @@ class ReportObjects(Leaf):
         return Status.RUNNING
 
 
-class GateRun(Leaf):
-    """Pass gates one after another until ``gates`` are cleared or none is ahead.
+class GateRun(Driver):
+    """Pass gates one after another, in one flowing route, until ``gates`` are cleared.
 
-    Each gate is the nearest uncleared red/green pair ahead; the boat is driven
-    across its line, not just to it. With no gate in sight it drives ahead in
-    ``step`` metre legs, up to ``search`` metres, and turns toward a gate the
-    moment one appears. ``near``/``radius`` keep only gates within ``radius``
-    of a blackboard point (the black return gate by home). The cleared gates go
-    to ``key``; each is reported as ``gate_cleared``.
+    The route runs through every uncleared red/green gate in a chain ahead (up to
+    ``lookahead``), so the boat does not stop between gates; it is re-sent only when
+    the chain changes (a gate appears, or moves over ``replan`` metres). A gate is
+    cleared when the hull crosses its line. Nav2 giving up is retried ``retries``
+    times. With no gate ahead the camera sweeps the unexplored side, then the boat
+    drives ``step`` metre legs up to ``search`` metres. ``near``/``radius`` keep only
+    gates within ``radius`` of a blackboard point (the black return gate by home).
+    The cleared gates go to ``key``; each is reported as ``gate_cleared``.
     """
 
     def __init__(self, name, key, red, green, gates=None, search=10.0, step=5.0,
-                 max_width=8.0, min_width=1.0, near=None, radius=None):
+                 max_width=8.0, min_width=1.0, near=None, radius=None, lookahead=3,
+                 replan=0.7, retries=2):
         super().__init__(name, reads=(near,) if near else (), writes=(key,))
         self.key, self.red, self.green, self.limit = key, red, green, gates
         self.search, self.step, self.max_width, self.min_width = search, step, max_width, min_width
-        self.near, self.radius = near, radius
-
-    def setup(self, **kwargs):
-        self.navigator, self.report = kwargs['navigator'], kwargs['report']
+        self.near, self.radius, self.lookahead = near, radius, lookahead
+        self.replan, self.retries = replan, retries
 
     def initialise(self):
-        self.cleared, self.goal, self.target, self.searched = [], None, None, 0.0
-        self.cancelled, self.looked, self.legs = None, False, []
+        super().initialise()
+        self.cleared, self.planned, self.failures = [], [], 0
+        self.searched, self.looks, self.last = 0.0, None, None
 
-    def visible_gate(self):
+    def visible_gates(self):
         reds = self.labelled(self.red)
         greens = reds if self.red == self.green else self.labelled(self.green)
         gates = geometry.gate_midpoints(reds, greens, self.board.pose, self.max_width,
@@ -313,100 +398,130 @@ class GateRun(Leaf):
             if isinstance(centre, list):  # a one-pose route, such as the task's approach
                 centre = centre[0]
             gates = [g for g in gates if centre and math.dist(g[:2], centre[:2]) <= self.radius]
-        direction = self.cleared[-1][2] if self.cleared else None
-        return geometry.next_gate(gates, self.board.pose, self.cleared, direction)
+        return gates
+
+    def plan(self):
+        """The chain of uncleared gates ahead, and whether it differs from the route sent.
+
+        A planned gate stays planned while its markers drop out of sight (a lost
+        track is not a lost gate); it moves only when re-seen over ``replan`` metres
+        off. New gates are chained on past the last one, each the next ahead of it.
+        """
+        gates, plan, changed = self.visible_gates(), [], False
+        for gate in self.planned:
+            seen = min(gates, key=lambda g: math.dist(g[:2], gate[:2]), default=None)
+            if seen is not None and self.replan < math.dist(seen[:2], gate[:2]) <= 2.0:
+                gate, changed = seen, True
+            plan.append(gate)
+        room = self.lookahead if self.limit is None else self.limit - len(self.cleared)
+        origin = plan[-1] if plan else self.board.pose
+        direction = plan[-1][2] if plan else self.cleared[-1][2] if self.cleared else None
+        while len(plan) < room:
+            if not plan and not self.cleared:  # a task's first gate: the nearest, any way
+                gate = min((g for g in gates if math.dist(g[:2], origin[:2]) <= 30.0),
+                           key=lambda g: math.dist(g[:2], origin[:2]), default=None)
+            else:
+                gate = geometry.next_gate(gates, origin, self.cleared + plan, direction)
+            if gate is None:
+                break
+            plan.append(gate)
+            origin, direction, changed = gate, gate[2], True
+        return plan, changed
 
     def update(self):
-        if self.board.pose is None:
+        pose = self.board.pose
+        if pose is None:
             return Status.RUNNING
-        # Nav2 takes one navigation at a time: let a cancelled goal finish first.
-        if self.cancelled is not None and not self.cancelled.done:
-            return Status.RUNNING
-        self.cancelled = None
-        if self.goal is not None:
-            if self.target is None and self.visible_gate() is not None:
-                self.goal.cancel()  # a gate appeared while searching: go to it
-                self.cancelled, self.goal, self.legs = self.goal, None, []
-                return Status.RUNNING
-            elif not self.goal.done:
-                return Status.RUNNING
-            elif self.target is not None:
-                # The boat's own pose decides: Nav2 may give up on the last metres past
-                # a gate it has already carried the hull through.
-                if (self.goal.status != 'SUCCEEDED' and
-                        not geometry.crossed(self.target, self.board.pose)):
-                    self.feedback_message = f'gate {len(self.cleared) + 1}: {self.goal.status}'
-                    return Status.FAILURE
-                self.cleared.append(self.target)
+        last, self.last = self.last or pose, pose
+        for gate in self.planned:
+            if gate not in self.cleared and geometry.crossed(gate, pose, last):
+                self.cleared.append(gate)
                 self.board.set(self.key, list(self.cleared), overwrite=True)
                 self.report('gate_cleared', gate=len(self.cleared),
-                            position=[round(v, 2) for v in self.target[:2]])
-                self.goal = self.target = None
-            elif self.legs:
-                self.goal = self.navigator.send(self.legs.pop(0))  # the sweep's other side
-                return Status.RUNNING
-            else:
-                self.goal = None
+                            position=[round(v, 2) for v in gate[:2]])
+        self.planned = [g for g in self.planned if g not in self.cleared]
         if self.limit is not None and len(self.cleared) >= self.limit:
             return Status.SUCCESS
-        gate = self.visible_gate()
-        if gate is not None:
-            self.target, self.searched = gate, 0.0
-            self.goal = self.navigator.send(geometry.through(gate))
-            return Status.RUNNING if self.goal is not None else Status.FAILURE
+        chain, changed = self.plan()
+        if chain and changed:
+            self.phase = 'execute'
+            if not self.planned:
+                self.decide('execute', f'{len(chain)} gate(s) ahead: through the middle')
+            self.planned, self.looks, self.searched = chain, None, 0.0
+            route = [pose for gate in chain for pose in geometry.through(gate)]
+            self.drive(route, why=f'between gate {len(self.cleared) + 1} markers')
+        state = self.driving()
+        if state == 'RUNNING':
+            return Status.RUNNING
+        if self.planned and state not in (None, 'SUCCEEDED'):
+            self.failures += 1
+            if self.failures > self.retries or state == 'CANCELED':
+                self.feedback_message = f'gate {len(self.cleared) + 1}: {state}'
+                self.decide('give_up', f'gate {len(self.cleared) + 1} {state.lower()} '
+                                       f'{self.failures}x: giving up')
+                return Status.FAILURE
+            self.decide('retry', f'gate {len(self.cleared) + 1} {state.lower()}: retry')
+        self.planned = []  # re-send next tick, or the route ended past every gate
+        if chain:
+            return Status.RUNNING
+        return self.explore(pose)
+
+    def explore(self, pose):
+        """No gate ahead: look along the least-seen bearings near the course, then drive on.
+
+        Each look drives ``step`` metres along the bearing whose camera cone holds the
+        most unexplored water within 60 degrees of the course, so the boat turns while
+        moving; with no coverage grid it sweeps each side in place.
+        """
+        direction = self.cleared[-1][2] if self.cleared else pose[2]
+        self.phase = 'search'
+        coverage = self.board.coverage
+        if self.looks is None:
+            self.decide('search', 'no gate ahead: looking around')
+            self.looks = 2 if coverage is not None else geometry.look_around(
+                (*pose[:2], direction))
+        if coverage is not None and self.looks:
+            self.looks -= 1
+            bearing = coverage.bearing_gaps(pose, self.board.fov, math.radians(60), direction)
+            if bearing is not None:
+                self.drive([(*geometry.forward((*pose[:2], bearing), self.step)[:2], bearing)],
+                           why=f'look toward unexplored bearing {math.degrees(bearing):.0f}°')
+                return Status.RUNNING
+        elif self.looks:
+            self.drive(self.looks.pop(0), why='sweep the camera for the next gate')
+            return Status.RUNNING
         if self.searched < self.search:
-            # The camera looks forward: sweep each side before driving on, as a
-            # bending path can put the next gate well off the bow.
-            if not self.looked:
-                self.looked = True
-                first, *self.legs = geometry.look_around(self.board.pose)
-                self.goal = self.navigator.send(first)
-            else:
-                self.looked = False
-                self.searched += self.step
-                self.goal = self.navigator.send([geometry.forward(self.board.pose, self.step)])
-            return Status.RUNNING if self.goal is not None else Status.FAILURE
+            self.searched += self.step
+            self.looks = 1 if coverage is not None else []
+            self.drive([geometry.forward((*pose[:2], direction), self.step)],
+                       why='drive on to find the next gate')
+            return Status.RUNNING
         self.feedback_message = f'{len(self.cleared)} gates, none ahead'
         return Status.SUCCESS if self.cleared else Status.FAILURE
 
-    def terminate(self, new_status):
-        if new_status == Status.INVALID and self.goal is not None:
-            self.goal.cancel()
 
+class Search(Driver):
+    """Drive ahead up to ``distance`` metres in one leg until any of ``labels`` is tracked."""
 
-class Search(Leaf):
-    """Drive ahead in legs until any of ``labels`` is tracked, or ``distance`` runs out."""
+    phase = 'search'
 
-    def __init__(self, name, labels, distance, step=5.0):
+    def __init__(self, name, labels, distance, step=None):
         super().__init__(name)
-        self.labels, self.distance, self.step = tuple(labels), distance, step
-
-    def setup(self, **kwargs):
-        self.navigator = kwargs['navigator']
-
-    def initialise(self):
-        self.goal, self.driven = None, 0.0
+        self.labels, self.distance = tuple(labels), distance
 
     def update(self):
         if self.labelled(*self.labels):
-            if self.goal is not None:
-                self.goal.cancel()
-                if not self.goal.done:  # Nav2 takes one navigation at a time
-                    return Status.RUNNING
-                self.goal = None
             return Status.SUCCESS
-        if self.board.pose is None or (self.goal is not None and not self.goal.done):
+        state = self.driving()
+        if state == 'RUNNING' or self.board.pose is None:
             return Status.RUNNING
-        if self.driven >= self.distance:
-            self.feedback_message = f'none of {self.labels} within {self.distance} m'
-            return Status.FAILURE
-        self.driven += self.step
-        self.goal = self.navigator.send([geometry.forward(self.board.pose, self.step)])
-        return Status.RUNNING
-
-    def terminate(self, new_status):
-        if new_status == Status.INVALID and self.goal is not None:
-            self.goal.cancel()
+        if state is None:
+            self.decide('search', f'none of {self.labels[0]}..: driving ahead')
+            self.drive([geometry.forward(self.board.pose, self.distance)],
+                       why=f'look ahead for {self.labels[0]}')
+            return Status.RUNNING
+        self.feedback_message = f'none of {self.labels} within {self.distance} m'
+        return Status.FAILURE
 
 
 class CountObjects(Leaf):
@@ -442,35 +557,35 @@ class CountObjects(Leaf):
         return Status.RUNNING
 
 
-class ReportCount(Leaf):
+class ReportCount(Driver):
     """Report the count in ``key`` as ``event``; ``spin`` also turns once per object.
 
     RoboBoat accepts a count shown on the operator display (the event) or one
-    360 degree turn in place per object, done before leaving the task.
+    360 degree turn in place per object, done before leaving the task. Each quarter
+    turn is its own goal: Nav2 calls a route at the boat's own position done at once.
     """
+
+    phase = 'report'
 
     def __init__(self, name, key, event, spin=False):
         super().__init__(name, reads=(key,))
         self.key, self.event, self.spin = key, event, spin
 
-    def setup(self, **kwargs):
-        self.navigator, self.report = kwargs['navigator'], kwargs['report']
-
     def initialise(self):
-        self.goal = None
+        super().initialise()
         count = self.board.get(self.key) if self.board.exists(self.key) else 0
         self.report(self.event, count=count, method='spin' if self.spin else 'display')
+        self.turns = []
         if self.spin and count and self.board.pose is not None:
-            self.goal = self.navigator.send(geometry.spin(self.board.pose, count))
+            self.turns = [[pose] for pose in geometry.spin(self.board.pose, count)]
 
     def update(self):
-        if self.goal is None or self.goal.done:
+        if self.driving() == 'RUNNING':
+            return Status.RUNNING
+        if not self.turns:
             return Status.SUCCESS
+        self.drive(self.turns.pop(0), why='one turn per object counted')
         return Status.RUNNING
-
-    def terminate(self, new_status):
-        if new_status == Status.INVALID and self.goal is not None:
-            self.goal.cancel()
 
 
 class PlanBay(Leaf):
@@ -511,20 +626,29 @@ class PlanBay(Leaf):
         return Status.SUCCESS
 
 
-class Hold(Leaf):
-    """RUNNING for ``seconds`` of ROS time, then SUCCESS."""
+class Hold(Driver):
+    """RUNNING for ``seconds`` of ROS time, then SUCCESS; with ``station``, keep station.
 
-    def __init__(self, name, seconds):
+    Nav2 stops steering once a goal is reached, so wind would carry a berthed boat
+    out: beyond ``station`` metres it drives back to where the hold began.
+    """
+
+    def __init__(self, name, seconds, station=None):
         super().__init__(name)
-        self.seconds = seconds
+        self.seconds, self.station = seconds, station
 
     def initialise(self):
+        super().initialise()
         self.until = None
 
     def update(self):
         if self.until is None:
             self.until = self.board.now + self.seconds
-        return Status.SUCCESS if self.board.now >= self.until else Status.RUNNING
+        if self.board.now >= self.until:
+            return Status.SUCCESS
+        if self.station is not None:
+            self.keep_station(self.station)
+        return Status.RUNNING
 
 
 class PlanGatePass(Leaf):
@@ -620,4 +744,47 @@ class PlanLook(Leaf):
         first, rest = geometry.look_around(self.board.pose)
         self.board.set(self.key, first, overwrite=True)
         self.board.set(self.key + '_rest', rest, overwrite=True)
+        return Status.SUCCESS
+
+
+class PlanConcat(Leaf):
+    """Write the routes in ``sources`` joined end to end to ``key``: one goal, no stops."""
+
+    def __init__(self, name, key, sources):
+        super().__init__(name, reads=tuple(sources), writes=(key,))
+        self.key, self.sources = key, tuple(sources)
+
+    def update(self):
+        route = [pose for source in self.sources for pose in (self.board.get(source) or [])]
+        if not route:
+            return Status.FAILURE
+        self.board.set(self.key, route, overwrite=True)
+        return Status.SUCCESS
+
+
+class PlanHypothesis(Leaf):
+    """Write a view of the recognised ``kind`` of task to ``key``: ``standoff`` m before it.
+
+    The runner keeps the recogniser's hypotheses on the blackboard. With none of that
+    kind, or the boat already within ``2 * standoff``, there is nothing to approach.
+    """
+
+    def __init__(self, name, key, kind, standoff=6.0):
+        super().__init__(name, reads=('hypotheses',), writes=(key,))
+        self.key, self.kind, self.standoff = key, kind, standoff
+
+    def update(self):
+        pose = self.board.pose
+        found = [h for h in (self.board.get('hypotheses') if self.board.exists('hypotheses')
+                             else None) or []
+                 if h['type'] == self.kind and h['state'] in ('hypothesis', 'confirmed')]
+        if pose is None or not found:
+            return Status.FAILURE
+        best = max(found, key=lambda h: h['confidence'])
+        x, y, yaw = best['pose']
+        if math.dist(pose[:2], (x, y)) < 2 * self.standoff:
+            return Status.FAILURE
+        view = (x - self.standoff * math.cos(yaw), y - self.standoff * math.sin(yaw), yaw)
+        self.board.set(self.key, [view], overwrite=True)
+        self.decide('recognise', f'{self.kind} seen at ({x:.0f}, {y:.0f}): heading there')
         return Status.SUCCESS
