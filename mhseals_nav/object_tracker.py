@@ -95,6 +95,10 @@ class ObjectTracker(Node):
         self.prior_rows = {}                # prior track id -> its file entry
         self.loading = list(course_map.load(self.map_file, datetime.now(timezone.utc),
                                             cm['max_age_days'])) if cm['load'] else []
+        # Entries not (yet) adopted as priors: kept in the file until they are, so a slow
+        # or failed /fromLL never erases them.
+        self.unadopted = {id(row): row for row in self.loading}
+        self.had_rows = bool(self.loading)  # an empty map is written only after content
         self.warned_ll = False
         self.dirty = False
         self.create_timer(cm['save_period_s'], self.save_course_map)
@@ -294,14 +298,24 @@ class ObjectTracker(Node):
         self.loading = []
 
     def adopt_prior(self, row, future):
-        point = future.result().map_point
-        transform = self.latest(self.odom, self.map)
+        try:
+            result = future.result()
+        except Exception as error:      # noqa: B902 - any service failure, same handling
+            result, why = None, error
+        else:
+            why = 'no response'
+        transform = self.latest(self.odom, self.map) if result is not None else None
         if transform is None:
+            self.get_logger().warning(
+                f"course map prior {row['class_id']} not adopted "
+                f"({why if result is None else 'no map->odom'}); kept in the file")
             return
+        point = result.map_point
         xy = (transform[0] @ np.array([point.x, point.y, 0.0]) + transform[1])[:2]
         track = self.filter.add_prior(row['class_id'], xy, row['sigma_m'], self.now())
         self.saved_ll[track.id] = row
         self.prior_rows[track.id] = row
+        self.unadopted.pop(id(row), None)
 
     def eligible(self):
         """Return the STATIC buoy-group tracks to save: a boat that paused is no prior."""
@@ -341,13 +355,23 @@ class ObjectTracker(Node):
         self.write_course_map()
 
     def converted(self, ident, row, future):
-        point = future.result().ll_point
+        try:
+            result = future.result()
+        except Exception:               # noqa: B902 - keep the last good entry
+            result = None
+        if result is None:
+            self.get_logger().warning('course map: toLL failed', throttle_duration_sec=30.0)
+            return
+        point = result.ll_point
         self.saved_ll[ident] = {**row, 'lat': point.latitude, 'lon': point.longitude}
 
     def write_course_map(self):
         alive = {t.id for t in self.eligible()}
         rows = [row for ident, row in self.saved_ll.items() if ident in alive and 'lat' in row]
-        if rows:
+        rows += list(self.unadopted.values())
+        # Once the map had content, an empty one is news too (every buoy was dropped).
+        if rows or self.had_rows:
+            self.had_rows = self.had_rows or bool(rows)
             name = self.map_file.stem
             course_map.save(self.map_file, name, rows, datetime.now(timezone.utc))
 

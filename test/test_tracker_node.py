@@ -112,7 +112,7 @@ def test_course_map_saved_through_toll_and_loaded_as_priors(tmp_path, monkeypatc
     require_isolated_domain()
     monkeypatch.setenv('MHSEALS_DATA', str(tmp_path))
     rclpy.init(args=['--ros-args', '-p', 'course_map.save_period_s:=0.3',
-                     '-p', 'course_map.save_min_hits:=3'])
+                     '-p', 'course_map.save_min_hits:=3', '-p', 'miss_in_fov_s:=0.5'])
     try:
         probe = rclpy.create_node('ll_probe')
 
@@ -146,16 +146,17 @@ def test_course_map_saved_through_toll_and_loaded_as_priors(tmp_path, monkeypatc
                     t.transform.rotation.w = 1.0
                     out.append(t)
                 tf.sendTransform(out)
-                if observe:
+                if observe:                 # True: a buoy and a boat; 'nothing': empty frames
                     msg = ObservationArray(backend='sim')
                     msg.header.stamp, msg.header.frame_id = stamp, 'cam'
-                    ob = Observation(class_id='green_buoy', score=0.9)
-                    ob.position.x, ob.position.y = 5.0, 1.0
-                    msg.observations.append(ob)
-                    # A boat holding still turns STATIC, but is never a course prior.
-                    boat = Observation(class_id='yellow_target_boat', score=0.9)
-                    boat.position.x, boat.position.y = 5.0, -2.0
-                    msg.observations.append(boat)
+                    if observe is True:
+                        ob = Observation(class_id='green_buoy', score=0.9)
+                        ob.position.x, ob.position.y = 5.0, 1.0
+                        msg.observations.append(ob)
+                        # A boat holding still turns STATIC, but is never a course prior.
+                        boat = Observation(class_id='yellow_target_boat', score=0.9)
+                        boat.position.x, boat.position.y = 5.0, -2.0
+                        msg.observations.append(boat)
                     pub.publish(msg)
                 for _ in range(3):
                     ex.spin_once(timeout_sec=0.02)
@@ -184,6 +185,25 @@ def test_course_map_saved_through_toll_and_loaded_as_priors(tmp_path, monkeypatc
         (prior,) = second.filter.tracks
         assert prior.source == Track.SOURCE_PRIOR and prior.hits == 0
         assert prior.x[:2] == pytest.approx([5.0, 1.0], abs=0.05)          # back in odom
+
+        class Failed:
+            def result(self):
+                raise RuntimeError('fromLL failed')
+        lost = dict(rows[0], class_id='red_buoy')
+        second.unadopted[id(lost)] = lost
+        second.adopt_prior(lost, Failed())                  # warns, keeps the entry
+        assert len(second.filter.tracks) == 1
+        second.write_course_map()
+        now = course_map.datetime.now(course_map.timezone.utc)
+        assert sorted(r['class_id'] for r in course_map.load(file, now, 3)) == \
+            ['green_buoy', 'red_buoy']
+        del second.unadopted[id(lost)]
+
+        # The buoy is gone: seen nowhere while in view, it drops and the map empties.
+        spin(second, 5.0, 'nothing', lambda: not second.filter.tracks)
+        assert not second.filter.tracks
+        second.write_course_map()
+        assert course_map.load(file, now, 3) == []
         second.destroy_node()
     finally:
         rclpy.try_shutdown()
