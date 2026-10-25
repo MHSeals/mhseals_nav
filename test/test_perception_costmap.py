@@ -155,7 +155,9 @@ def test_static_layer_in_rolling_costmaps_keeps_graded_costs_through_tf():
                 b.metadata.origin.position.x + b_params['width'] / 2 - robot[0]) < 0.2
             o = got.get('o')
             marked = o is not None and all(cost_at(o, x, y) == 100 for x, y in lidar)
-            return centred and marked and cost_at(b, 3.0, 1.0) == 254
+            # B sees the lidar marks one O publish and one B update after O has them.
+            return centred and marked and cost_at(b, 3.0, 1.0) == 254 and \
+                all(cost_at(b, x, y) == 254 for x, y in lidar)
 
         def state():
             lines = (tmp / 'nodes.log').read_text().splitlines(True)
