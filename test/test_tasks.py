@@ -1,7 +1,7 @@
 import importlib.util
 import math
 
-from mhseals_nav.tasks import geometry
+from mhseals_nav.tasks import geometry, load_config
 from mhseals_nav.tasks.tracks import Track
 import pytest
 
@@ -194,9 +194,7 @@ class World:
 
 
 def params(task):
-    import yaml
-    from pathlib import Path
-    return yaml.safe_load((Path(__file__).parents[1] / f'config/tasks/{task}.yaml').read_text())
+    return load_config(task)  # the runner's strict loader
 
 
 def gate(x, y, width, red='red_pole_buoy', green='green_pole_buoy'):

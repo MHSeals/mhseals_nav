@@ -10,9 +10,9 @@ import importlib.util
 import math
 from pathlib import Path
 
+from mhseals_nav.tasks import load_config
 from mhseals_nav.tasks.tracks import Track
 import pytest
-import yaml
 
 pytestmark = pytest.mark.skipif(importlib.util.find_spec('py_trees') is None,
                                 reason='needs py_trees')
@@ -22,7 +22,6 @@ if importlib.util.find_spec('py_trees') is not None:
     from mhseals_nav.tasks.search import Coverage
     from mhseals_nav.tasks.trees import TREES
 
-CONFIG = Path(__file__).parents[1] / 'config/tasks'
 
 # crane_ml Tools/RoboBoat/courses/roboboat_2025.json in the start frame; the dock's
 # banners stand on its spine behind each bay (course truth bays at y -18.25).
@@ -70,7 +69,7 @@ class Course:
         search = params.get('search') or {}
         self.board.home, self.board.fov = self.pose, self.fov
         self.board.coverage = Coverage(search.get('area'), 1.5, self.pose, 60.0, 120.0)
-        self.recogniser = Recogniser.from_yaml(CONFIG / 'recognition.yaml')
+        self.recogniser = Recogniser(load_config('recognition'))
 
     def send(self, route, precise=False, quiet=False, why='', reverse=None):
         if self.goal is not None and not self.goal.done:
@@ -137,10 +136,9 @@ class Course:
 
 
 def mission(path):
-    params = yaml.safe_load((CONFIG / path).read_text())
+    params = load_config(Path(path).stem)
     for name in params['tasks']:
-        params[name] = {**yaml.safe_load((CONFIG / f'{name}.yaml').read_text()),
-                        **params.get(name, {})}
+        params[name] = {**load_config(name), **params.get(name, {})}
     return params
 
 

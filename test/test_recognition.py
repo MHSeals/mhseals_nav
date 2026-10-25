@@ -5,11 +5,11 @@ import math
 import os
 import random
 
+from mhseals_nav.tasks import load_config
 from mhseals_nav.tasks.recognition import Recogniser, SCHEMA, STATES
 from mhseals_nav.tasks.tracks import Track
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-RULES = os.path.join(ROOT, 'config', 'tasks', 'recognition.yaml')
 FIXTURE = os.path.join(ROOT, 'test', 'fixtures', 'task_hypotheses.json')
 HOME = (0.0, 0.0, 0.0)
 
@@ -48,7 +48,7 @@ def close(pose, x, y, yaw, tol=0.05):
 
 
 def test_full_course_finds_each_task_once_at_its_pose():
-    found = by_type(Recogniser.from_yaml(RULES).update(tracks(), HOME, 0.0))
+    found = by_type(Recogniser(load_config('recognition')).update(tracks(), HOME, 0.0))
     assert {k: len(v) for k, v in found.items()} == dict.fromkeys(
         ('home_gate', 'nav_channel', 'follow_path', 'speed_gate', 'speed_mark', 'dock'), 1)
     one = {k: v[0] for k, v in found.items()}
@@ -69,7 +69,7 @@ def test_full_course_finds_each_task_once_at_its_pose():
 
 
 def test_one_channel_gate_is_half_then_confirmed_with_both():
-    rules = Recogniser.from_yaml(RULES).rules
+    rules = Recogniser(load_config('recognition')).rules
     recogniser = Recogniser(rules)
     first = recogniser.update(tracks(COURSE[2:4]), HOME, 0.0)
     assert len(first) == 1 and first[0]['state'] == 'hypothesis'
@@ -84,7 +84,7 @@ def test_one_channel_gate_is_half_then_confirmed_with_both():
 
 
 def test_ids_are_stable_under_jitter():
-    recogniser = Recogniser.from_yaml(RULES)
+    recogniser = Recogniser(load_config('recognition'))
     ids = {h['id'] for h in recogniser.update(tracks(), HOME, 0.0)}
     rng = random.Random(7)
     for step in range(1, 20):
@@ -93,7 +93,7 @@ def test_ids_are_stable_under_jitter():
 
 
 def test_done_sticks():
-    recogniser = Recogniser.from_yaml(RULES)
+    recogniser = Recogniser(load_config('recognition'))
     recogniser.update(tracks(), HOME, 0.0)
     recogniser.mark('dock', 'done')
     for now in (1.0, 5.0, 100.0):  # still there long after its support is gone
@@ -103,17 +103,17 @@ def test_done_sticks():
 
 
 def test_speed_gate_is_not_a_path_gate():
-    found = by_type(Recogniser.from_yaml(RULES).update(tracks(), HOME, 0.0))
+    found = by_type(Recogniser(load_config('recognition')).update(tracks(), HOME, 0.0))
     path = {(s[2], s[3]) for s in found['follow_path'][0]['support']}
     assert (3, 12.25) not in path and (3, 9.75) not in path
     # A lone small gate with no blue mark is neither a path nor a speed gate.
-    lone = Recogniser.from_yaml(RULES).update(tracks(COURSE[20:22]), HOME, 0.0)
+    lone = Recogniser(load_config('recognition')).update(tracks(COURSE[20:22]), HOME, 0.0)
     assert lone == []
 
 
 def test_black_pair_far_from_home_is_not_home_gate():
     far = [('black_buoy', 30, 1.5), ('black_buoy', 30, -1.5)]
-    assert Recogniser.from_yaml(RULES).update(tracks(far), HOME, 0.0) == []
+    assert Recogniser(load_config('recognition')).update(tracks(far), HOME, 0.0) == []
 
 
 def check_message(message):
@@ -135,7 +135,7 @@ def check_message(message):
 
 
 def test_message_and_fixture_follow_the_contract():
-    recogniser = Recogniser.from_yaml(RULES)
+    recogniser = Recogniser(load_config('recognition'))
     recogniser.update(tracks(), HOME, 0.0)
     message = recogniser.message(3.0)
     check_message(json.loads(json.dumps(message)))

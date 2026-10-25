@@ -11,7 +11,6 @@ Pure Python: no ROS imports, so it is testable on any host.
 import math
 
 from mhseals_nav.tasks import geometry
-import yaml
 
 SCHEMA = 'mhseals.task_hypotheses/1'
 STATES = ('hypothesis', 'confirmed', 'done', 'failed')
@@ -67,17 +66,11 @@ class Recogniser:
     """Keeps task hypotheses across updates, with stable ids and sticky outcomes."""
 
     def __init__(self, rules):
-        """Take the rules dict of config/tasks/recognition.yaml."""
+        """Take the rules dict of config/tasks/recognition.yaml (tasks.load_config)."""
         self.rules = rules
         self._hypotheses = {}  # id -> internal record, insertion ordered
         self._counts = {}      # type -> next id number
         self._marks = {}       # type -> done | failed, set by the mission runner
-
-    @classmethod
-    def from_yaml(cls, path):
-        """Build a recogniser from the rules in the YAML file at ``path``."""
-        with open(path, encoding='utf-8') as stream:
-            return cls(yaml.safe_load(stream))
 
     def mark(self, kind, state):
         """Set every hypothesis of type ``kind`` to ``state``; done and failed stick."""

@@ -27,6 +27,7 @@ from builtin_interfaces.msg import Duration
 from diagnostic_msgs.msg import DiagnosticArray
 from geometry_msgs.msg import Point, PoseStamped, Twist, Vector3Stamped
 from mavros_msgs.msg import GPSRAW
+from mhseals_nav.navigation_config import load_strict
 from mhseals_nav.tasks import load_config, tracks
 from mhseals_nav.tasks.conditions import Conditions, speed as conditions_speed
 from mhseals_nav.tasks.recognition import Recogniser
@@ -45,7 +46,6 @@ from rclpy.time import Time
 from std_msgs.msg import String
 from tf2_ros import Buffer, TransformException, TransformListener
 from vision_msgs.msg import Detection3DArray
-import yaml
 
 try:  # perception v2 messages (pv2-track); without them only /objects/map is read
     from mhseals_nav.msg import TrackArray
@@ -260,7 +260,7 @@ class TaskRunner(Node):
             QoSProfile(depth=100, durability=DurabilityPolicy.TRANSIENT_LOCAL))
         self.status = self.create_publisher(String, '/task/status', latched)
         self.hypotheses = self.create_publisher(String, '/task/hypotheses', latched)
-        self.recogniser = Recogniser.from_yaml(config_path('recognition.yaml'))
+        self.recogniser = Recogniser(load_config('recognition'))
         self.status_at, self.status_last, self.hypotheses_at = None, None, None
         stages = params.get('tasks', [task] if task != 'mission' else [])
         self.stages = {name: {'state': 'pending', 'attempts': 0, 'failures': 0,
@@ -558,8 +558,8 @@ def config_path(name):
 
 def load_params(task, path=None):
     """Load a task's YAML; for the mission, each task's own YAML under its name."""
-    with open(path or config_path(f'{task}.yaml'), encoding='utf-8') as stream:
-        params = yaml.safe_load(stream) or {}
+    path = path or config_path(f'{task}.yaml')
+    params = load_strict(Path(path).read_text(encoding='utf-8'), path) or {}
     if task == 'mission':
         for name in params['tasks']:
             params[name] = {**load_params(name), **params.get(name, {})}

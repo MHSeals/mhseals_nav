@@ -11,9 +11,8 @@ clearly (``hysteresis``) better, so the boat turns while moving and never dither
 """
 
 import math
-from pathlib import Path
 
-from mhseals_nav.tasks import geometry
+from mhseals_nav.tasks import geometry, load_config as load_task_config
 from mhseals_nav.tasks.behaviours import Driver, Leaf
 from mhseals_nav.tasks.tracks import Track
 import numpy as np
@@ -390,14 +389,8 @@ STRATEGIES = (('priors', LookAtPriors), ('scan', Scan), ('next_view', NextView),
 
 def load_config(overrides=None):
     """Merge config/tasks/search.yaml with a task's own ``search`` overrides."""
-    import yaml  # only the runner and tests load config
-    path = Path(__file__).resolve().parents[2] / 'config/tasks/search.yaml'
-    if not path.exists():  # installed: the package share directory
-        from ament_index_python.packages import get_package_share_directory
-        path = Path(get_package_share_directory('mhseals_nav')) / 'config/tasks/search.yaml'
-    cfg = yaml.safe_load(path.read_text(encoding='utf-8')) or {}
     overrides = overrides or {}
-    cfg.update({k: v for k, v in overrides.items() if k != 'enable'})
+    cfg = load_task_config('search', {k: v for k, v in overrides.items() if k != 'enable'})
     cfg['enable'] = {**cfg.get('enable', {}), **overrides.get('enable', {})}
     return cfg
 
