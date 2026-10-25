@@ -10,7 +10,7 @@ with no operator ever seen otherwise.
 
 import socket
 
-from mhseals_nav.hold_watchdog import HoldGate, node_class as watchdog_class, run
+from mhseals_nav.hold_watchdog import fresh, HoldGate, node_class as watchdog_class, run
 
 
 def short(host):
@@ -35,7 +35,7 @@ class LinkWatchdog(HoldGate):
     def reason(self, now):
         if self.beat_at is None:
             return 'no operator heartbeat yet' if self.cfg['require_operator'] else ''
-        if now - self.beat_at > self.cfg['max_age_s']:
+        if not fresh(self.beat_at, now, self.cfg['max_age_s']):
             return f"operator heartbeat older than {self.cfg['max_age_s']} s"
         return ''
 
@@ -53,7 +53,7 @@ def node_class():
             if node.logic.heartbeat(time.monotonic(), msg.data):
                 if first:
                     node.get_logger().info(f'operator heartbeat from {msg.data}')
-            elif msg.data not in ignored:
+            elif msg.data not in ignored and len(ignored) < 16:  # bounded
                 ignored.add(msg.data)
                 node.get_logger().warning(
                     f'ignoring heartbeat from {msg.data!r}: not one of '

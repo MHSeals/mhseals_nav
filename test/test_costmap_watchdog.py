@@ -163,3 +163,25 @@ def test_node_survives_stale_fresh_flips_and_holds():
         assert {g['cause'] for g in got} == {CFG['cause']}
     finally:
         rclpy.try_shutdown()
+
+
+@pytest.mark.parametrize('skew', [-1, 1])
+def test_stamp_skewed_either_way_beyond_the_limit_holds(skew):
+    """A costmap stamped in the future (Orin clock ahead) is no fresher than an old one."""
+    dog = Watchdog(CFG)
+    age = skew * (CFG['max_stamp_age_s'] + 0.5)
+    dog.costmap(0.0, age)
+    dog.tracks(0.0, age)
+    dog.command(0.0)
+    assert dog.stale_inputs(0.0) == ['costmap', 'tracks']
+    assert dog.tick(0.0)
+
+
+@pytest.mark.parametrize('skew', [-1, 1])
+def test_stamp_skewed_either_way_within_the_limit_is_fresh(skew):
+    dog = Watchdog(CFG)
+    age = skew * (CFG['max_stamp_age_s'] - 0.5)
+    dog.costmap(0.0, age)
+    dog.tracks(0.0, age)
+    dog.command(0.0)
+    assert not dog.tick(0.0)

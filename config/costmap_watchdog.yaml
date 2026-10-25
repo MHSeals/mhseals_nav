@@ -14,7 +14,9 @@
     cause: costmap_stale
     max_age_s: 1.0                     # receipt age; the TUI costmap_age check fails at 1.0
     max_tracks_age_s: 1.0              # receipt age of /perception/tracks
-    max_stamp_age_s: 2.0               # header age (costmap and tracks): old is not fresh
+    # Header age (costmap and tracks), either sign: old or future stamps are not fresh.
+    # The boat and Orin clocks must stay well under 1 s apart (chrony).
+    max_stamp_age_s: 2.0
     command_window_s: 0.5              # autonomy = an auto command within this window
     repeat_s: 1.0
     rate_hz: 10.0

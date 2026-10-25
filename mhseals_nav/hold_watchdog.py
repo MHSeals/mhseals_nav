@@ -4,7 +4,8 @@ Each watches one condition. While it is bad and autonomy commands flow (an auto 
 within command_window_s), the watchdog asks command_mux for a hold with its own cause and
 token, and asks again every repeat_s, so a release while the condition is still bad is held
 again. It never releases: the operator clears holds. Ages are receipt ages on the monotonic
-clock, so a clock skew between hosts can neither cause nor hide a hold.
+clock; only costmap_watchdog also checks header stamps, so there a skew between the boat and
+the Orin beyond max_stamp_age_s holds.
 """
 
 import json

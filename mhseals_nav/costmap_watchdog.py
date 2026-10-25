@@ -7,7 +7,7 @@ recent /perception/tracks are required too. Hold-only; the operator releases lik
 sticky hold.
 """
 
-from mhseals_nav.hold_watchdog import HoldGate, node_class as watchdog_class, run
+from mhseals_nav.hold_watchdog import fresh, HoldGate, node_class as watchdog_class, run
 
 
 class Watchdog(HoldGate):
@@ -18,12 +18,16 @@ class Watchdog(HoldGate):
         self.fresh_at = None
         self.tracks_at = None
 
+    def stamp_ok(self, stamp_age):
+        # Both ways: a stamp from the future (Orin clock ahead) must not pass as fresh.
+        return abs(stamp_age) <= self.cfg['max_stamp_age_s']
+
     def costmap(self, now, stamp_age):
-        if stamp_age <= self.cfg['max_stamp_age_s']:
+        if self.stamp_ok(stamp_age):
             self.fresh_at = now
 
     def tracks(self, now, stamp_age):
-        if stamp_age <= self.cfg['max_stamp_age_s']:
+        if self.stamp_ok(stamp_age):
             self.tracks_at = now
 
     def stale_inputs(self, now):
@@ -32,7 +36,7 @@ class Watchdog(HoldGate):
         return [name for name, at, limit in (
             ('costmap', self.fresh_at, cfg['max_age_s']),
             ('tracks', self.tracks_at, cfg['max_tracks_age_s']))
-            if at is None or now - at > limit]
+            if not fresh(at, now, limit)]
 
     def reason(self, now):
         stale = self.stale_inputs(now)
