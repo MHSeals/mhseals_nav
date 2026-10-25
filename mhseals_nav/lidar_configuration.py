@@ -163,7 +163,6 @@ def resolve_lidar(selected='', deployment='', overrides=None, *, share=package_s
         else:
             values['lidar.endpoint.ip'] = value
         origins['lidar.endpoint.' + alias[len('velodyne_'):]] = '<explicit>'
-    validate_present(values)
     validate_values(values)
     if required_frame and values['lidar.frame'] != required_frame:
         raise ValueError('full robot lidar frame must match fixed URDF lidar_link contract')

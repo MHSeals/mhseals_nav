@@ -13,7 +13,7 @@ controller_server.FollowPath.ax_min: {type: float, units: m/s^2, range: [-5, 0],
 controller_server.FollowPath.ay_max: {type: float, units: m/s^2, range: [0, 5], tier: live, doc: "Lateral acceleration limit."}
 controller_server.FollowPath.ay_min: {type: float, units: m/s^2, range: [-5, 0], tier: live, doc: "Lateral deceleration limit."}
 controller_server.FollowPath.az_max: {type: float, units: rad/s^2, range: [0, 10], tier: live, doc: "Yaw acceleration limit; also the rotation shim limit."}
-controller_server.FollowPath.time_steps: {type: int, units: count, range: [1, 200], tier: restart, doc: "MPPI rollout horizon steps."}
+controller_server.FollowPath.time_steps: {type: int, units: count, range: [1, 200], tier: live, doc: "MPPI rollout horizon steps."}
 controller_server.FollowPath.vx_std: {type: float, units: m/s, tier: live, doc: "Forward sampling noise; keep below vx_max."}
 controller_server.FollowPath.vy_std: {type: float, units: m/s, tier: live, doc: "Lateral sampling noise; keep below vy_max."}
 controller_server.FollowPath.wz_std: {type: float, units: rad/s, tier: live, doc: "Yaw sampling noise; keep below wz_max."}
@@ -23,7 +23,7 @@ velocity_smoother.min_velocity: {type: list, units: "m/s, m/s, rad/s", tier: liv
 velocity_smoother.max_accel: {type: list, units: "m/s^2, m/s^2, rad/s^2", tier: live, doc: "Acceleration limits (x, y, yaw)."}
 velocity_smoother.max_decel: {type: list, units: "m/s^2, m/s^2, rad/s^2", tier: live, doc: "Deceleration limits (x, y, yaw), negative."}
 
-mavros_setup.message_rates: {type: list, units: "ID:Hz", tier: restart, doc: "MAVLink message intervals requested on connect and reconnect; 0 resets, -1 disables."}
+mavros_setup.message_rates: {type: list, units: "ID:Hz", tier: live, doc: "MAVLink message intervals requested on connect and reconnect; 0 resets, -1 disables."}
 mavros_setup.retry_attempts: {type: int, units: count, range: [0, 20], tier: restart, doc: "Interval requests attempted per connection."}
 mavros_setup.retry_delay: {type: float, units: s, range: [0, 60], tier: restart, doc: "Wait between request attempts."}
 mavros_setup.response_timeout: {type: float, units: s, range: [0.1, 60], tier: restart, doc: "Wait for each request response."}
@@ -34,11 +34,10 @@ mavros_setup.rc_min_hz: {type: float, units: Hz, range: [0.1, 100], tier: restar
 mavros_setup.rc_min_channels: {type: int, units: count, range: [1, 18], tier: restart, doc: "Minimum RC channels expected."}
 mavros_setup.rc_grace: {type: float, units: s, range: [0, 120], tier: restart, doc: "Startup grace before RC diagnostics."}
 mavros_setup.rc_timer: {type: float, units: s, range: [0.1, 60], tier: restart, doc: "RC diagnostic check period."}
-mavros_setup.fcu_sysid: {type: int, units: 1, range: [1, 255], tier: restart, doc: "MAVLink system ID whose observations are accepted."}
+mavros_setup.fcu_sysid: {type: int, units: "1", range: [1, 255], tier: restart, doc: "MAVLink system ID whose observations are accepted."}
 
 lidar.model: {type: str, units: enum, tier: restart, doc: "Velodyne model; only VLP16 is supported."}
 lidar.frame: {type: str, units: frame, tier: restart, doc: "Lidar TF frame; the full robot requires lidar_link."}
-lidar.rpm: {type: float, units: 1, range: [300, 1200], tier: restart, doc: "Driver rotation speed in revolutions per minute."}
-lidar.calibration: {type: str, units: path, tier: restart, doc: "Calibration YAML as a package/path or file reference."}
-lidar.endpoint.ip: {type: str, units: 1, tier: restart, doc: "Device IPv4 address."}
-lidar.endpoint.port: {type: int, units: 1, range: [1, 65535], tier: restart, doc: "Device UDP port."}
+lidar.rpm: {type: float, units: "1", range: [300, 1200], tier: restart, doc: "Driver rotation speed in revolutions per minute."}
+lidar.endpoint.ip: {type: str, units: "1", tier: restart, doc: "Device IPv4 address."}
+lidar.endpoint.port: {type: int, units: "1", range: [1, 65535], tier: restart, doc: "Device UDP port."}

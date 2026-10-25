@@ -8,7 +8,11 @@ ROOT = Path(__file__).parents[1]
 SCHEMA = yaml.safe_load((ROOT / 'config/schema.yaml').read_text())
 FILES = {'controller_server': 'nav2_params', 'velocity_smoother': 'nav2_params',
          'mavros_setup': 'mavros_setup', 'lidar': 'lidar'}
-TYPES = {'float': (int, float), 'int': (int,), 'bool': (bool,), 'str': (str, dict),
+R2_UNITS = {'s', 'Hz', 'm', 'm/s', 'rad', 'rad/s', 'm/s^2', 'count', 'bool', 'enum', 'frame',
+            'topic', 'path', '1'}
+# Not in the R2 list yet; the astro lane owns docs/config-conventions.md.
+PENDING_R2 = {'rad/s^2', 'ID:Hz', 'm/s, m/s, rad/s', 'm/s^2, m/s^2, rad/s^2'}
+TYPES = {'float': (int, float), 'int': (int,), 'bool': (bool,), 'str': (str,),
          'list': (list,)}
 
 
@@ -27,6 +31,7 @@ def lookup(key):
 def test_entry_matches_package_default(key):
     entry = SCHEMA[key]
     assert set(entry) - {'range'} == {'type', 'units', 'tier', 'doc'}
+    assert isinstance(entry['units'], str) and entry['units'] in R2_UNITS | PENDING_R2
     assert entry['tier'] in ('live', 'reconfigure', 'restart', 'new-session')
     value = lookup(key)
     assert isinstance(value, TYPES[entry['type']]) and not (

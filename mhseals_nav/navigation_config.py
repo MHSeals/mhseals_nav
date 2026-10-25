@@ -36,7 +36,8 @@ class StrictOverlayLoader(yaml.SafeLoader):
 
     def compose_node(self, parent, index):
         if self.check_event(yaml.AliasEvent):
-            raise ValueError('YAML aliases are unsupported in navigation overlays')
+            raise ValueError('YAML aliases are unsupported in navigation overlays at '
+                             f'{self.peek_event().start_mark}')
         return super().compose_node(parent, index)
 
     def construct_yaml_float(self, node):
@@ -59,7 +60,7 @@ def load_overlay(path, *, strict=False):
             data = {}
     except FileNotFoundError:
         return {}
-    except (OSError, yaml.YAMLError, UnicodeDecodeError) as error:
+    except (OSError, ValueError, yaml.YAMLError) as error:
         if strict:
             raise ValueError(f'Invalid overlay {path}: {error}') from error
         log.error('Ignoring overlay %s: %s', path, error)
@@ -340,14 +341,6 @@ def validated_merge_limits(base, limits):
             return int(value)
         return value
     return lower_navigation(base, normalized(base, limits))
-
-
-# The selected domain parameter file owns values; these declare relationships,
-# not a second set of defaults. Behavior-server limits remain independent.
-LOWERING_INPUTS = ('controller_frequency', 'vx_max', 'vy_max', 'wz_max',
-                   'vx_min', 'time_steps', 'vx_std', 'vy_std', 'wz_std',
-                   'ax_max', 'ay_max', 'az_max', 'ax_min', 'prune_distance')
-INDEPENDENT_FIELDS = ('behavior_server',)
 
 
 def lower_navigation(base, explicit):

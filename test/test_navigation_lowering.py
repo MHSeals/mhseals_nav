@@ -2,7 +2,7 @@
 from copy import deepcopy
 from pathlib import Path
 
-from mhseals_nav.navigation_config import validated_merge_limits
+from mhseals_nav.navigation_config import load_overlay, validated_merge_limits
 from mhseals_nav.startup_projection import compile_navigation
 import pytest
 import yaml
@@ -98,3 +98,40 @@ def test_renamed_selected_mppi_uses_its_plugin_contract(base):
     result = validated_merge_limits(base, {'controller_server': {'ros__parameters': {
         'controller_frequency': 20}}})
     assert result['controller_server']['ros__parameters']['Boat']['model_dt'] == .05
+
+
+def _compile_text(tmp_path, text):
+    path = tmp_path / 'strict.yaml'
+    path.write_text(text)
+    return path
+
+
+@pytest.mark.parametrize('text, message', [
+    ('a: .inf\n', 'Non-finite number'),
+    ('a: .nan\n', 'Non-finite number'),
+    ('a: 1\na: 2\n', 'Duplicate key'),
+    ('a: &x {b: 1}\nc: {<<: *x}\n', 'aliases are unsupported'),
+    ('a: {<<: {b: 1}}\n', 'Merge keys'),
+])
+def test_strict_loader_names_file_and_line(tmp_path, text, message):
+    path = _compile_text(tmp_path, text)
+    for call in (lambda: load_overlay(path, strict=True),
+                 lambda: compile_navigation(path, '', sim='true', use_lidar='true')):
+        with pytest.raises(ValueError, match=message) as error:
+            call()
+        assert str(path) in str(error.value) and 'line ' in str(error.value)
+
+
+def test_limits_file_errors_name_the_limits_path(base, tmp_path):
+    params = _compile_text(tmp_path, yaml.safe_dump(base))
+    limits = tmp_path / 'limits.yaml'
+    limits.write_text('a: 1\na: 2\n')
+    with pytest.raises(ValueError, match='Duplicate key') as error:
+        compile_navigation(params, limits, sim='true', use_lidar='true')
+    assert str(limits) in str(error.value)
+
+
+def test_missing_params_file_names_the_path(tmp_path):
+    missing = tmp_path / 'absent.yaml'
+    with pytest.raises(FileNotFoundError, match='absent.yaml'):
+        compile_navigation(missing, '', sim='true', use_lidar='true')

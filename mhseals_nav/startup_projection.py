@@ -31,6 +31,8 @@ def bt_paths(share=None):
 
 def compile_navigation(params_file, limits_file, *, sim, use_lidar, share=None):
     """Strictly load the base and optional operator limits, validate and project them."""
+    if not Path(params_file).expanduser().is_file():
+        raise FileNotFoundError(f'Navigation params file not found: {params_file}')
     base = load_overlay(params_file, strict=True)
     validate_navigation_base(base)
     limits = load_overlay(limits_file, strict=True) if limits_file else {}
