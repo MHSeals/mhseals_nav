@@ -15,7 +15,7 @@ class Rule:
     size: int = 0
 
     def check(self, value):
-        """Validate and normalize the same value shown by the catalog."""
+        """Validate and normalize the value."""
         if self.kind == 'string':
             valid = type(value) is str and value in self.choices
         elif self.kind == 'boolean':

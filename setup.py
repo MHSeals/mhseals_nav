@@ -30,7 +30,6 @@ data_files = [
      [path for path in glob(os.path.join('config', '*')) if os.path.isfile(path)]),
 ]
 
-data_files += [('share/mhseals_nav/docs', ['docs/startup-catalog-constraints.md'])]
 data_files += package_files('description')
 data_files += package_files('urdf')
 data_files += package_files(os.path.join('config', 'tasks'))

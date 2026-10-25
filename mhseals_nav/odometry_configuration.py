@@ -39,7 +39,7 @@ class OdometryConfiguration:
 
 
 def field_rule(key):
-    """Return the owned schema rule shared by validation and catalog presentation."""
+    """Return the owned schema rule."""
     if key not in KEYS:
         raise ValueError('unknown odometry startup field: ' + key)
     return (Rule('string', choices=('gps', 'fcu')) if key == 'mavros_velocity_source' else

@@ -51,7 +51,7 @@ class Loader(StrictOverlayLoader):
 
 
 def field_rule(name, key):
-    """Rules are the compiler schema and the catalog constraint authority."""
+    """Rules are the compiler schema."""
     if key in GRAPH[name]:
         return Rule('string', choices=(GRAPH[name][key],))
     if key in BOOLEANS[name]:
