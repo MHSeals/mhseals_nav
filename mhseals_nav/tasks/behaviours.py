@@ -131,6 +131,13 @@ class Driver(Leaf):
         # once aborted. Either way, send it again.
         refused = status == 'REJECTED' or (status == 'ABORTED' and q is not None
                                            and now - q['sent'] < self.limits['refusal_s'])
+        # A goal that preempts one still ending can inherit its "Reached the goal": a
+        # success at once and far from this route's end is that, not an arrival.
+        pose = self.board.pose
+        refused = refused or (status == 'SUCCEEDED' and q is not None and pose is not None
+                              and now - q['sent'] < self.limits['refusal_s']
+                              and math.dist(pose[:2], q['route'][-1][:2])
+                              > self.limits['stale_success_m'])
         if refused and q is not None and q['tries'] < self.limits['goal_retries']:
             self.goal = None
             return self.driving()

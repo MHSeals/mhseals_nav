@@ -847,6 +847,16 @@ def test_a_replaced_goal_is_cancelled_when_driving_stops_mid_handover():
     assert goals[0].cancelled and goals[1].cancelled
 
 
+def test_a_success_at_once_far_from_the_end_is_the_preempted_goal_s_and_resent():
+    """Nav2 can end a preempting goal with the old one's "Reached the goal" (sim lap)."""
+    driver, goals = replacing_driver([False])
+    goals[0].done, goals[0].status = True, 'SUCCEEDED'  # 5 m short, at once
+    assert driver.driving() == 'RUNNING' and len(goals) == 2
+    driver.board.pose = (4.5, 0.0, 0.0)  # a real arrival within tolerance counts
+    goals[1].done, goals[1].status = True, 'SUCCEEDED'
+    assert driver.driving() == 'SUCCEEDED' and len(goals) == 2
+
+
 def test_a_replaced_back_out_is_kept_and_cancelled_when_driving_stops():
     from mhseals_nav.tasks.behaviours import BackOut
     driver, goals = replacing_driver([False], BackOut('back out', 'bay_staging', 0.1, 40.0))
