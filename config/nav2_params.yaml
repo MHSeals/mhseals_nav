@@ -253,9 +253,12 @@ behavior_server:
     local_footprint_topic: local_costmap/published_footprint
     global_footprint_topic: global_costmap/published_footprint
     cycle_frequency: 10.0
-    behavior_plugins: [wait]
+    # backup: only the docking task's straight reverse out of a bay; no tree recovers with it.
+    behavior_plugins: [wait, backup]
     wait:
       plugin: nav2_behaviors::Wait
+    backup:
+      plugin: nav2_behaviors::BackUp
     local_frame: odom
     global_frame: map
     robot_base_frame: base_link
