@@ -14,7 +14,7 @@ import yaml
 
 
 def truth(name, text):
-    """The launch boolean ``text``, naming the argument when it is not one."""
+    """Parse the launch boolean ``text``, naming the argument when it is not one."""
     try:
         return boolean(text)
     except ValueError as error:

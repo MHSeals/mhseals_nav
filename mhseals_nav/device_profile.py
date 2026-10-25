@@ -66,7 +66,8 @@ def validate_layer(layer, where, keys=KEYS):
         launch = spec.get('launch')
         if 'launch' in spec and not (isinstance(launch, str) and Path(launch).name == launch
                                      and launch.endswith('.launch.py')):
-            raise ValueError(f'{here}.launch: a launch file name in this package (<name>.launch.py)')
+            raise ValueError(
+                f'{here}.launch: a launch file name in this package (<name>.launch.py)')
         if 'run' in spec and len(_names(spec['run'], f'{here}.run')) < 2:
             raise ValueError(f'{here}.run: [package, executable, arguments...]')
         _arguments(spec.get('args', {}), f'{here}.args')

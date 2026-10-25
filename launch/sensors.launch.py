@@ -38,7 +38,8 @@ def sensor_nodes(context):
     aliases = {name: LaunchConfiguration(name).perform(context)
                for name in ('velodyne_ip', 'velodyne_port')}
     required_frame = LaunchConfiguration('lidar_required_frame').perform(context)
-    # The address lives in boat-network.env (LIDAR_IP); lidar YAML layers and velodyne_ip override it.
+    # The address lives in boat-network.env (LIDAR_IP); lidar YAML layers and velodyne_ip
+    # override it.
     lidar = resolve_lidar(selected, deployment, aliases, required_frame=required_frame,
                           fallback_ip=boat_network.value('LIDAR_IP'))
     # Validate the complete pair before constructing either physical node.

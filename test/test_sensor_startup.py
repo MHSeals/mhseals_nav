@@ -25,7 +25,8 @@ def factory(lidar_resolver=resolve_lidar):
             return context[self.name]
     namespace = {'LaunchConfiguration': Configuration, 'Node': lambda **kw: kw,
                  'PathJoinSubstitution': lambda x: x, 'FindPackageShare': lambda x: x,
-                 'large_data_env': {}, 'resolve_lidar': lidar_resolver, 'boat_network': boat_network,
+                 'large_data_env': {}, 'resolve_lidar': lidar_resolver,
+                 'boat_network': boat_network,
                  'endpoint_from_launch': lambda context: resolve_endpoints(
                      Path(__file__).parents[1] / 'config/endpoint_startup.yaml'),
                  'ENDPOINT_LAYERS': ENDPOINT_LAYERS, 'UNSET_GCS': UNSET_GCS,

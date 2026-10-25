@@ -1,4 +1,4 @@
-"""The boat LAN facts from astro_dock's ``$ROS_WS/config/boat-network.env``, the only address source.
+"""The boat LAN facts from ``$ROS_WS/config/boat-network.env``, the only address source.
 
 One parser for the shell env file (``KEY=value``, comments and quotes as the shell reads them):
 ``value('LIDAR_IP')`` and ``leases()`` (STATIC_LEASES as hostname -> address). A missing file
@@ -16,7 +16,7 @@ def path():
 
 
 def values(source=None):
-    """``{KEY: value}`` from the env file; {} if missing. A line that does not parse is left out."""
+    """Return ``{KEY: value}`` from the env file ({} if missing); unparsable lines are left out."""
     source = source or path()
     try:
         text = Path(source).read_text() if source else ''

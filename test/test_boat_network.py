@@ -1,7 +1,6 @@
 """boat-network.env: the one parser for the boat LAN's addresses, and the lidar's LIDAR_IP."""
-import pytest
-
 from mhseals_nav import boat_network
+import pytest
 from test_lidar_configuration import share  # noqa: F401
 from test_sensor_startup import factory
 
@@ -9,7 +8,8 @@ from test_sensor_startup import factory
 def test_values_read_like_the_shell(tmp_path):
     env = tmp_path / 'boat-network.env'
     env.write_text('# comment\nLIDAR_IP=192.168.0.201  # sensor\n'
-                   'STATIC_LEASES="aa=blastoise-odroid=192.168.0.152 bb=blastoise-jetson=192.168.0.153"\n'
+                   'STATIC_LEASES="aa=blastoise-odroid=192.168.0.152 '
+                   'bb=blastoise-jetson=192.168.0.153"\n'
                    'BROKEN="unclosed\nEMPTY=\n')
     assert boat_network.value('LIDAR_IP', env) == '192.168.0.201'
     assert boat_network.value('BROKEN', env) == boat_network.value('EMPTY', env) == ''
@@ -28,11 +28,13 @@ def test_the_workspace_file_and_a_missing_one(tmp_path, monkeypatch):
 
 
 def context(**values):
-    return {'sim': 'false', 'sensors_ignore': '', 'lidar_params_file': '', 'lidar_deployment_file': '',
+    return {'sim': 'false', 'sensors_ignore': '', 'lidar_params_file': '',
+            'lidar_deployment_file': '',
             'lidar_required_frame': '', 'velodyne_ip': '', 'velodyne_port': '', **values}
 
 
-def test_the_lidar_launch_takes_lidar_ip_and_refuses_without_one(share, boat_network_env):
+def test_the_lidar_launch_takes_lidar_ip_and_refuses_without_one(
+        share, boat_network_env):  # noqa: F811
     from mhseals_nav.lidar_configuration import resolve_lidar
     namespace = factory(lambda *args, **kwargs: resolve_lidar(*args, share=share, **kwargs))
     boat_network_env.write_text('LIDAR_IP=10.9.8.7\n')

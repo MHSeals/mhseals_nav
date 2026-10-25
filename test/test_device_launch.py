@@ -187,10 +187,12 @@ def test_the_sim_watchdogs_need_no_operator_or_fcu_and_fence_a_map_box():
     assert list(nodes) == ['link_watchdog', 'fence_watchdog']
     assert nodes['link_watchdog'] == {'use_sim_time': True, 'require_operator': False}
     fence = nodes['fence_watchdog']
-    assert fence['fence_frame'] == 'map' and fence['fence_file'] == ''   # an operator file cannot move it
+    # An operator file cannot move it.
+    assert fence['fence_frame'] == 'map' and fence['fence_file'] == ''
     from mhseals_nav.fence_watchdog import inside, polygon
     box = polygon('map', fence['fence_points'])
-    assert inside((0.0, 0.0), box) and inside((12.0, -14.0), box) and not inside((-77.0, -76.0), box)
+    assert inside((0.0, 0.0), box) and inside((12.0, -14.0), box)
+    assert not inside((-77.0, -76.0), box)
     assert 'host_diagnostic' not in dict(device_profile.select(device_profile.load('sim')))
 
 
