@@ -1,0 +1,36 @@
+# sim_backend: Unity /detections + crane truth -> /perception/observations (spec perception-v2 §4, §8).
+# Live (ros2 param set, no restart): emulate, case, inject.*, max_detection_age.
+/**:
+  ros__parameters:
+    detections_topic: /detections
+    truth_odom_topic: /crane/odom          # world-frame truth; twist.angular.z drives heading_lag_s
+    camera_info_topic: /front_camera/camera_info   # box2d projection; image.* + fov.hfov_deg until it arrives
+    base_frame: base_link
+    course_truth: /bags/course_truth.json  # truth ids for emulate zed; without it zed falls back to plain
+    truth_match_m: 1.0
+    max_detection_age: 1.0
+    emulate: plain                         # plain | zed (runs zed_backend.convert_objects)
+    fov: {hfov_deg: 110.0, range_m: 20.0}
+    image: {width: 1280, height: 720}
+    inject:                                # used while case is none
+      heading_bias_deg: 0.0                # estimated heading = truth + bias - lag * yaw rate
+      heading_lag_s: 0.0
+      extrinsic_yaw_deg: 0.0               # camera yaw error, about the camera
+      stamp_offset_s: 0.0                  # added to header.stamp
+    case: none                             # a name in cases.names; its clock starts at the param set
+    cases:
+      names: [metamorphic]
+      metamorphic:                         # each row holds from at_s until the next row
+        at_s:              [0.0, 60.0, 120.0, 180.0, 240.0]
+        heading_bias_deg:  [0.0, 5.0,  0.0,   0.0,   0.0]
+        heading_lag_s:     [0.0, 0.0,  0.1,   0.0,   0.3]
+        extrinsic_yaw_deg: [0.0, 0.0,  0.0,   3.0,   0.0]
+        stamp_offset_s:    [0.0, 0.0,  0.0,   0.1,   0.0]
+    phantoms:                              # sim-only moving targets on circles in the truth (world) frame
+      names: [boat]
+      boat:
+        label: yellow_target_boat
+        centre: [6.0, -4.75]
+        radius_m: 3.0
+        speed_mps: 0.8                     # positive is counter-clockwise
+        size: [1.0, 0.5, 0.4]
