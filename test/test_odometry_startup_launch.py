@@ -133,8 +133,7 @@ def test_full_robot_forwards_startup_and_localization_selections():
     namespace = factories('robot.launch.py', lambda: None, calls)
     namespace.update(LaunchDescription=lambda x: x,
                      DeclareLaunchArgument=lambda *args, **kwargs: None,
-                     persistent_limits_path=lambda: '', snapshot_root=lambda: '',
-                     snapshot_scope=lambda: '')
+                     persistent_limits_path=lambda: '')
     namespace['generate_launch_description']()
     # Identify the odom include by its complete localization forwarding surface.
     candidates = [dict(x['launch_arguments']) for x in calls if 'launch_arguments' in x]

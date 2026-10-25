@@ -43,7 +43,6 @@ setup(
     install_requires=[
         'setuptools',
         'pyyaml',
-        'mhseals_config>=0.1.0',
         "numpy", "websocket-client"
     ],
     zip_safe=True,

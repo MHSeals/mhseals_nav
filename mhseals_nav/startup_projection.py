@@ -1,7 +1,8 @@
-"""Project final launch inputs before immutable bootstrap materialization."""
+"""Compile the Nav2 launch parameters: validated merge, then session projection."""
 from copy import deepcopy
-import hashlib
 from pathlib import Path
+
+from .navigation_config import load_overlay, validate_navigation_base, validated_merge_limits
 
 SERVERS = (
     ('nav2_controller', 'controller_server'),
@@ -15,66 +16,49 @@ BT_FILES = {'default_nav_to_pose_bt_xml': 'nav_to_pose.xml',
             'default_nav_through_poses_bt_xml': 'nav_replan_recov.xml'}
 
 
-def resource_paths(share=None):
-    """Select explicit installed resources, or source resources for pure callers."""
-    root = Path(share) if share else Path(__file__).parents[1]
-    trees = root / 'behavior_trees' if share else root / 'mhseals_nav/behavior_trees'
-    return {'launch': str(root / 'launch/navigation.launch.py'),
-            **{key: str(trees / name) for key, name in BT_FILES.items()}}
+def boolean(value):
+    value = str(value).strip().lower()
+    if value not in ('true', '1', 'false', '0'):
+        raise ValueError('invalid launch boolean: ' + value)
+    return value in ('true', '1')
 
 
-def resource_identity(paths):
-    """Pin content plus installed and resolved paths of all selected resources."""
-    if set(paths) != {'launch', *BT_FILES}:
-        raise ValueError('incomplete navigation launch resource closure')
-    result = {}
-    for key, path in paths.items():
-        content = Path(path).read_bytes()
-        result[key] = {'path': str(Path(path).absolute()),
-                       'resolved': str(Path(path).resolve(strict=True)),
-                       'sha256': hashlib.sha256(content).hexdigest()}
-        if key in BT_FILES:
-            result[key]['content_hex'] = content.hex()
-    return result
+def bt_paths(share=None):
+    """Behavior trees of the installed package, or of the source tree."""
+    trees = Path(share) / 'behavior_trees' if share else Path(__file__).parent / 'behavior_trees'
+    return {key: str(trees / name) for key, name in BT_FILES.items()}
 
 
-def project_launch(parameters, invocation, resources):
-    """Return the complete launch projection and requested/effective provenance."""
+def compile_navigation(params_file, limits_file, *, sim, use_lidar, share=None):
+    """Strictly load the base and optional operator limits, validate and project them."""
+    base = load_overlay(params_file, strict=True)
+    validate_navigation_base(base)
+    limits = load_overlay(limits_file, strict=True) if limits_file else {}
+    return project_launch(validated_merge_limits(base, limits),
+                          {'sim': boolean(sim), 'use_lidar': boolean(use_lidar)}, bt_paths(share))
+
+
+def project_launch(parameters, invocation, bt_files):
+    """Return the parameters with the session clock, lidar and launch contract applied."""
     result = deepcopy(parameters)
-    changes = []
 
-    def assign(mapping, key, value, path, reason):
-        changes.append({'key': '.'.join((*path, key)),
-                        'requested': deepcopy(mapping.get(key)),
-                        'effective': value, 'reason': reason})
-        mapping[key] = value
-
-    def clocks(mapping, path=()):
+    def clocks(mapping):
         for key, value in mapping.items():
             if key == 'ros__parameters' and isinstance(value, dict):
-                assign(value, 'use_sim_time', invocation['sim'], (*path, key),
-                       'session simulation clock')
+                value['use_sim_time'] = invocation['sim']
             elif isinstance(value, dict):
-                clocks(value, (*path, key))
+                clocks(value)
 
     clocks(result)
-    selected = [(package, name) for package, name in SERVERS if name in result]
-    for _, name in selected:
-        params = result[name]['ros__parameters']
-        assign(params, 'enable_stamped_cmd_vel', False, (name, 'ros__parameters'),
-               'launch unstamped command contract')
+    selected = [name for _, name in SERVERS if name in result]
+    for name in selected:
+        result[name]['ros__parameters']['enable_stamped_cmd_vel'] = False
     for name in ('local_costmap', 'global_costmap'):
         params = result.get(name, {}).get(name, {}).get('ros__parameters', {})
         if 'obstacle_layer' in params:
-            assign(params['obstacle_layer'], 'enabled', invocation['use_lidar'],
-                   (name, name, 'ros__parameters', 'obstacle_layer'),
-                   'session lidar selection')
+            params['obstacle_layer']['enabled'] = invocation['use_lidar']
     if 'bt_navigator' in result:
-        params = result['bt_navigator']['ros__parameters']
-        for key in BT_FILES:
-            assign(params, key, resources[key]['artifact'], ('bt_navigator', 'ros__parameters'),
-                   'snapshot-owned behavior tree bytes')
-    lifecycle = {'autostart': True, 'use_sim_time': invocation['sim'],
-                 'node_names': [name for _, name in selected]}
-    result['lifecycle_manager_navigation'] = {'ros__parameters': lifecycle}
-    return result, changes
+        result['bt_navigator']['ros__parameters'].update(bt_files)
+    result['lifecycle_manager_navigation'] = {'ros__parameters': {
+        'autostart': True, 'use_sim_time': invocation['sim'], 'node_names': selected}}
+    return result

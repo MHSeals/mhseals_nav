@@ -3,6 +3,7 @@ from copy import deepcopy
 from pathlib import Path
 
 from mhseals_nav.navigation_config import validated_merge_limits
+from mhseals_nav.startup_projection import compile_navigation
 import pytest
 import yaml
 
@@ -69,17 +70,14 @@ def test_plugin_map_and_behavior_limit_are_independent(base):
 
 
 def test_required_base_is_checked_without_an_overlay(tmp_path):
-    from mhseals_nav.startup_snapshot import select_snapshot
     path = tmp_path / 'bad.yaml'
     path.write_text('controller_server: []')
     with pytest.raises(ValueError, match='required mapping'):
-        select_snapshot(tmp_path / 'snapshots', 'new', path, '',
-                        sim='true', use_lidar='true')
+        compile_navigation(path, '', sim='true', use_lidar='true')
 
 
 @pytest.mark.parametrize('name', ['FollowPath', 'Custom'])
 def test_selected_non_mppi_plugin_does_not_receive_mppi_fields(base, tmp_path, name):
-    from mhseals_nav.startup_snapshot import select_snapshot
     controller = base['controller_server']['ros__parameters']
     del controller['FollowPath']
     custom = {'plugin': 'nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController',
@@ -88,10 +86,9 @@ def test_selected_non_mppi_plugin_does_not_receive_mppi_fields(base, tmp_path, n
     controller['controller_plugins'] = [name]
     path = tmp_path / 'custom.yaml'
     path.write_text(yaml.safe_dump(base))
-    selected = select_snapshot(tmp_path / 'snapshots', 'new', path, '',
-                               sim='true', use_lidar='true')
-    assert selected['parameters']['controller_server']['ros__parameters'][name] == custom
-    assert 'model_dt' not in selected['parameters']['controller_server']['ros__parameters'][name]
+    selected = compile_navigation(path, '', sim='true', use_lidar='true')
+    assert selected['controller_server']['ros__parameters'][name] == custom
+    assert 'model_dt' not in selected['controller_server']['ros__parameters'][name]
 
 
 def test_renamed_selected_mppi_uses_its_plugin_contract(base):

@@ -7,7 +7,6 @@ from types import SimpleNamespace
 from mhseals_nav.endpoint_configuration import LAYER_ARGUMENTS as ENDPOINT_LAYERS, UNSET_GCS
 from mhseals_nav.navigation_config import persistent_limits_path
 from mhseals_nav.odometry_configuration import ALIASES, LAYER_ARGUMENTS
-from mhseals_nav.startup_snapshot import snapshot_root, snapshot_scope
 import pytest
 
 ROOT = Path(__file__).parents[1]
@@ -29,7 +28,6 @@ def robot_factory():
     ns.update(LaunchConfiguration=Configuration, LaunchDescription=lambda x: x,
               PathJoinSubstitution=lambda x: '/'.join(map(str, x)),
               FindPackageShare=lambda x: x, persistent_limits_path=persistent_limits_path,
-              snapshot_root=snapshot_root, snapshot_scope=snapshot_scope,
               ALIASES=ALIASES, LAYER_ARGUMENTS=LAYER_ARGUMENTS,
               ENDPOINT_LAYERS=ENDPOINT_LAYERS, UNSET_GCS=UNSET_GCS,
               endpoint_preflight=lambda context: [])

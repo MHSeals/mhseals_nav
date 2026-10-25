@@ -39,6 +39,16 @@ class StrictOverlayLoader(yaml.SafeLoader):
             raise ValueError('YAML aliases are unsupported in navigation overlays')
         return super().compose_node(parent, index)
 
+    def construct_yaml_float(self, node):
+        value = super().construct_yaml_float(node)
+        if not isfinite(value):
+            raise ValueError(f'Non-finite number at {node.start_mark}')
+        return value
+
+
+StrictOverlayLoader.add_constructor('tag:yaml.org,2002:float',
+                                    StrictOverlayLoader.construct_yaml_float)
+
 
 def load_overlay(path, *, strict=False):
     """Read an optional overlay; strict mode rejects invalid existing documents."""
@@ -368,7 +378,7 @@ def lower_navigation(base, explicit):
 
 
 def persistent_limits_path():
-    """Match the existing TUI overlay selection until shared snapshots replace it."""
+    """Match the existing TUI overlay selection until the TUI owns the path."""
     override = os.environ.get('MHSEALS_NAV2')
     if override:
         return str(Path(override).expanduser())

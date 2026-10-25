@@ -5,15 +5,12 @@ from ipaddress import IPv4Address
 import math
 from pathlib import Path
 
-from mhseals_config.resolver import Field, parse, resolve
-
 import yaml
 
 from .navigation_config import StrictOverlayLoader
 
-FIELDS = {'lidar.model': Field(str), 'lidar.frame': Field(str),
-          'lidar.rpm': Field(float), 'lidar.calibration': Field(dict),
-          'lidar.endpoint.ip': Field(str), 'lidar.endpoint.port': Field(int)}
+KEYS = ('lidar.model', 'lidar.frame', 'lidar.rpm', 'lidar.calibration',
+        'lidar.endpoint.ip', 'lidar.endpoint.port')
 CORRECTIONS = {'dist_correction', 'dist_correction_x', 'dist_correction_y',
                'focal_distance', 'focal_slope', 'horiz_offset_correction',
                'rot_correction', 'vert_correction', 'vert_offset_correction'}
@@ -58,7 +55,7 @@ def validate_present(values):
 
 def validate_values(values):
     """Validate the complete supported projection after all layers resolve."""
-    if set(values) != set(FIELDS):
+    if set(values) != set(KEYS):
         raise ValueError('complete VLP16 lidar configuration required')
     validate_present(values)
 
@@ -89,26 +86,29 @@ def validate_calibration(raw):
     return data
 
 
-def parse_lidar(raw, source, layer):
-    """Parse located strict leaves using the core layer contract."""
-    # The core parser has exact scalar types; RPM deliberately supports int/float.
+def parse_lidar(raw):
+    """Load one strict layer into validated dotted keys; unknown keys are refused."""
     data = yaml.load(raw, Loader=StrictOverlayLoader)
-    rpm = data.get('lidar', {}).get('rpm') if isinstance(data, dict) and isinstance(
-        data.get('lidar'), dict) else None
-    fields = dict(FIELDS)
-    if rpm is not None:
-        positive(rpm, 'rpm')
-        fields['lidar.rpm'] = Field(type(rpm))
-    assignments = parse(raw.decode(), source, layer, fields)
-    validate_present({item.key: item.value for item in assignments})
-    return assignments
+    if not isinstance(data, dict) or set(data) != {'lidar'} or not isinstance(data['lidar'], dict):
+        raise ValueError('expected a single lidar mapping')
+    values = {}
+    for key, value in data['lidar'].items():
+        if key == 'endpoint' and isinstance(value, dict):
+            values.update({'lidar.endpoint.' + name: item for name, item in value.items()})
+        else:
+            values['lidar.' + key] = value
+    validate_present(values)
+    return values
 
 
-def _layer(path, layer):
+def _layer(path):
     path = Path(path).expanduser().resolve(strict=True)
     raw = path.read_bytes()
-    identity = {'path': str(path), 'sha256': sha256(raw).hexdigest(), 'layer': layer}
-    return parse_lidar(raw, str(path), layer), identity
+    try:
+        values = parse_lidar(raw)
+    except (ValueError, yaml.YAMLError) as error:
+        raise ValueError(f'{path}: {error}') from error
+    return values, {'path': str(path), 'sha256': sha256(raw).hexdigest()}
 
 
 def validate_reference(reference):
@@ -142,17 +142,15 @@ def _calibration(reference, source, share):
 
 def resolve_lidar(selected='', deployment='', overrides=None, *, share=package_share,
                   required_frame=''):
-    """Compile defaults < deployment < selected < explicit endpoint aliases."""
-    sources, layers = [], []
-    paths = [(Path(share('mhseals_nav')) / 'config/lidar.yaml', 'defaults')]
-    for path, layer in ((deployment, 'deployment'), (selected, 'operator')):
-        if path != '':
-            paths.append((path, layer))
-    for path, layer in paths:
-        assignments, identity = _layer(path, layer)
-        layers.append(assignments)
+    """Compile defaults < deployment < operator file < explicit endpoint aliases."""
+    paths = [Path(share('mhseals_nav')) / 'config/lidar.yaml']
+    paths += [path for path in (deployment, selected) if path != '']
+    values, origins, sources = {}, {}, []
+    for path in paths:
+        layer, identity = _layer(path)
+        values.update(layer)
+        origins.update(dict.fromkeys(layer, identity['path']))
         sources.append(identity)
-    endpoint = {}
     for alias, value in (overrides or {}).items():
         if alias not in ('velodyne_ip', 'velodyne_port') or not isinstance(value, str):
             raise ValueError('unknown or untyped lidar endpoint alias')
@@ -161,22 +159,18 @@ def resolve_lidar(selected='', deployment='', overrides=None, *, share=package_s
         if alias == 'velodyne_port':
             if not value.isascii() or not value.isdecimal():
                 raise ValueError('explicit lidar port must be a decimal integer')
-            endpoint['port'] = int(value)
+            values['lidar.endpoint.port'] = int(value)
         else:
-            endpoint['ip'] = value
-    if endpoint:
-        layers.append(parse_lidar(yaml.safe_dump({'lidar': {'endpoint': endpoint}}).encode(),
-                                  '<explicit-endpoint-aliases>', 'session'))
-    resolution = resolve(layers)
-    values = resolution.effective
+            values['lidar.endpoint.ip'] = value
+        origins['lidar.endpoint.' + alias[len('velodyne_'):]] = '<explicit>'
+    validate_present(values)
     validate_values(values)
     if required_frame and values['lidar.frame'] != required_frame:
         raise ValueError('full robot lidar frame must match fixed URDF lidar_link contract')
-    calibration_source = resolution.origins['lidar.calibration'][-1].source
-    calibration = _calibration(values['lidar.calibration'], calibration_source, share)
+    calibration = _calibration(values['lidar.calibration'], origins['lidar.calibration'], share)
     pair = {'model': values['lidar.model'], 'frame_id': values['lidar.frame']}
     return {'driver': dict(pair, rpm=float(values['lidar.rpm']),
                            device_ip=values['lidar.endpoint.ip'],
                            port=values['lidar.endpoint.port']),
             'transform': dict(pair, calibration=calibration['path']),
-            'calibration': calibration, 'sources': sources, 'resolution': resolution}
+            'calibration': calibration, 'sources': sources, 'origins': origins}

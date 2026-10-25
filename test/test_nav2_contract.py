@@ -185,13 +185,12 @@ def test_package_xml_depends_on_rotation_shim():
 
 
 @pytest.mark.parametrize('use_lidar', [True, False])
-def test_factory_emits_captured_behavior_trees_and_lidar(use_lidar, tmp_path):
+def test_factory_emits_installed_behavior_trees_and_lidar(use_lidar):
     from test_navigation_startup_validation import inert_navigation_factory
 
     factory = inert_navigation_factory()
     nodes = factory['navigation_nodes']({
         'params_file': str(ROOT / 'config/nav2_params.yaml'), 'limits_file': '',
-        'config_root': str(tmp_path / 'snapshots'), 'config_scope': 'contract',
         'sim': 'false', 'use_lidar': str(use_lidar).lower()})
     emitted = yaml.safe_load(Path(nodes[0]['parameters'][0]).read_text())
     navigator = emitted['bt_navigator']['ros__parameters']
@@ -199,7 +198,7 @@ def test_factory_emits_captured_behavior_trees_and_lidar(use_lidar, tmp_path):
                 'default_nav_through_poses_bt_xml': 'nav_replan_recov.xml'}
     for key, name in expected.items():
         artifact = Path(navigator[key])
-        assert artifact.is_relative_to(tmp_path / 'snapshots/contract/nav2-bt')
+        assert artifact == factory['share'] / 'behavior_trees' / name
         assert artifact.read_bytes() == (ROOT / 'mhseals_nav/behavior_trees' / name).read_bytes()
         tree = ET.fromstring(artifact.read_bytes())
         assert not any(node.tag in ['Spin', 'BackUp', 'ClearEntireCostmap']

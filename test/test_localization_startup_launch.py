@@ -66,8 +66,7 @@ def test_full_robot_forwards_empty_default_and_selected_inputs(tmp_path):
     robot.update(LaunchDescription=lambda x: x,
                  DeclareLaunchArgument=lambda name, **kw: declared.update(
                      {name: kw['default_value']}),
-                 persistent_limits_path=lambda: '', snapshot_root=lambda: '',
-                 snapshot_scope=lambda: '')
+                 persistent_limits_path=lambda: '')
     robot['generate_launch_description']()
     assert declared['ekf_overlay_file'] == ''
     odom = next(dict(c['launch_arguments']) for c in calls if 'launch_arguments' in c

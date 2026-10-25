@@ -107,8 +107,7 @@ def inert_navigation_factory():
     class Configuration:
         def __init__(self, name): self.name = name
         def perform(self, context):
-            defaults = {'config_root': str(Path(context['params_file']).parent / 'snapshots'),
-                        'config_scope': 'test', 'sim': 'true', 'use_lidar': 'true'}
+            defaults = {'sim': 'true', 'use_lidar': 'true'}
             return context.get(self.name, defaults.get(self.name))
     import os
     import tempfile
@@ -128,8 +127,6 @@ def inert_navigation_factory():
           'os': os,
           'yaml': yaml,
           'tempfile': tempfile,
-          'load_overlay': load_overlay,
-          'validated_merge_limits': validated_merge_limits,
           'FindPackageShare': lambda name: SimpleNamespace(perform=lambda _: str(share)),
           'PathJoinSubstitution': lambda parts: parts,
           'RewrittenYaml': lambda **kw: kw,
@@ -198,37 +195,7 @@ def test_review_reproductions_fail_before_node(base, tmp_path, patch):
             ns['navigation_nodes']({'params_file': str(base_path), 'limits_file': str(overlay)})
 
 
-def test_actual_factory_adopts_exact_scope_and_corruption_stops_nodes(base, tmp_path):
-    from test_robot_overlay import robot_factory
-    entities = robot_factory()
-    timer = next(e for e in entities if getattr(e, 'period', None) == 5.0)
-    forwarded = dict(timer.actions[0].launch_arguments)
-    assert forwarded['config_scope'].name == 'config_scope'
-    assert forwarded['config_root'].name == 'config_root'
-    path = tmp_path / 'base.yaml'
-    path.write_text(yaml.safe_dump(base))
-    overlay = tmp_path / 'limits.yaml'
-    overlay.write_text('controller_server:\n  ros__parameters:\n'
-                       '    controller_frequency: 20\n    FollowPath:\n'
-                       '      vx_max: 0.6\n      vy_max: 0.12\n      wz_max: 0.2\n')
-    context = {'params_file': str(path), 'limits_file': str(overlay),
-               'config_root': str(tmp_path / 'snapshots'), 'config_scope': 'shared'}
-    ns = inert_navigation_factory()
-    first = ns['navigation_nodes'](context)
-    emitted = yaml.safe_load(Path(first[0]['parameters'][0]).read_text())
-    assert emitted['controller_server']['ros__parameters']['FollowPath']['model_dt'] == .05
-    assert emitted['velocity_smoother']['ros__parameters']['max_velocity'] == [.6, .12, .2]
-    overlay.write_text('invalid: authoring edit')
-    second = ns['navigation_nodes'](context)
-    assert yaml.safe_load(Path(second[0]['parameters'][0]).read_text()) == emitted
-    (tmp_path / 'snapshots/shared/initializing/nav2-compiler.json').unlink()
-    ns['Node'] = lambda **kw: pytest.fail('constructed node after snapshot corruption')
-    with pytest.raises(FileNotFoundError):
-        ns['navigation_nodes'](context)
-
-
-def test_actual_factory_consumes_final_projection_and_records_requests(base, tmp_path):
-    import json
+def test_actual_factory_consumes_final_projection(base, tmp_path):
     params = base['controller_server']['ros__parameters']
     params['enable_stamped_cmd_vel'] = True
     params['publish_tf'] = False
@@ -236,13 +203,10 @@ def test_actual_factory_consumes_final_projection_and_records_requests(base, tmp
     path = tmp_path / 'base.yaml'
     path.write_text(yaml.safe_dump(base))
     context = {'params_file': str(path), 'limits_file': '', 'sim': 'true',
-               'use_lidar': 'false', 'config_scope': 'final',
-               'config_root': str(tmp_path / 'snapshots')}
+               'use_lidar': 'false'}
     ns = inert_navigation_factory()
     nodes = ns['navigation_nodes'](context)
-    snapshot = tmp_path / 'snapshots/final/initializing/nav2-compiler.json'
-    document = json.loads(snapshot.read_text())
-    effective = document['parameters']
+    effective = yaml.safe_load(Path(nodes[0]['parameters'][0]).read_text())
     assert all(yaml.safe_load(Path(n['parameters'][0]).read_text()) == effective for n in nodes)
     emitted = effective['controller_server']['ros__parameters']
     assert emitted['enable_stamped_cmd_vel'] is False
@@ -252,109 +216,6 @@ def test_actual_factory_consumes_final_projection_and_records_requests(base, tmp
         costmap = effective[name][name]['ros__parameters']
         assert costmap['use_sim_time'] is True
         assert costmap['obstacle_layer']['enabled'] is False
-    tree = document['resources']['default_nav_to_pose_bt_xml']['artifact']
-    assert Path(tree).read_bytes() == (ns['share'] / 'behavior_trees/nav_to_pose.xml').read_bytes()
-    assert effective['bt_navigator']['ros__parameters']['default_nav_to_pose_bt_xml'] == tree
-    requested = document['baseline']['parameters']
-    assert requested['controller_server']['ros__parameters']['enable_stamped_cmd_vel'] is True
-    assert (requested['bt_navigator']['ros__parameters']['default_nav_to_pose_bt_xml']
-            == '/chosen/tree.xml')
-    changes = {change['key']: change for change in document['projection']}
-    key = 'bt_navigator.ros__parameters.default_nav_to_pose_bt_xml'
-    assert changes[key]['requested'] == '/chosen/tree.xml'
-    assert changes[key]['effective'] == tree
-    assert document['resources']['default_nav_to_pose_bt_xml']['sha256']
+    tree = ns['share'] / 'behavior_trees/nav_to_pose.xml'
+    assert effective['bt_navigator']['ros__parameters']['default_nav_to_pose_bt_xml'] == str(tree)
     assert effective['lifecycle_manager_navigation']['ros__parameters']['use_sim_time'] is True
-
-
-@pytest.mark.parametrize('relative', [
-    'behavior_trees/nav_to_pose.xml', 'launch/navigation.launch.py'])
-def test_same_scope_resource_change_uses_snapshot_or_refuses(base, tmp_path, relative):
-    path = tmp_path / 'base.yaml'
-    path.write_text(yaml.safe_dump(base))
-    context = {'params_file': str(path), 'limits_file': ''}
-    ns = inert_navigation_factory()
-    ns['navigation_nodes'](context)
-    resource = ns['share'] / relative
-    resource.write_text(resource.read_text() + '\n<!-- changed resource -->\n')
-    if relative.startswith('behavior_trees'):
-        nodes = ns['navigation_nodes'](context)
-        emitted = yaml.safe_load(Path(nodes[0]['parameters'][0]).read_text())
-        tree = emitted['bt_navigator']['ros__parameters']['default_nav_to_pose_bt_xml']
-        assert Path(tree).read_bytes() != resource.read_bytes()
-    else:
-        ns['Node'] = lambda **kw: pytest.fail('Node constructed after resource drift')
-        with pytest.raises(ValueError, match='resources changed'):
-            ns['navigation_nodes'](context)
-
-
-def test_same_scope_relocated_installed_resources_refuse(base, tmp_path):
-    path = tmp_path / 'base.yaml'
-    path.write_text(yaml.safe_dump(base))
-    context = {'params_file': str(path), 'limits_file': ''}
-    first = inert_navigation_factory()
-    first['navigation_nodes'](context)
-    relocated = inert_navigation_factory()
-    relocated['Node'] = lambda **kw: pytest.fail('Node constructed after installed path drift')
-    with pytest.raises(ValueError, match='resources changed'):
-        relocated['navigation_nodes'](context)
-
-
-@pytest.mark.parametrize('change', ['mutate', 'delete'])
-def test_bt_changes_after_selection_cannot_change_consumer_bytes(base, tmp_path, change):
-    from unittest.mock import patch
-    from mhseals_nav import startup_snapshot
-    path = tmp_path / 'base.yaml'
-    path.write_text(yaml.safe_dump(base))
-    context = {'params_file': str(path), 'limits_file': ''}
-    ns = inert_navigation_factory()
-    installed = ns['share'] / 'behavior_trees/nav_to_pose.xml'
-    original = installed.read_bytes()
-    changed = original + b'\n<!-- next explicit selection -->\n'
-    select = startup_snapshot.select_snapshot
-
-    def select_then_change(*args, **kwargs):
-        selected = select(*args, **kwargs)
-        if change == 'delete':
-            installed.unlink(missing_ok=True)
-        else:
-            installed.write_bytes(changed)
-        return selected
-
-    with patch.object(startup_snapshot, 'select_snapshot', select_then_change):
-        nodes = ns['navigation_nodes'](context)
-    emitted = yaml.safe_load(Path(nodes[0]['parameters'][0]).read_text())
-    selected_path = emitted['bt_navigator']['ros__parameters']['default_nav_to_pose_bt_xml']
-    assert Path(selected_path).read_bytes() == original
-    assert str(installed) != selected_path
-    restarted = ns['navigation_nodes'](context)
-    resumed = yaml.safe_load(Path(restarted[0]['parameters'][0]).read_text())
-    assert resumed == emitted
-    assert Path(selected_path).read_bytes() == original
-    installed.write_bytes(changed)
-    fresh = ns['navigation_nodes']({**context, 'config_scope': 'next'})
-    new_parameters = yaml.safe_load(Path(fresh[0]['parameters'][0]).read_text())
-    new_path = new_parameters['bt_navigator']['ros__parameters']['default_nav_to_pose_bt_xml']
-    assert new_path != selected_path
-    assert Path(new_path).read_bytes() == changed
-    assert Path(selected_path).read_bytes() == original
-
-
-@pytest.mark.parametrize('fault', ['symlink', 'corrupt'])
-def test_private_bt_artifact_fault_refuses_before_nodes(base, tmp_path, fault):
-    path = tmp_path / 'base.yaml'
-    path.write_text(yaml.safe_dump(base))
-    context = {'params_file': str(path), 'limits_file': ''}
-    ns = inert_navigation_factory()
-    nodes = ns['navigation_nodes'](context)
-    emitted = yaml.safe_load(Path(nodes[0]['parameters'][0]).read_text())
-    artifact = Path(emitted['bt_navigator']['ros__parameters']['default_nav_to_pose_bt_xml'])
-    if fault == 'symlink':
-        artifact.unlink()
-        artifact.symlink_to(ns['share'] / 'behavior_trees/nav_to_pose.xml')
-    else:
-        artifact.chmod(0o600)
-        artifact.write_bytes(b'corrupt')
-    ns['Node'] = lambda **kw: pytest.fail('Node constructed with invalid private BT artifact')
-    with pytest.raises((OSError, ValueError)):
-        ns['navigation_nodes'](context)

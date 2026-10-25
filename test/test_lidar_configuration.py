@@ -84,9 +84,8 @@ def test_custom_calibration_relative_origin_and_content_identity(share, tmp_path
     result = resolve_lidar(selected, overrides={'velodyne_port': '1234'}, share=share)
     assert result['transform']['calibration'] == str(path)
     assert result['calibration'] == {'path': str(path), 'sha256': sha256(raw).hexdigest()}
-    origins = result['resolution'].origins
-    assert origins['lidar.calibration'][-1].source == selected
-    assert origins['lidar.endpoint.port'][-1].layer == 'session'
+    assert result['origins']['lidar.calibration'] == str(Path(selected).resolve())
+    assert result['origins']['lidar.endpoint.port'] == '<explicit>'
     path.write_bytes(raw.replace(b'distance_resolution: 0.002', b'distance_resolution: 0.003'))
     assert resolve_lidar(selected, share=share)['calibration']['sha256'] != sha256(raw).hexdigest()
 
