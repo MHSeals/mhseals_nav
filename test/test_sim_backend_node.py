@@ -1,4 +1,6 @@
 """sim_backend node: its YAML loads, live injection reaches the published observations."""
+from importlib.util import find_spec
+import inspect
 import json
 import math
 from pathlib import Path
@@ -18,6 +20,17 @@ from tf2_ros import StaticTransformBroadcaster  # noqa: E402
 from vision_msgs.msg import Detection3D, Detection3DArray, ObjectHypothesisWithPose  # noqa
 
 CONFIG = Path(__file__).resolve().parents[1] / 'config' / 'sim_backend.yaml'
+
+
+def _nav_camera():
+    """zed_backend and StageClock.accept(objects) land with nav-camera."""
+    from mhseals_nav.perception_status import StageClock
+    return find_spec('mhseals_nav.zed_backend') is not None and \
+        'objects' in inspect.signature(StageClock.accept).parameters
+
+
+needs_nav_camera = pytest.mark.skipif(not _nav_camera(),
+                                      reason='needs zed_backend and the trimmed StageClock')
 
 
 @pytest.fixture
@@ -75,6 +88,7 @@ def buoys(array):
     return [o for o in array.observations if o.class_id == 'red_buoy']
 
 
+@needs_nav_camera
 def test_plain_then_zed_with_a_heading_error_set_live(rig):
     backend, frame, got = rig
     out = frame()

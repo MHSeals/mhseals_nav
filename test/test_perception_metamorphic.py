@@ -83,9 +83,11 @@ SINGLES = [case(bias=5), case(bias=-5), case(lag=0.1), case(ext=3), case(ext=-3)
 CORNERS = [case(b, 0.1, e, o) for b, e, o in product((-5, 5), (-3, 3), (-0.1, 0.1))]
 ENVELOPE = [BASELINE] + SINGLES + CORNERS
 LAGS = [case(lag=tau) for tau in (0.0, 0.1, 0.2, 0.3)]
-needs_ros = pytest.mark.skipif(find_spec('rclpy') is None,
-                               reason='zed mode runs zed_backend, which needs ROS')
-MODES = ['plain', pytest.param('zed', marks=needs_ros)]
+# zed mode runs zed_backend, which needs ROS and lands with nav-camera: skipped per test
+# until both are here, never for the whole module.
+ZED = find_spec('rclpy') is not None and find_spec('mhseals_nav.zed_backend') is not None
+needs_zed = pytest.mark.skipif(not ZED, reason='zed mode needs ROS and zed_backend')
+MODES = ['plain', pytest.param('zed', marks=needs_zed)]
 
 
 def yaw_rate(t):
@@ -146,7 +148,7 @@ WORST = case(5, 0.1, 3, -0.1)   # the lag and stamp offset add up to 0.2 s
 @lru_cache(maxsize=None)
 def sessions():
     """Every session the tests read, simulated in parallel (each one is deterministic)."""
-    modes = ['plain'] + (['zed'] if find_spec('rclpy') else [])
+    modes = ['plain'] + (['zed'] if ZED else [])
     jobs = [(m, c, ()) for m in modes for c in ENVELOPE + LAGS[2:]]
     jobs.append(('plain', WORST, NO_TANGENTIAL))
     with ProcessPoolExecutor(mp_context=get_context('fork')) as pool:
@@ -268,7 +270,7 @@ def test_r4_heading_check_recovers_the_injected_lag(mode):
     assert abs(lags[-1] - 0.3) <= 0.07, f'R4: lag_s {lags[-1]:.3f} at tau 0.3'
 
 
-@needs_ros
+@needs_zed
 @pytest.mark.parametrize('injection', ENVELOPE, ids=lambda c: '-'.join(f'{v:g}' for _, v in c))
 def test_r5_zed_ids_switch_no_more_than_plain(injection):
     zed, plain = id_switches(run('zed', injection)), id_switches(run('plain', injection))
