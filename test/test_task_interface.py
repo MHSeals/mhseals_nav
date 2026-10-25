@@ -495,6 +495,96 @@ def test_no_zero_twist_after_the_run_is_closed():
     assert len(sent) == 1
 
 
+def keep_still_navigator():
+    from mhseals_nav.tasks.interface import Navigator
+    sent = []
+    navigator = Navigator.__new__(Navigator)
+    navigator.closed, navigator.goals, navigator.driven_at = False, [], None
+    navigator.zero = SimpleNamespace(publish=sent.append)
+    return navigator, sent
+
+
+def twist(x=0.0, w=0.0):
+    from geometry_msgs.msg import Twist
+    message = Twist()
+    message.linear.x, message.angular.z = x, w
+    return message
+
+
+def test_keep_still_fills_only_the_silence_nav2_leaves():
+    """Zeros go out when Nav2 is not commanding (a goal on or not), never over its commands."""
+    import time
+    navigator, sent = keep_still_navigator()
+    navigator.keep_still()  # no goal, never driven: between goals
+    assert len(sent) == 1
+    navigator.goals.append(SimpleNamespace(direct=False, settled=False))
+    navigator._driven(twist(0.3))  # Nav2 is driving this goal
+    navigator.keep_still()
+    assert len(sent) == 1
+    navigator._driven(twist())  # zeros, ours or Nav2's, are not driving
+    navigator.keep_still()
+    assert len(sent) == 1
+    navigator.driven_at = time.monotonic() - 1.0  # its Wait / recovery went quiet
+    navigator.keep_still()
+    assert len(sent) == 2
+
+
+def test_keep_still_leaves_a_back_up_alone_and_stops_after_close():
+    navigator, sent = keep_still_navigator()
+    back = SimpleNamespace(direct=True, settled=False, cancel=lambda: None)  # drives /cmd_vel
+    navigator.goals.append(back)
+    navigator.keep_still()
+    assert not sent
+    back.settled = True
+    navigator.keep_still()
+    assert len(sent) == 1
+    navigator.close()
+    navigator.keep_still()
+    assert len(sent) == 1
+
+
+def test_the_runner_holds_station_in_silence_and_stops_at_an_override(monkeypatch):
+    """Each quiet tick sends zeros, a driving Nav2 sends none, a human owner stops them."""
+    import time
+    rclpy.init()
+    runner = None
+    zeros = []
+
+    try:
+        runner = TaskRunner('circle_test', dict(CIRCLE))
+        runner.objects = [('yellow_buoy', 9.0, 0.0)]
+        navigator = runner.navigator
+
+        def send(route, precise=False, quiet=False, why=''):
+            goal = SimpleNamespace(done=False, settled=False, direct=False,
+                                   cancel=lambda: None)
+            navigator.goals.append(goal)
+            return goal
+
+        monkeypatch.setattr(navigator, 'ready', lambda: True)
+        monkeypatch.setattr(navigator, 'send', send)
+        monkeypatch.setattr(navigator.zero, 'publish', zeros.append)
+        monkeypatch.setattr(runner, 'pose', lambda: (1.0, 0.0, 0.5))
+        runner._authority(SimpleNamespace(data=authority('none')))
+        navigator._driven(twist(0.3))
+        for _ in range(3):
+            runner.tick()
+        assert navigator.goals and not zeros  # Nav2 drives: it is the one publisher
+        navigator.driven_at = time.monotonic() - 1.0  # it went quiet: Wait or an abort
+        runner.tick()
+        assert len(zeros) == 1
+        runner._authority(SimpleNamespace(data=authority('hold')))
+        assert runner.outcome == 'PREEMPTED'
+        for _ in range(3):
+            runner.tick()
+        navigator.keep_still()
+        assert len(zeros) == 1
+    finally:
+        if runner is not None:
+            runner.destroy_node()
+        rclpy.try_shutdown()
+
+
 def test_settle_reports_goals_still_open(monkeypatch):
     """When exit_settle_s runs out with a goal open, it is warned and reported."""
     from mhseals_nav.tasks import interface

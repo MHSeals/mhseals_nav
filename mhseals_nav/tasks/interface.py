@@ -81,6 +81,7 @@ class Goal:
 
     def __init__(self, request):
         self.request, self.handle, self.result, self.cancelling = request, None, None, None
+        self.direct = False  # drives /cmd_vel itself (BackUp), past the smoother
         self.cancel_requested = False
         request.add_done_callback(self._accepted)
 
@@ -133,6 +134,8 @@ class Navigator:
         self.backup_wait_s, self.backup_since = backup_wait_s, None
         self.goals, self.closed = [], False
         self.zero = node.create_publisher(Twist, hold_topic, 1)
+        self.driven_at = None  # monotonic time of Nav2's last non-zero command on hold_topic
+        node.create_subscription(Twist, hold_topic, self._driven, 10)
         self.limit = node.create_publisher(SpeedLimit, speed_limit_topic, 10)
         self.to_pose = ActionClient(node, NavigateToPose, 'navigate_to_pose')
         self.through = ActionClient(node, NavigateThroughPoses, 'navigate_through_poses')
@@ -157,6 +160,26 @@ class Navigator:
         """
         if not self.closed:
             self.zero.publish(Twist())
+
+    def _driven(self, message):
+        v, w = message.linear, message.angular
+        if any((v.x, v.y, v.z, w.x, w.y, w.z)):
+            self.driven_at = time.monotonic()
+
+    def keep_still(self, quiet_s=0.3):
+        """Hold station with fresh zeros whenever Nav2 is not commanding the boat.
+
+        Silence is not a hold: 0.5 s without a command the command_mux idles and the
+        velocity controller gives neutral effort, so the boat drifts in the current.
+        Nav2 is silent between goals, after an abort and through its recovery Wait.
+        Nothing goes out while Nav2 drove within ``quiet_s`` (one publisher at a time),
+        while a BackUp goal drives /cmd_vel itself, nor once an override or the end
+        closed the run.
+        """
+        if self.closed or any(goal.direct and not goal.settled for goal in self.goals):
+            return
+        if self.driven_at is None or time.monotonic() - self.driven_at > quiet_s:
+            self.hold()
 
     def speed_limit(self, speed):
         """Cap Nav2's controller at ``speed`` m/s; 0 lifts the cap.
@@ -222,6 +245,7 @@ class Navigator:
             goal = Goal(self.to_pose.send_goal_async(request))
         else:
             goal = Goal(self.through.send_goal_async(NavigateThroughPoses.Goal(poses=poses)))
+        goal.direct = reverse is not None
         self.settled()  # forget goals Nav2 is done with
         self.goals.append(goal)
         return goal
@@ -480,6 +504,7 @@ class TaskRunner(Node):
         elif now - self.started > self.timeout:
             self.finish('TIMEOUT')
         else:
+            self.navigator.keep_still()  # after the tree, so a goal it just sent counts
             self.publish_status(status)
 
     def recognise(self, now):
