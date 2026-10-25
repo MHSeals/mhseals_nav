@@ -12,7 +12,7 @@ if importlib.util.find_spec('py_trees') is not None:
     import py_trees
     from py_trees.common import Access, Status
 
-    from mhseals_nav.tasks import search
+    from mhseals_nav.tasks import geometry, search
     from mhseals_nav.tasks.tracks import Track
 
 FOV = (math.radians(90), 10.0)
@@ -67,7 +67,7 @@ def test_next_view_prefers_the_unexplored_side_and_uncertain_wanted_tracks(cfg):
     weak = Track('red', -12, 0, 0.3, 3.0, True, False, 'r')
     view, _ = search.next_view(cover, (0, 0, 0), FOV, 1.0, [weak], ('red',), cfg)
     assert math.dist(view[:2], (-12, 0)) <= FOV[1]
-    assert abs(search.wrap(math.atan2(-view[1], -12 - view[0]) - view[2])) <= FOV[0] / 2
+    assert abs(geometry.wrap(math.atan2(-view[1], -12 - view[0]) - view[2])) <= FOV[0] / 2
     assert search.next_view(cover, (0, 0, 0), FOV, 1.0, [weak], ('green',), cfg) is None
 
 

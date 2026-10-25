@@ -3,6 +3,11 @@
 import math
 
 
+def wrap(angle):
+    """``angle`` in (-pi, pi]."""
+    return math.atan2(math.sin(angle), math.cos(angle))
+
+
 def heading(a, b):
     return math.atan2(b[1] - a[1], b[0] - a[0])
 
@@ -43,7 +48,7 @@ def gate_midpoints(reds, greens, origin, max_width=8.0, min_width=1.0, red_side=
         if red_side == 'starboard' or (
                 red_side == 'any' and math.cos(normal - heading(origin, middle)) < 0):
             normal += math.pi
-        gates.append((*middle, math.atan2(math.sin(normal), math.cos(normal))))
+        gates.append((*middle, wrap(normal)))
     return sorted(gates, key=lambda gate: math.dist(origin[:2], gate[:2]))
 
 
@@ -59,14 +64,13 @@ def circle(center, radius, points, clockwise, start):
         angle = begin + sign * 2 * math.pi * index / points
         tangent = angle + sign * math.pi / 2
         poses.append((center[0] + radius * math.cos(angle), center[1] + radius * math.sin(angle),
-                      math.atan2(math.sin(tangent), math.cos(tangent))))
+                      wrap(tangent)))
     return poses
 
 
 def reverse(route):
     """Return the same waypoints in reverse, each turned around."""
-    return [(x, y, math.atan2(math.sin(yaw + math.pi), math.cos(yaw + math.pi)))
-            for x, y, yaw in reversed(route)]
+    return [(x, y, wrap(yaw + math.pi)) for x, y, yaw in reversed(route)]
 
 
 def relative(pose, offsets):
@@ -145,8 +149,7 @@ def spin(pose, turns, step=math.pi / 2):
     """Poses turning in place ``turns`` full circles, a quarter turn per pose."""
     x, y, yaw = pose
     count = round(turns * 2 * math.pi / step)
-    return [(x, y, math.atan2(math.sin(yaw + k * step), math.cos(yaw + k * step)))
-            for k in range(1, count + 1)]
+    return [(x, y, wrap(yaw + k * step)) for k in range(1, count + 1)]
 
 
 def dock_axis(banners, banner, pose):
@@ -171,7 +174,7 @@ def dock_axis(banners, banner, pose):
     normal = spine + math.pi / 2
     if math.cos(normal - toward_boat) < 0:
         normal += math.pi
-    return math.atan2(math.sin(normal), math.cos(normal))
+    return wrap(normal)
 
 
 def bay(banner, opening, berth=0.85, staging=3.0, depth=1.5):
@@ -185,24 +188,6 @@ def bay(banner, opening, berth=0.85, staging=3.0, depth=1.5):
     return {'staging': (banner[0] + staging * c, banner[1] + staging * s, facing),
             'berth': (banner[0] + berth * c, banner[1] + berth * s, facing),
             'centre': (banner[0] + depth / 2 * c, banner[1] + depth / 2 * s)}
-
-
-def remember(memory, seen, now, horizon=5.0, separation=1.0):
-    """Merge the latest tracked objects into ``memory`` and forget stale ones.
-
-    ``memory`` and the result are (label, x, y, last_seen); ``seen`` is
-    (label, x, y). A sighting within ``separation`` of a remembered object of
-    the same label updates it, so a track that drops out for a moment stays.
-    """
-    kept = [item for item in memory if now - item[3] <= horizon]
-    for label, x, y in seen:
-        match = next((i for i, item in enumerate(kept)
-                      if item[0] == label and math.dist((x, y), item[1:3]) < separation), None)
-        if match is None:
-            kept.append((label, x, y, now))
-        else:
-            kept[match] = (label, x, y, now)
-    return kept
 
 
 def along(gate, pose):
@@ -252,5 +237,4 @@ def look_around(pose, angle=1.05):
     end, so a sweep through several poses back to the start would never turn.
     """
     x, y, yaw = pose
-    wrap = lambda a: math.atan2(math.sin(a), math.cos(a))  # noqa: E731
     return [[(x, y, wrap(yaw + angle))], [(x, y, wrap(yaw - angle))]]

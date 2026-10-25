@@ -14,14 +14,11 @@ import math
 
 from mhseals_nav.tasks import geometry, load_config as load_task_config
 from mhseals_nav.tasks.behaviours import Driver, Leaf
+from mhseals_nav.tasks.geometry import wrap
 from mhseals_nav.tasks.tracks import Track
 import numpy as np
 import py_trees
 from py_trees.common import Status
-
-
-def wrap(angle):
-    return math.atan2(math.sin(angle), math.cos(angle))
 
 
 class Coverage:

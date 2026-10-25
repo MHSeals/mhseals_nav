@@ -1,7 +1,7 @@
 import importlib.util
 import math
 
-from mhseals_nav.tasks import geometry, load_config
+from mhseals_nav.tasks import geometry, load_config, tracks
 from mhseals_nav.tasks.tracks import Track
 import pytest
 
@@ -75,11 +75,15 @@ def test_unique_spin_and_memory():
     assert geometry.unique([(0, 0), (0.5, 0), (3, 0)]) == [(0, 0), (3, 0)]
     turns = geometry.spin((1, 2, 0), 2)
     assert len(turns) == 8 and turns[-1][2] == pytest.approx(0, abs=1e-9)
-    memory = geometry.remember([], [('red', 1, 1)], now=0.0)
-    memory = geometry.remember(memory, [('red', 1.2, 1)], now=2.0)  # the same buoy, moved
-    assert memory == [('red', 1.2, 1, 2.0)]
-    assert geometry.remember(memory, [], now=4.0) == memory  # a short dropout keeps it
-    assert geometry.remember(memory, [], now=8.0) == []
+    buoy = Track('red', 1, 1, 0.9, None, True, False, 'a')
+    moved = Track('red', 1.2, 1, 0.9, None, True, False, 'b')
+    memory = tracks.remember([], [buoy], now=0.0)
+    memory = tracks.remember(memory, [moved], now=2.0)  # the same buoy, moved
+    assert memory == [(moved, 2.0)]
+    assert tracks.remember(memory, [], now=4.0) == memory  # a short dropout keeps it
+    assert tracks.remember(memory, [], now=8.0) == []
+    # Priors are not remembered.
+    assert tracks.remember([], [buoy._replace(prior=True)], now=0.0) == []
 
 
 def test_dock_bays_open_toward_the_boat():
