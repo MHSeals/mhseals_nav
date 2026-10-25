@@ -9,9 +9,8 @@ from pathlib import Path
 import re
 from types import MappingProxyType
 
-import yaml
 
-from .navigation_config import StrictOverlayLoader
+from .navigation_config import load_strict
 
 ALIASES = {'mavros_odom_rate': (33,), 'mavros_imu_rate': (30, 31),
            'mavros_gps_rate': (24,), 'mavros_rc_rate': (65,)}
@@ -83,9 +82,9 @@ def validate_setup(params, *, complete=True):
         for key, value in params.items()})
 
 
-def parameters_from_yaml(raw):
+def parameters_from_yaml(raw, path='<mavros_setup>'):
     """Read only the consumed per-node schema; unsupported settings fail closed."""
-    data = yaml.load(raw, Loader=StrictOverlayLoader)
+    data = load_strict(raw, path)
     if not isinstance(data, dict) or set(data) != {'mavros_setup'}:
         raise ValueError('expected only mavros_setup')
     node = data['mavros_setup']
@@ -105,7 +104,7 @@ def resolve_setup(path, overrides=None):
     if not path:
         raise ValueError('mavros_setup_params_file must select an existing file')
     params = installed_setup_defaults()
-    selected = parameters_from_yaml(Path(path).expanduser().read_text())
+    selected = parameters_from_yaml(Path(path).expanduser().read_text(), path)
     params.update(selected)
     validate_setup(params)
     rates = dict(validate_rates(params['message_rates']))
@@ -129,7 +128,7 @@ def installed_setup_defaults():
     """Load the same package authority for direct executable startup."""
     from ament_index_python.packages import get_package_share_directory
     path = Path(get_package_share_directory('mhseals_nav')) / 'config' / 'mavros_setup.yaml'
-    params = parameters_from_yaml(path.read_text())
+    params = parameters_from_yaml(path.read_text(), path)
     normalized = validate_setup(params)
     return {key: list(value) if key == 'message_rates' else value
             for key, value in normalized.items()}

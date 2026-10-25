@@ -5,9 +5,8 @@ import math
 from pathlib import Path
 from types import MappingProxyType
 
-import yaml
 
-from .navigation_config import StrictOverlayLoader
+from .navigation_config import load_strict
 
 
 @dataclass(frozen=True)
@@ -43,7 +42,7 @@ def resolve_camera(package_file=None, deployment_file='', operator_file='', prev
             continue
         path = Path(selected).expanduser().resolve(strict=True)
         raw = path.read_bytes()
-        data = yaml.load(raw, Loader=StrictOverlayLoader)
+        data = load_strict(raw, path)
         if type(data) is not dict or set(data) != {'preview_hz'}:
             raise ValueError('camera startup must contain only preview_hz')
         resolved = rate(data['preview_hz'])

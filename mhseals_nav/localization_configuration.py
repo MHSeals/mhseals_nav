@@ -11,7 +11,7 @@ from types import MappingProxyType
 
 import yaml
 
-from .navigation_config import StrictOverlayLoader
+from .navigation_config import load_strict, StrictOverlayLoader
 from .startup_rules import Rule
 
 NODES = ('ekf_local', 'ekf_global', 'navsat_transform')
@@ -75,9 +75,9 @@ def validate(name, params):
     return {key: field_rule(name, key).check(value) for key, value in params.items()}
 
 
-def parse_base(raw, name):
+def parse_base(raw, name, path='<base>'):
     """Each selected base must preserve the canonical fixed graph independently."""
-    data = yaml.load(raw, Loader=Loader)
+    data = load_strict(raw, path, Loader)
     if (not isinstance(data, dict) or set(data) != {'/**'}
             or not isinstance(data['/**'], dict) or set(data['/**']) != {'ros__parameters'}):
         raise ValueError('base must contain only /**.ros__parameters')
@@ -87,9 +87,9 @@ def parse_base(raw, name):
     return params
 
 
-def parse_overlay(raw):
+def parse_overlay(raw, path='<overlay>'):
     """Inherit for empty documents; reject node nulls and mixed wrappers."""
-    data = yaml.load(raw, Loader=Loader)
+    data = load_strict(raw, path, Loader)
     if data is None and yaml.compose(raw) is None:
         return {}
     if not isinstance(data, dict) or set(data) - set(NODES):
@@ -145,7 +145,7 @@ def compile_localization(base_paths, overlay_selection='', use_sim_time=False):
         return raw
 
     for name in NODES:
-        nodes[name] = parse_base(read(base_paths[name], name), name)
+        nodes[name] = parse_base(read(base_paths[name], name), name, base_paths[name])
     explicit = overlay_selection != ''
     path = (Path(overlay_selection).expanduser() if explicit else
             Path.home() / '.config/mhseals/ekf.yaml')
@@ -157,7 +157,7 @@ def compile_localization(base_paths, overlay_selection='', use_sim_time=False):
         raw = b''
         inputs.append(MappingProxyType({
             'path': str(path), 'sha256': None, 'kind': 'overlay-absent', 'explicit': False}))
-    for name, values in parse_overlay(raw).items():
+    for name, values in parse_overlay(raw, path).items():
         nodes[name].update(values)
     return LocalizationConfiguration(
         MappingProxyType({name: MappingProxyType(params) for name, params in nodes.items()}),

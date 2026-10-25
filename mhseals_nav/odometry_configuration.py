@@ -4,9 +4,8 @@ from hashlib import sha256
 from pathlib import Path
 from types import MappingProxyType
 
-import yaml
 
-from .navigation_config import StrictOverlayLoader
+from .navigation_config import load_strict
 from .startup_rules import Rule
 
 ALIASES = ('robot_state_publish_frequency', 'mavros_velocity_source',
@@ -70,7 +69,7 @@ def resolve_odometry(package_file=None, deployment_file='', operator_file='',
             continue
         path = Path(selected).expanduser().resolve(strict=True)
         raw = path.read_bytes()
-        layer = yaml.load(raw, Loader=StrictOverlayLoader)
+        layer = load_strict(raw, path)
         validate(layer)
         if label == 'package' and set(layer) != KEYS:
             raise ValueError('package odometry startup mapping must be complete')

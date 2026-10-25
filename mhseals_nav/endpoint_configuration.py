@@ -6,9 +6,8 @@ from pathlib import Path
 import re
 from types import MappingProxyType
 
-import yaml
 
-from .navigation_config import StrictOverlayLoader
+from .navigation_config import load_strict
 
 CONTEXTS = ('standalone', 'full_robot', 'tui')
 LAYER_ARGUMENTS = ('endpoint_deployment_file', 'endpoint_startup_file')
@@ -196,7 +195,7 @@ def resolve_endpoints(package_file=None, deployment_file='', operator_file='', a
             continue
         path = Path(selected).expanduser().resolve(strict=True)
         raw = path.read_bytes()
-        layer = yaml.load(raw, Loader=StrictOverlayLoader)
+        layer = load_strict(raw, path)
         validate_layer(layer)
         merge(values, layer)
         if label == 'package':

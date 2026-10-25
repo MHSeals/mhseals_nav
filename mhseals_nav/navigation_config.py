@@ -51,6 +51,14 @@ StrictOverlayLoader.add_constructor('tag:yaml.org,2002:float',
                                     StrictOverlayLoader.construct_yaml_float)
 
 
+def load_strict(raw, path, loader=StrictOverlayLoader):
+    """Strict-load YAML text or bytes; every failure names the file and position."""
+    try:
+        return yaml.load(raw, Loader=loader)
+    except (ValueError, yaml.YAMLError) as error:
+        raise ValueError(f'{path}: {error}') from error
+
+
 def load_overlay(path, *, strict=False):
     """Read an optional overlay; strict mode rejects invalid existing documents."""
     try:
@@ -82,7 +90,7 @@ def ekf_overlay(path, node, base_path=None):
     if node not in NODES:
         raise ValueError('unsupported localization node: ' + node)
     if base_path is not None:
-        parse_base(Path(base_path).expanduser().read_bytes(), node)
+        parse_base(Path(base_path).expanduser().read_bytes(), node, base_path)
     selected = Path(path).expanduser() if path else Path.home() / '.config/mhseals/ekf.yaml'
     try:
         raw = selected.read_bytes()
@@ -90,7 +98,7 @@ def ekf_overlay(path, node, base_path=None):
         if path or selected.is_symlink():
             raise
         raw = b''
-    return parse_overlay(raw).get(node, {})
+    return parse_overlay(raw, selected).get(node, {})
 
 
 def valid_numbers(controller, follow):

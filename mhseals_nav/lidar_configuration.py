@@ -5,9 +5,8 @@ from ipaddress import IPv4Address
 import math
 from pathlib import Path
 
-import yaml
 
-from .navigation_config import StrictOverlayLoader
+from .navigation_config import load_strict
 
 KEYS = ('lidar.model', 'lidar.frame', 'lidar.rpm', 'lidar.calibration',
         'lidar.endpoint.ip', 'lidar.endpoint.port')
@@ -60,9 +59,9 @@ def validate_values(values):
     validate_present(values)
 
 
-def validate_calibration(raw):
+def validate_calibration(raw, path='<calibration>'):
     """Accept the bounded VLP16db correction schema and all sixteen unique lasers."""
-    data = yaml.load(raw, Loader=StrictOverlayLoader)
+    data = load_strict(raw, path)
     if not isinstance(data, dict) or set(data) != {
             'lasers', 'num_lasers', 'distance_resolution'}:
         raise ValueError('unsupported calibration schema')
@@ -86,9 +85,9 @@ def validate_calibration(raw):
     return data
 
 
-def parse_lidar(raw):
+def parse_lidar(raw, path='<lidar>'):
     """Load one strict layer into validated dotted keys; unknown keys are refused."""
-    data = yaml.load(raw, Loader=StrictOverlayLoader)
+    data = load_strict(raw, path)
     if not isinstance(data, dict) or set(data) != {'lidar'} or not isinstance(data['lidar'], dict):
         raise ValueError('expected a single lidar mapping')
     values = {}
@@ -104,10 +103,7 @@ def parse_lidar(raw):
 def _layer(path):
     path = Path(path).expanduser().resolve(strict=True)
     raw = path.read_bytes()
-    try:
-        values = parse_lidar(raw)
-    except (ValueError, yaml.YAMLError) as error:
-        raise ValueError(f'{path}: {error}') from error
+    values = parse_lidar(raw, path)
     return values, {'path': str(path), 'sha256': sha256(raw).hexdigest()}
 
 
@@ -136,7 +132,7 @@ def _calibration(reference, source, share):
             path = Path(source).parent / path
     path = path.resolve(strict=True)
     raw = path.read_bytes()
-    validate_calibration(raw)
+    validate_calibration(raw, path)
     return {'path': str(path), 'sha256': sha256(raw).hexdigest()}
 
 
