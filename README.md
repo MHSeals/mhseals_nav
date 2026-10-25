@@ -192,17 +192,18 @@ The suite's characterization writes a Nav2 overlay with the measured velocity, a
 
 ### Tuning
 
-Measure these on the boat, then set the parameters from them; MPPI plans as if its command were the velocity, so these are what it does not model. `T = tau + L` per axis.
+MPPI plans as if its command were the velocity. Tuning measures what sits in between and turns each part into a key by a rule. Steady plant differences (mass, drag, thrust) are absorbed by the velocity loop and need no Nav2 change; delay, noise and geometry do. `T = tau + L` per axis.
 
-| Measure | How | Sets |
+| Measure | How | Parameter: rule |
 | --- | --- | --- |
-| Dead time `L` (command to odometry) | yaw onsets of a Characterize session, first-order-plus-dead-time fit | `wz_max`, `rotate_to_heading_angular_vel`: at most `yaw_goal_tolerance / (2 T_yaw)` |
-| Closed-loop lag `tau` per axis | Controller steps, rise time / ln 9 | `vx_max`, `vy_max`: stop within `D` m, `D / (T (k/2 + 1))`; accelerations `v / (k T)`, k = 3 |
-| Neutral velocity SD `sigma` afloat (waves + noise) | Characterize neutral phase (wave floor) | `trans_stopped_velocity`, `rot_stopped_velocity` at least `2 sigma`; velocity `kp` at most `0.0625 / (2 sigma)` |
-| Rotation-centre offset `d` from `base_link` | Characterize yaw rows | add `1.6 d` to the xy goal tolerances; slow in-place turns when `d` is over 0.08 m |
-| GPS position SD per fix tier, antenna offset `l` | 5 min moored per tier; tape | xy goal tolerances at least `2 sigma_p + l`; precise goals only at RTK fixed |
+| Dead time `L` | Characterize yaw onsets, first-order-plus-dead-time fit | `wz_max`, `rotate_to_heading_angular_vel`: `yaw_tol / (2 T_yaw)`; fix latency first if `L` > 0.3 s |
+| Lag `tau` per axis | Controller steps, rise time / ln 9 | `vx_max`, `vy_max`: `D / (T (k/2 + 1))`, stop within `D` = 1 m; accelerations `v / (k T)`, `k` = 3 |
+| Neutral velocity SD `sigma` | Characterize neutral phase (wave floor) | stopped velocities at least `2 sigma`; velocity `kp` at most `0.0625 / (2 sigma)` (hardware owner) |
+| Odometry noise in the plan | `/cmd_vel_nav` sign changes | `temperature` up, `*_std` down, each std under its axis limit |
+| Rotation-centre offset `d` | Characterize yaw rows | xy goal tolerances plus `1.6 d`; in-place turns at most 0.3 rad/s while `d` > 0.08 m |
+| GPS SD `sigma_p` per fix tier, antenna offset `l` | 5 min moored per tier; tape | xy goal tolerances at least `2 sigma_p + l`; precise goals (docking) only at RTK fixed |
 
-The characterization's overlay takes the smaller of the measured limit and the rule (`nav2_rules` in mhseals_testing's `characterize.yaml`).
+The characterization's overlay takes the smaller of the measured limit and the rule (`nav2_rules` in mhseals_testing's `config/characterize.yaml`). Verify every change in crane_ml before the boat. The derivations, evidence and acceptance thresholds are in mhseals_testing `docs/tuning.tex` (`make tuning` in `docs/`).
 
 ### Development
 
