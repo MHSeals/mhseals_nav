@@ -814,3 +814,22 @@ def test_a_replaced_goal_is_cancelled_when_driving_stops_mid_handover():
     assert len(goals) == 2 and not goals[0].cancelled
     driver.stop_driving()  # an override while the replacement is in flight
     assert goals[0].cancelled and goals[1].cancelled
+
+
+def test_drift_never_aborts_a_dock_under_way():
+    from mhseals_nav.tasks.conditions import Conditions
+    settings = {'tasks': ['nav_channel', 'docking']}
+    for name in settings['tasks']:
+        settings[name] = params(name)
+    world = World('mission', settings)
+    world.board.register_key(key='conditions', access=py_trees.common.Access.WRITE)
+    world.board.conditions = conditions = Conditions()
+    world.state['objects'] = gate(7, 0, 3) + gate(13, 0, 3) + [
+        ('blue_square', 10, -1), ('red_circle', 10, -3), ('blue_square', 10, -5)]
+
+    def drift(tick, world):  # drift rises once the dock is under way
+        if any(e == 'docked' for e, _ in world.events):
+            conditions.drift_s = 60.0
+
+    assert world.run(script=drift) == 'SUCCESS'
+    assert world.names()[-2:] == ['undocked', 'stage_completed']

@@ -81,7 +81,14 @@ class Gate(Leaf):
 
 
 class Watch(Gate):
-    """Run beside a task: RUNNING while fit, FAILURE (aborting the task) once not."""
+    """Run beside a task: RUNNING while the thrusters keep up, FAILURE (abort) once not.
+
+    Only a failing thruster aborts a running task. Drift and the fix tier only keep
+    precise tasks from starting: stopping a dock half way would leave the boat in a bay.
+    """
+
+    def __init__(self, name, precise=False):
+        super().__init__(name, precise=False)
 
     def update(self):
         return Status.RUNNING if super().update() == Status.SUCCESS else Status.FAILURE
