@@ -3,8 +3,6 @@ from launch.actions import (
     DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction, TimerAction)
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
-from launch_ros.actions import Node
-from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 from launch.conditions import IfCondition
 from mhseals_nav.endpoint_configuration import (
@@ -123,16 +121,8 @@ def generate_launch_description():
             'params_file': launch_configurations['nav2_params_file'],
             'limits_file': launch_configurations['limits_file'],
             'use_lidar': launch_configurations['use_lidar'],
+            'command_mux': launch_configurations['command_mux'],
         }.items())
-
-    # Requests a command_mux hold while /perception/costmap is stale; without a mux nothing
-    # would act on it, so it starts only alongside one.
-    costmap_watchdog = Node(
-        package='mhseals_nav', executable='costmap_watchdog', name='costmap_watchdog',
-        output='screen', condition=IfCondition(launch_configurations['command_mux']),
-        parameters=[PathJoinSubstitution([mhseals_nav_dir, 'config', 'costmap_watchdog.yaml']),
-                    {'use_sim_time': ParameterValue(launch_configurations['sim'],
-                                                    value_type=bool)}])
 
     slam_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(PathJoinSubstitution(
@@ -154,7 +144,7 @@ def generate_launch_description():
         OpaqueFunction(function=endpoint_preflight),
         sensors_launch,
         delayed_odom_launch,
-        TimerAction(period=5.0, actions=[navigation_launch, costmap_watchdog]),
+        TimerAction(period=5.0, actions=[navigation_launch]),
         slam_launch,
         objects_launch,
     ])
