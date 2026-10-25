@@ -96,14 +96,14 @@ def test_hysteresis_static_to_moving_and_back():
     run(f, lambda t: [ob('red_buoy', 5.0, 0.0)], 3.0)
     (track,) = f.tracks
     assert track.motion == MOTION_STATIC
-    n_move = cfg['class_groups']['buoy']['n_move']
-    # A buoy that starts drifting at 1 m/s: moving only after n_move consecutive updates.
+    move_s = cfg['class_groups']['buoy']['move_s']
+    # A buoy that starts drifting at 1 m/s: moving only after move_s of evidence.
     flips = []
     t = run(f, lambda t: [ob('red_buoy', 5.0 + 1.0 * (t - 3.0), 0.0)], 8.0, start=3.0)
     assert track.motion == MOTION_MOVING
     run(f, lambda t: [ob('red_buoy', 5.0 + 1.0 * 8.0, 0.0)], 20.0, start=t)
     assert track.motion == MOTION_STATIC
-    assert n_move > 1 and not flips
+    assert move_s > 1 / RATE and not flips
 
 
 def test_unknown_class_needs_n_unknown_min_hits():
@@ -198,8 +198,45 @@ def test_coasting_moving_track_still_predicts():
     assert track.x[0] == pytest.approx(x0 - 0.8, abs=0.15)
 
 
+def pause_then_cross(speed, pause=4.0, rng=10.0):
+    """Cross, pause long enough to turn STATIC, then cross again at ``speed``."""
+    def y(t):
+        return 0.8 * min(t, 2.0) + speed * max(t - 2.0 - pause, 0.0)
+    return lambda t: [ob('yellow_target_boat', rng, -3.0 + y(t))]
+
+
+@pytest.mark.parametrize('speed', [0.5, 0.65, 0.8])
+@pytest.mark.parametrize('rate', [10.0, 15.0, 30.0])
+def test_boat_that_pauses_then_crosses_turns_moving(speed, rate, monkeypatch):
+    monkeypatch.setitem(globals(), 'RATE', rate)
+    f = TrackFilter(CFG)
+    t = run(f, pause_then_cross(speed), 6.0, noise=0.05)
+    (track,) = f.tracks
+    assert track.motion == MOTION_STATIC          # the pause was long enough
+    moving_at = None
+    while t < 30.0 and moving_at is None:
+        t = run(f, pause_then_cross(speed), 0.5, start=t, noise=0.05)
+        if track.motion == MOTION_MOVING:
+            moving_at = t
+    assert moving_at is not None and moving_at - 6.0 <= 6.0, moving_at
+
+
+@pytest.mark.parametrize('rate', [10.0, 15.0, 30.0])
+def test_hysteresis_is_counted_in_seconds(rate, monkeypatch):
+    monkeypatch.setitem(globals(), 'RATE', rate)
+    f = TrackFilter(CFG)
+    t = run(f, lambda t: [ob('yellow_target_boat', 10.0, 0.0)], 1.0)
+    (track,) = f.tracks
+    static_s = CFG['class_groups']['boat']['static_s']
+    while track.motion != MOTION_STATIC:
+        t = run(f, lambda t: [ob('yellow_target_boat', 10.0, 0.0)], 1 / rate, start=t)
+    # Static evidence starts once the young bound is narrow enough; from then on the
+    # flip takes static_s of updates whatever the frame rate.
+    assert track.static_s == pytest.approx(static_s, abs=1.01 / rate)
+
+
 def test_young_boat_track_does_not_turn_static():
     f = TrackFilter(CFG)
     run(f, lambda t: [ob('yellow_target_boat', 8 + 0.8 * t, 3.0)], 6.0, noise=0.05)
     (track,) = f.tracks
-    assert track.motion == MOTION_MOVING and track.n_static == 0
+    assert track.motion == MOTION_MOVING and track.static_s == 0

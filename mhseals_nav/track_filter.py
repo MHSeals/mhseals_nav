@@ -37,8 +37,8 @@ class TrackState:
     hits: int = 0
     confirmed: bool = False
     speed_bound: float = 0.0
-    n_move: int = 0
-    n_static: int = 0
+    move_s: float = 0.0            # consecutive moving / static evidence (s)
+    static_s: float = 0.0
     hit_times: list = field(default_factory=list)
     fov_miss_since: float = None
     anchor: np.ndarray = None
@@ -264,8 +264,8 @@ class TrackFilter:
             matched_tracks.add(k)
 
         for i, k, gate, how in pairs:
-            ob, z, _, _ = rows[i]
-            self._update(live[k], ob, obs.backend, z, gate, t, p, yaw_rate)
+            ob, z, Rz, _ = rows[i]
+            self._update(live[k], ob, obs.backend, z, Rz, gate, t, p, yaw_rate)
             if live[k].confirmed:
                 self.assoc[how] += 1
         updated = {id(live[k]) for k in matched_tracks}
@@ -285,7 +285,7 @@ class TrackFilter:
         self.expire(max(now, t))
         return True
 
-    def _update(self, track, ob, backend, z, gate, t, c, yaw_rate):
+    def _update(self, track, ob, backend, z, Rz, gate, t, c, yaw_rate):
         d2, H, nu, S, _ = gate
         prior_xy = track.x[:2].copy()
         K = track.P @ H.T @ np.linalg.inv(S)
@@ -301,7 +301,7 @@ class TrackFilter:
                 track.size + self.cfg['size_alpha'] * (size - track.size)
         track.z += self.cfg['size_alpha'] * (z[2] - track.z)
         track.hits += 1
-        track.last_seen = t
+        dt, track.last_seen = t - track.last_seen, t
         track.backend, track.backend_id = backend, ob.backend_id
         track.source = SOURCE_LIVE
         track.fov_miss_since = None
@@ -312,7 +312,7 @@ class TrackFilter:
                 track.confirmed = True
                 track.hit_times = []
             return
-        self._classify(track)
+        self._classify(track, dt, Rz)
         check = self.cfg['heading_check']
         if track.motion != MOTION_STATIC:
             track.anchor = None
@@ -332,23 +332,41 @@ class TrackFilter:
                 a = float((z[:2] - track.anchor) @ n) / rho
                 self.heading_samples.append((t, a, yaw_rate, track.id))
 
-    def _classify(self, track):
+    def _displaced(self, track, Rz):
+        """Return whether a STATIC track's estimate left its slow anchor beyond the noise.
+
+        Velocity alone misses a slow mover: its speed can sit between the release and
+        the bound for good. Displacement grows with time while the noise does not. Only
+        groups with ``move_chi2`` use it: a moored buoy's heading error (bias that turns
+        with the bearing, lag in turns) displaces it by metres at range.
+        """
+        chi2 = self._spec(track).get('move_chi2')
+        if track.anchor is None or not chi2:
+            return False
+        delta = track.x[:2] - track.anchor
+        S = Rz[:2, :2] + track.P[:2, :2]
+        return float(delta @ np.linalg.solve(S, delta)) > chi2
+
+    def _classify(self, track, dt, Rz):
+        """Hysteresis in seconds of consecutive evidence, so it does not depend on the rate."""
         spec, cfg = self._spec(track), self.cfg['motion']
         bound, speed = speed_bound(track.x, track.P, cfg)
         track.speed_bound = bound
-        if speed > bound:
-            track.n_move, track.n_static = track.n_move + 1, 0
+        step = min(max(dt, 0.0), cfg['max_step_s'])
+        if speed > bound or self._displaced(track, Rz):
+            track.move_s, track.static_s = track.move_s + step, 0.0
         elif speed < cfg['release_frac'] * bound and bound <= cfg['static_bound_max_mps']:
             # A young track's wide bound would call anything static.
-            track.n_move, track.n_static = 0, track.n_static + 1
+            track.move_s, track.static_s = 0.0, track.static_s + step
         else:
-            track.n_move = track.n_static = 0
+            track.move_s = track.static_s = 0.0
         if track.motion == MOTION_UNKNOWN and self._prior_motion(track.class_id) == \
                 MOTION_UNKNOWN and track.hits < cfg['n_unknown_min']:
             return
-        if track.motion != MOTION_MOVING and track.n_move >= spec['n_move']:
+        eps = 1e-6
+        if track.motion != MOTION_MOVING and track.move_s >= spec['move_s'] - eps:
             track.motion = MOTION_MOVING
-        elif track.motion != MOTION_STATIC and track.n_static >= spec['n_static']:
+        elif track.motion != MOTION_STATIC and track.static_s >= spec['static_s'] - eps:
             track.motion = MOTION_STATIC
 
     def _start(self, ob, backend, z, Rz, velocity, t):

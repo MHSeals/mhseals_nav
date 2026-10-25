@@ -304,9 +304,12 @@ class ObjectTracker(Node):
         self.prior_rows[track.id] = row
 
     def eligible(self):
-        hits = self.cfg['course_map']['save_min_hits']
-        return [t for t in self.filter.tracks if t.motion == MOTION_STATIC and (
-            (t.source == SOURCE_LIVE and t.hits >= hits) or t.id in self.prior_rows)]
+        """Return the STATIC buoy-group tracks to save: a boat that paused is no prior."""
+        cm = self.cfg['course_map']
+        return [t for t in self.filter.tracks if t.motion == MOTION_STATIC and
+                t.group in cm['save_groups'] and (
+                    (t.source == SOURCE_LIVE and t.hits >= cm['save_min_hits'])
+                    or t.id in self.prior_rows)]
 
     def save_course_map(self):
         if not self.dirty:

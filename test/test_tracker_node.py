@@ -152,6 +152,10 @@ def test_course_map_saved_through_toll_and_loaded_as_priors(tmp_path, monkeypatc
                     ob = Observation(class_id='green_buoy', score=0.9)
                     ob.position.x, ob.position.y = 5.0, 1.0
                     msg.observations.append(ob)
+                    # A boat holding still turns STATIC, but is never a course prior.
+                    boat = Observation(class_id='yellow_target_boat', score=0.9)
+                    boat.position.x, boat.position.y = 5.0, -2.0
+                    msg.observations.append(boat)
                     pub.publish(msg)
                 for _ in range(3):
                     ex.spin_once(timeout_sec=0.02)
@@ -160,7 +164,16 @@ def test_course_map_saved_through_toll_and_loaded_as_priors(tmp_path, monkeypatc
 
         first = ObjectTracker()
         file = course_map.path('boat')
-        spin(first, 8.0, True, lambda: file.exists())
+        mark = {}
+
+        def saved_after_boat_static():
+            if 'at' not in mark and any(t.class_id == 'yellow_target_boat' and
+                                        t.motion == Track.MOTION_STATIC
+                                        for t in first.filter.tracks):
+                mark['at'] = time.monotonic()
+            return file.exists() and 'at' in mark and time.monotonic() - mark['at'] > 1.0
+        spin(first, 12.0, True, saved_after_boat_static)
+        assert 'at' in mark, 'the still boat never turned STATIC'
         first.destroy_node()
         rows = course_map.load(file, course_map.datetime.now(course_map.timezone.utc), 3)
         assert [r['class_id'] for r in rows] == ['green_buoy']

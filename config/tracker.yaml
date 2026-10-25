@@ -30,18 +30,27 @@
     score_alpha: 0.3
     size_alpha: 0.3
     # Classes match the first group whose patterns fit (fnmatch); others are `unknown`.
+    # move_s / static_s: seconds of consecutive moving / static evidence before a flip
+    # (the spec's update counts at 15 Hz), so the hysteresis does not depend on the rate.
+    # move_chi2: a STATIC track whose estimate leaves its slow heading anchor by more than
+    # this (position noise, tangential term included) has moving evidence, so a boat that
+    # paused and then crosses below the speed bound still turns MOVING. Not for buoys:
+    # heading errors inside the §8 envelope displace a moored buoy by metres at range.
     class_groups:
       buoy: {match: ['*_buoy', black_cross, black_triangle], prior: static,
-             q: 0.005, sigma_v0: 0.3, n_move: 12, n_static: 4}
+             q: 0.005, sigma_v0: 0.3, move_s: 0.8, static_s: 0.27}
       # Spec q 0.5 gives a steady speed sigma near 0.45 m/s, so k_sigma=3 could never
       # call a 0.8 m/s boat moving; 0.05 keeps the bound near 0.8 m/s at 10 m.
       boat: {match: ['*_target_boat'], prior: moving,
-             q: 0.05, sigma_v0: 1.5, n_move: 3, n_static: 20}
+             q: 0.05, sigma_v0: 1.5, move_s: 0.2, static_s: 1.33,
+             move_chi2: 13.8}
       unknown: {match: ['?'], prior: unknown,
-                q: 0.1, sigma_v0: 1.0, n_move: 6, n_static: 8}
+                q: 0.1, sigma_v0: 1.0, move_s: 0.4, static_s: 0.53,
+                move_chi2: 13.8}
     # static_bound_max_mps: no static evidence while the bound is wider (young tracks).
+    # max_step_s: one update adds at most this much evidence time (gaps do not count).
     motion: {k_sigma: 3.0, floor_mps: 0.25, release_frac: 0.5, n_unknown_min: 5,
-             static_bound_max_mps: 1.2}
+             static_bound_max_mps: 1.2, max_step_s: 0.2}
     tau: {static: 300.0, moving: 2.0, unknown: 5.0}
     timeout: {static: 900.0, moving: 3.0, unknown: 10.0}
     miss_in_fov_s: 5.0
@@ -90,6 +99,7 @@
       load: true
       save_period_s: 10.0
       save_min_hits: 20
+      save_groups: [buoy]        # class groups saved; boats and unknowns never are
       prior_confidence: 0.5
       prior_sigma_m: 0.5
       max_age_days: 3.0
