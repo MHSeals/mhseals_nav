@@ -149,7 +149,8 @@ def sessions():
     modes = ['plain'] + (['zed'] if ZED else [])
     jobs = [(m, c, ()) for m in modes for c in ENVELOPE + LAGS[2:]]
     jobs.append(('plain', WORST, NO_TANGENTIAL))
-    with ProcessPoolExecutor(mp_context=get_context('fork')) as pool:
+    # spawn, not fork: rclpy (imported by the ROS pytest plugins) already runs threads.
+    with ProcessPoolExecutor(mp_context=get_context('spawn')) as pool:
         return dict(zip(jobs, pool.map(simulate, *zip(*jobs))))
 
 
