@@ -638,3 +638,42 @@ def test_mission_skips_docking_without_rtk_and_aborts_a_task_on_weak_thrusters()
         d['reason'] for e, d in world.events if e == 'decision']
     assert world.goals and all(goal.cancelled for goal in world.goals)  # stopped at once
     assert 'gate_cleared' not in world.names()
+
+
+def replacing_driver(refuse):
+    """A Driver on a fake Nav2; ``refuse`` (a one-item list) rejects the goals sent."""
+    from types import SimpleNamespace
+    from mhseals_nav.tasks.behaviours import Hold
+    goals = []
+
+    def send(route, precise=False, quiet=False, why=''):
+        goal = SimpleNamespace(route=route, done=refuse[0], cancelled=False,
+                               status='REJECTED' if refuse[0] else None)
+        goal.cancel = lambda: setattr(goal, 'cancelled', True)
+        goals.append(goal)
+        return goal
+
+    driver = Hold('drive', 10.0)  # any Driver
+    driver.setup(navigator=SimpleNamespace(send=send), report=None)
+    driver.board = SimpleNamespace(now=0.0, pose=(0.0, 0.0, 0.0))
+    driver.initialise()
+    driver.drive([(0, 0, 0), (5, 0, 0)])
+    assert driver.driving() == 'RUNNING' and len(goals) == 1
+    return driver, goals
+
+
+def test_a_replaced_goal_is_cancelled_when_its_replacement_is_rejected():
+    refuse = [False]
+    driver, goals = replacing_driver(refuse)
+    refuse[0] = True  # Nav2 refuses the new route on every resend
+    driver.drive([(0, 0, 0), (9, 0, 0)])
+    assert driver.driving() == 'REJECTED' and len(goals) > 2
+    assert goals[0].cancelled  # the old route does not drive on alone
+
+
+def test_a_replaced_goal_is_cancelled_when_driving_stops_mid_handover():
+    driver, goals = replacing_driver([False])
+    driver.drive([(0, 0, 0), (9, 0, 0)])  # same action: the running goal is not cancelled
+    assert len(goals) == 2 and not goals[0].cancelled
+    driver.stop_driving()  # an override while the replacement is in flight
+    assert goals[0].cancelled and goals[1].cancelled

@@ -68,6 +68,7 @@ class Driver(Leaf):
 
     def initialise(self):
         self.goal = self.old = self.queued = self.outcome = self.anchor = None
+        self.superseded = []
 
     def drive(self, route, precise=False, why=''):
         if not route or self.navigator is None:
@@ -79,15 +80,25 @@ class Driver(Leaf):
         # the boat; the other action is refused until the running goal is cancelled.
         preempt = (self.goal is not None and not self.goal.done and q is not None
                    and action(q['route'], q['precise']) == action(route, precise))
-        if self.goal is not None and not self.goal.done and not preempt:
-            self.goal.cancel()
-            self.old = self.goal
+        if self.goal is not None and not self.goal.done:
+            if preempt:  # it drives on until Nav2 takes the replacement: kept to cancel
+                self.superseded.append(self.goal)
+            else:
+                self.goal.cancel()
+                self.old = self.goal
         self.goal, self.outcome = None, None
         self.queued = dict(route=list(route), precise=precise, why=why, tries=0)
         self.driving()
 
+    def drop_superseded(self):
+        for goal in self.superseded:
+            if not goal.done:
+                goal.cancel()
+        self.superseded = []
+
     def stop_driving(self):
         self.queued = None
+        self.drop_superseded()
         if self.goal is not None and not self.goal.done:
             self.goal.cancel()
             self.old = self.goal
@@ -99,12 +110,14 @@ class Driver(Leaf):
                 return 'RUNNING'
             self.old = None
         now = self.board.now
+        self.superseded = [goal for goal in self.superseded if not goal.done]
         if self.queued is not None and self.goal is None:
             q = self.queued
             self.goal = self.navigator.send(q['route'], precise=q['precise'],
                                             quiet=q['tries'] > 0, why=q['why'])
             q['tries'], q['sent'] = q['tries'] + 1, now
             if self.goal is None:
+                self.drop_superseded()
                 self.queued, self.outcome = None, 'REJECTED'
                 return self.outcome
         if self.goal is None:
@@ -119,6 +132,8 @@ class Driver(Leaf):
         if refused and q is not None and q['tries'] < self.RETRIES:
             self.goal = None
             return self.driving()
+        if refused:  # the replacement never took over: stop the old route
+            self.drop_superseded()
         self.goal, self.queued, self.outcome = None, None, status
         return status
 
