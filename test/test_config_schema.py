@@ -12,6 +12,8 @@ R2_UNITS = {'s', 'Hz', 'm', 'm/s', 'rad', 'rad/s', 'm/s^2', 'count', 'bool', 'en
             'topic', 'path', '1'}
 # Not in the R2 list yet; the astro lane owns docs/config-conventions.md.
 PENDING_R2 = {'rad/s^2', 'ID:Hz', 'm/s, m/s, rad/s', 'm/s^2, m/s^2, rad/s^2'}
+# Settable in a layer, but defaulted outside the package YAML (boat-network.env LIDAR_IP).
+NO_PACKAGE_DEFAULT = {'lidar.endpoint.ip'}
 TYPES = {'float': (int, float), 'int': (int,), 'bool': (bool,), 'str': (str,),
          'list': (list,)}
 
@@ -33,6 +35,10 @@ def test_entry_matches_package_default(key):
     assert set(entry) - {'range'} == {'type', 'units', 'tier', 'doc'}
     assert isinstance(entry['units'], str) and entry['units'] in R2_UNITS | PENDING_R2
     assert entry['tier'] in ('live', 'reconfigure', 'restart', 'new-session')
+    if key in NO_PACKAGE_DEFAULT:
+        with pytest.raises(KeyError):
+            lookup(key)
+        return
     value = lookup(key)
     assert isinstance(value, TYPES[entry['type']]) and not (
         entry['type'] != 'bool' and isinstance(value, bool))
