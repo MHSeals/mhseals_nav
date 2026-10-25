@@ -8,6 +8,7 @@ from socket import gethostname
 from time import monotonic
 
 from diagnostic_msgs.msg import DiagnosticArray
+import numpy as np
 import rclpy
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
@@ -15,7 +16,7 @@ from rclpy.qos import QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
 from rosidl_runtime_py.convert import message_to_ordereddict
 from sensor_msgs.msg import CameraInfo
 
-from mhseals_nav import perception_status
+from mhseals_nav import horizon, perception_status, waterline
 from mhseals_nav.msg import Observation, ObservationArray
 from mhseals_nav.utils.live_params import LiveParams, positive
 from mhseals_nav.yaml_params import node_config
@@ -138,10 +139,17 @@ class ZedBackend(Node):
             lambda values, changed: setattr(self, 'max_age', values['max_detection_age']))
         self.max_age = self.live['max_detection_age']
         self.camera_size = None
+        self.K = self.info_size = None
         self.frame = ''
         self.ids = False
         self.last_stamp = -1
         self.stage = perception_status.StageClock()
+        # Per-frame camera attitude (ZED IMU, horizon) and the waterline range it enables.
+        self.att_cfg, self.hz_cfg, self.wl_cfg = cfg['attitude'], cfg['horizon'], cfg['waterline']
+        self.attitude = waterline.Attitude(self.att_cfg)
+        self.mount = waterline.mount_matrix(self.att_cfg['imu_mount_rpy_deg'])
+        self.counts = {'images': 0, 'fixes': 0, 'mono': 0, 'boxes': 0}
+        self.att_source = 'none'
         self.pub = self.create_publisher(
             ObservationArray, '/perception/observations',
             QoSProfile(depth=5, reliability=ReliabilityPolicy.BEST_EFFORT))
@@ -155,10 +163,51 @@ class ZedBackend(Node):
                                  self.camera_info, qos_profile_sensor_data)
         self.create_subscription(ObjectsStamped, cfg['objects_topic'],
                                  self.objects, qos_profile_sensor_data)
+        if self.att_cfg['enabled']:
+            from sensor_msgs.msg import Imu
+            self.create_subscription(Imu, self.att_cfg['imu_topic'], self.imu,
+                                     qos_profile_sensor_data)
+        if self.att_cfg['enabled'] and self.hz_cfg['enabled']:
+            from sensor_msgs.msg import Image
+            self.create_subscription(Image, self.hz_cfg['image_topic'], self.image,
+                                     QoSProfile(depth=1,
+                                                reliability=ReliabilityPolicy.BEST_EFFORT))
 
     def camera_info(self, msg):
         # ZED 2D boxes are in grab pixels; camera_info is at the (downscaled) publish size.
         self.camera_size = (msg.width * self.box2d_scale, msg.height * self.box2d_scale)
+        k = getattr(msg, 'k', None)
+        if k is not None and k[0] > 0 and k[4] > 0:   # an uncalibrated info leaves K unset
+            self.K = (k[0], k[4], k[2], k[5])
+            self.info_size = (msg.width, msg.height)
+
+    def imu(self, msg):
+        q = msg.orientation
+        if q.w == 0.0 and q.x == 0.0 and q.y == 0.0 and q.z == 0.0:
+            return
+        roll, pitch = waterline.camera_roll_pitch((q.x, q.y, q.z, q.w), self.mount)
+        self.attitude.add_imu(msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9,
+                              roll, pitch)
+
+    def image(self, msg):
+        """Fold a horizon fix from the published colour frame into the attitude."""
+        self.counts['images'] += 1
+        if self.K is None or self.counts['images'] % max(int(self.hz_cfg['every_n']), 1) or \
+                (msg.width, msg.height) != self.info_size:
+            return
+        channels = {'bgra8': 4, 'rgba8': 4, 'bgr8': 3, 'rgb8': 3, 'mono8': 1}.get(msg.encoding)
+        if channels is None:
+            return
+        frame = np.frombuffer(msg.data, np.uint8).reshape(
+            msg.height, msg.step // channels, channels)[:, :msg.width]
+        t = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
+        prior = self.attitude.at(t)
+        fix = horizon.detect(frame, self.K, self.hz_cfg,
+                             prior=None if prior is None else prior[:2])
+        if fix is None or abs(fix['roll']) > math.radians(self.hz_cfg['max_roll_deg']):
+            return
+        self.counts['fixes'] += 1
+        self.attitude.add_horizon(t, fix['roll'], fix['pitch'], fix['sigma'])
 
     def objects(self, msg):
         packet = message_to_ordereddict(msg)
@@ -185,6 +234,12 @@ class ZedBackend(Node):
             return
         self.last_stamp = stamp
         self.frame = array.header.frame_id
+        if self.att_cfg['enabled'] and self.wl_cfg['enabled']:
+            estimate = self.attitude.at(stamp * 1e-9)
+            self.att_source = estimate[3] if estimate else 'none'
+            self.counts['boxes'] += sum(ob.has_box2d for ob in array.observations)
+            self.counts['mono'] += waterline.fill_mono(
+                array.observations, self.K, self.info_size, estimate, self.wl_cfg)
         array.backend = self.backend
         array.processing_latency = max(age, 0.0)
         self.pub.publish(array)
@@ -195,7 +250,9 @@ class ZedBackend(Node):
         values = self.stage.values(monotonic())
         values.update(hfov_deg=f'{self.fov[0]:g}', range_m=f'{self.fov[1]:g}',
                       frame=self.frame, ids=str(self.ids).lower(),
-                      velocity=self.velocity_kind)
+                      velocity=self.velocity_kind, attitude=self.att_source,
+                      horizon_fixes=self.counts['fixes'], horizon_images=self.counts['images'],
+                      mono_share=f"{self.counts['mono'] / max(self.counts['boxes'], 1):.2f}")
         array = DiagnosticArray()
         array.header.stamp = self.get_clock().now().to_msg()
         array.status = [perception_status.status('backend', gethostname(), values,

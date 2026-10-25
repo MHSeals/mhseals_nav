@@ -10,3 +10,42 @@
     fov:
       hfov_deg: 110.0
       range_m: 20.0                    # = zed_boat object_detection.max_range
+    # Camera roll and pitch at each capture stamp (perception-accuracy). The EKF runs
+    # two_d_mode, so TF holds the camera level; the waterline range needs the real tilt.
+    # Stereo positions barely need it (tilt moves them by about camera height x angle).
+    # Off until a water bag validates it: it only feeds mono_range, which the tracker does
+    # not fuse by default (tracker.yaml meas.mono_fusion). On, it subscribes to the ZED IMU
+    # and (horizon.enabled) the colour image, and fills mono_range for the record.
+    attitude:
+      enabled: false
+      imu_topic: /front/zed_node/imu/data   # ZED IMU orientation, sensor-stamped
+      imu_mount_rpy_deg: [0.0, 0.0, 0.0]    # imu <- left camera; the horizon bias absorbs the rest
+      imu_sigma_deg: 1.0               # IMU alone: leans toward apparent gravity in turns
+      horizon_sigma_deg: 0.25          # IMU plus a fresh horizon bias
+      bias_tau_s: 1.0                  # horizon -> IMU bias adaptation
+      fresh_s: 0.5                     # a horizon fix this old still sets the bias
+      max_gap_s: 0.05                  # longest IMU gap interpolated across
+      buffer_s: 2.0
+    horizon:
+      enabled: true
+      image_topic: /front/zed_node/rgb/color/rect/image   # pub size (zed_boat pub_downscale_factor)
+      every_n: 1                       # run on every Nth image
+      scale: 4                         # block mean: 640x360 -> 160x90
+      band_deg: 6.0                    # search +-band around the IMU-predicted horizon
+      min_grad: 3.0                    # grey levels per pixel
+      max_slope: 1.0                   # |gx| <= max_slope*|gy|: near-horizontal edges only
+      inlier_px: 1.0                   # at the downscaled size
+      iterations: 60
+      min_columns: 0.4                 # share of columns with an edge in the band
+      min_inliers: 0.5
+      min_span: 0.6
+      max_roll_deg: 25.0               # a fix tilted further is rejected
+      dip_deg: 0.0                     # shore below the true horizon (lake-dependent)
+    waterline:
+      enabled: true                    # fills Observation.mono_range; the tracker decides use
+      camera_height_m: 0.325           # left camera above the waterline (URDF 0.125 + 0.20); bench item
+      height_sigma_m: 0.03             # heave and load
+      edge_sigma_px: 1.0               # box bottom, at the camera_info (published) size
+      min_depression_deg: 0.8          # closer to the horizon: no range
+      max_range_m: 30.0
+      centre_sigma_m: 0.1              # contact point -> object centre (half the box depth)
