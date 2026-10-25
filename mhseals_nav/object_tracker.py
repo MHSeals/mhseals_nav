@@ -17,7 +17,7 @@ from tf2_ros import Buffer, TransformListener, TransformException
 from tf2_geometry_msgs import do_transform_pose
 
 from mhseals_nav.object_tracks import ObjectTracks
-from mhseals_nav.zed_detections_converter import detection_markers
+from mhseals_nav.tracker_markers import observation_markers
 from mhseals_nav.utils.live_params import LiveParams, at_least, fraction, positive
 
 
@@ -173,10 +173,17 @@ class ObjectTracker(Node):
             for det in raw.detections:
                 det.header = raw.header
                 det.bbox.center = do_transform_pose(det.bbox.center, transform)
-            self.detection_marker_pub.publish(detection_markers(raw, self.raw_count))
+            self.detection_marker_pub.publish(observation_markers(raw.header, [
+                (d.results[0].hypothesis.class_id if d.results else 'unknown',
+                 d.results[0].hypothesis.score if d.results else 0.0,
+                 (d.bbox.center.position.x, d.bbox.center.position.y,
+                  d.bbox.center.position.z),
+                 (d.bbox.size.x, d.bbox.size.y, d.bbox.size.z)) for d in raw.detections],
+                self.raw_count))
             self.raw_count = len(raw.detections)
         elif self.raw_count:
-            self.detection_marker_pub.publish(detection_markers(array, self.raw_count))
+            self.detection_marker_pub.publish(
+                observation_markers(array.header, [], self.raw_count))
             self.raw_count = 0
         for track in self.tracks.objects if transform is not None else []:
             pose = Pose()
