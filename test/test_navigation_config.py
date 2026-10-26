@@ -1,8 +1,7 @@
 from pathlib import Path
 
-import yaml
-
 from mhseals_nav.navigation_config import derived, load_overlay, merge_limits
+import yaml
 
 CONFIG = Path(__file__).parents[1] / 'config'
 
@@ -183,7 +182,8 @@ def test_overlay_above_the_ceiling_keeps_the_base_and_logs(caplog):
     ceilings = {'vx_max': .8, 'wz_max': .6}
     base = {'controller_server': {'ros__parameters': {'FollowPath': follow}}}
     for bad in (1e6, 5.0):
-        limits = {'controller_server': {'ros__parameters': {'FollowPath': {'vx_max': bad, 'wz_max': .5}}}}
+        limits = {'controller_server': {'ros__parameters': {
+            'FollowPath': {'vx_max': bad, 'wz_max': .5}}}}
         with caplog.at_level('ERROR'):
             merged = merge_limits(base, limits, ceilings)
         result = merged['controller_server']['ros__parameters']['FollowPath']
@@ -200,7 +200,8 @@ def test_packaged_ceilings_sit_above_the_base_limits():
         'behavior_server': config['behavior_server']['ros__parameters'],
     }
     assert ceilings.keys() == {'vx_max', 'vy_max', 'wz_max', 'ax_max', 'az_max', 'ay_max',
-                               'max_rotational_vel', 'rotational_acc_lim', 'vx_min', 'ax_min', 'ay_min'}
+                               'max_rotational_vel', 'rotational_acc_lim',
+                               'vx_min', 'ax_min', 'ay_min'}
     for key, ceiling in ceilings.items():
         base = abs(next(section[key] for section in sections.values() if key in section))
         assert base < ceiling <= 2 * base, key
@@ -211,7 +212,8 @@ def test_nav2_params_has_only_node_sections():
     def is_node_section(section):
         # A costmap server nests its costmap node one level down.
         return isinstance(section, dict) and (
-            set(section) == {'ros__parameters'} or all(is_node_section(inner) for inner in section.values()))
+            set(section) == {'ros__parameters'}
+            or all(is_node_section(inner) for inner in section.values()))
 
     config = yaml.safe_load((CONFIG / 'nav2_params.yaml').read_text())
     for node, section in config.items():

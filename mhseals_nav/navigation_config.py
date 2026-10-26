@@ -251,14 +251,21 @@ def validate_ceilings(ceilings):
 
 
 def load_ceilings(path):
-    """Strictly load and validate config/nav2_ceilings.yaml; a missing file would lift every bound."""
+    """
+    Strictly load and validate config/nav2_ceilings.yaml.
+
+    A missing file would lift every bound.
+    """
     if not Path(path).is_file():
         raise FileNotFoundError(f'Navigation ceilings file not found: {path}')
     return validate_ceilings(load_overlay(path, strict=True))
 
 
 def within_ceilings(ceilings, limits, path=(), strict=False):
-    """Copy of limits without the values whose magnitude is above the `ceilings` entry of the same key name.
+    """
+    Copy of limits without the values whose magnitude is above their `ceilings` entry.
+
+    A value is bounded by the `ceilings` entry of the same key name.
 
     ceilings maps a limit name (vx_max, az_max, and the magnitude of vx_min, ax_min, ...) to the
     most the boat may be told, so a typo like 5.0, -5.0 or 1e6 cannot reach the controller:
@@ -272,15 +279,18 @@ def within_ceilings(ceilings, limits, path=(), strict=False):
               and abs(value) > ceilings[key]):
             location = '.'.join(path + (key,))
             if strict:
-                raise ValueError(f'{location} = {value!r}: magnitude above the ceiling {ceilings[key]!r}')
-            log.error('Ignoring overlay %s = %r: magnitude above the ceiling %r', location, value, ceilings[key])
+                raise ValueError(
+                    f'{location} = {value!r}: magnitude above the ceiling {ceilings[key]!r}')
+            log.error('Ignoring overlay %s = %r: magnitude above the ceiling %r',
+                      location, value, ceilings[key])
         else:
             result[key] = value
     return result
 
 
 def merge_limits(base, limits, ceilings=None):
-    """Overlay limits onto base, recompute derived keys and warn about overlay values that did not stick.
+    """
+    Overlay limits onto base, recompute derived keys and warn about overlay values that did not stick.
 
     ceilings (config/nav2_ceilings.yaml) bounds the overlay's maxima; None means unbounded.
     """

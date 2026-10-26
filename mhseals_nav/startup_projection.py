@@ -2,7 +2,8 @@
 from copy import deepcopy
 from pathlib import Path
 
-from .navigation_config import load_ceilings, load_overlay, validate_navigation_base, validated_merge_limits
+from .navigation_config import (load_ceilings, load_overlay, validate_navigation_base,
+                                validated_merge_limits)
 
 SERVERS = (
     ('nav2_controller', 'controller_server'),
@@ -30,13 +31,17 @@ def bt_paths(share=None):
 
 
 def ceilings_path(share=None):
-    """The overlay ceilings of the installed package, or of the source tree."""
+    """Return the overlay ceilings of the installed package, or of the source tree."""
     root = Path(share) if share else Path(__file__).parents[1]
     return root / 'config' / 'nav2_ceilings.yaml'
 
 
 def compile_navigation(params_file, limits_file, *, sim, use_lidar, share=None):
-    """Strictly load the base and optional operator limits, validate, bound by the ceilings and project them."""
+    """
+    Strictly load the base and optional operator limits, validate, bound and project them.
+
+    The operator limits are bounded by the ceilings before projection.
+    """
     if not Path(params_file).expanduser().is_file():
         raise FileNotFoundError(f'Navigation params file not found: {params_file}')
     base = load_overlay(params_file, strict=True)

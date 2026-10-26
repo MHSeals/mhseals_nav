@@ -231,19 +231,23 @@ def write(tmp_path, name, text):
 
 def test_factory_accepts_an_overlay_within_the_ceilings(base, tmp_path):
     base_path = write(tmp_path, 'base.yaml', yaml.safe_dump(base))
-    overlay = write(tmp_path, 'ok.yaml', 'controller_server: {ros__parameters: {FollowPath: {wz_max: 0.5, vx_min: -0.05}}}')
+    overlay = write(tmp_path, 'ok.yaml', 'controller_server: {ros__parameters: '
+                    '{FollowPath: {wz_max: 0.5, vx_min: -0.05}}}')
     from mhseals_nav.startup_projection import compile_navigation
     ns = inert_navigation_factory()
     assert ns['navigation_nodes']({'params_file': str(base_path), 'limits_file': str(overlay)})
-    result = compile_navigation(base_path, overlay, sim='true', use_lidar='true', share=ns['share'])
+    result = compile_navigation(base_path, overlay, sim='true', use_lidar='true',
+                                share=ns['share'])
     follow = result['controller_server']['ros__parameters']['FollowPath']
     assert follow['wz_max'] == 0.5 and follow['vx_min'] == -0.05
 
 
-@pytest.mark.parametrize('typo', ['vx_max: 5.0', 'vx_max: 1.0e+6', 'vx_min: -5.0', 'ax_min: -0.7', 'ay_min: -2.0'])
+@pytest.mark.parametrize('typo', ['vx_max: 5.0', 'vx_max: 1.0e+6', 'vx_min: -5.0', 'ax_min: -0.7',
+                                  'ay_min: -2.0'])
 def test_factory_refuses_an_overlay_beyond_the_ceilings(base, tmp_path, typo):
     base_path = write(tmp_path, 'base.yaml', yaml.safe_dump(base))
-    overlay = write(tmp_path, 'typo.yaml', 'controller_server: {ros__parameters: {FollowPath: {%s}}}' % typo)
+    overlay = write(tmp_path, 'typo.yaml',
+                    'controller_server: {ros__parameters: {FollowPath: {%s}}}' % typo)
     ns = inert_navigation_factory()
     ns['Node'] = lambda **kw: pytest.fail('Node constructed past a ceiling')
     with pytest.raises(ValueError, match='ceiling'):
