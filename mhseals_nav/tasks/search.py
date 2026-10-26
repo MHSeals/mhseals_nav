@@ -207,8 +207,7 @@ def cue_gates(tracks, pair, origin, exclude=()):
         return []
     side = [[(t.x, t.y) for t in tracks or () if t.label == label] for label in pair['with']]
     gates = geometry.gate_midpoints(side[0], side[1], origin, pair['gate'])
-    return [g for g in gates if all(math.dist(g[:2], d[:2]) > pair.get('exclude_radius', 0.0)
-                                    for d in exclude)]
+    return geometry.unclaimed(gates, exclude, pair.get('exclude_radius', 0.0))
 
 
 def wanted(tracks, labels, cfg):

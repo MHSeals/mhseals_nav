@@ -505,11 +505,9 @@ class GateRun(Driver):
             if isinstance(centre, list):  # a one-pose route, such as the task's approach
                 centre = centre[0]
             gates = [g for g in gates if centre and math.dist(g[:2], centre[:2]) <= self.radius]
-        # Gates another task already passed are not this task's (red/green look alike).
         done = [g for key in self.exclude if self.board.exists(key)
                 for g in self.board.get(key) or []]
-        gates = [g for g in gates
-                 if all(math.dist(g[:2], d[:2]) > self.exclude_radius for d in done)]
+        gates = geometry.unclaimed(gates, done, self.exclude_radius)
         marks = self.labelled(self.toward) if self.toward else []
         if marks:  # crossed toward the mark, whichever side the boat comes from
             gates = [g if math.cos(g[2] - geometry.heading(g, min(

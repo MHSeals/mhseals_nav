@@ -145,6 +145,14 @@ def unique(points, separation=1.5):
     return kept
 
 
+def unclaimed(gates, done, radius):
+    """``gates`` farther than ``radius`` from every ``done`` gate: those not another task's.
+
+    Red/green gates look alike, so a gate another task already passed is not this one's.
+    """
+    return [g for g in gates if all(math.dist(g[:2], d[:2]) > radius for d in done)]
+
+
 def segment_distance(point, a, b):
     """Distance from ``point`` to the segment from ``a`` to ``b``."""
     dx, dy = b[0] - a[0], b[1] - a[1]
