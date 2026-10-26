@@ -465,16 +465,19 @@ def test_the_sweep_mows_the_speed_region_on_the_side_the_marina_fixed(course, si
                for route in sweeps for x, y, _ in route)
 
 
+@pytest.mark.parametrize('profile', ['finals', 'qualifying'])
 @pytest.mark.parametrize('course, side', [(COURSE_2026, 1), (MIRRORED_2026, -1)],
                          ids=['side-port', 'side-starboard'])
-def test_a_seen_speed_gate_leads_the_views_on_to_its_turn_mark_at_field_speed(course, side):
+def test_a_seen_speed_gate_leads_the_views_on_to_its_turn_mark_at_field_speed(
+        course, side, profile):
     """At 0.4 m/s the views pass the speed gate with its mark beyond camera range.
 
     The mark lies 10-33 m past its gate, so a gate seen first is a cue: the views go on
     through it toward the mark. Finals has no sweep to fall back on, so without the cue
-    the views run out and the speed run is given up.
+    the views run out and the speed run is given up; qualifying has one, and the cue
+    finds the mark before it is reached.
     """
-    params = load_params('mission', config_path('mission_2026.yaml'), 'finals')
+    params = load_params('mission', config_path('mission_2026.yaml'), profile)
     world = Course(dict(params, timeout=UNHURRIED), course=course, speed=0.4)
     outcome, _ = world.run()
     decisions = [d['reason'] for e, d in world.events if e == 'decision']
