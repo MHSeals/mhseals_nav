@@ -7,12 +7,11 @@ from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
-import yaml
-
 from mhseals_nav import boat_network
 from mhseals_nav.endpoint_configuration import (
     from_launch as endpoint_from_launch, LAYER_ARGUMENTS as ENDPOINT_LAYERS, UNSET_GCS)
 from mhseals_nav.lidar_configuration import resolve_lidar
+import yaml
 
 # Large-data transport for the lidar pair only; see config/fastdds_large_data.xml.
 LARGE_DATA_PROFILE = PathJoinSubstitution(
