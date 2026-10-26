@@ -51,11 +51,7 @@ def sensor_frames():
     lidar = yaml.safe_load((ROOT / 'config/lidar.yaml').read_text())['lidar']['frame']
     adapter = (ROOT / 'mhseals_nav/mavros_odometry.py').read_text()
     assert "declare_parameter('gps_frame', 'gps_link')" in adapter
-    camera = yaml.safe_load((ROOT / 'config/zed_imu_reference.yaml').read_text())
-    params = camera['zed_imu_reference']['ros__parameters']
-    # zed_imu_reference stamps f'{camera_name}_imu_link', the wrapper's IMU frame name.
     return {'lidar.yaml lidar.frame': lidar, 'odometry adapter gps_frame': 'gps_link',
-            'ZED IMU (camera front)': params.get('frame_id', 'front_imu_link'),
             'FCU IMU (documentation)': 'imu_link', 'ZED camera mount': 'front_camera_link'}
 
 
@@ -64,22 +60,13 @@ def test_every_configured_sensor_frame_hangs_off_base_link(use, frame):
     assert chain(frame)[-1] == 'base_link', use
 
 
-def test_zed_imu_frame_is_the_cameras_and_unrotated():
-    """Its only publisher is this URDF (camera.launch.py publish_imu_tf false)."""
-    up = parents()
-    assert up['front_imu_link'][0] == 'front_camera_link'
-    assert up['front_imu_link'][2] == (0., 0., 0.)
-    camera = (ROOT / 'launch/camera.launch.py').read_text()
-    assert "'publish_imu_tf': 'false'" in camera
-
-
 def test_sensor_axes_are_base_link_axes():
     """Keep every sensor frame on REP-103 base_link axes (x forward, y left, z up).
 
-    MAVROS publishes the FCU IMU already in base_link, the lidar deskew uses base_link's twist
-    for lidar_link, and the ZED gyro's z is the yaw rate only while its frame is level.
+    MAVROS publishes the FCU IMU already in base_link, and the lidar deskew uses base_link's
+    twist for lidar_link.
     """
-    for frame in ('lidar_link', 'front_imu_link', 'gps_link', 'imu_link'):
+    for frame in ('lidar_link', 'gps_link', 'imu_link'):
         offset(frame)   # asserts every joint on the chain is unrotated
 
 

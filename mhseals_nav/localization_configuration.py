@@ -24,41 +24,29 @@ from .startup_rules import Rule
 
 NODES = ('ekf_local', 'ekf_global', 'navsat_transform')
 FRAMES = {'map_frame': 'map', 'odom_frame': 'odom', 'base_link_frame': 'base_link'}
-# The ZED IMU inputs (zed_imu_reference.py): its gyro in ekf_local, its heading in both.
-ZED_IMUS = {'ekf_local': {'imu1': '/imu/zed', 'imu2': '/imu/zed_heading'},
-            'ekf_global': {'imu1': '/imu/zed_heading'}}
 GRAPH = {
-    'ekf_local': dict(FRAMES, world_frame='odom', odom0='/odom/mavros', imu0='/imu/raw',
-                      **ZED_IMUS['ekf_local']),
+    'ekf_local': dict(FRAMES, world_frame='odom', odom0='/odom/mavros', imu0='/imu/raw'),
     'ekf_global': dict(FRAMES, world_frame='map', odom0='/odom/mavros', imu0='/imu/raw',
-                       odom1='/odom/gps', **ZED_IMUS['ekf_global']),
+                       odom1='/odom/gps'),
     'navsat_transform': dict(FRAMES),
 }
-
-
-def imu_fields(names, suffixes):
-    return {f'{imu}_{suffix}' for imu in names for suffix in suffixes}
-
-
-IMU_BOOLEANS = ('differential', 'relative', 'remove_gravitational_acceleration')
 BOOLEANS = {
     'ekf_local': {'two_d_mode', 'publish_tf', 'publish_acceleration', 'print_diagnostics',
-                  'predict_to_current_time', 'odom0_differential', 'odom0_relative'}
-    | imu_fields(('imu0', 'imu1', 'imu2'), IMU_BOOLEANS),
+                  'predict_to_current_time', 'odom0_differential', 'odom0_relative',
+                  'imu0_differential', 'imu0_relative', 'imu0_remove_gravitational_acceleration'},
     'ekf_global': {'two_d_mode', 'publish_tf', 'publish_acceleration', 'print_diagnostics',
-                   'predict_to_current_time', 'odom0_differential', 'odom1_differential'}
-    | imu_fields(('imu0', 'imu1'), IMU_BOOLEANS),
+                   'predict_to_current_time', 'odom0_differential', 'odom1_differential',
+                   'imu0_differential', 'imu0_relative', 'imu0_remove_gravitational_acceleration'},
     'navsat_transform': {'zero_altitude', 'broadcast_utm_transform', 'publish_filtered_gps',
                          'use_odometry_yaw', 'wait_for_datum'},
 }
 DOUBLES = {name: {'frequency', 'sensor_timeout', 'transform_time_offset'} for name in NODES[:2]}
 DOUBLES['navsat_transform'] = {'frequency', 'delay', 'magnetic_declination_radians', 'yaw_offset'}
-VECTORS = {'ekf_local': {'odom0_config', 'imu0_config', 'imu1_config', 'imu2_config'},
-           'ekf_global': {'odom0_config', 'imu0_config', 'odom1_config', 'imu1_config'},
+VECTORS = {'ekf_local': {'odom0_config', 'imu0_config'},
+           'ekf_global': {'odom0_config', 'imu0_config', 'odom1_config'},
            'navsat_transform': set()}
-QUEUES = {'ekf_local': {'odom0_queue_size', 'imu0_queue_size', 'imu1_queue_size',
-                        'imu2_queue_size'},
-          'ekf_global': {'imu1_queue_size'}, 'navsat_transform': set()}
+QUEUES = {'ekf_local': {'odom0_queue_size', 'imu0_queue_size'},
+          'ekf_global': set(), 'navsat_transform': set()}
 
 
 class Loader(StrictOverlayLoader):

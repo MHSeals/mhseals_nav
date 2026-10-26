@@ -30,15 +30,11 @@ def test_fc_heading_not_magnetometer_free_reintegration():
     assert local['imu0_config'][5] and local['imu0_config'][11]
 
 
-def test_zed_imu_is_a_yaw_rate_and_its_magnetometer_a_heading():
-    """The ZED orientation yaw is relative, so only its gyro and mag heading are fused."""
-    local, global_ = params('ekf_local.yaml'), params('ekf_global.yaml')
-    assert local['imu1'] == '/imu/zed'
-    assert [i for i, on in enumerate(local['imu1_config']) if on] == [11]
-    for config, key in ((local, 'imu2'), (global_, 'imu1')):
-        assert config[key] == '/imu/zed_heading'
-        assert [i for i, on in enumerate(config[key + '_config']) if on] == [5]
-    assert local['two_d_mode'] and local['frequency'] == 100.0
+def test_fcu_is_the_only_yaw_and_yaw_rate_source():
+    """A second gyro without process noise for its bias would lead the fused yaw rate."""
+    for name in ('ekf_local.yaml', 'ekf_global.yaml'):
+        assert not any(key.startswith('imu') and not key.startswith('imu0') for key in params(name)), name
+    assert params('ekf_local.yaml')['frequency'] == 100.0
 
 
 def test_global_filter_fuses_the_raw_sources_not_the_local_filters_output():

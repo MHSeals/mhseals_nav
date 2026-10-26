@@ -33,7 +33,6 @@ set(ENTRY_POINTS
   lidar_relay=lidar_relay
   mavros_odometry=mavros_odometry
   mavros_setup=mavros_setup
-  zed_imu_reference=zed_imu_reference
   run_task=tasks.interface
   costmap_watchdog=costmap_watchdog
   approach_guard=approach_guard
