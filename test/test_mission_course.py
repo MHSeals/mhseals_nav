@@ -11,17 +11,15 @@ import json
 import math
 from pathlib import Path
 
-from mhseals_nav.tasks import load_config
+from mhseals_nav.tasks.host import config_path, load_params
 from mhseals_nav.tasks.tracks import Track
 import pytest
 
 pytestmark = pytest.mark.skipif(importlib.util.find_spec('py_trees') is None,
                                 reason='needs py_trees')
 if importlib.util.find_spec('py_trees') is not None:
+    from mhseals_nav.tasks.host import MissionHost
     import py_trees
-    from mhseals_nav.tasks.recognition import Recogniser
-    from mhseals_nav.tasks.search import Coverage
-    from mhseals_nav.tasks.trees import TREES
 
 
 # crane_ml Tools/RoboBoat/courses/roboboat_2025.json in the start frame; the dock's
@@ -42,6 +40,9 @@ COURSE = [
 ]
 
 
+BASE = ('schema', 'task', 'event', 'time', 'elapsed')  # every event's own keys
+
+
 class Goal:
     def __init__(self, route, precise):
         self.route, self.precise = [tuple(p) for p in route], precise
@@ -56,22 +57,27 @@ class Course:
     """A boat that drives Nav2 routes at ``speed`` and a camera with a cone of view."""
 
     def __init__(self, params, dt=0.5, speed=1.0, hfov=math.radians(110), range_m=20.0,
-                 course=COURSE):
+                 course=COURSE, host=True):
         self.dt, self.speed, self.fov, self.course = dt, speed, (hfov, range_m), course
         py_trees.blackboard.Blackboard.clear()  # one run per process, as for real
-        self.pose, self.seen, self.goal = (0.0, 0.0, 0.0), {}, None
+        self.pose, self.seen, self.goal, self.now = (0.0, 0.0, 0.0), {}, None, 0.0
         self.events, self.goals, self.stops, self.path = [], [], 0, 0.0
-        self.tree = py_trees.trees.BehaviourTree(TREES['mission'](params))
-        self.tree.setup(navigator=self, report=lambda event, **d: self.events.append(
-            (event, d)))
-        self.board = py_trees.blackboard.Client(name='course')
-        for key in ('objects', 'tracks', 'pose', 'now', 'home', 'fov', 'coverage',
-                    'hypotheses'):
-            self.board.register_key(key=key, access=py_trees.common.Access.WRITE)
-        search = params.get('search') or {}
-        self.board.home, self.board.fov = self.pose, self.fov
-        self.board.coverage = Coverage(search.get('area'), 1.5, self.pose, 60.0, 120.0)
-        self.recogniser = Recogniser(load_config('recognition'))
+        if host:  # else the caller drives its own host (the ROS node, in its test)
+            self.host = MissionHost('mission', params, self, self.sink, lambda: self.now)
+
+    def sink(self, payload):
+        details = {k: v for k, v in payload.items() if k not in BASE}
+        self.events.append((payload['event'], details))
+
+    def ready(self):
+        return True
+
+    def keep_still(self):
+        pass
+
+    def close(self):
+        if self.goal is not None:
+            self.goal.cancel()
 
     def send(self, route, precise=False, quiet=False, why='', reverse=None):
         if self.goal is not None and not self.goal.done:
@@ -113,36 +119,33 @@ class Course:
                     and abs(math.atan2(math.sin(bearing), math.cos(bearing))) <= self.fov[0] / 2):
                 self.seen[(label, ox, oy)] = True  # the tracker keeps static tracks
 
+    def step(self, now):
+        """Move the boat on to ``now``; return its pose and the tracks seen so far."""
+        self.now = now
+        moving = self.goal is not None and not self.goal.done
+        self.drive()
+        if moving and (self.goal.done or self.goal is None):
+            self.stops += 1
+        self.look()
+        return self.pose, [Track(label, x, y, 0.9, None, True, False, str(i))
+                           for i, (label, x, y) in enumerate(self.seen)]
+
     def run(self, seconds=1800.0):
         for tick in range(int(seconds / self.dt)):
-            now = tick * self.dt
-            moving = self.goal is not None and not self.goal.done
-            self.drive()
-            if moving and (self.goal.done or self.goal is None):
-                self.stops += 1
-            self.look()
-            objects = list(self.seen)
-            tracks = [Track(label, x, y, 0.9, None, True, False, str(i))
-                      for i, (label, x, y) in enumerate(objects)]
-            self.board.coverage.observe(self.pose, self.fov, now)
-            self.board.hypotheses = self.recogniser.update(tracks, self.board.home, now)
-            self.board.objects, self.board.tracks = objects, tracks
-            self.board.pose, self.board.now = self.pose, now
-            self.tree.tick()
-            if self.tree.root.status in (py_trees.common.Status.SUCCESS,
-                                         py_trees.common.Status.FAILURE):
-                return self.tree.root.status.name, now
+            pose, tracks = self.step(tick * self.dt)
+            outcome = self.host.tick(pose, tracks, self.fov)
+            if outcome is not None:
+                return outcome, self.now
         return 'RUNNING', seconds
 
     def names(self):
-        return [event for event, _ in self.events if event not in ('goal', 'decision')]
+        """List the trees' own events: no goals, decisions or the host's start and finish."""
+        return [event for event, _ in self.events
+                if event not in ('goal', 'decision', 'task_started', 'home', 'task_finished')]
 
 
 def mission(path):
-    params = load_config(Path(path).stem)
-    for name in params['tasks']:
-        params[name] = {**load_config(name), **params.get(name, {})}
-    return params
+    return load_params('mission', config_path(path))
 
 
 def check(world, outcome, elapsed):

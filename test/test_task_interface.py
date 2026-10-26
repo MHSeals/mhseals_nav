@@ -15,6 +15,16 @@ if not pytestmark.args[0]:
     import rclpy
     from mhseals_nav.tasks.interface import TaskRunner
 
+BASE = ('schema', 'task', 'event', 'time', 'elapsed')  # every event's own keys
+
+
+def capture(events, details=True):
+    """Return a host sink that keeps (event, details), or only the event's name."""
+    return lambda payload: events.append(
+        (payload['event'], {k: v for k, v in payload.items() if k not in BASE})
+        if details else payload['event'])
+
+
 CIRCLE = {'mark': 'yellow_buoy', 'search_distance': 15.0, 'circle_radius': 3.0,
           'circle_clockwise': False, 'circle_points': 12}
 
@@ -60,7 +70,7 @@ def test_home_reported_once_and_goal_per_send(monkeypatch):
         runner = TaskRunner('circle_test', dict(CIRCLE))
         runner.objects = [('yellow_buoy', 9.0, 0.0)]
         events = []
-        monkeypatch.setattr(runner, 'report', lambda event, **d: events.append((event, d)))
+        monkeypatch.setattr(runner.host, 'sink', capture(events))
         monkeypatch.setattr(runner.navigator, 'ready', lambda: True)
         monkeypatch.setattr(runner.navigator, 'send',
                             lambda route, precise=False, quiet=False, why='': SimpleNamespace(
@@ -176,7 +186,7 @@ def test_human_override_ends_the_task_at_once_and_never_resumes(monkeypatch):
         monkeypatch.setattr(runner.navigator, 'ready', lambda: True)
         monkeypatch.setattr(runner.navigator, 'send', send)
         monkeypatch.setattr(runner, 'pose', lambda: (1.0, 0.0, 0.5))
-        monkeypatch.setattr(runner, 'report', lambda event, **d: events.append(event))
+        monkeypatch.setattr(runner.host, 'sink', capture(events, details=False))
         runner._authority(SimpleNamespace(data=authority('none')))
         runner.tick()
         assert len(goals) == 1 and not cancels
@@ -206,7 +216,7 @@ def test_a_task_started_while_a_human_has_control_refuses_and_never_starts(
         monkeypatch.setattr(runner.navigator, 'ready', lambda: True)
         monkeypatch.setattr(runner.navigator, 'send', lambda *a, **k: goals.append(a))
         monkeypatch.setattr(runner, 'pose', lambda: (1.0, 0.0, 0.5))
-        monkeypatch.setattr(runner, 'report', lambda event, **d: events.append((event, d)))
+        monkeypatch.setattr(runner.host, 'sink', capture(events))
         runner._authority(SimpleNamespace(data=authority(owner)))
         assert runner.outcome == 'REFUSED' and EXIT_CODES['REFUSED'] == 4
         assert ('task_refused', {'owner': owner}) in events
@@ -241,7 +251,7 @@ def test_a_goal_cancelled_by_someone_else_ends_the_run_after_the_tick(monkeypatc
         monkeypatch.setattr(runner.navigator, 'ready', lambda: True)
         monkeypatch.setattr(runner.navigator, 'send', send)
         monkeypatch.setattr(runner, 'pose', lambda: (1.0, 0.0, 0.5))
-        monkeypatch.setattr(runner, 'report', lambda event, **d: events.append((event, d)))
+        monkeypatch.setattr(runner.host, 'sink', capture(events))
         runner.tick()
         goals[0].done, goals[0].status = True, 'CANCELED'  # the TUI revoked it
         runner.tick()
@@ -598,3 +608,59 @@ def test_settle_reports_goals_still_open(monkeypatch):
     monkeypatch.setattr(interface.rclpy, 'spin_once', lambda *a, **k: None)
     assert interface.TaskRunner.settle(runner) is False
     assert events == [('goals_unsettled', {'count': 1})] and warnings
+
+
+def test_the_node_and_the_bare_host_emit_the_same_events_for_the_same_world(monkeypatch):
+    """The node adds only ROS around MissionHost: one scripted course, one event list.
+
+    The kinematic course of test_mission_course drives the whole day-layout mission
+    twice, once through the node (tracks by its callback, pose by TF, Nav2 stubbed by
+    the course) and once through the bare host the fast sim uses.
+    """
+    import py_trees
+    from mhseals_nav.tasks.host import config_path, load_params, MissionHost
+    from test_mission_course import Course
+
+    params = load_params('mission', config_path('mission_crane.yaml'))
+    dt, t0, ticks = 0.5, 1.0, 1200  # the node waits out time 0 (no /clock yet)
+
+    def through_json(payload):
+        return json.loads(json.dumps(payload, default=str))
+
+    host_events = []
+    world = Course(params, dt=dt, host=False)
+    host = MissionHost('mission', params, world, lambda p: host_events.append(
+        through_json(p)), lambda: world.now)
+    for tick in range(ticks):
+        pose, seen = world.step(t0 + tick * dt)
+        if host.tick(pose, seen, world.fov) is not None:
+            break
+    assert host.outcome == 'SUCCESS'
+
+    py_trees.blackboard.Blackboard.clear()
+    rclpy.init()
+    runner = None
+    try:
+        world = Course(params, dt=dt, host=False)
+        runner = TaskRunner('mission', params)
+        node_events = []
+        monkeypatch.setattr(runner.events, 'publish', lambda m: node_events.append(
+            json.loads(m.data)))
+        for name in ('send', 'ready', 'keep_still', 'close'):
+            monkeypatch.setattr(runner.navigator, name, getattr(world, name))
+        monkeypatch.setattr(runner, 'now', lambda: world.now)
+        monkeypatch.setattr(runner, 'pose', lambda: world.pose)
+        runner.host.fov = world.fov  # as /perception/status would set it
+        for tick in range(ticks):
+            _, seen = world.step(t0 + tick * dt)
+            runner._remember(seen)  # as the tracks callback does between ticks
+            runner.tick()
+            if runner.outcome is not None:
+                break
+        assert runner.outcome == 'SUCCESS'
+        assert node_events == host_events
+        assert [e['event'] for e in host_events].count('stage_completed') == 5
+    finally:
+        if runner is not None:
+            runner.destroy_node()
+        rclpy.try_shutdown()
