@@ -1,6 +1,5 @@
 import os
 
-import yaml
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
@@ -8,6 +7,7 @@ from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
+import yaml
 
 from mhseals_nav import boat_network
 from mhseals_nav.endpoint_configuration import (
@@ -29,7 +29,7 @@ def launch_boolean(value):
 
 
 def lidar_smear_enabled():
-    """The sim lidar smear switch, config/lidar_smear.yaml (default off)."""
+    """Read the sim lidar smear switch from config/lidar_smear.yaml (default off)."""
     path = os.path.join(get_package_share_directory('mhseals_nav'), 'config', 'lidar_smear.yaml')
     with open(path) as f:
         return bool(yaml.safe_load(f)['enabled'])

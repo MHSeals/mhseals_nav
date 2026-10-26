@@ -33,7 +33,8 @@ def test_fc_heading_not_magnetometer_free_reintegration():
 def test_fcu_is_the_only_yaw_and_yaw_rate_source():
     """A second gyro without process noise for its bias would lead the fused yaw rate."""
     for name in ('ekf_local.yaml', 'ekf_global.yaml'):
-        assert not any(key.startswith('imu') and not key.startswith('imu0') for key in params(name)), name
+        assert not any(key.startswith('imu') and not key.startswith('imu0')
+                       for key in params(name)), name
     assert params('ekf_local.yaml')['frequency'] == 100.0
 
 
