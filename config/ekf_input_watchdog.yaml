@@ -7,8 +7,8 @@
 /**:
   ros__parameters:
     imu_topic: /imu/raw                # ~25 Hz, field gaps to 0.26 s
-    gps_topic: /gps/fix                # ~10 Hz (GPS_RAW_INT), published with or without a fix
-    # ~20 Hz, but with velocity_source gps one per receiver sample (~10 Hz) until the
+    gps_topic: /gps/fix                # ~5 Hz (GPS_RAW_INT), published with or without a fix
+    # ~20 Hz, but with velocity_source gps one per receiver sample (~5 Hz) until the
     # receiver is mavros_velocity_max_age (1.5 s) stale; receiver gaps reach 1.1 s.
     odom_topic: /odom/mavros
     max_imu_age_s: 1.0                 # the ODROID stalls past 0.5 s under load

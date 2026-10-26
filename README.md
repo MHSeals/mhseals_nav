@@ -97,7 +97,7 @@ The JetPack 5 / Foxy camera host lives on the `legacy/jp5-foxy` branch.
 | `ATTITUDE`, `ATTITUDE_QUATERNION` | 50 Hz | `config/mavros_setup.yaml` |
 | `RC_CHANNELS` | 25 Hz | `config/mavros_setup.yaml` |
 | `RAW_IMU` | 10 Hz | `config/mavros_setup.yaml` |
-| `GPS_RAW_INT` | 10 Hz (the Here4's RTK rate; `config/fcu/blastoise_gnss_proposal.param`) | `config/mavros_setup.yaml` |
+| `GPS_RAW_INT` | 5 Hz (10 Hz once the Here4 node runs `config/fcu/blastoise_gnss_proposal.param`) | `config/mavros_setup.yaml` |
 | `SYS_STATUS`, `EKF_STATUS_REPORT` | 2 Hz | `config/mavros_setup.yaml` |
 | Local EKF | 30 Hz | `config/ekf_local.yaml` |
 | Global EKF | 20 Hz | `config/ekf_global.yaml` |
