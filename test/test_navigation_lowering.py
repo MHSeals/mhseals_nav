@@ -135,3 +135,35 @@ def test_missing_params_file_names_the_path(tmp_path):
     missing = tmp_path / 'absent.yaml'
     with pytest.raises(FileNotFoundError, match='absent.yaml'):
         compile_navigation(missing, '', sim='true', use_lidar='true')
+
+
+def test_effective_limits_are_what_the_launch_resolves(tmp_path):
+    """The fast sim's limits: the launch's own compile, the overlay and ceilings applied."""
+    from mhseals_nav.startup_projection import effective_limits
+    root = Path(__file__).resolve().parents[1]
+    params = root / 'config/nav2_params.yaml'
+    limits = tmp_path / 'limits.yaml'
+    limits.write_text(yaml.safe_dump({'controller_server': {'ros__parameters': {
+        'FollowPath': {'vx_max': 0.5, 'vy_max': 0.3, 'wz_max': 0.4, 'ay_max': 0.2}}}}))
+    resolved = effective_limits(params, limits)
+    launched = compile_navigation(params, limits, sim='true', use_lidar='true',
+                                  share=None)
+    follow = launched['controller_server']['ros__parameters']['FollowPath']
+    smoother = launched['velocity_smoother']['ros__parameters']
+    assert resolved['velocity'] == {'max': smoother['max_velocity'],
+                                    'min': smoother['min_velocity']}
+    assert resolved['accel'] == {'max': smoother['max_accel'], 'decel': smoother['max_decel']}
+    # The overlay and what derives from it; above a ceiling, both refuse alike.
+    assert resolved['controller']['vx_max'] == 0.5 and resolved['velocity']['max'][0] == 0.5
+    assert resolved['controller']['vy_max'] == 0.3 == resolved['velocity']['max'][1]
+    assert resolved['controller']['ay_max'] == 0.2
+    assert resolved['rotation_shim']['rotate_to_heading_angular_vel'] == follow['wz_max'] == 0.4
+    assert resolved['goal_checkers'] == {'general_goal_checker': {'xy': 0.4, 'yaw': 0.5},
+                                         'precise_goal_checker': {'xy': 0.3, 'yaw': 0.25}}
+    assert resolved['progress'] == {'radius': 0.1, 'time': 20.0}
+    assert resolved['passed_goal_radius'] == 1.0
+    assert len(resolved['footprint']) == 4 and resolved['camera']['hfov_deg'] == 110.0
+    assert str(limits) in resolved['sources'] and str(params) in resolved['sources']
+    limits.write_text('controller_server: {ros__parameters: {FollowPath: {vy_max: 9.0}}}\n')
+    with pytest.raises(ValueError, match='ceiling'):
+        effective_limits(params, limits)
