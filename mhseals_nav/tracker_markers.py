@@ -9,9 +9,18 @@ from visualization_msgs.msg import Marker, MarkerArray
 MOTION_TEXT = ('?', 'S', 'M')
 
 
+# A buoy shows its own colour (red_pole_buoy red, black_cross black); other labels keep a stable hash colour.
+PALETTE = {'red': (1.0, 0.16, 0.12), 'green': (0.16, 0.9, 0.3), 'blue': (0.15, 0.4, 1.0),
+           'yellow': (1.0, 0.85, 0.15), 'black': (0.25, 0.28, 0.32)}
+
+
+def rgb_of(label):
+    named = PALETTE.get(label.split('_')[0])
+    return named or tuple(v / 255.0 for v in md5(label.encode()).digest()[:3])
+
+
 def colour(label, marker, alpha=1.0):
-    rgb = md5(label.encode()).digest()[:3]
-    marker.color.r, marker.color.g, marker.color.b = (v / 255.0 for v in rgb)
+    marker.color.r, marker.color.g, marker.color.b = rgb_of(label)
     marker.color.a = alpha
 
 
