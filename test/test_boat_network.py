@@ -20,11 +20,42 @@ def test_values_read_like_the_shell(tmp_path):
 
 def test_the_workspace_file_and_a_missing_one(tmp_path, monkeypatch):
     monkeypatch.undo()      # the real path(), not the conftest stand-in
+    monkeypatch.delenv('ASTRO_NETWORK_ENV', raising=False)
     monkeypatch.setenv('ROS_WS', str(tmp_path))
     assert boat_network.path() == tmp_path / 'config' / 'boat-network.env'
     assert boat_network.value('LIDAR_IP') == ''
     monkeypatch.delenv('ROS_WS')
     assert boat_network.path() is None and boat_network.values() == {}
+
+
+def test_the_vessel_network_env_wins_over_the_workspace_file(tmp_path, monkeypatch, capsys):
+    monkeypatch.undo()
+    legacy = tmp_path / 'config' / 'boat-network.env'
+    legacy.parent.mkdir()
+    legacy.write_text('LIDAR_IP=10.0.0.1\n')
+    vessel = tmp_path / 'network.env'
+    vessel.write_text('LIDAR_IP=10.0.0.2\n')
+    monkeypatch.setenv('ROS_WS', str(tmp_path))
+    monkeypatch.setenv('ASTRO_NETWORK_ENV', str(vessel))
+    assert boat_network.path() == vessel and boat_network.value('LIDAR_IP') == '10.0.0.2'
+    assert capsys.readouterr().err == ''
+    monkeypatch.delenv('ASTRO_NETWORK_ENV')
+    assert boat_network.value('LIDAR_IP') == '10.0.0.1'
+
+
+def test_a_missing_vessel_network_env_warns_once_and_never_falls_back(
+        tmp_path, monkeypatch, capsys):
+    monkeypatch.undo()
+    legacy = tmp_path / 'config' / 'boat-network.env'
+    legacy.parent.mkdir()
+    legacy.write_text('LIDAR_IP=10.0.0.1\n')
+    gone = tmp_path / 'gone.env'
+    monkeypatch.setenv('ROS_WS', str(tmp_path))
+    monkeypatch.setenv('ASTRO_NETWORK_ENV', str(gone))
+    assert boat_network.path() == gone and boat_network.values() == {}
+    boat_network.path()
+    err = capsys.readouterr().err
+    assert err.count('ASTRO_NETWORK_ENV') == 1 and str(gone) in err
 
 
 def context(**values):

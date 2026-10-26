@@ -1,5 +1,7 @@
-"""The boat LAN facts from ``$ROS_WS/config/boat-network.env``, the only address source.
+"""The boat LAN facts from the vessel's network env, the only address source.
 
+The file is ``$ASTRO_NETWORK_ENV`` (astro_dock exports it from the vessel's profile; ``hw.sh env``
+prints it), else the legacy ``$ROS_WS/config/boat-network.env``.
 One parser for the shell env file (``KEY=value``, comments and quotes as the shell reads them):
 ``value('LIDAR_IP')`` and ``leases()`` (STATIC_LEASES as hostname -> address). A missing file
 reads as empty, so callers decide whether a missing value is an error. ROS-free.
@@ -7,10 +9,25 @@ reads as empty, so callers decide whether a missing value is an error. ROS-free.
 import os
 from pathlib import Path
 import shlex
+import sys
+
+_warned = set()
 
 
 def path():
-    """``$ROS_WS/config/boat-network.env`` (None without ROS_WS)."""
+    """``$ASTRO_NETWORK_ENV``, else ``$ROS_WS/config/boat-network.env`` (None without either).
+
+    A set ASTRO_NETWORK_ENV wins even when its file is missing (warned once on stderr), so a
+    wrong profile never silently falls back to another network.
+    """
+    explicit = os.environ.get('ASTRO_NETWORK_ENV')
+    if explicit:
+        chosen = Path(explicit).expanduser()
+        if not chosen.is_file() and str(chosen) not in _warned:
+            _warned.add(str(chosen))
+            print(f'mhseals_nav: ASTRO_NETWORK_ENV={chosen} is missing; '
+                  'no boat network addresses (hw.sh env prints the right path)', file=sys.stderr)
+        return chosen
     workspace = os.environ.get('ROS_WS')
     return Path(workspace) / 'config' / 'boat-network.env' if workspace else None
 

@@ -166,7 +166,8 @@ def resolve_lidar(selected='', deployment='', overrides=None, *, share=package_s
             values['lidar.endpoint.ip'] = value
         origins['lidar.endpoint.' + alias[len('velodyne_'):]] = '<explicit>'
     if 'lidar.endpoint.ip' not in values:
-        raise ValueError('no lidar address: set LIDAR_IP in $ROS_WS/config/boat-network.env '
+        raise ValueError('no lidar address: set LIDAR_IP in the vessel network env '
+                         '($ASTRO_NETWORK_ENV, legacy $ROS_WS/config/boat-network.env) '
                          'or pass velodyne_ip:=')
     validate_values(values)
     if required_frame and values['lidar.frame'] != required_frame:
