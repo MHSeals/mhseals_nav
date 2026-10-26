@@ -171,3 +171,63 @@ def test_zed_mode_runs_the_boat_conversion():
     assert not any(o.has_box2d or o.backend_id or o.velocity_kind for o in plain.observations)
     for z, p in zip(zed.observations, plain.observations):
         assert (z.position.x, z.position.y) == pytest.approx((p.position.x, p.position.y))
+
+
+def test_roll_pitch_and_offset_are_about_the_camera_and_cases_default_them_to_zero():
+    p = np.array([0.0, 8.0, 0.0])            # Unity axes: 8 m ahead
+    [out] = sb.inject([obj(p)], UNITY_AXES, np.array([0.5, 0, 0.4]), 0.0, 0.0,
+                      tilt=(0.0, math.radians(1.0)), offset=(0.0, 0.05, 0.0))
+    base = UNITY_AXES @ out['p']
+    assert base[0] == pytest.approx(8.0, abs=2e-3)
+    assert base[2] == pytest.approx(-8.0 * math.sin(math.radians(1.0)), abs=1e-6)
+    assert base[1] == pytest.approx(0.05)
+    assert sb.injection(cfg(), 'metamorphic', 0)['extrinsic_roll_deg'] == 0.0
+
+
+def noise(**kw):
+    return {'merge_gap_px': 0.0, 'box_px': 0.0, 'depth_k': 0.0, 'depth_tau_s': 1.0, **kw}
+
+
+def test_noisy_merges_near_same_label_boxes_into_the_union_keeping_the_nearer_id():
+    K = sb.pinhole((1280, 720), 110.0)
+    near, far = obj([-0.35, 8.0, 0.0], truth_id=1), obj([0.35, 8.3, 0.0], truth_id=2)
+    other = obj([2.0, 8.0, 0.0], label='green_buoy', truth_id=3)
+    out = sb.noisy([near, far, other], UNITY_AXES, K, noise(merge_gap_px=20.0), {},
+                   np.random.default_rng(0), 0.0)
+    assert sorted(o['id'] for o in out) == [1, 3]
+    merged = next(o for o in out if o['id'] == 1)
+    b1, b2 = sb.pixel_box(near, UNITY_AXES, K), sb.pixel_box(far, UNITY_AXES, K)
+    assert merged['box'][0] == pytest.approx(min(b1[0], b2[0]))
+    assert merged['box'][2] == pytest.approx(max(b1[2], b2[2]))
+    assert np.linalg.norm(merged['p']) == pytest.approx(
+        (np.linalg.norm(near['p']) + np.linalg.norm(far['p'])) / 2)
+    apart = sb.noisy([near, far], UNITY_AXES, K, noise(merge_gap_px=1.0), {},
+                     np.random.default_rng(0), 0.0)
+    assert len(apart) == 2
+
+
+def test_depth_error_is_along_the_ray_correlated_per_id_and_leaves_the_box_on_truth():
+    K = sb.pinhole((1280, 720), 110.0)
+    o = obj([1.0, 10.0, 0.0], truth_id=4)
+    state, rng, errs = {}, np.random.default_rng(1), []
+    for k in range(400):
+        [out] = sb.noisy([o], UNITY_AXES, K, noise(depth_k=0.01), state, rng, k * 0.05)
+        assert np.cross(out['p'], o['p']) == pytest.approx(np.zeros(3), abs=1e-9)
+        assert out['box'] == pytest.approx(sb.pixel_box(o, UNITY_AXES, K))
+        errs.append(np.linalg.norm(out['p']) - np.linalg.norm(o['p']))
+    errs = np.array(errs)
+    rho2 = np.linalg.norm(o['p']) ** 2
+    assert np.std(errs) == pytest.approx(0.01 * rho2, rel=0.35)
+    lag1 = np.corrcoef(errs[:-1], errs[1:])[0, 1]
+    assert lag1 == pytest.approx(math.exp(-0.05), abs=0.05)
+
+
+def test_box_jitter_moves_each_edge_independently():
+    K = sb.pinhole((1280, 720), 110.0)
+    o = obj([0.0, 6.0, 0.0])
+    rng = np.random.default_rng(2)
+    truth = sb.pixel_box(o, UNITY_AXES, K)
+    boxes = [sb.noisy([o], UNITY_AXES, K, noise(box_px=1.5), {}, rng, 0)[0]['box']
+             for _ in range(500)]
+    d = np.subtract(boxes, truth)
+    assert d.std(axis=0) == pytest.approx([1.5] * 4, rel=0.15)

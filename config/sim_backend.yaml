@@ -16,7 +16,16 @@
       heading_bias_deg: 0.0                # estimated heading = truth + bias - lag * yaw rate
       heading_lag_s: 0.0
       extrinsic_yaw_deg: 0.0               # camera yaw error, about the camera
+      extrinsic_roll_deg: 0.0              # camera roll / pitch errors, about the camera (base axes)
+      extrinsic_pitch_deg: 0.0
+      extrinsic_xyz_m: [0.0, 0.0, 0.0]     # added to every point, base axes (camera offset error)
       stamp_offset_s: 0.0                  # added to header.stamp
+      # Detector emulation: boxes come from the injected points, then merge, jitter, depth.
+      depth_k: 0.0                         # range sigma depth_k * rho^2, AR(1) per truth id
+      depth_tau_s: 1.0
+      box_px: 0.0                          # box edge sigma (px)
+      merge_gap_px: 0.0                    # > 0: same-label boxes closer than this merge
+      seed: 0
     case: none                             # a name in cases.names; its clock starts at the param set
     cases:
       names: [metamorphic]

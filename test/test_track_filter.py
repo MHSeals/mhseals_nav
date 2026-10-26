@@ -308,6 +308,21 @@ def test_the_depth_term_does_not_merge_two_poles_side_by_side():
     assert len(f.tracks) == 2
 
 
+def test_depth_term_false_leaves_out_only_the_radial_depth_k_term():
+    """lidar_fusion's input carries the depth term itself; heading and lag terms stay."""
+    rows = {}
+    for flag in (True, False):
+        cfg = copy.deepcopy(CFG)
+        cfg['meas']['depth_term'] = flag
+        _, Rz, _ = TrackFilter(cfg)._measurement(
+            ob('red_buoy', 10.0, 0.0), np.eye(3), np.zeros(3), np.zeros(3), np.zeros(3), 0.2)
+        rows[flag] = Rz
+    depth = (CFG['meas']['depth_k'] * 100.0) ** 2
+    assert rows[True][0, 0] - rows[False][0, 0] == pytest.approx(depth)
+    assert rows[True][1, 1] == pytest.approx(rows[False][1, 1])
+    assert CFG['meas']['depth_term'] is True
+
+
 def test_yaw_rate_falls_back_to_a_backward_difference_when_tf_ends_at_the_stamp():
     """A fresh frame: TF stops just past its stamp, so t + yaw_dt is not there yet."""
     base = yawing_pose(lambda t: 0.4 * t)

@@ -22,7 +22,10 @@ try:
 except ImportError:  # host pytest exercises only the pure functions
     Node = object
 
-INJECT_KEYS = ('heading_bias_deg', 'heading_lag_s', 'extrinsic_yaw_deg', 'stamp_offset_s')
+INJECT_KEYS = ('heading_bias_deg', 'heading_lag_s', 'extrinsic_yaw_deg', 'stamp_offset_s',
+               'extrinsic_roll_deg', 'extrinsic_pitch_deg')
+# Detector emulation (inject.*, read per frame; not part of cases): see noisy().
+NOISE_KEYS = ('depth_k', 'box_px', 'merge_gap_px')
 PHANTOM_ID = 1000  # ZED label_id of phantom i is PHANTOM_ID + i; truth ids are element indices
 
 
@@ -56,7 +59,17 @@ def injection(cfg, case, elapsed):
         return {k: float(cfg['inject'][k]) for k in INJECT_KEYS}
     rows = cfg['cases'][case]
     index = max([0] + [i for i, at in enumerate(rows['at_s']) if at <= elapsed])
-    return {k: float(rows[k][index]) for k in INJECT_KEYS}
+    return {k: float(rows[k][index]) if k in rows else 0.0 for k in INJECT_KEYS}
+
+
+def rx(angle):
+    c, s = math.cos(angle), math.sin(angle)
+    return np.array([[1.0, 0.0, 0.0], [0.0, c, -s], [0.0, s, c]])
+
+
+def ry(angle):
+    c, s = math.cos(angle), math.sin(angle)
+    return np.array([[c, 0.0, s], [0.0, 1.0, 0.0], [-s, 0.0, c]])
 
 
 def heading_error(inj, yaw_rate):
@@ -64,18 +77,20 @@ def heading_error(inj, yaw_rate):
     return math.radians(inj['heading_bias_deg']) - inj['heading_lag_s'] * yaw_rate
 
 
-def inject(objects, R_bc, t_bc, heading, extrinsic):
+def inject(objects, R_bc, t_bc, heading, extrinsic, tilt=(0.0, 0.0), offset=(0.0, 0.0, 0.0)):
     """Objects (camera frame) as the boat sees them with the given heading and extrinsic errors.
 
     Heading: p' = T_bc^-1 Rz(heading) T_bc p, a turn about base_link. Extrinsic: a turn about
-    the camera's own origin around base z (Rz(extrinsic) p when the camera's z is up).
-    Velocities turn with the same rotations.
+    the camera's own origin, Rz(extrinsic) Ry(pitch) Rx(roll) in base axes with tilt = (roll,
+    pitch) [rad], then ``offset`` [m, base axes] added to every point. Velocities turn with the
+    same rotations.
     """
-    camera = R_bc.T @ rz(extrinsic) @ R_bc
+    camera = R_bc.T @ rz(extrinsic) @ ry(tilt[1]) @ rx(tilt[0]) @ R_bc
+    shift = R_bc.T @ np.asarray(offset, float)
     turn = R_bc.T @ rz(heading) @ R_bc @ camera
     out = []
     for obj in objects:
-        p = R_bc.T @ (rz(heading) @ (R_bc @ camera @ obj['p'] + t_bc) - t_bc)
+        p = R_bc.T @ (rz(heading) @ (R_bc @ (camera @ obj['p'] + shift) + t_bc) - t_bc)
         out.append(dict(obj, p=p, v=None if obj.get('v') is None else turn @ obj['v']))
     return out
 
@@ -155,18 +170,78 @@ def project(p, R_bc, K):
     return cx - fx * q[1] / q[0], cy - fy * q[2] / q[0]
 
 
+CORNERS = [(-1, -1, -1), (1, -1, -1), (1, 1, -1), (-1, 1, -1),
+           (-1, -1, 1), (1, -1, 1), (1, 1, 1), (-1, 1, 1)]
+
+
+def corners_of(obj):
+    half = np.asarray(obj['size'], float) / 2
+    return [obj['p'] + half * np.array(s) for s in CORNERS]
+
+
+def pixel_box(obj, R_bc, K):
+    """Unclipped (u0, v0, u1, v1) around the object's 3D box."""
+    uv = np.array([project(c, R_bc, K) for c in corners_of(obj)])
+    return (*uv.min(axis=0), *uv.max(axis=0))
+
+
+def noisy(objects, R_bc, K, cfg, state, rng, t):
+    """Emulate the detector after injection: boxes, merges, edge jitter, depth error.
+
+    Boxes come from the injected points; the AR(1) depth error along the ray comes after the
+    box is made, so the box keeps the truth. cfg: merge_gap_px (> 0: same-label boxes whose
+    column gap is under it merge into the union box at the mean range and direction, keeping
+    the nearer one's id), box_px (edge sigma),
+    depth_k (range sigma depth_k * rho^2, AR(1) per truth id with time constant depth_tau_s).
+    ``state`` maps truth id -> (t, unit AR(1) value) across frames.
+    """
+    out = [dict(o, box=pixel_box(o, R_bc, K)) for o in objects]
+    gap = cfg['merge_gap_px']
+    if gap > 0:
+        out.sort(key=lambda o: o['box'][0])
+        merged = []
+        for o in out:
+            m = merged[-1] if merged else None
+            if m and m['label'] == o['label'] and o['box'][0] - m['box'][2] < gap:
+                near, far = (m, o) if np.linalg.norm(m['p']) <= np.linalg.norm(o['p']) else (o, m)
+                rho = (np.linalg.norm(m['p']) + np.linalg.norm(o['p'])) / 2
+                d = m['p'] / np.linalg.norm(m['p']) + o['p'] / np.linalg.norm(o['p'])
+                b = np.array([m['box'], o['box']])
+                merged[-1] = dict(near, p=rho * d / np.linalg.norm(d), merged=True,
+                                  box=(*b[:, :2].min(axis=0), *b[:, 2:].max(axis=0)),
+                                  ids=m.get('ids', [m['id']]) + [o['id']], far=far['id'])
+            else:
+                merged.append(o)
+        out = merged
+    for o in out:
+        if cfg['box_px'] > 0:
+            o['box'] = tuple(np.add(o['box'], rng.normal(0.0, cfg['box_px'], 4)))
+        if cfg['depth_k'] > 0:
+            key = o['id'] if o['id'] is not None else ('anon', id(o))
+            last = state.get(key)
+            e = rng.normal()
+            if last is not None and o['id'] is not None:
+                phi = math.exp(-max(t - last[0], 0.0) / cfg['depth_tau_s'])
+                e = phi * last[1] + math.sqrt(1 - phi * phi) * e
+            if o['id'] is not None:
+                state[key] = (t, e)
+            rho = float(np.linalg.norm(o['p']))
+            o['p'] = o['p'] * (rho + cfg['depth_k'] * rho ** 2 * e) / rho
+    return out
+
+
 def zed_packet(stamp_ns, frame, objects, R_bc, K, image):
-    """message_to_ordereddict(ObjectsStamped)-shaped dict: truth ids, world velocity, 2D box."""
+    """message_to_ordereddict(ObjectsStamped)-shaped dict: truth ids, world velocity, 2D box.
+
+    An object's own 'box' (from noisy()) wins over the projection of its 3D box.
+    """
     width, height = image
     out = []
     for obj in objects:
-        half = np.asarray(obj['size'], float) / 2
-        corners = [obj['p'] + half * np.array(s) for s in
-                   [(-1, -1, -1), (1, -1, -1), (1, 1, -1), (-1, 1, -1),
-                    (-1, -1, 1), (1, -1, 1), (1, 1, 1), (-1, 1, 1)]]
-        uv = np.array([project(c, R_bc, K) for c in corners])
-        u0, v0 = np.clip(uv.min(axis=0), 0, [width, height]).astype(int)
-        u1, v1 = np.clip(uv.max(axis=0), 0, [width, height]).astype(int)
+        corners = corners_of(obj)
+        box = obj.get('box') or pixel_box(obj, R_bc, K)
+        u0, v0 = np.clip(box[:2], 0, [width, height]).astype(int)
+        u1, v1 = np.clip(box[2:], 0, [width, height]).astype(int)
         box = [(u0, v0), (u1, v0), (u1, v1), (u0, v1)]
         out.append({
             'label': obj['label'], 'label_id': -1 if obj['id'] is None else obj['id'],
@@ -228,7 +303,9 @@ class SimBackend(Node):
         self.cfg = nest({n: p.value for n, p in self.get_parameters_by_prefix('').items()
                          if n != 'use_sim_time'})
         cfg = self.cfg
-        rules = {f'inject.{k}': finite for k in INJECT_KEYS}
+        rules = {f'inject.{k}': finite for k in INJECT_KEYS + NOISE_KEYS}
+        self.rng = np.random.default_rng(int(cfg['inject']['seed']))
+        self.depth_state = {}
         rules.update(emulate=one_of('plain', 'zed'), max_detection_age=positive,
                      case=one_of('none', *cfg['cases']['names']))
         self.live = LiveParams(self, rules, self.apply)
@@ -265,7 +342,8 @@ class SimBackend(Node):
         return self.get_clock().now().nanoseconds * 1e-9
 
     def apply(self, values, changed):
-        self.cfg.update(nest(values))
+        from mhseals_nav.yaml_params import merge
+        merge(self.cfg, nest(values))     # deep: inject.* keys without live rules stay
         if 'case' in changed:
             self.case_start = self.now()
         if self.cfg['emulate'] == 'zed' and not self.elements:
@@ -325,7 +403,12 @@ class SimBackend(Node):
             self.report()
         objects = scene(dets, stamp * 1e-9, truth and truth[1], *T_bc, cfg, self.elements)
         objects = inject(objects, *T_bc, heading_error(inj, truth[2] if truth else 0.0),
-                         math.radians(inj['extrinsic_yaw_deg']))
+                         math.radians(inj['extrinsic_yaw_deg']),
+                         (math.radians(inj['extrinsic_roll_deg']),
+                          math.radians(inj['extrinsic_pitch_deg'])),
+                         cfg['inject']['extrinsic_xyz_m'])
+        objects = noisy(objects, T_bc[0], self.K, cfg['inject'], self.depth_state, self.rng,
+                        stamp * 1e-9)
         emulate = cfg['emulate'] if self.elements else 'plain'
         array = observations(objects, stamp + int(inj['stamp_offset_s'] * 1e9),
                              msg.header.frame_id, emulate, T_bc[0], self.K, self.image)

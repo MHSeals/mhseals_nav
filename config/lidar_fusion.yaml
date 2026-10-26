@@ -1,0 +1,85 @@
+# lidar_fusion: lidar range adjustment of camera observations (lidar-fusion-design.md rev 2).
+# enabled: objects.launch.py starts the node, points the tracker at output_topic and sets the
+# tracker's meas.depth_term false (the covariance here carries the stereo depth term).
+# Class radii and the stereo model (depth_k, min_sigma_m, range_frac) come from tracker.yaml.
+/**:
+  ros__parameters:
+    enabled: false
+    observations_topic: /perception/observations
+    output_topic: /perception/observations_fused
+    camera_info_topic: /front/zed_node/rgb/color/rect/camera_info
+    camera_frame: ''              # '' = the observations' header frame
+    camera_axes: auto             # optical | body | auto ('optical' in the frame name)
+    points_topic: /points
+    points_transport: relay       # relay: large-data graph via lidar_relay.receive; direct: sim
+    odom_frame: odom
+    base_frame: base_link
+    attitude_topic: /imu/raw      # the EKF's yaw source; '' = no rate check
+    image_time_offset_s: 0.0      # t_c = stamp + this (measure on the mast)
+    # Scan handling
+    r_min_m: 2.0
+    omega_max_rad_s: 1.5          # crop margin: hfov/2 + 5 deg + omega_max * 0.2 s
+    scans_kept: 3
+    scan_max_dt_s: 0.1
+    tf_wait_s: 0.15
+    image_margin_px: 10.0
+    water_z_m: -0.6               # water plane in base_link (z up); measured on the mast
+    water_range_m: 6.0
+    # Gate
+    tf_max_gap_s: 0.06
+    attitude_min_hz: 20.0
+    sigma_omega: 0.05             # rad/s, attitude at >= attitude_min_hz
+    sigma_omega_slow: 0.3         # rad/s, below it
+    sigma_t_s: 0.005
+    e_mc_max_deg: 0.6
+    # Candidates, clusters, association
+    delta_h_deg: 0.3
+    margin_v_deg: 2.0
+    delta_a_rad: 0.00349          # 0.2 deg azimuth step
+    divergence_rad: 0.003
+    gap_min_m: 0.3
+    ring_spacing_deg: 2.0
+    n_frac: 0.3
+    near_face_k: 0.87             # rho_obj = median near face + 0.87 R
+    gate_pad_m: 0.3
+    iou_min: 0.3
+    accept_cost: 1.0
+    ambiguity_cost: 0.15
+    merge_w_frac: 1.6
+    # Covariance
+    sigma_w_m: 0.03
+    bias_radius_frac: 0.15
+    sigma_t_ext_m: 0.05           # 0.02 once calibrated on the mast
+    bias_time_s: 1.0
+    box_beta_frac: 0.05
+    split_beta_rad: 0.0052
+    sigma_z_m: 0.5
+    rate_alpha: 0.3
+    default_hz: 10.0
+    held_alpha: 0.3
+    held_s: 2.0
+    held_tau_s: 1.0
+    # Extrinsic estimate (detect and alert; applies at most apply_max_deg)
+    isolation_deg: 2.0
+    border_px: 2.0
+    sample_max_range_m: 10.0
+    sample_window_deg: 1.5
+    extrinsic:
+      window_n: 60
+      min_n: 30
+      stride: 20
+      sample_dt_s: 0.2
+      sigma_u_px: 1.5
+      # Weak priors [w_x, w_y, w_z (rad), c_x, c_y, c_z (m), tau (s)] keep the fit regular.
+      prior_sigma: [0.1, 0.1, 0.1, 0.2, 0.2, 0.2, 0.1]
+      apply_se_deg: 0.2
+      apply_max_deg: 1.0
+      warn_deg: 0.75
+      warn_windows: 3
+      error_deg: 1.5
+      k_se: 4.0
+      alert_c_m: 0.05
+      alert_tau_s: 0.015
+      silent_window_s: 20.0
+      silent_min_boxes: 20
+      silent_frac: 0.05

@@ -7,12 +7,13 @@ import pytest
 import yaml
 
 
-def object_nodes(sim, backend):
+def object_nodes(sim, backend, fusion=None):
     source = Path(__file__).parents[1] / 'launch/objects.launch.py'
     tree = ast.parse(source.read_text())
     body = [node for node in tree.body
-            if (isinstance(node, ast.FunctionDef) and node.name == 'nodes')
-            or (isinstance(node, ast.Assign) and node.targets[0].id == 'BACKENDS')]
+            if (isinstance(node, ast.FunctionDef) and node.name in ('nodes', 'fusion_config'))
+            or (isinstance(node, ast.Assign)
+                and node.targets[0].id in ('BACKENDS', 'SIM_FUSION'))]
     values = dict(sim=sim, backend=backend)
 
     class Configuration:
@@ -24,9 +25,32 @@ def object_nodes(sim, backend):
 
     namespace = dict(LaunchConfiguration=Configuration, Node=lambda **kwargs: kwargs,
                      PathJoinSubstitution=lambda parts: '/'.join(map(str, parts)),
-                     FindPackageShare=lambda package: package)
+                     FindPackageShare=lambda package: package, __file__=str(source))
     exec(compile(ast.Module(body=body, type_ignores=[]), str(source), 'exec'), namespace)
+    if fusion is not None:
+        loaded = namespace['fusion_config']()
+        namespace['fusion_config'] = lambda: {**loaded, **fusion}
     return namespace['nodes'](None)
+
+
+@pytest.mark.parametrize('sim', ['true', 'false'])
+def test_enabled_fusion_feeds_the_tracker_and_moves_the_depth_term(sim):
+    nodes = object_nodes(sim, 'sim' if sim == 'true' else 'zed', {'enabled': True})
+    names = [n['executable'] for n in nodes]
+    assert names[:3] == [names[0], 'lidar_fusion', 'object_tracker']
+    fusion, tracker = nodes[1], nodes[2]
+    assert fusion['respawn'] is True and fusion['respawn_delay'] == 1.0
+    assert tracker['parameters'][-1] == {
+        'observations_topic': '/perception/observations_fused', 'meas.depth_term': False}
+    sim_params = fusion['parameters'][2:]
+    if sim == 'true':
+        assert [p['points_transport'] for p in sim_params] == ['direct']
+    else:
+        assert sim_params == []
+
+
+def test_fusion_is_off_by_default():
+    assert 'lidar_fusion' not in [n['executable'] for n in object_nodes('true', 'sim')]
 
 
 @pytest.mark.parametrize('sim,backend,executable', [
