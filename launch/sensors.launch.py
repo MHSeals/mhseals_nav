@@ -1,6 +1,3 @@
-import os
-
-from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
@@ -11,7 +8,6 @@ from mhseals_nav import boat_network
 from mhseals_nav.endpoint_configuration import (
     from_launch as endpoint_from_launch, LAYER_ARGUMENTS as ENDPOINT_LAYERS, UNSET_GCS)
 from mhseals_nav.lidar_configuration import resolve_lidar
-import yaml
 
 # Large-data transport for the lidar pair only; see config/fastdds_large_data.xml.
 LARGE_DATA_PROFILE = PathJoinSubstitution(
@@ -29,6 +25,11 @@ def launch_boolean(value):
 
 def lidar_smear_enabled():
     """Read the sim lidar smear switch from config/lidar_smear.yaml (default off)."""
+    # Imported here: tests exec this file's functions without its module-level imports.
+    import os
+
+    from ament_index_python.packages import get_package_share_directory
+    import yaml
     path = os.path.join(get_package_share_directory('mhseals_nav'), 'config', 'lidar_smear.yaml')
     with open(path) as f:
         return bool(yaml.safe_load(f)['enabled'])
