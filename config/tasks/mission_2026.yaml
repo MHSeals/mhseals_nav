@@ -59,7 +59,7 @@ speed_challenge:
   turn: {red: false, green: true}   # red counter-clockwise, green clockwise
   count: black_buoy
   points: 600.0           # loop 200, direction 150, time up to 250 - T... (report 100 not yet)
-  expected_s: 300.0
+  expected_s: 380.0       # cue-led search: 292 s port, 280 s starboard (~190 s search, 99 s run)
   # The turn mark is 12-31 m past its red/green gate; the harbor buoy has no gate.
   pair: {label: yellow_buoy, with: [red_buoy, green_buoy], min: 10.0, max: 33.0}
   # Beyond entry gate 2 on side S (fixed by the marina once seen), any heading.
