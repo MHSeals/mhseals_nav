@@ -126,6 +126,16 @@ class Coverage:
                min(max(b[2] for b in boxes), ax1), min(max(b[3] for b in boxes), ay1))
         return [box[:2], box[2:]] if box[0] < box[2] and box[1] < box[3] else None
 
+    def sector(self, gate, near, far, spread):
+        """Return the mask of cells ``near``-``far`` m past ``gate``, +-``spread`` of its normal.
+
+        ``gate`` is (x, y, normal); ``spread`` in rad.
+        """
+        dx, dy = self.xs[:, None] - gate[0], self.ys[None, :] - gate[1]
+        off = np.abs(np.angle(np.exp(1j * (np.arctan2(dy, dx) - gate[2]))))
+        reach = dx * dx + dy * dy
+        return (reach >= near * near) & (reach <= far * far) & (off <= spread)
+
     def region_views(self, regions, pose, rng, side=None):
         """Return a view pose per prior region box: ``rng`` back from its centre, facing it."""
         views = []
@@ -184,6 +194,23 @@ def course_side(tracks, cues, min_offset=4.0):
     return 'port' if sum(ys) > 0 else 'starboard'
 
 
+def cue_gates(tracks, pair, origin, exclude=()):
+    """Return the gates (x, y, normal) past which ``pair['label']`` must lie, from tracks.
+
+    With ``gate`` (m) in ``pair``, its two ``with`` labels at most that far apart make a
+    gate, and the label lies ``min``-``max`` m past it (the speed turn mark beyond its
+    red/green gate): past is away from ``origin``, where the run started, as the course
+    runs out from there. Gates within ``exclude_radius`` of an ``exclude`` point (another
+    task's cleared gates: red/green look alike) are none.
+    """
+    if not pair or not pair.get('gate') or len(pair['with']) != 2:
+        return []
+    side = [[(t.x, t.y) for t in tracks or () if t.label == label] for label in pair['with']]
+    gates = geometry.gate_midpoints(side[0], side[1], origin, pair['gate'])
+    return [g for g in gates if all(math.dist(g[:2], d[:2]) > pair.get('exclude_radius', 0.0)
+                                    for d in exclude)]
+
+
 def wanted(tracks, labels, cfg):
     """Wanted tracks still worth a look: priors, weak or uncertain live ones."""
     return [t for t in tracks or () if t.label in labels and (
@@ -218,6 +245,12 @@ def next_view(coverage, pose, fov, now, tracks, labels, cfg):
                 views += [(*xy, wrap(out + math.radians(h))) for h in cfg['headings_deg']]
     # Placement priors: a view of each likely region, however far (travel is costed).
     views += coverage.region_views(cfg.get('regions'), pose, 0.6 * fov[1], cfg.get('_side'))
+    # A gate the target lies past: look on from the gate, and at the stretch past it.
+    pair = cfg.get('pair') or {}
+    for gate in cfg.get('_cues') or ():
+        past = geometry.forward(gate, (pair['min'] + pair['max']) / 2)
+        views += [v for v in (gate, view_pose(past[:2], pose, 0.6 * fov[1]))
+                  if coverage.contains(v)]
     for view in views:
         gain, score = view_score(coverage, view, pose, fov, now, targets, cfg)
         if gain >= cfg['min_gain'] and (best is None or score > best[1]):
@@ -290,7 +323,7 @@ class SearchLeaf(Driver):
     """A Driver that succeeds as soon as the labels are seen live; plans once per goal."""
 
     def __init__(self, name, labels, cfg):
-        super().__init__(name)
+        super().__init__(name, reads=tuple((cfg.get('pair') or {}).get('exclude', ())))
         self.labels, self.cfg, self.own = tuple(labels), dict(cfg), None
 
     def get(self, key):
@@ -314,16 +347,36 @@ class SearchLeaf(Driver):
                                 self.cfg['forget_s'])
         return self.own
 
+    def cues(self):
+        """Return the gates the target lies past (``cue_gates``), seen or from the map."""
+        pair = self.cfg.get('pair')
+        if not pair or not pair.get('gate'):
+            return []
+        tracks = [t for t in self.tracks()
+                  if t.prior or t.confidence >= self.cfg['min_confidence']]
+        done = [g for key in pair.get('exclude', ()) for g in self.get(key) or ()]
+        return cue_gates(tracks, pair, self.get('home') or self.board.pose, done)
+
     def prior(self):
-        """Put the placement-prior weights and the course side into the config copy."""
-        cfg = self.cfg
-        if not cfg.get('regions'):
+        """Put the placement-prior weights, the course side and the cues into the config copy.
+
+        Each cue gate weighs the stretch past it (``cue_weight``, +-``cue_spread_deg``).
+        """
+        cfg, cues = self.cfg, self.cues()
+        if not cfg.get('regions') and not cues and not cfg.get('_cues'):
             return
         side = course_side(self.tracks(), cfg.get('side_cues') or ())
         cover = self.coverage()
-        if cfg.get('_side', 0) != side or cfg.get('_cover') is not cover:
-            cfg['_side'], cfg['_cover'] = side, cover
-            cfg['_weight'] = cover.prior(cfg['regions'], side, cfg['prior_floor'])
+        key = (side, [tuple(round(v, 1) for v in g) for g in cues])
+        if cfg.get('_key') != key or cfg.get('_cover') is not cover:
+            cfg['_key'], cfg['_side'], cfg['_cover'], cfg['_cues'] = key, side, cover, cues
+            weight = (cover.prior(cfg['regions'], side, cfg['prior_floor'])
+                      if cfg.get('regions') else np.ones(cover.seen.shape) if cues else None)
+            pair = cfg.get('pair') or {}
+            for gate in cues:
+                weight[cover.sector(gate, pair['min'], pair['max'],
+                                    math.radians(cfg['cue_spread_deg']))] += cfg['cue_weight']
+            cfg['_weight'] = weight
 
     def send(self, route, why):
         if self.target is None:  # this strategy's first goal: tell the operator why

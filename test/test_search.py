@@ -228,3 +228,19 @@ def test_a_turn_only_goal_is_due_only_once_turned_and_held(cfg):
     assert leaf.due('RUNNING')
     world.board.pose = (0.0, 0.0, 0.0)
     assert not leaf.due('RUNNING')
+
+
+def test_a_seen_gate_is_a_cue_past_it_and_another_tasks_gate_is_none():
+    pair = {'label': 'yellow_buoy', 'with': ['red_buoy', 'green_buoy'], 'min': 10.0,
+            'max': 33.0, 'gate': 4.0, 'exclude_radius': 2.0}
+    speed = [live('red_buoy', 47, 40), live('green_buoy', 49, 40)]
+    debris = [live('red_buoy', 36, 2), live('green_buoy', 36, -1)]
+    (gate,) = search.cue_gates(speed + debris, pair, (0, 0, 0), exclude=[(36, 0.5, 0)])
+    # Past the gate is away from the start: on toward +y here.
+    assert gate[:2] == pytest.approx((48, 40)) and gate[2] == pytest.approx(math.pi / 2)
+    assert search.cue_gates(speed, {**pair, 'gate': None}, (0, 0, 0)) == []
+    # The stretch 10-33 m past it weighs more, not the near side or the gate itself.
+    cover = search.Coverage([[0, 0], [100, 100]], 1.0)
+    past = cover.sector(gate, 10.0, 33.0, math.radians(30))
+    assert past[cell(cover, 50, 56)] and not past[cell(cover, 48, 45)]
+    assert not past[cell(cover, 48, 25)] and not past[cell(cover, 70, 41)]

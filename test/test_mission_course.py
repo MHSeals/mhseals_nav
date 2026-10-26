@@ -448,18 +448,46 @@ def test_a_timeslot_sets_the_run_budget_and_a_profile_changes_only_known_keys(tm
 @pytest.mark.parametrize('course, side', [(COURSE_2026, 1), (MIRRORED_2026, -1)],
                          ids=['side-port', 'side-starboard'])
 def test_the_sweep_mows_the_speed_region_on_the_side_the_marina_fixed(course, side):
-    """At field speed the speed run's views miss the turn mark; the sweep then mows.
+    """With no views left (none here), the sweep mows for the turn mark.
 
     Side S is known from the marina, so the lawnmower covers the speed challenge's
     region on that side only, never the mirrored half of the course box.
     """
-    world = Course(dict(mission('mission_2026.yaml'), timeout=UNHURRIED), course=course,
-                   speed=0.4)
+    params = mission('mission_2026.yaml')
+    speed = params['speed_challenge']
+    params['speed_challenge'] = dict(speed, search=dict(
+        speed['search'], enable={**speed['search']['enable'], 'next_view': False}))
+    world = Course(dict(params, timeout=UNHURRIED), course=course, speed=0.4)
     outcome, _ = world.run()
     sweeps = [g.route for g in world.goals if 'sweep' in g.why]
     assert outcome == 'SUCCESS' and sweeps
     assert all(10.0 - 1e-6 <= side * y <= 60.0 and 15.0 <= x <= 80.0
                for route in sweeps for x, y, _ in route)
+
+
+@pytest.mark.parametrize('course, side', [(COURSE_2026, 1), (MIRRORED_2026, -1)],
+                         ids=['side-port', 'side-starboard'])
+def test_a_seen_speed_gate_leads_the_views_on_to_its_turn_mark_at_field_speed(course, side):
+    """At 0.4 m/s the views pass the speed gate with its mark beyond camera range.
+
+    The mark lies 10-33 m past its gate, so a gate seen first is a cue: the views go on
+    through it toward the mark. Finals has no sweep to fall back on, so without the cue
+    the views run out and the speed run is given up.
+    """
+    params = load_params('mission', config_path('mission_2026.yaml'), 'finals')
+    world = Course(dict(params, timeout=UNHURRIED), course=course, speed=0.4)
+    outcome, _ = world.run()
+    decisions = [d['reason'] for e, d in world.events if e == 'decision']
+    completed = [d['stage'] for e, d in world.events if e == 'stage_completed']
+    assert outcome == 'SUCCESS' and 'speed_challenge' in completed, decisions[-8:]
+    assert not any('sweep' in g.why for g in world.goals)
+    gate = (48.0, side * 40.0)
+    started = next(d for e, d in world.events if e == 'speed_started')
+    assert math.dist(started['pose'][:2], gate) < 3.0
+    # A view from the gate or past it (away from the start) found the mark.
+    views = [g.route[-1] for g in world.goals if g.why.startswith('next view')]
+    assert any(math.dist(v[:2], gate) < 10.0 and side * v[1] >= side * gate[1] - 1.0
+               for v in views)
 
 
 @pytest.mark.parametrize('spacing', [20.1, 25.0, 30.0, 40.0])

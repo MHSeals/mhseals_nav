@@ -27,7 +27,10 @@ def build(params):
     if not params.get('approach'):
         near, radius = 'speed_mark', params['mark_radius']
         # A look-alike mark elsewhere (the harbor buoy) has no gate: ``pair`` needs one.
-        pair = params.get('pair')
+        # A gate seen first is a cue: the mark lies past it (other tasks' gates are not).
+        pair = params.get('pair') and {
+            **params['pair'], 'gate': params['max_gate_width'], 'exclude': ('path', 'channel'),
+            'exclude_radius': params['exclude_radius']}
         find = [look_for('find the mark first', (mark,), params, pair=pair),
                 PlanView('plan a view of the mark', 'speed_view', mark, pair=pair),
                 Navigate('to the mark', 'speed_view', accept=3.0, why='to the speed mark',

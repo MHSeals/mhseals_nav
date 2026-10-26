@@ -56,7 +56,14 @@ regions: []
 prior_floor: 0.2
 side_cues: []         # labels only side S carries (the marina's banners and lights)
 # A label that counts only beside its companions: {label, with: [labels], min, max} (m).
+# With `gate` (m), two companions at most that far apart make a gate the label lies
+# min-max m past (away from the start): a seen gate is a search cue, the stretch past it
+# weighs cue_weight more (within +-cue_spread_deg of the gate's normal), and NextView
+# tries a view from the gate and one of that stretch. `exclude` (blackboard keys of other
+# tasks' cleared gates) and `exclude_radius` (m) drop the look-alikes.
 pair: null
+cue_weight: 8.0
+cue_spread_deg: 30.0
 
 enable:
   priors: true
