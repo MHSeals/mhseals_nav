@@ -4,8 +4,15 @@ import logging
 
 import pytest
 
+from ros_isolation import isolate_ros_env
+
 
 LIDAR_IP = '192.168.0.201'
+
+
+def pytest_configure(config):
+    """Tests that start nodes never reach the live boat: private domain, no static peers, localhost only."""
+    isolate_ros_env()
 
 
 @pytest.fixture(autouse=True)
