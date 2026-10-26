@@ -244,3 +244,21 @@ def test_a_seen_gate_is_a_cue_past_it_and_another_tasks_gate_is_none():
     past = cover.sector(gate, 10.0, 33.0, math.radians(30))
     assert past[cell(cover, 50, 56)] and not past[cell(cover, 48, 45)]
     assert not past[cell(cover, 48, 25)] and not past[cell(cover, 70, 41)]
+
+
+def test_the_cue_weights_are_reused_while_the_gate_tracks_jitter():
+    pair = {'label': 'yellow_buoy', 'with': ['red_buoy', 'green_buoy'], 'min': 10.0,
+            'max': 33.0, 'gate': 4.0}
+    cfg = search.load_config({'area': [[0, 0], [100, 100]], 'pair': pair})
+    leaf = search.Scan('scan', ['yellow_buoy'], cfg)
+    world = World(leaf, cfg)
+    world.board.pose, world.board.now = (0.0, 0.0, 0.0), 0.0
+    world.board.tracks = [live('red_buoy', 47, 40), live('green_buoy', 49, 40)]
+    leaf.prior()
+    weight = leaf.cfg['_weight']
+    world.board.tracks = [live('red_buoy', 47.15, 40.1), live('green_buoy', 48.9, 39.9)]
+    leaf.prior()
+    assert leaf.cfg['_weight'] is weight  # a few cm of track noise: same weights
+    world.board.tracks = [live('red_buoy', 57, 40), live('green_buoy', 59, 40)]
+    leaf.prior()
+    assert leaf.cfg['_weight'] is not weight  # another gate: weighed again

@@ -366,7 +366,9 @@ class SearchLeaf(Driver):
             return
         side = course_side(self.tracks(), cfg.get('side_cues') or ())
         cover = self.coverage()
-        key = (side, [tuple(round(v, 1) for v in g) for g in cues])
+        # Cues keyed to 0.5 m, so jittering tracks reuse the weights; a gate's normal is
+        # left out: track noise turns it more than the cue spread minds.
+        key = (side, [(round(x * 2), round(y * 2)) for x, y, _ in cues])
         if cfg.get('_key') != key or cfg.get('_cover') is not cover:
             cfg['_key'], cfg['_side'], cfg['_cover'], cfg['_cues'] = key, side, cover, cues
             weight = (cover.prior(cfg['regions'], side, cfg['prior_floor'])
