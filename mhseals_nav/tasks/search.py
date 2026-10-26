@@ -307,17 +307,31 @@ class SearchLeaf(Driver):
     def send(self, route, why):
         if self.target is None:  # this strategy's first goal: tell the operator why
             self.decide('search', f'{self.labels[0]} not seen: {why}')
-        self.target = route[-1]
+        self.target, self.arrived = route[-1], None
         self.drive(route, why=why[:60])
 
     def due(self, state):
-        """Plan the next goal: nothing running, or within ``lead`` of the goal's end."""
-        return state != 'RUNNING' or (self.target is not None and math.dist(
-            self.board.pose[:2], self.target[:2]) < self.cfg['lead'])
+        """Plan the next goal: nothing running, or at the goal's end for ``lead_dwell_s``.
+
+        At the end means within ``lead`` m and ``lead_yaw_deg`` of its heading: a goal that
+        only turns the boat (a view from where it stands) is not done until it has turned.
+        """
+        if state != 'RUNNING':
+            return True
+        pose, goal = self.board.pose, self.target
+        if goal is None or math.dist(pose[:2], goal[:2]) >= self.cfg['lead'] or (
+                len(goal) > 2 and abs(wrap(pose[2] - goal[2]))
+                > math.radians(self.cfg['lead_yaw_deg'])):
+            self.arrived = None
+            return False
+        now = self.get('now') or 0.0
+        if self.arrived is None:
+            self.arrived = now
+        return now - self.arrived >= self.cfg['lead_dwell_s']
 
     def initialise(self):
         super().initialise()
-        self.target = None
+        self.target = self.arrived = None
 
     def update(self):
         if found(self.tracks(), self.labels, self.cfg):

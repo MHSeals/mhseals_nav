@@ -40,6 +40,8 @@ max_views: 6
 hysteresis: 0.3           # switch only to a view this much (30 %) better
 replan_s: 2.0             # s between checks for a better view while driving
 lead: 1.5                 # m; plan the next goal this close to the current one's end
+lead_yaw_deg: 10.0        # and this close to its heading (a turn-only goal must turn)
+lead_dwell_s: 0.5         # s held there first, so the camera gets a look
 
 # Sweep: the bounded fallback, one route.
 pattern: auto             # lawnmower | expanding_square | auto: lawnmower with an area

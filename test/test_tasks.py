@@ -376,6 +376,17 @@ def test_mission_needs_the_channel():
     assert world.run() == 'FAILURE'
 
 
+def test_mission_never_skips_the_exit_without_a_mandatory_list():
+    settings = {'tasks': ['nav_channel', 'return_home']}  # no `mandatory`, no exit_reserve
+    for name in settings['tasks']:
+        settings[name] = params(name)
+    settings['return_home']['time_limit'] = 2.0  # no black gate in sight: it times out
+    world = World('mission', settings)
+    world.state['objects'] = gate(7, 0, 3) + gate(13, 0, 3)
+    assert world.run(ticks=800) == 'FAILURE'
+    assert 'stage_skipped' not in world.names()
+
+
 def test_task_labels_are_detector_or_course_classes():
     from pathlib import Path
     import yaml

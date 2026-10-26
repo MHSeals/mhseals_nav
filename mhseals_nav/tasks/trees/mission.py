@@ -2,7 +2,8 @@
 
 The navigation channel must succeed (it is mandatory and first). A later task that
 fails is tried again up to its ``attempts`` while its time limit lasts; then it is
-reported as skipped and the run moves on, ending with the return home.
+reported as skipped and the run moves on, ending with the return home, which is
+never skipped: a failed exit fails the run.
 """
 
 import math
@@ -85,6 +86,14 @@ class StartClock(Leaf):
         return Status.SUCCESS
 
 
+EXIT = 'return_home'
+
+
+def mandatory(params):
+    """Return the tasks never skipped: the ``mandatory`` list, and always the exit."""
+    return {*(params.get('mandatory') or ()), EXIT}
+
+
 def plan(params):
     """Return the optional tasks' budget rows (name, points, expected_s, needs) in order.
 
@@ -93,7 +102,7 @@ def plan(params):
     return [{'name': name, 'points': params[name].get('points', 1.0),
              'expected_s': params[name].get('expected_s', 0.0),
              'needs': params[name].get('needs') or []}
-            for name in params['tasks'][1:] if name not in params.get('mandatory', ())]
+            for name in params['tasks'][1:] if name not in mandatory(params)]
 
 
 def build(params):
@@ -113,7 +122,7 @@ def build(params):
         watched = Parallel(f'{name} watched', policy=ParallelPolicy.SuccessOnSelected(
             [attempts]), children=[attempts, Watch(f'{name} fit', precise)])
         # Optional tasks give up at their own limit or when the exit's reserve is due.
-        optional = index > 0 and name not in params.get('mandatory', ())
+        optional = index > 0 and name not in mandatory(params)
         limit = f'{name}_budget_s' if optional and 'exit_reserve' in params else None
         task = Deadline(f'{name} time', watched, settings['time_limit'], limit_key=limit)
         admit = [Budget(f'{name} budget', name, rows, params['timeout'],

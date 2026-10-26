@@ -214,3 +214,17 @@ def test_a_paired_label_is_found_only_beside_its_companions():
     assert search.found(harbor + speed, ('yellow_buoy',), cfg)
     objects = [(t.label, t.x, t.y) for t in harbor + speed]
     assert geometry.paired(objects, cfg['pair']) == [('yellow_buoy', 50, 56)]
+
+
+def test_a_turn_only_goal_is_due_only_once_turned_and_held(cfg):
+    leaf = search.Scan('scan', ['red'], cfg)
+    world = World(leaf, cfg)
+    leaf.target = (0.3, 0.0, math.pi / 2)  # a view from where the boat stands
+    world.board.pose, world.board.now = (0.0, 0.0, 0.0), 0.0
+    assert not leaf.due('RUNNING')  # in place, still facing the wrong way
+    world.board.pose = (0.0, 0.0, math.pi / 2 - 0.05)
+    assert not leaf.due('RUNNING')  # turned: the camera gets lead_dwell_s first
+    world.board.now = cfg['lead_dwell_s']
+    assert leaf.due('RUNNING')
+    world.board.pose = (0.0, 0.0, 0.0)
+    assert not leaf.due('RUNNING')
