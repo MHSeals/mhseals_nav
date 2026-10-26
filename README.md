@@ -87,6 +87,7 @@ The JetPack 5 / Foxy camera host lives on the `legacy/jp5-foxy` branch.
 #### LiDAR relay and markers
 
 - `sensors.launch.py` also starts `lidar_relay`, which downsamples the cloud and republishes `/points` with one reliable writer for Nav2 and RViz. Stop older viewer relays to avoid duplicates.
+- In sim, `enabled: true` in `config/lidar_smear.yaml` smears crane's instantaneous scans over a 0.1 s VLP16 sweep with the true motion (`lidar_smear`), so the relay's deskew can be checked.
 - Use RViz's `MarkerArray` display for `/detections/markers`; it shows outlines and confidence in `map`.
 
 ### Mapping and rates

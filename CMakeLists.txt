@@ -31,6 +31,7 @@ set(ENTRY_POINTS
   zed_backend=zed_backend
   sim_backend=sim_backend
   lidar_relay=lidar_relay
+  lidar_smear=lidar_smear
   mavros_odometry=mavros_odometry
   mavros_setup=mavros_setup
   run_task=tasks.interface

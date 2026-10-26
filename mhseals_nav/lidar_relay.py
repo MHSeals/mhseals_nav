@@ -39,6 +39,18 @@ def decimate(message, max_bytes):
 
 
 TWIST_MAX_AGE = 0.3   # s; an older twist leaves the cloud as scanned
+SWEEP = 0.1           # s per VLP16 revolution at 600 rpm
+
+
+def sweep_times(x, y, period=SWEEP):
+    """Time of each point from its azimuth, as an offset from a stamp at the end of the sweep.
+
+    A VLP16 turns clockwise seen from above. With the seam behind the sensor, a sweep starts
+    at azimuth +pi (t = -period), passes port, the bow and starboard, and ends at -pi (t = 0).
+    The driver's seam drifts with packet count, so this only stands in for its ``time`` field.
+    """
+    import numpy as np
+    return -period * (np.arctan2(y, x) + np.pi) / (2 * np.pi)
 
 
 def fresh_twist(twist, now):
@@ -57,23 +69,23 @@ def deskew(message, yaw_rate, velocity):
     the 1.5 rad/s of a manual spin. Constant body twist over the scan (yaw rate and planar
     velocity, base_link axes, which lidar_link shares): p_stamp = R(w t) p + v t. The lidar's
     lever arm adds w*0.29 m/s of sway, under 3 cm per scan at 1 rad/s, and is left out.
-    Clouds without x, y and time fields pass unchanged.
+    A cloud without a ``time`` field gets sweep_times; one without float x and y passes unchanged.
     """
     import numpy as np
     fields = {f.name: f for f in message.fields}
-    if not {'x', 'y', 'time'} <= set(fields) or any(
-            fields[name].datatype != 7 for name in ('x', 'y', 'time')):  # 7: FLOAT32
+    names = [n for n in ('x', 'y', 'time') if n in fields]
+    if names[:2] != ['x', 'y'] or any(fields[n].datatype != 7 for n in names):  # 7: FLOAT32
         return message
     count = message.width * message.height
     order = '>' if message.is_bigendian else '<'
-    layout = np.dtype({'names': ['x', 'y', 'time'], 'formats': [order + 'f4'] * 3,
-                       'offsets': [fields[n].offset for n in ('x', 'y', 'time')],
+    layout = np.dtype({'names': names, 'formats': [order + 'f4'] * len(names),
+                       'offsets': [fields[n].offset for n in names],
                        'itemsize': message.point_step})
     data = bytearray(message.data)
     # A view over our own copy: assigning through it rewrites the payload.
     points = np.frombuffer(data, dtype=layout, count=count)
-    t = points['time'].astype(np.float64)
     x, y = points['x'].astype(np.float64), points['y'].astype(np.float64)
+    t = points['time'].astype(np.float64) if 'time' in names else sweep_times(x, y)
     c, s = np.cos(yaw_rate * t), np.sin(yaw_rate * t)
     points['x'] = c * x - s * y + velocity[0] * t
     points['y'] = s * x + c * y + velocity[1] * t

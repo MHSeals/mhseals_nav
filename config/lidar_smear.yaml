@@ -1,0 +1,4 @@
+# Sim only (sensors.launch.py sim:=true): smear crane_ml's instantaneous /points over a VLP16
+# sweep with the ground-truth motion (mhseals_nav/lidar_smear.py), so scans of a turning boat
+# misalign as on the water and lidar_relay's deskew can be judged.
+enabled: false

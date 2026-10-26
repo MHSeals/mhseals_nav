@@ -45,11 +45,12 @@ def test_reader_keeps_latest_scan_without_reliable_network_backpressure():
 def vlp16_cloud(world, yaw_rate, velocity, period=0.1):
     """Scan static world points (x, y) as a VLP16 at the origin does while turning and moving.
 
-    The sensor sweeps azimuth once per period, ending at the stamp (t = 0); a point hit at
-    time t (-period..0) is stored in the sensor frame of that moment, with its t.
+    The sensor sweeps azimuth once per period (sweep_times), ending at the stamp (t = 0); a
+    point hit at time t (-period..0) is stored in the sensor frame of that moment, with its t.
     """
     from sensor_msgs.msg import PointField
     import numpy as np
+    from mhseals_nav.lidar_relay import sweep_times
     rows = []
     for x, y in world:
         # Fixed point iteration: the time the beam reaches this point's sensor-frame azimuth.
@@ -58,7 +59,7 @@ def vlp16_cloud(world, yaw_rate, velocity, period=0.1):
             yaw, px, py = yaw_rate * t, velocity[0] * t, velocity[1] * t
             c, s = math.cos(-yaw), math.sin(-yaw)
             sx, sy = c * (x - px) - s * (y - py), s * (x - px) + c * (y - py)
-            t = -period * (1 - (math.atan2(sy, sx) % (2 * math.pi)) / (2 * math.pi))
+            t = float(sweep_times(sx, sy, period))
         rows.append((sx, sy, 0.5, t))
     data = np.array(rows, dtype='<f4').tobytes()
     fields = [PointField(name=n, offset=4 * i, datatype=7, count=1)
@@ -73,16 +74,20 @@ def xy(cloud):
     return np.frombuffer(cloud.data, dtype='<f4').reshape(-1, 4)[:, :2]
 
 
+# A ring of buoys at 10 m. Off the seam behind the sensor: there the turn (w * 0.1 s)
+# makes the beam see a point twice or never.
+RING = [(10 * math.cos(a), 10 * math.sin(a)) for a in
+        [math.radians(d) for d in range(-165, 166, 5)]]
+
+
 def test_deskew_puts_every_point_where_it_was_at_the_stamp():
     import numpy as np
     from mhseals_nav.lidar_relay import deskew
-    angles = np.linspace(-math.pi, math.pi, 72, endpoint=False)
-    world = [(10 * math.cos(a), 10 * math.sin(a)) for a in angles]   # a ring of buoys at 10 m
     w, v = 1.5, (1.5, 0.)            # a manual spin while moving
-    cloud = vlp16_cloud(world, w, v)
+    cloud = vlp16_cloud(RING, w, v)
     # At the stamp the sensor is at the origin with yaw 0, so truth is the world points.
-    skewed = np.abs(xy(cloud) - np.array(world)).max()
-    fixed = np.abs(xy(deskew(cloud, w, v)) - np.array(world)).max()
+    skewed = np.abs(xy(cloud) - np.array(RING)).max()
+    fixed = np.abs(xy(deskew(cloud, w, v)) - np.array(RING)).max()
     assert skewed > 1.0              # up to w * 0.1 s * 10 m = 1.5 m before
     assert fixed < 1e-3
 
@@ -95,11 +100,19 @@ def test_deskew_uses_only_a_fresh_twist():
     assert fresh_twist(twist, 100.01 + TWIST_MAX_AGE) is None  # ekf_local stalled: as scanned
 
 
-def test_deskew_leaves_clouds_without_point_times_alone():
+def test_deskew_times_points_by_azimuth_without_a_time_field():
+    import numpy as np
+    from mhseals_nav.lidar_relay import deskew
+    w, v = 1.5, (1.5, 0.)
+    cloud = vlp16_cloud(RING, w, v)
+    cloud.fields = cloud.fields[:3]  # x, y, z; the time column stays as padding
+    assert np.abs(xy(deskew(cloud, w, v)) - np.array(RING)).max() < 1e-3
+
+
+def test_deskew_leaves_clouds_without_float_xy_alone():
     from mhseals_nav.lidar_relay import deskew
     from sensor_msgs.msg import PointField
-    cloud = Cloud(fields=[PointField(name=n, offset=4 * i, datatype=7, count=1)
-                          for i, n in enumerate('xyz')], data=b'')
+    cloud = Cloud(fields=[PointField(name='x', offset=0, datatype=7, count=1)], data=b'')
     assert deskew(cloud, 1.0, (1.0, 0.)) is cloud
 
 

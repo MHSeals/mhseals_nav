@@ -1,3 +1,6 @@
+import os
+
+from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
@@ -9,6 +12,7 @@ from mhseals_nav import boat_network
 from mhseals_nav.endpoint_configuration import (
     from_launch as endpoint_from_launch, LAYER_ARGUMENTS as ENDPOINT_LAYERS, UNSET_GCS)
 from mhseals_nav.lidar_configuration import resolve_lidar
+import yaml
 
 # Large-data transport for the lidar pair only; see config/fastdds_large_data.xml.
 LARGE_DATA_PROFILE = PathJoinSubstitution(
@@ -29,8 +33,15 @@ def sensor_nodes(context):
     sim = launch_boolean(LaunchConfiguration('sim').perform(context))
     ignored = LaunchConfiguration('sensors_ignore').perform(context).split(',')
     if sim:
-        return [Node(package='ros_tcp_endpoint', executable='default_server_endpoint',
-                     output='screen', parameters=[endpoints.unity_parameters])]
+        smear_file = os.path.join(get_package_share_directory('mhseals_nav'), 'config',
+                                  'lidar_smear.yaml')
+        with open(smear_file) as f:
+            smear = yaml.safe_load(f)['enabled']
+        endpoint = Node(package='ros_tcp_endpoint', executable='default_server_endpoint',
+                        output='screen', parameters=[endpoints.unity_parameters],
+                        remappings=[('/points', '/points/instant')] if smear else [])
+        return [endpoint] + ([Node(package='mhseals_nav', executable='lidar_smear',
+                                   output='screen')] if smear else [])
     if 'lidar' in [name.strip() for name in ignored]:
         return []
     selected = LaunchConfiguration('lidar_params_file').perform(context)
