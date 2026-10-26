@@ -306,3 +306,27 @@ def test_the_depth_term_does_not_merge_two_poles_side_by_side():
     run(f, lambda t: [ob('green_pole_buoy', 10.0, 0.0), ob('green_pole_buoy', 10.0, 1.5)],
         2.0, start=t)
     assert len(f.tracks) == 2
+
+
+def test_yaw_rate_falls_back_to_a_backward_difference_when_tf_ends_at_the_stamp():
+    """A fresh frame: TF stops just past its stamp, so t + yaw_dt is not there yet."""
+    base = yawing_pose(lambda t: 0.4 * t)
+
+    def pose_at(t, frame_id):
+        if t > now[0] + 0.02:
+            raise LookupError(t)
+        return base(t, frame_id)
+    now = [0.0]
+    for backward, expect in ((False, None), (True, 0.4)):
+        cfg = copy.deepcopy(CFG)
+        cfg['meas']['yaw_rate_backward'] = backward
+        f = TrackFilter(cfg)
+        for k in range(20):
+            now[0] = 1.0 + k / RATE
+            f.step(frame(now[0], [ob('red_buoy', 8.0, 0.0)]), now[0], pose_at)
+        rates = [r for _, r, _, _ in f.yaw_rates]
+        if expect is None:
+            assert rates == [] and f.yaw_rate_from['none'] == 20
+        else:
+            assert rates and all(r == pytest.approx(expect) for r in rates)
+            assert f.yaw_rate_from['backward'] == 20

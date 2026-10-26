@@ -7,6 +7,9 @@
     base_frame: base_link
     observations_topic: /perception/observations
     rate_hz: 10.0
+    # Publish tracks right after an update (still at most rate_hz) instead of on the timer
+    # alone: the timer wait added 0-100 ms (mean 50) between capture and the world track.
+    publish_on_update: true
     markers_hz: 2.0
     status_hz: 1.0
     max_detection_age: 1.0
@@ -28,7 +31,8 @@
       # extrinsic 3 deg, lag plus stamp offset 0.2 s) in the metamorphic suite.
       heading_sigma_deg: 3.0
       # 0.5, not 0.25: the 4 Hz bursty FCU attitude (2026-10-25) holds the EKF heading up
-      # to 0.5 s old, and at 0.25 pole buoys at 20 m turned MOVING and changed ids.
+      # to 0.5 s old, and at 0.25 pole buoys at 20 m turned MOVING and changed ids. Keep it
+      # until the FCU set (odom-100hz.proposed.param) is applied.
       lag_sigma_s: 0.5
       # A lag fakes velocity rho*lag*|dr/dt|, largest while the yaw rate reverses through
       # zero, where |r| is near zero. So the lag term uses the largest |r| of this window,
@@ -37,6 +41,9 @@
       lag_window_s: 3.0
       yaw_accel_dt: 0.5          # dr/dt is the yaw rate's slope over this span
       cam_vel_dt: 0.05
+      # Fresh frames arrive before TF reaches t + heading_check.yaw_dt; without this the
+      # frame's yaw rate (lag term, heading check) was mostly missing.
+      yaw_rate_backward: true
     use_backend_velocity: false
     velocity_sigma: 0.5          # m/s, when the backend gives no velocity covariance
     score_alpha: 0.3

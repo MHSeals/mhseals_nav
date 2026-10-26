@@ -98,6 +98,34 @@ def test_tracker_publishes_every_output(ros):
     tracker.destroy_node()
 
 
+def test_publish_on_update_sends_tracks_after_an_update_at_most_rate_hz(ros):
+    from mhseals_nav.msg import ObservationArray
+    from mhseals_nav.object_tracker import ObjectTracker
+
+    tracker = ObjectTracker()
+    assert tracker.cfg['publish_on_update']
+    sent, stamp = [], [1.0]
+    # drain steps the filter to the newest frame's stamp; unchanged stamp = no update.
+    tracker.drain = lambda: setattr(tracker.filter, 'last_stamp', stamp[0])
+    tracker.publish_tracks = lambda: (sent.append(stamp[0]),
+                                      setattr(tracker, 'published_at', time.monotonic()))
+    tracker.on_observations(ObservationArray())
+    assert sent == [1.0]                      # at once, not on the next tick
+    stamp[0] = 2.0
+    tracker.on_observations(ObservationArray())
+    tracker.tick()
+    assert sent == [1.0]                      # within 0.9 / rate_hz of the last: held
+    tracker.published_at -= 1.0
+    tracker.on_observations(ObservationArray())
+    assert sent == [1.0]                      # due, but no new update
+    tracker.tick()
+    assert sent == [1.0, 2.0]                 # the timer still publishes when due
+    tracker.cfg['publish_on_update'] = False
+    tracker.tick()
+    assert sent == [1.0, 2.0, 2.0]            # off: every tick, as before
+    tracker.destroy_node()
+
+
 def test_course_map_saved_through_toll_and_loaded_as_priors(tmp_path, monkeypatch):
     from geometry_msgs.msg import TransformStamped
     from nav_msgs.msg import Odometry

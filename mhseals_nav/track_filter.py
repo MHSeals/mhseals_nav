@@ -103,6 +103,7 @@ class TrackFilter:
         self.assoc = {'id': 0, 'gate': 0}
         self.yaw_rates = deque()    # (t, r, |r|, |dr/dt|) over meas.lag_window_s
         self.lag_speed = 0.0        # sigma_lag * max |dr/dt|: per metre of range, this frame
+        self.yaw_rate_from = {'central': 0, 'backward': 0, 'none': 0}
         self._groups = {}
 
     @property
@@ -234,13 +235,25 @@ class TrackFilter:
             return False
         meas = self.cfg['meas']
         yaw_rate = v_cam = None
-        try:
-            dt = self.cfg['heading_check']['yaw_dt']
-            Ra, _ = pose_at(t - dt, self.cfg.get('base_frame', 'base_link'))
-            Rb, _ = pose_at(t + dt, self.cfg.get('base_frame', 'base_link'))
-            yaw_rate = wrap(yaw_of(Rb) - yaw_of(Ra)) / (2 * dt)
-        except LookupError:
-            pass
+        # Central difference over [t-dt, t+dt]. A fresh frame usually arrives before TF
+        # reaches t+dt, so the backward difference over [t-2dt, t] stands in rather than
+        # leaving the lag term and the heading check without this frame's yaw rate.
+        dt = self.cfg['heading_check']['yaw_dt']
+        base = self.cfg.get('base_frame', 'base_link')
+        spans = [(-dt, dt, 'central')]
+        if meas.get('yaw_rate_backward', False):
+            spans.append((-2 * dt, 0.0, 'backward'))
+        for lo, hi, how in spans:
+            try:
+                Ra, _ = pose_at(t + lo, base)
+                Rb, _ = pose_at(t + hi, base)
+            except LookupError:
+                continue
+            yaw_rate = wrap(yaw_of(Rb) - yaw_of(Ra)) / (hi - lo)
+            self.yaw_rate_from[how] += 1
+            break
+        else:
+            self.yaw_rate_from['none'] += 1
         try:
             dt = meas['cam_vel_dt']
             _, pa = pose_at(t - dt, frame)
