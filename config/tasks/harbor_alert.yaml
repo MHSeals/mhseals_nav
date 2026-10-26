@@ -1,0 +1,7 @@
+# Task 6, harbor alert (mhseals_nav/tasks/trees/harbor_alert.py). Needs the horn
+# listener (mission `capabilities: {horn: ...}`), not built yet.
+mark: yellow_buoy
+pair: {label: yellow_buoy, with: [red_buoy, green_buoy], min: 10.0, max: 33.0}
+standoff: 2.0
+needs: [horn]
+time_limit: 180.0

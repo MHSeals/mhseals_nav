@@ -714,6 +714,56 @@ class ReadColour(Leaf):
         return Status.SUCCESS
 
 
+class Deliver(Leaf):
+    """Deliver with the ``capability`` actuator at the nearest of ``labels``.
+
+    The actuators come from the runner's setup (tasks/actuators.py); without a fitted,
+    available one this fails at once ("capability off"), so a task that needs it is
+    skipped. An actuated delivery without evidence still succeeds, reported as
+    unverified; a failed one fails. The actuator is stopped whenever this ends.
+    """
+
+    def __init__(self, name, capability, labels, done='delivered'):
+        super().__init__(name, reads=(done,), writes=(done,))
+        self.capability, self.labels, self.done = capability, tuple(labels), done
+
+    def setup(self, **kwargs):
+        super().setup(**kwargs)
+        self.actuator = (kwargs.get('actuators') or {}).get(self.capability)
+
+    def initialise(self):
+        self.target = None
+
+    def update(self):
+        if self.actuator is None or not self.actuator.available():
+            self.feedback_message = f'capability off: {self.capability}'
+            return Status.FAILURE
+        if self.target is None:
+            done = (self.board.get(self.done) if self.board.exists(self.done) else None) or []
+            pose, targets = self.board.pose, [
+                (label, x, y) for label, x, y in self.board.objects
+                if label in self.labels and all(math.dist((x, y), d) > 1.5 for d in done)]
+            if pose is None or not targets:
+                return Status.FAILURE
+            self.target = min(targets, key=lambda t: math.dist(t[1:], pose[:2]))
+            self.actuator.start(self.target)
+        state = self.actuator.state()
+        if state == 'RUNNING':
+            return Status.RUNNING
+        if state in ('HIT', 'UNVERIFIED'):
+            done = (self.board.get(self.done) if self.board.exists(self.done) else None) or []
+            self.board.set(self.done, done + [self.target[1:]], overwrite=True)
+            if self.report is not None:
+                self.report('delivered', capability=self.capability, target=self.target[0],
+                            position=list(self.target[1:]), verified=state == 'HIT')
+            return Status.SUCCESS
+        return Status.FAILURE
+
+    def terminate(self, new_status):
+        if getattr(self, 'actuator', None) is not None and self.target is not None:
+            self.actuator.stop()
+
+
 class ReportCount(Driver):
     """Report the count in ``key`` as ``event``; ``spin`` also turns once per object.
 
@@ -932,16 +982,25 @@ class PlanChainBack(Leaf):
 
 
 class Deadline(Decorator):
-    """Fail the child if it runs longer than ``seconds`` of ROS time."""
+    """Fail the child if it runs longer than ``seconds`` of ROS time.
 
-    def __init__(self, name, child, seconds):
+    With ``limit_key``, a smaller limit found there when the child starts wins: the
+    run's budget (trees/mission.py) keeps a task from eating the exit's time.
+    """
+
+    def __init__(self, name, child, seconds, limit_key=None):
         super().__init__(name=name, child=child)
-        self.seconds = seconds
+        self.seconds, self.base, self.limit_key = seconds, seconds, limit_key
         self.board = self.attach_blackboard_client(name=name)
         self.board.register_key(key='now', access=Access.READ)
+        if limit_key:
+            self.board.register_key(key=limit_key, access=Access.READ)
 
     def initialise(self):
         self.started = None
+        limit = (self.board.get(self.limit_key) if self.limit_key
+                 and self.board.exists(self.limit_key) else None)
+        self.seconds = self.base if limit is None else min(self.base, limit)
 
     def update(self):
         if self.started is None:

@@ -1,0 +1,8 @@
+# Task 4, supply drop (mhseals_nav/tasks/trees/supply_drop.py). Each kind needs its
+# actuator (mission `capabilities`); none is built yet, so the mission skips it.
+kinds:
+  water: {needs: water_gun, labels: [yellow_target_boat, orange_target_boat], standoff: 3.0,
+          count: 3}
+  balls: {needs: ball_dropper, labels: [black_target_boat], standoff: 1.5, count: 3}
+needs: [water_gun, ball_dropper]   # the budget: worth points only with one fitted
+time_limit: 300.0

@@ -1,8 +1,16 @@
 # The whole run on a 2026 course (crane_ml procedural course-gen, RoboBoat 2026 rules):
 # no day's layout, so every task is found by search; the map frame is the start pose.
 # Phase 1 baseline: fixed order. Run: run_task --task mission --params <this file>.
-tasks: [nav_channel, follow_path, docking, speed_challenge, return_home]
-timeout: 1800.0
+tasks: [nav_channel, follow_path, docking, speed_challenge, supply_drop, return_home]
+timeout: 1800.0         # s: the run's time limit
+# The time budget (tasks/budget.py): the exit's time is kept back, and an optional task
+# starts only if it is among those worth the time left (points per expected second);
+# its own limit is cut to the time left. Points per handbook row (lit-roboboat.md);
+# expected_s at the field speed (0.4 m/s), from the kinematic runs x 2.5.
+exit_reserve: 240.0
+mandatory: [return_home]
+# Actuators not built yet (tasks/actuators.py): a task needing only these is worth 0.
+capabilities: {water_gun: false, ball_dropper: false, horn: false}
 start_look_deg: 90.0    # turn to each side at the start: the marina lies beside it
 # Every search: the course box, and the marina's banners and lights fix the side S.
 search:
@@ -21,6 +29,8 @@ follow_path:
   report_labels: [black_buoy, green_light_buoy, red_light_buoy]
   and_back: true
   time_limit: 420.0
+  points: 1000.0          # channel gates in and out, green circles, red avoid, report
+  expected_s: 420.0
 # Task 5, marina: the lowest-numbered free green slip of either pier.
 docking:
   indicators: {green_light_beacon: green, red_light_beacon: red}
@@ -30,6 +40,8 @@ docking:
   staging: 4.0
   berth: 1.3
   bay_depth: 2.4
+  points: 450.0           # lowest green slip 350, report 100
+  expected_s: 240.0
   # The marina lies beside the entry, on side S (unknown until seen): both sides.
   search:
     regions: [{box: [[-15.0, 6.0], [15.0, 30.0]], weight: 4.0, mirror: true}]
@@ -39,11 +51,17 @@ speed_challenge:
   indicators: {red_light_buoy: red, green_light_buoy: green, red_light_sign: red, green_light_sign: green}
   turn: {red: false, green: true}   # red counter-clockwise, green clockwise
   count: black_buoy
+  points: 600.0           # loop 200, direction 150, time up to 250 - T... (report 100 not yet)
+  expected_s: 240.0
   # The turn mark is 12-31 m past its red/green gate; the harbor buoy has no gate.
   pair: {label: yellow_buoy, with: [red_buoy, green_buoy], min: 10.0, max: 33.0}
   # Beyond entry gate 2 on side S (fixed by the marina once seen), any heading.
   search:
     regions: [{box: [[15.0, 10.0], [80.0, 60.0]], weight: 4.0, mirror: true}]
+# Task 4, supply drop: skipped while no delivery actuator is fitted.
+supply_drop:
+  points: 600.0
+  expected_s: 300.0
 # Exit: back out through the entry gates (nav_channel's cleared gates), last first.
 return_home:
   exit_source: channel

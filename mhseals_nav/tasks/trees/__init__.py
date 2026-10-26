@@ -1,6 +1,7 @@
 """Task trees by name: RoboBoat 2025 and commissioning exercises.
 
-Each ``build(params)`` returns a py_trees root. Task 5 (deliveries) is not attempted.
+Each ``build(params)`` returns a py_trees root. Deliveries (supply_drop) and the
+harbor alert need capabilities not built yet (tasks/actuators.py).
 A task with ``approach: [x, y, yaw]`` (map frame, from the day's course layout)
 first drives there, so it starts where its objects are in view.
 """
@@ -10,8 +11,8 @@ import math
 from mhseals_nav.tasks import search
 from mhseals_nav.tasks.behaviours import Navigate, PlanHypothesis, PlanPose
 from mhseals_nav.tasks.trees import (
-    circle_test, docking, follow_path, mission, nav_channel, pair_test,
-    return_home, speed_challenge,
+    circle_test, docking, follow_path, harbor_alert, mission, nav_channel, pair_test,
+    return_home, speed_challenge, supply_drop,
 )
 from py_trees.composites import Sequence
 from py_trees.decorators import FailureIsSuccess
@@ -67,6 +68,8 @@ TREES = {name: approached(name, build) for name, build in {
     'docking': docking.build,
     'speed_challenge': speed_challenge.build,
     'return_home': return_home.build,
+    'supply_drop': supply_drop.build,
+    'harbor_alert': harbor_alert.build,
     'pair_test': pair_test.build,
     'circle_test': circle_test.build,
 }.items()}

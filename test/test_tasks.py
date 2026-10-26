@@ -947,3 +947,99 @@ def test_the_speed_indicator_is_read_between_the_gate_and_the_mark_when_planned(
     board.objects = board.objects[:1] + board.objects[2:]  # none in reach: the default way
     tree.tick()
     assert board.speed_colour is None and 'no indicator read: the default way' in decisions
+
+
+def test_the_budget_keeps_the_most_points_per_second_that_fit():
+    from mhseals_nav.tasks import budget
+    rows = [{'name': 'path', 'points': 1000, 'expected_s': 400},
+            {'name': 'dock', 'points': 450, 'expected_s': 240},
+            {'name': 'speed', 'points': 600, 'expected_s': 240},
+            {'name': 'drop', 'points': 600, 'expected_s': 300, 'needs': ['water_gun', 'balls']}]
+    off = {'water_gun': False, 'balls': False}
+    assert budget.choose(2000, rows, off) == {'path', 'dock', 'speed'}
+    assert budget.choose(700, rows, off) == {'path', 'speed'}
+    assert budget.fits('dock', 700, rows[1:], off) == (True, 'dock fits: 700 s left')
+    assert budget.fits('dock', 300, rows[1:], off)[0] is False  # speed is worth more
+    assert budget.fits('drop', 2000, rows[3:], off) == (
+        False, 'drop: capability off (water_gun, balls)')
+    # One actuator fitted is enough for its points to count.
+    assert budget.choose(2000, rows, {'water_gun': True}) == {'path', 'dock', 'speed', 'drop'}
+
+
+def test_a_deadline_is_cut_to_the_budget_written_before_it_starts():
+    from mhseals_nav.tasks.behaviours import Deadline
+    from py_trees.behaviours import Running
+    py_trees.blackboard.Blackboard.clear()
+    board = py_trees.blackboard.Client(name='world')
+    for key in ('now', 'task_budget_s'):
+        board.register_key(key=key, access=py_trees.common.Access.WRITE)
+    board.now, board.task_budget_s = 0.0, 5.0
+    tree = py_trees.trees.BehaviourTree(Deadline('time', Running(), 60.0, 'task_budget_s'))
+    tree.tick()
+    board.now = 6.0
+    tree.tick()
+    assert tree.root.status == py_trees.common.Status.FAILURE
+    assert tree.root.feedback_message == 'over 5 s'
+
+
+class FakeGun:
+    def __init__(self, outcome):
+        self.outcome, self.started, self.stopped = outcome, None, 0
+
+    def available(self):
+        return True
+
+    def start(self, target):
+        self.started = target
+
+    def state(self):
+        return self.outcome
+
+    def stop(self):
+        self.stopped += 1
+
+
+@pytest.mark.parametrize('fitted, outcome, status', [
+    (False, None, 'FAILURE'), (True, 'HIT', 'SUCCESS'), (True, 'UNVERIFIED', 'SUCCESS'),
+    (True, 'FAILED', 'FAILURE')])
+def test_deliver_needs_a_fitted_actuator_and_stops_it(fitted, outcome, status):
+    from mhseals_nav.tasks import actuators
+    from mhseals_nav.tasks.behaviours import Deliver
+    py_trees.blackboard.Blackboard.clear()
+    board = py_trees.blackboard.Client(name='world')
+    for key in ('objects', 'pose', 'now'):
+        board.register_key(key=key, access=py_trees.common.Access.WRITE)
+    board.objects, board.pose, board.now = [('yellow_target_boat', 3.0, 0.0)], (0, 0, 0), 0.0
+    gun = FakeGun(outcome)
+    events = []
+    tree = py_trees.trees.BehaviourTree(Deliver('deliver', 'water_gun', ('yellow_target_boat',)))
+    tree.setup(actuators=actuators.fitted({'water_gun': fitted}, {'water_gun': gun}),
+               report=lambda event, **d: events.append((event, d)))
+    tree.tick()
+    assert tree.root.status.name == status
+    if not fitted:
+        assert gun.started is None and tree.root.feedback_message == 'capability off: water_gun'
+    else:
+        assert gun.started == ('yellow_target_boat', 3.0, 0.0) and gun.stopped == 1
+        assert bool(events) == (status == 'SUCCESS')
+        if events:
+            assert events[0][1]['verified'] == (outcome == 'HIT')
+
+
+@pytest.mark.parametrize('zone, buoy', [(1, (50.0, 56.0)), (2, (4.0, 26.0))])
+def test_the_harbor_alert_goes_to_its_zone_s_buoy_not_the_look_alike(zone, buoy):
+    world = World('harbor_alert', params('harbor_alert'))
+    world.board.register_key(key='alert_zone', access=py_trees.common.Access.WRITE)
+    world.board.alert_zone = zone
+    world.state['pose'] = (20.0, 20.0, 0.0)
+    world.state['objects'] = [('yellow_buoy', 4.0, 26.0), ('yellow_buoy', 50.0, 56.0),
+                              ('red_buoy', 47.0, 40.0), ('green_buoy', 49.0, 40.0)]
+    assert world.run() == 'SUCCESS'
+    assert math.dist(world.goals[0].route[-1][:2], buoy) == pytest.approx(2.0)
+    assert world.names()[-1] == 'alert_zone_reached'
+
+
+def test_the_supply_drop_tries_nothing_while_no_actuator_is_fitted():
+    world = World('supply_drop', dict(params('supply_drop'), capabilities={}))
+    world.state['objects'] = [('yellow_target_boat', 3.0, 0.0)]
+    assert world.run() == 'FAILURE' and world.goals == []

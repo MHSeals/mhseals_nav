@@ -211,7 +211,10 @@ def test_full_2026_mission_finds_and_completes_every_task_by_search(course, side
     names = world.names()
     decisions = [d['reason'] for e, d in world.events if e == 'decision']
     assert outcome == 'SUCCESS', decisions[-8:]
-    assert 'stage_skipped' not in names, decisions
+    # Only the supply drop is skipped: no delivery actuator is fitted yet.
+    skipped = [d['stage'] for e, d in world.events if e == 'stage_skipped']
+    assert skipped == ['supply_drop'], decisions
+    assert 'supply_drop: capability off (water_gun, ball_dropper)' in decisions
     assert names.count('stage_completed') == 5
     # Marina: the lowest-numbered free green slip is N3, banner_1 (truth 3.39, 12.84).
     docked = next(d for e, d in world.events if e == 'docked')
@@ -228,3 +231,20 @@ def test_full_2026_mission_finds_and_completes_every_task_by_search(course, side
     assert math.dist(started['pose'][:2], (48.0, side * 40.0)) < 3.0
     assert names[-2:] == ['returned_home', 'stage_completed']
     assert elapsed < 600
+
+
+def test_a_short_run_skips_the_task_worth_least_per_second_and_still_gets_out():
+    """With 700 s, 460 s are left after the exit's reserve.
+
+    The debris task and the speed run fit (the most points per second), the marina
+    does not; the exit always runs.
+    """
+    params = dict(mission('mission_2026.yaml'), timeout=700.0)
+    world = Course(params, course=COURSE_2026)
+    outcome, elapsed = world.run()
+    decisions = [d['reason'] for e, d in world.events if e == 'decision']
+    skipped = [d['stage'] for e, d in world.events if e == 'stage_skipped']
+    assert outcome == 'SUCCESS' and 'docking' in skipped, decisions
+    assert any(r.startswith('no time for docking') for r in decisions)
+    assert 'speed_finished' in world.names()
+    assert world.names()[-2:] == ['returned_home', 'stage_completed']

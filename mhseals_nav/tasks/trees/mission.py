@@ -7,7 +7,8 @@ reported as skipped and the run moves on, ending with the return home.
 
 import math
 
-from mhseals_nav.tasks.behaviours import Deadline, Navigate, PlanLook, Report
+from mhseals_nav.tasks import budget
+from mhseals_nav.tasks.behaviours import Deadline, Leaf, Navigate, PlanLook, Report
 from mhseals_nav.tasks.conditions import Gate, Watch
 from py_trees.common import ParallelPolicy, Status
 from py_trees.composites import Parallel, Selector, Sequence
@@ -45,13 +46,65 @@ class Attempts(Decorator):
         return Status.RUNNING
 
 
+class Budget(Leaf):
+    """Before an optional task: FAILURE (skip it) when it does not fit the time left.
+
+    The time left is the run's ``timeout`` from the first tick, less the exit
+    ``reserve``. It also writes the task's own limit (``limit_key``): no task may eat
+    the time the exit needs.
+    """
+
+    def __init__(self, name, task, tasks, timeout, reserve, capabilities, limit_key):
+        super().__init__(name, reads=('mission_started',), writes=(limit_key,))
+        self.task, self.tasks, self.timeout, self.reserve = task, tasks, timeout, reserve
+        self.capabilities, self.limit_key = capabilities, limit_key
+
+    def update(self):
+        started = self.board.get('mission_started') if self.board.exists(
+            'mission_started') else None
+        left = self.timeout - (self.board.now - (started or self.board.now)) - self.reserve
+        here = [t['name'] for t in self.tasks].index(self.task)
+        ok, why = budget.fits(self.task, left, self.tasks[here:], self.capabilities)
+        self.board.set(self.limit_key, max(left, 0.0), overwrite=True)
+        if not ok:
+            self.feedback_message = why
+            self.decide('skip', why)
+            return Status.FAILURE
+        return Status.SUCCESS
+
+
+class StartClock(Leaf):
+    """Write the run's start time once: the budget counts from here."""
+
+    def __init__(self, name):
+        super().__init__(name, reads=('mission_started',), writes=('mission_started',))
+
+    def update(self):
+        if not (self.board.exists('mission_started') and self.board.mission_started is not None):
+            self.board.set('mission_started', self.board.now, overwrite=True)
+        return Status.SUCCESS
+
+
+def plan(params):
+    """Return the optional tasks' budget rows (name, points, expected_s, needs) in order.
+
+    The first task and the ``mandatory`` ones (the exit) are not chosen: they always run.
+    """
+    return [{'name': name, 'points': params[name].get('points', 1.0),
+             'expected_s': params[name].get('expected_s', 0.0),
+             'needs': params[name].get('needs') or []}
+            for name in params['tasks'][1:] if name not in params.get('mandatory', ())]
+
+
 def build(params):
     from mhseals_nav.tasks.trees import TREES
-    stages, names = [], params['tasks']
+    stages, names = [StartClock('start the clock')], params['tasks']
+    rows, capabilities = plan(params), params.get('capabilities') or {}
     for index, name in enumerate(names):
         # The mission's search settings (its course area) apply to every task.
-        settings = dict(params[name], search={**(params.get('search') or {}),
-                                              **(params[name].get('search') or {})})
+        settings = dict(params[name], capabilities=capabilities,
+                        search={**(params.get('search') or {}),
+                                **(params[name].get('search') or {})})
         following = names[index + 1] if index + 1 < len(names) else None
         precise = settings.get('precise', False)
         attempts = Attempts(f'{name} attempts', TREES[name](settings), name,
@@ -59,8 +112,14 @@ def build(params):
         # The boat's state can stop a task (tasks/conditions.py): never start one.
         watched = Parallel(f'{name} watched', policy=ParallelPolicy.SuccessOnSelected(
             [attempts]), children=[attempts, Watch(f'{name} fit', precise)])
-        task = Deadline(f'{name} time', watched, settings['time_limit'])
+        # Optional tasks give up at their own limit or when the exit's reserve is due.
+        optional = index > 0 and name not in params.get('mandatory', ())
+        limit = f'{name}_budget_s' if optional and 'exit_reserve' in params else None
+        task = Deadline(f'{name} time', watched, settings['time_limit'], limit_key=limit)
+        admit = [Budget(f'{name} budget', name, rows, params['timeout'],
+                        params['exit_reserve'], capabilities, limit)] if limit else []
         attempt = Sequence(f'{name} attempt', memory=True, children=[
+            *admit,
             Report(f'{name} start', 'stage_started', stage=name),
             Report(f'{name} decision', 'decision', stage=name, kind='start',
                    reason=f'starting {name}'),
@@ -68,7 +127,7 @@ def build(params):
             task,
             Report(f'{name} done', 'stage_completed', stage=name),
         ])
-        if index == 0:
+        if not optional:
             stages.append(attempt)  # mandatory
         else:
             stages.append(Selector(f'{name} or skip', memory=True, children=[
@@ -80,7 +139,7 @@ def build(params):
                 ])]))
     look = params.get('start_look_deg')
     if look:
-        stages.insert(0, start_look(math.radians(look)))
+        stages.insert(1, start_look(math.radians(look)))
     return Sequence('mission', memory=True, children=stages)
 
 
