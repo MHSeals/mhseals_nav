@@ -266,6 +266,54 @@ def test_a_goal_cancelled_by_someone_else_ends_the_run_after_the_tick(monkeypatc
         rclpy.try_shutdown()
 
 
+def test_a_hold_in_the_tick_a_mandatory_task_fails_skips_the_exit(monkeypatch):
+    """A goal cancelled outside the task fails the channel and closes the run at once.
+
+    The failed mandatory task would hand over to the exit; a human has the boat now,
+    so the run ends there: no exit, no goal after the tick.
+    """
+    from mhseals_nav.tasks.interface import load_params
+    from mhseals_nav.tasks.tracks import Track
+    rclpy.init()
+    runner = None
+    goals, events = [], []
+
+    def send(route, precise=False, quiet=False, why=''):
+        if runner.host.navigator.closed:
+            return None
+        goals.append(SimpleNamespace(done=False, status=None, cancel_requested=False,
+                                     cancel=lambda: None))
+        return goals[-1]
+
+    try:
+        params = {'tasks': ['nav_channel', 'return_home'], 'timeout': 100.0}
+        for name in params['tasks']:
+            params[name] = load_params(name)
+        runner = TaskRunner('mission', params)
+        monkeypatch.setattr(runner.host.navigator, 'ready', lambda: True)
+        monkeypatch.setattr(runner.host.navigator, 'send', send)
+        monkeypatch.setattr(runner, 'pose', lambda: (0.0, 0.0, 0.0))
+        monkeypatch.setattr(runner, 'now', lambda: 10.0)
+        monkeypatch.setattr(runner.host, 'sink', capture(events))
+        runner.host.remember([Track('red_pole_buoy', 7.0, 1.5, 0.9, None, True, False, '1'),
+                              Track('green_pole_buoy', 7.0, -1.5, 0.9, None, True, False, '2')])
+        runner.tick()
+        started = [d['stage'] for e, d in events if e == 'stage_started']
+        assert goals and started == ['nav_channel']
+        goals[-1].done, goals[-1].status = True, 'CANCELED'  # the TUI revoked it
+        sent = len(goals)
+        for _ in range(4):
+            runner.tick()
+        assert runner.host.outcome == 'PREEMPTED' and len(goals) == sent
+        assert [d['stage'] for e, d in events if e == 'stage_started'] == ['nav_channel']
+        assert 'course failed: on to return_home' not in [
+            d.get('reason') for e, d in events if e == 'decision']
+    finally:
+        if runner is not None:
+            runner.destroy_node()
+        rclpy.try_shutdown()
+
+
 def test_an_override_before_nav2_accepts_cancels_the_goal_on_the_way_out(monkeypatch):
     """Cancel a goal still in flight at an override on the real exit path.
 
