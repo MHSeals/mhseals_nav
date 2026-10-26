@@ -368,3 +368,20 @@ def test_samples_from_a_rotated_scan_measure_the_rotation():
         t += 0.3
     theta, se = est.fit()
     assert math.degrees(theta[1]) == pytest.approx(0.8, abs=0.15)
+
+
+@pytest.mark.parametrize('shape', [(1, 1), (3, 3), (2, 5), (5, 2), (4, 6)])
+def test_assignment_is_the_brute_force_optimum(shape):
+    from itertools import permutations
+    rng = np.random.default_rng(sum(shape))
+    for _ in range(20):
+        C = rng.uniform(0, 1, shape)
+        C[rng.uniform(size=shape) < 0.3] = 1e6
+        pairs = lf.assignment(C)
+        n = min(shape)
+        assert len(pairs) == n and len({r for r, _ in pairs}) == len({c for _, c in pairs}) == n
+        if shape[0] <= shape[1]:
+            best = min(sum(C[i, p[i]] for i in range(n)) for p in permutations(range(shape[1]), n))
+        else:
+            best = min(sum(C[p[j], j] for j in range(n)) for p in permutations(range(shape[0]), n))
+        assert sum(C[r, c] for r, c in pairs) == pytest.approx(best)

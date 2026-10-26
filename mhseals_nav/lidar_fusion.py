@@ -6,12 +6,13 @@ header and order, each boxed observation re-ranged along its own camera ray by t
 cluster it owns (a merged box may split), and every observation carries its full covariance
 in ``position_covariance`` (the tracker then runs with ``meas.depth_term: false``).
 
-Everything above the node class is pure numpy (scipy for the assignment). Internally points
+Everything above the node class is pure numpy. Internally points
 and observations live in optical axes (X right, Y down, Z forward); ``A`` maps the camera
 frame's axes into them.
 """
 
 from collections import deque
+import json
 import math
 import time
 
@@ -302,9 +303,48 @@ def candidates(boxes, P, u, v, rho):
     return keep
 
 
+def assignment(C):
+    """Minimum-cost one-to-one rows -> columns (Hungarian, e-maxx potentials), any shape.
+
+    Same optimum as scipy's linear_sum_assignment, without scipy: its apt build breaks under
+    the pip numpy 2 of the ROS images.
+    """
+    flip = C.shape[0] > C.shape[1]
+    A = C.T if flip else C
+    n, m = A.shape
+    u, v, p, way = np.zeros(n + 1), np.zeros(m + 1), np.zeros(m + 1, int), np.zeros(m + 1, int)
+    for i in range(1, n + 1):
+        p[0], j0 = i, 0
+        minv, used = np.full(m + 1, np.inf), np.zeros(m + 1, bool)
+        while True:
+            used[j0] = True
+            i0, delta, j1 = p[j0], np.inf, 0
+            for j in range(1, m + 1):
+                if not used[j]:
+                    cur = A[i0 - 1, j - 1] - u[i0] - v[j]
+                    if cur < minv[j]:
+                        minv[j], way[j] = cur, j0
+                    if minv[j] < delta:
+                        delta, j1 = minv[j], j
+            for j in range(m + 1):
+                if used[j]:
+                    u[p[j]] += delta
+                    v[j] -= delta
+                else:
+                    minv[j] -= delta
+            j0 = j1
+            if p[j0] == 0:
+                break
+        while j0:
+            j1 = way[j0]
+            p[j0] = p[j1]
+            j0 = j1
+    pairs = sorted((p[j] - 1, j - 1) for j in range(1, m + 1) if p[j])
+    return [(c, r) for r, c in pairs] if flip else pairs
+
+
 def associate(boxes, cls, ctx):
     """Per box: ('lidar', [c]) | ('split', [c...]) | ('ambiguous', []) | ('none', [])."""
-    from scipy.optimize import linear_sum_assignment
     cfg, fx = ctx.cfg, ctx.K[0]
     da_px = fx * cfg['delta_a_rad']
     nb, nc = len(boxes), len(cls)
@@ -317,7 +357,7 @@ def associate(boxes, cls, ctx):
     feasible = np.isfinite(C)
     owner = {}
     if nb and nc:
-        rows, cols = linear_sum_assignment(np.where(feasible, C, 1e6))
+        rows, cols = zip(*assignment(np.where(feasible, C, 1e6)))
         owner = {i: j for i, j in zip(rows, cols)
                  if feasible[i, j] and C[i, j] <= cfg['accept_cost']}
     taken = set(owner.values())
@@ -604,6 +644,8 @@ class LidarFusion(Node):
         self.K = self.image = None
         self.static = {}                          # frame -> (R, t) base<-frame
         self.scans = deque(maxlen=cfg['scans_kept'])
+        import threading
+        self.lock = threading.RLock()
         self.queue = deque()
         self.tf_stamps = deque(maxlen=400)        # odom<-base stamps from /tf
         self.attitude = deque()
@@ -618,6 +660,9 @@ class LidarFusion(Node):
         lossy = QoSProfile(depth=5, reliability=ReliabilityPolicy.BEST_EFFORT)
         self.pub = self.create_publisher(ObservationArray, cfg['output_topic'], lossy)
         self.status_pub = self.create_publisher(DiagnosticArray, '/perception/status', 1)
+        from std_msgs.msg import String
+        self.String = String     # per-frame source labels for the campaign (JSON)
+        self.sources_pub = self.create_publisher(String, cfg['sources_topic'], 10)
         self.create_subscription(ObservationArray, cfg['observations_topic'], self.on_frame,
                                  lossy)
         self.create_subscription(CameraInfo, cfg['camera_info_topic'], self.on_camera_info,
@@ -715,8 +760,10 @@ class LidarFusion(Node):
             pb, tau = pb[keep], tau[keep]
         t_s = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
         if len(tau):
-            self.scans.append({'t_s': t_s, 't_med': t_s + float(np.median(tau)), 'p': pb,
-                               'tau': tau})
+            with self.lock:
+                self.scans.append({'t_s': t_s, 't_med': t_s + float(np.median(tau)), 'p': pb,
+                                   'tau': tau})
+            self.drain()            # frames waiting for this scan
 
     @property
     def camera(self):
@@ -749,21 +796,28 @@ class LidarFusion(Node):
         self.drain()
 
     def drain(self):
-        while self.queue:
-            msg, _ = self.queue[0]
-            out = self.process(msg)
-            if out is None:
-                return          # waiting for TF
-            self.queue.popleft()
-            self.pub.publish(out)
+        with self.lock:         # the relay's pipe thread drains on each scan too
+            while self.queue:
+                msg, _ = self.queue[0]
+                out = self.process(msg)
+                if out is None:
+                    return          # waiting for TF or the scan
+                self.queue.popleft()
+                self.pub.publish(out)
+                stamp = out.header.stamp
+                self.sources_pub.publish(self.String(data=json.dumps(
+                    {'t': stamp.sec + stamp.nanosec * 1e-9, 'sources': self.sources,
+                     'skip': self.last_skip})))
 
     def skip(self, cause):
         self.skips[cause] = self.skips.get(cause, 0) + 1
+        self.last_skip = cause
 
     def process(self, msg):
         """Return the fused array, or None while TF may still arrive (at most tf_wait_s)."""
         started = time.process_time()
         cfg = self.cfg
+        self.last_skip = ''
         stamp = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
         t_c = stamp + cfg['image_time_offset_s']
         frame = cfg['camera_frame'] or msg.header.frame_id
@@ -775,6 +829,11 @@ class LidarFusion(Node):
             self.skip('extrinsic_error')
         elif any(ob.has_box2d for ob in msg.observations):
             scan = choose_scan(self.scans, t_c, cfg['scan_max_dt_s'])
+            # A sweep ends (and is stamped) up to 0.1 s after the image it covers: wait for
+            # it, as for TF, rather than skip (the campaign skipped 42-60% of smeared frames).
+            coming = not self.scans or self.scans[-1]['t_s'] < t_c + cfg['scan_max_dt_s'] / 2
+            if scan is None and coming and self.now() - stamp < cfg['tf_wait_s']:
+                return None
             if scan is None:
                 self.skip('no_scan')
             else:
@@ -850,6 +909,7 @@ class LidarFusion(Node):
         from copy import deepcopy
         out = deepcopy(msg)
         out.observations = []
+        self.sources = [s for s, *_ in rows]
         for source, i, p, cov, box2d, key in rows:
             self.counts[source] += 1
             ob = deepcopy(msg.observations[i]) if source == 'split' else msg.observations[i]

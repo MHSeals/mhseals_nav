@@ -7,9 +7,10 @@ from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
 BACKENDS = {'zed': 'zed_backend', 'sim': 'sim_backend'}
-# Sim: /points on the default graph, the camera's body-axes link and its camera_info.
+# Sim: /points on the default graph, the camera's body-axes link and its camera_info; crane's
+# IMU runs at 19-20 Hz, healthy next to the 4 Hz FCU stream the attitude gate is for.
 SIM_FUSION = {'points_transport': 'direct', 'camera_axes': 'body',
-              'camera_info_topic': '/front_camera/camera_info'}
+              'camera_info_topic': '/front_camera/camera_info', 'attitude_min_hz': 15.0}
 
 
 def fusion_config():

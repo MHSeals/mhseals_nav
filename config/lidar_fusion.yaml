@@ -7,6 +7,7 @@
     enabled: false
     observations_topic: /perception/observations
     output_topic: /perception/observations_fused
+    sources_topic: /perception/fusion_sources   # JSON source label per output observation
     camera_info_topic: /front/zed_node/rgb/color/rect/camera_info
     camera_frame: ''              # '' = the observations' header frame
     camera_axes: auto             # optical | body | auto ('optical' in the frame name)
