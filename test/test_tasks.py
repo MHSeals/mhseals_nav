@@ -98,6 +98,25 @@ def test_landmarks_outlive_the_memory_and_a_track_id_replaces_its_own_sighting()
     assert tracks.remember(memory, [far], now=1.0) == [(banner, 0.0), (far, 1.0)]
 
 
+def test_a_light_that_changes_colour_replaces_its_old_colour():
+    """A slip light's colours are one object: the new one is not kept beside the old."""
+    lights = {'green_light_beacon', 'red_light_beacon'}
+    green = Track('green_light_beacon', 3.6, 13.2, 0.9, None, False, False, '4')
+    red = Track('red_light_beacon', 3.7, 13.2, 0.9, None, False, False, '5')
+    horizons = dict.fromkeys(lights, 900.0)
+    memory = tracks.remember([], [green], now=0.0, horizons=horizons, exclusive=lights)
+    assert tracks.remember(memory, [red], now=1.0, horizons=horizons,
+                           exclusive=lights) == [(red, 1.0)]
+    # The tracker still holds the old colour a while: the fresher (more confident) wins.
+    stale = green._replace(confidence=0.3)
+    assert tracks.remember(memory, [red, stale], now=1.0, horizons=horizons,
+                           exclusive=lights) == [(red, 1.0)]
+    # Without the group (or apart from it) a label only replaces its own.
+    assert len(tracks.remember(memory, [red], now=1.0, horizons=horizons)) == 2
+    banner = Track('banner_1', 3.6, 13.0, 0.9, None, False, False, '6')
+    assert len(tracks.remember(memory, [banner], now=1.0, exclusive=lights)) == 2
+
+
 def test_dock_bays_open_toward_the_boat():
     banners = [(10, -5), (10, -3), (10, -1)]
     opening = geometry.dock_axis(banners, (10, -3), (0, 0, 0))

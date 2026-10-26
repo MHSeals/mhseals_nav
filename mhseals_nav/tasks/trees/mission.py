@@ -3,7 +3,9 @@
 The navigation channel must succeed (it is mandatory and first). A later task that
 fails is tried again up to its ``attempts`` while its time limit lasts; then it is
 reported as skipped and the run moves on, ending with the return home, which is
-never skipped: a failed exit fails the run.
+never skipped: a failed exit fails the run. A mandatory task that fails ends the
+course, not the run: the boat still goes home, and the run fails. Only a human
+taking control (the run is over) or a thruster no-go (the exit's own gate) stops it.
 """
 
 import math
@@ -86,6 +88,39 @@ class StartClock(Leaf):
         return Status.SUCCESS
 
 
+class CarryOn(Decorator):
+    """Turn the course's failure into success, so the exit still runs; remember it.
+
+    Not once the run is closed (preempted): then nothing more may go out.
+    """
+
+    def setup(self, **kwargs):
+        self.report, self.navigator = kwargs.get('report'), kwargs.get('navigator')
+
+    def initialise(self):
+        self.failed = False
+
+    def update(self):
+        if self.decorated.status != Status.FAILURE:
+            return self.decorated.status
+        if getattr(self.navigator, 'closed', False):
+            return Status.FAILURE
+        self.failed = True
+        self.report('decision', kind='give_up', reason=f'course failed: on to {EXIT}')
+        return Status.SUCCESS
+
+
+class Verdict(Leaf):
+    """After the exit: FAILURE when the course before it failed (``course`` CarryOn)."""
+
+    def __init__(self, name, course):
+        super().__init__(name)
+        self.course = course
+
+    def update(self):
+        return Status.FAILURE if self.course.failed else Status.SUCCESS
+
+
 EXIT = 'return_home'
 
 
@@ -149,7 +184,11 @@ def build(params):
     look = params.get('start_look_deg')
     if look:
         stages.insert(1, start_look(math.radians(look)))
-    return Sequence('mission', memory=True, children=stages)
+    if names[-1] != EXIT:
+        return Sequence('mission', memory=True, children=stages)
+    course = CarryOn('course done', Sequence('course', memory=True, children=stages[:-1]))
+    return Sequence('mission', memory=True, children=[
+        course, stages[-1], Verdict('course verdict', course)])
 
 
 def start_look(angle):

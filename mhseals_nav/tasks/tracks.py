@@ -41,27 +41,35 @@ def from_track_array(message):
     return tracks
 
 
-def remember(memory, seen, now, horizon=5.0, separation=1.0, horizons=None):
+def remember(memory, seen, now, horizon=5.0, separation=1.0, horizons=None, exclusive=()):
     """Merge ``seen`` tracks into ``memory`` [(Track, last_seen)], forgetting stale ones.
 
     A track is forgotten ``horizon`` s after it was last seen, or its label's own
     ``horizons`` entry (fixed landmarks). A sighting with a remembered track's id, or
     within ``separation`` of one of the same label, replaces it, so a track that drops
-    out for a moment stays put rather than flickering. Priors are never remembered: the
-    course map republishes them while they hold.
+    out for a moment stays put rather than flickering. The ``exclusive`` labels are
+    states of one object (a slip light's colours): a sighting of one within
+    ``separation`` replaces any of them, so a light that changed colour is not also
+    remembered as it was; of two in one call, the more confident stays. Priors are never
+    remembered: the course map republishes them while they hold.
     """
-    horizons = horizons or {}
+    horizons, exclusive = horizons or {}, set(exclusive)
+
+    def same(old, track):
+        return (old.label == track.label or {old.label, track.label} <= exclusive) and (
+            (track.id is not None and old.id == track.id)
+            or math.dist((track.x, track.y), (old.x, old.y)) < separation)
+
     kept = [(track, seen_at) for track, seen_at in memory
             if now - seen_at <= horizons.get(track.label, horizon)]
     for track in seen:
         if track.prior:
             continue
-        match = next((i for i, (old, _) in enumerate(kept) if old.label == track.label and (
-            (track.id is not None and old.id == track.id)
-            or math.dist((track.x, track.y), (old.x, old.y)) < separation)), None)
+        match = next((i for i, (old, _) in enumerate(kept) if same(old, track)), None)
         if match is None:
             kept.append((track, now))
-        else:
+        elif not (kept[match][1] == now and kept[match][0].label != track.label
+                  and kept[match][0].confidence > track.confidence):
             kept[match] = (track, now)
     return kept
 

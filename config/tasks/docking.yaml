@@ -14,6 +14,7 @@ landmarks: [red_circle, red_triangle, red_square, red_plus,
 berth: 1.2              # m from the banner to the boat's centre: bow 0.67 m off the spine, stern in the bay
 staging: 3.0            # m out from the banner, lined up before sliding in
 bay_depth: 1.5          # m the bay reaches out from the spine
+confirm_tries: 3        # staging poses lined up on, choosing again at each, before docking fails
 dock_time: 5.0          # s held in the bay
 berth_accept: 0.5       # m from the berth that counts as in the bay if Nav2 gives up
 # Holding: drift this far off the berth before driving back; the drive back ends on the

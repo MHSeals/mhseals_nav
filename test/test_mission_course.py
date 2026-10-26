@@ -242,13 +242,18 @@ def test_full_mission_without_a_layout_searches_and_recognises_its_way():
 # crane_ml course-gen seed 1 (2026 rules) in the start frame: test/fixtures/course_2026_s1.json.
 ELEMENTS_2026 = json.loads(
     (Path(__file__).parent / 'fixtures/course_2026_s1.json').read_text())['elements']
-COURSE_2026 = [tuple(e[:3]) for e in ELEMENTS_2026]
+SEED_2026 = [tuple(e[:3]) for e in ELEMENTS_2026]
+# Seed 1 with a boat in green slip 1 (centre 1.2 m out from banner_1, as the far pier's
+# boat stands from its banner_2): the run sees it only at the start look, so docking
+# starts on remembered slips and must find it taken at the staging pose.
+SLIP_1_BOAT = ('boat', 4.563, 11.99)
+COURSE_2026 = SEED_2026 + [SLIP_1_BOAT]
 SWAP = {'red_pole_buoy': 'green_pole_buoy', 'green_pole_buoy': 'red_pole_buoy',
         'red_buoy': 'green_buoy', 'green_buoy': 'red_buoy'}
 # The same course with side S on the other side: mirrored across the start line, the
 # gates' colours swapped so red stays to port, lights and banners as they were.
 MIRRORED_2026 = [(SWAP.get(label, label) if role == 'gate' else label, x, -y)
-                 for label, x, y, _task, role in ELEMENTS_2026]
+                 for label, x, y, _task, role in ELEMENTS_2026 + [[*SLIP_1_BOAT, '', '']]]
 
 
 @pytest.mark.parametrize('course, side', [(COURSE_2026, 1), (MIRRORED_2026, -1)],
@@ -269,10 +274,11 @@ def test_full_2026_mission_finds_and_completes_every_task_by_search(course, side
     assert skipped == ['supply_drop'], decisions
     assert 'supply_drop: capability off (water_gun, ball_dropper)' in decisions
     assert names.count('stage_completed') == 5
-    # Marina: the lowest-numbered free green slip is N3, banner_1 (truth 3.39, 12.84).
+    # Marina: green slip 1 holds a boat, so the lowest-numbered free green slip is
+    # slip 2 (banner_2, truth 2.20, 11.20).
     docked = next(d for e, d in world.events if e == 'docked')
-    assert docked['bay_number'] == 1 and docked['bay_colour'] == 'green'
-    assert docked['bay'] == pytest.approx((3.39, side * 12.842))
+    assert docked['bay_number'] == 2 and docked['bay_colour'] == 'green'
+    assert docked['bay'] == pytest.approx((2.199, side * 11.2))
     # Debris: both green beacons circled, and the debris positions reported.
     assert sum(1 for g in world.goals if g.why.startswith('round the beacon')) >= 4
     reported = {tuple(d['position']) for e, d in world.events if e == 'debris'}
@@ -302,10 +308,84 @@ def test_the_marina_found_at_the_start_is_docked_at_field_speed(landmarks):
     docked = [d for e, d in world.events if e == 'docked']
     assert outcome == 'SUCCESS'
     if landmarks:
-        assert [(d['bay_colour'], d['bay_number']) for d in docked] == [('green', 1)]
+        # The boat in slip 1 was forgotten by docking: slip 1 was chosen from memory,
+        # then found taken at its staging pose.
+        assert [(d['bay_colour'], d['bay_number']) for d in docked] == [('green', 2)]
+        assert 'green slip 2: the chosen one is not free' in [
+            d['reason'] for e, d in world.events if e == 'decision']
     else:
         assert docked == [] and ('stage_skipped', {'stage': 'docking'}) in [
             (e, {'stage': d.get('stage')}) for e, d in world.events if e == 'stage_skipped']
+
+
+class Changing(Course):
+    """A course that changes (``change``: old element -> new) as the boat lines up on a slip."""
+
+    def __init__(self, params, change, **kwargs):
+        super().__init__(params, **kwargs)
+        self.change = change
+
+    def send(self, route, precise=False, quiet=False, why='', reverse=None):
+        if why.startswith('line up on') and self.change:
+            self.course = [self.change.get(e, e) for e in self.course]
+            self.course += [new for old, new in self.change.items() if old is None]
+            self.change = None
+        return super().send(route, precise, quiet, why, reverse)
+
+
+GREEN_1 = ('green_light_beacon', 3.654, 13.206)
+
+
+@pytest.mark.parametrize('change', [{None: SLIP_1_BOAT},
+                                    {GREEN_1: ('red_light_beacon', *GREEN_1[1:])}],
+                         ids=['a-boat-moves-in', 'the-light-turns-red'])
+def test_a_slip_taken_while_the_boat_lines_up_is_not_entered(change):
+    """Slip 1 is free and green when docking starts, then not as the boat lines up on it.
+
+    At the staging pose, with the slip in view, the choice is made again: the boat
+    lines up on green slip 2 instead and docks there, never driving into slip 1.
+    """
+    world = Changing(mission('mission_2026.yaml'), change, course=SEED_2026)
+    outcome, _ = world.run()
+    docked = [(d['bay_colour'], d['bay_number']) for e, d in world.events if e == 'docked']
+    slips = [d['reason'] for e, d in world.events if e == 'decision' and d['kind'] == 'slip']
+    assert outcome == 'SUCCESS' and docked == [('green', 2)], slips
+    assert slips == ['green slip 1', 'green slip 2: the chosen one is not free']
+    berths = [g.route[-1][:2] for g in world.goals if g.why == 'slide into the bay']
+    slip_1 = (3.39 + 1.3 * 0.81, 12.842 - 1.3 * 0.59)  # its berth, roughly
+    assert berths and all(math.dist(b, slip_1) > 1.5 for b in berths)
+
+
+def test_a_failed_mandatory_task_still_goes_home():
+    """With no channel to pass, the run still goes home, and fails.
+
+    The mandatory first task fails; the exit runs all the same.
+    """
+    params = mission('mission_crane.yaml')
+    params['nav_channel']['time_limit'] = 60.0
+    world = Course(params, course=[o for o in COURSE if 'pole' not in o[0]])
+    outcome, _ = world.run()
+    decisions = [d['reason'] for e, d in world.events if e == 'decision']
+    assert outcome == 'FAILURE' and 'course failed: on to return_home' in decisions
+    assert world.names()[-2:] == ['returned_home', 'stage_completed']
+    started = [d['stage'] for e, d in world.events if e == 'stage_started']
+    assert started == ['nav_channel', 'return_home']
+
+
+def test_the_host_hands_the_trees_its_actuators_and_none_is_on_by_default():
+    from mhseals_nav.tasks.actuators import Unavailable
+    from mhseals_nav.tasks.behaviours import Deliver
+    params = mission('mission_2026.yaml')
+    world = Course(params, course=COURSE_2026)
+    assert all(isinstance(a, Unavailable) for a in world.host.actuators.values())
+    assert sorted(world.host.actuators) == ['ball_dropper', 'horn', 'water_gun']
+    gun = object()
+    params['capabilities'] = dict(params['capabilities'], water_gun=True)
+    host = MissionHost('mission', params, world, world.sink, lambda: world.now,
+                       actuators={'water_gun': gun, 'ball_dropper': object()})
+    delivers = [b for b in host.tree.root.iterate() if isinstance(b, Deliver)]
+    assert delivers and all(d.actuator is gun for d in delivers)
+    assert isinstance(host.actuators['ball_dropper'], Unavailable)  # given, but off
 
 
 def test_a_short_run_skips_the_task_worth_least_per_second_and_still_gets_out():

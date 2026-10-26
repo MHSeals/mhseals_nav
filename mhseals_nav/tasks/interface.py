@@ -293,38 +293,21 @@ class TaskRunner(Node):
         self.create_subscription(String, AUTHORITY_TOPIC, self._authority, latched)
         self.create_timer(1.0 / float(params.get('tick_hz', 10.0)), self.tick)
 
-    # The host's state, read and set where the tests and run() reach for it.
-    navigator = property(lambda self: self.host.navigator)
-    board = property(lambda self: self.host.board)
-    memory_horizon = property(lambda self: self.host.memory_horizon)
-    outcome = property(lambda self: self.host.outcome)
-    owner = property(lambda self: self.host.owner)
-    objects = property(lambda self: self.host.objects,
-                       lambda self, value: setattr(self.host, 'objects', value))
-    started = property(lambda self: self.host.started,
-                       lambda self, value: setattr(self.host, 'started', value))
-    stage = property(lambda self: self.host.stage,
-                     lambda self, value: setattr(self.host, 'stage', value))
-
     def _publish_event(self, payload):
         self.events.publish(String(data=json.dumps(payload, default=str)))
         details = {k: v for k, v in payload.items()
                    if k not in ('schema', 'task', 'event', 'time', 'elapsed')}
         self.get_logger().info(f"{payload['event']} {details}")
 
-    def _remember(self, seen, priors=None):
-        self.host.remember(seen, priors)
-
     def _objects(self, message):
         # Remembered for a few seconds, so a track that drops out briefly does not
         # make a sighting flicker. Superseded while perception v2 tracks arrive.
         if self.v2_at is None or self.now() - self.v2_at > self.config['tracks_supersede_s']:
-            self._remember(tracks.from_detections(message))
+            self.host.remember(tracks.from_detections(message), priors=False)
 
     def _tracks(self, message):
         self.v2_at = self.now()
-        seen = tracks.from_track_array(message)
-        self._remember(seen, [track for track in seen if track.prior])
+        self.host.remember(tracks.from_track_array(message))  # as MissionHost.tick does
 
     def _status(self, message):
         """Take the camera's field of view from the perception backend's status."""
@@ -374,9 +357,9 @@ class TaskRunner(Node):
         except (ValueError, AttributeError, TypeError):
             self.host.owner = None
         self.suspended = claim_suspended(message.data)
-        if self.suspended and self.outcome is None and self.started is not None:
+        if self.suspended and self.host.outcome is None and self.host.started is not None:
             self.preempt()
-        elif self.suspended and self.outcome is None:
+        elif self.suspended and self.host.outcome is None:
             self.refuse()
 
     def refuse(self):
@@ -407,9 +390,9 @@ class TaskRunner(Node):
                 math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z)))
 
     def tick(self):
-        if self.outcome is not None:
+        if self.host.outcome is not None:
             return
-        if self.started is None and self.now() == 0:  # waiting for /clock
+        if self.host.started is None and self.now() == 0:  # waiting for /clock
             return
         self.host.tick(self.pose())
 
@@ -420,11 +403,11 @@ class TaskRunner(Node):
         live until then: else Nav2 drives an orphan as soon as the mux returns to auto.
         """
         deadline = time.monotonic() + float(self.config['exit_settle_s'])
-        while rclpy.ok() and not self.navigator.settled() and time.monotonic() < deadline:
+        while rclpy.ok() and not self.host.navigator.settled() and time.monotonic() < deadline:
             rclpy.spin_once(self, timeout_sec=0.05)
-        settled = self.navigator.settled()
+        settled = self.host.navigator.settled()
         if not settled:  # an operator must know a goal may still be live in Nav2
-            open_goals = len(self.navigator.goals)
+            open_goals = len(self.host.navigator.goals)
             self.get_logger().warning(f'{open_goals} Nav2 goal(s) still open after '
                                       f"{self.config['exit_settle_s']} s")
             self.report('goals_unsettled', count=open_goals)
@@ -436,7 +419,7 @@ class TaskRunner(Node):
 def run(runner):
     """Tick until the task ends, then stay until Nav2 holds none of its goals."""
     try:
-        while rclpy.ok() and runner.outcome is None:
+        while rclpy.ok() and runner.host.outcome is None:
             rclpy.spin_once(runner, timeout_sec=0.1)
     except KeyboardInterrupt:
         runner.finish('FAILURE')
@@ -461,7 +444,7 @@ def main(args=None):
     finally:
         runner.destroy_node()
         rclpy.try_shutdown()
-    sys.exit(EXIT_CODES[runner.outcome or 'FAILURE'])
+    sys.exit(EXIT_CODES[runner.host.outcome or 'FAILURE'])
 
 
 if __name__ == '__main__':

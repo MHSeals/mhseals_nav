@@ -155,7 +155,7 @@ def segment_distance(point, a, b):
 
 
 def paired(objects, pair):
-    """The (label, x, y) objects of ``pair['label']`` with each of ``pair['with']`` near.
+    """Return the (label, x, y) objects of ``pair['label']`` with each of ``pair['with']`` near.
 
     Near is between ``pair['min']`` and ``pair['max']`` m. It tells a task's mark from
     a look-alike: the speed turn mark lies 12-31 m past its red/green gate, the harbor

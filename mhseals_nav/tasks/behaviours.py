@@ -805,19 +805,47 @@ class ReportCount(Driver):
         return Status.RUNNING
 
 
-class PlanBay(Leaf):
+class PlanDock(Leaf):
+    """Choose a bay and write it; with ``confirm``, check the bay already chosen.
+
+    The first choice may rest on remembered tracks (a vessel out of view is soon
+    forgotten, a light may have changed). At the staging pose, with the bay in view,
+    a ``confirm`` choice that is not the bay being driven to writes the new one and
+    fails, so the boat lines up on that one instead of driving into a taken bay.
+    """
+
+    def __init__(self, name, key, writes, confirm=False):
+        super().__init__(name, writes=writes)
+        self.key, self.confirm = key, confirm
+
+    def changed(self, target):
+        """Whether ``target`` (a banner xy) is not the bay chosen before (confirm only)."""
+        before = (self.board.get(self.key) if self.confirm and self.board.exists(self.key)
+                  else None)
+        return before is not None and math.dist(before, target) > 0.5
+
+    def write(self, target, values):
+        changed = self.changed(target)
+        for suffix, value in (('', target), *values):
+            self.board.set(self.key + suffix, value, overwrite=True)
+        if changed:
+            self.feedback_message = 'the bay is no longer free: line up on another'
+            return Status.FAILURE
+        return Status.SUCCESS
+
+
+class PlanBay(PlanDock):
     """Choose the nearest empty bay under the banner of the day and write its poses.
 
     Writes ``key`` + ``_staging`` and ``_berth`` (one-pose routes) and the
     chosen banner position to ``key``. A bay is occupied when a vessel is
-    tracked within ``vessel_radius`` of its centre.
+    tracked within ``vessel_radius`` of its centre. ``confirm``: see PlanDock.
     """
 
     def __init__(self, name, key, banner, banners, vessels, berth=0.85, staging=3.0,
-                 depth=1.5, vessel_radius=1.0):
-        super().__init__(name, writes=(key, key + '_staging', key + '_berth'))
-        self.key, self.banner, self.banners, self.vessels = key, banner, tuple(banners), \
-            tuple(vessels)
+                 depth=1.5, vessel_radius=1.0, confirm=False):
+        super().__init__(name, key, (key, key + '_staging', key + '_berth'), confirm)
+        self.banner, self.banners, self.vessels = banner, tuple(banners), tuple(vessels)
         self.berth, self.staging, self.depth, self.vessel_radius = berth, staging, depth, \
             vessel_radius
 
@@ -837,13 +865,11 @@ class PlanBay(Leaf):
             self.feedback_message = f'no empty bay under {self.banner}'
             return Status.FAILURE
         _, target, poses = min(options, key=lambda option: option[0])
-        self.board.set(self.key, target, overwrite=True)
-        self.board.set(self.key + '_staging', [poses['staging']], overwrite=True)
-        self.board.set(self.key + '_berth', [poses['berth']], overwrite=True)
-        return Status.SUCCESS
+        return self.write(target, (('_staging', [poses['staging']]),
+                                   ('_berth', [poses['berth']])))
 
 
-class PlanSlip(Leaf):
+class PlanSlip(PlanDock):
     """Choose the best free slip of a marina by its indicator and number; write its poses.
 
     Each indicator (``indicators``: label -> colour) belongs to the nearest number
@@ -852,15 +878,15 @@ class PlanSlip(Leaf):
     green, lowest number first), then the nearest. A slip is taken when a vessel is
     tracked within ``vessel_radius`` of its centre. The bay opens on the normal of
     the banners within ``pier_radius`` (one pier's spine). Writes as PlanBay, plus
-    ``key``_number and ``key``_colour.
+    ``key``_number and ``key``_colour. ``confirm``: see PlanDock.
     """
 
     def __init__(self, name, key, indicators, banners, vessels, prefer=('green',),
                  berth=0.85, staging=3.0, depth=1.5, vessel_radius=1.0, pair_radius=1.0,
-                 pier_radius=5.0):
-        super().__init__(name, writes=(key, key + '_staging', key + '_berth',
-                                       key + '_number', key + '_colour'))
-        self.key, self.indicators, self.banners = key, dict(indicators), dict(banners)
+                 pier_radius=5.0, confirm=False):
+        super().__init__(name, key, (key, key + '_staging', key + '_berth', key + '_number',
+                                     key + '_colour'), confirm)
+        self.indicators, self.banners = dict(indicators), dict(banners)
         self.vessels, self.prefer = tuple(vessels), tuple(prefer)
         self.berth, self.staging, self.depth = berth, staging, depth
         self.vessel_radius, self.pair_radius, self.pier_radius = (
@@ -899,12 +925,12 @@ class PlanSlip(Leaf):
             return Status.FAILURE
         colour, number, banner, poses = min(
             options, key=lambda s: (s[1], math.dist(s[2], pose[:2])))
-        self.decide('slip', f'{colour} slip {number}')
-        for suffix, value in (('', banner), ('_staging', [poses['staging']]),
-                              ('_berth', [poses['berth']]), ('_number', number),
-                              ('_colour', colour)):
-            self.board.set(self.key + suffix, value, overwrite=True)
-        return Status.SUCCESS
+        if not self.confirm or self.changed(banner):
+            self.decide('slip', f'{colour} slip {number}'
+                        + (': the chosen one is not free' if self.confirm else ''))
+        return self.write(banner, (('_staging', [poses['staging']]),
+                                   ('_berth', [poses['berth']]), ('_number', number),
+                                   ('_colour', colour)))
 
 
 class Hold(Driver):

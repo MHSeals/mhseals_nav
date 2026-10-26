@@ -11,9 +11,11 @@ The caller supplies the world each tick (``tick(pose, tracks, fov)``) and the ou
   sink       ``sink(payload)``: every task_events/1 dict, as /task/events carries it
   clock      ``clock()`` -> seconds
 
-Optional: ``status_sink(dict)`` gets mission_status/1 (on change, at most 5 Hz, and at
-1 Hz), ``hypotheses_sink(dict)`` task_hypotheses/1 at 1 Hz, and ``on_tick(now)`` runs
-just before the tree ticks (the node feeds the thruster-health check from it).
+Optional: ``actuators`` {capability: actuator} (tasks/actuators.py; only those the
+``capabilities`` YAML turns on are used), ``status_sink(dict)`` gets mission_status/1
+(on change, at most 5 Hz, and at 1 Hz), ``hypotheses_sink(dict)`` task_hypotheses/1 at
+1 Hz, and ``on_tick(now)`` runs just before the tree ticks (the node feeds the
+thruster-health check from it).
 """
 
 import math
@@ -21,6 +23,7 @@ from pathlib import Path
 
 from mhseals_nav.navigation_config import load_strict
 from mhseals_nav.tasks import load_config, tracks as track_memory
+from mhseals_nav.tasks.actuators import fitted
 from mhseals_nav.tasks.conditions import Conditions
 from mhseals_nav.tasks.recognition import Recogniser
 from mhseals_nav.tasks.search import Coverage, load_config as load_search
@@ -63,7 +66,7 @@ class MissionHost:
     STATUS_PERIOD, STATUS_MIN_GAP, RECENT = 1.0, 0.2, 5  # s, s, decisions kept in the status
 
     def __init__(self, task, params, navigator, sink, clock, status_sink=None,
-                 hypotheses_sink=None, on_tick=None):
+                 hypotheses_sink=None, on_tick=None, actuators=None):
         self.task, self.navigator, self.sink, self.clock = task, navigator, sink, clock
         self.status_sink, self.hypotheses_sink, self.on_tick = (
             status_sink, hypotheses_sink, on_tick)
@@ -72,11 +75,13 @@ class MissionHost:
         self.objects, self.tracks, self.memory, self.priors = [], [], [], []
         self.memory_horizon = float(params.get('memory', 5.0))
         # Fixed course markers (a task's ``landmarks``) outlive ``memory``: see tick().
+        # A slip light's colours (a task's ``indicators``) are states of one object.
         stages = params.get('tasks', [task] if task != 'mission' else [])
+        configs = [params] + [params.get(n) or {} for n in stages]
         self.landmarks = dict.fromkeys(
-            [label for p in [params] + [params.get(n) or {} for n in stages]
-             for label in p.get('landmarks', ())],
+            [label for p in configs for label in p.get('landmarks', ())],
             float(params.get('landmark_memory', 900.0)))
+        self.exclusive = {label for p in configs for label in p.get('indicators') or ()}
         search = load_search(params.get('search'))
         self.coverage_config = search
         self.fov = (math.radians(float(search['hfov_deg'])), float(search['range_m']))
@@ -97,19 +102,26 @@ class MissionHost:
         self.board.fov = self.fov
         self.tree = py_trees.trees.BehaviourTree(TREES[task](params))
         navigator.report = self.report
+        # Every capability is off unless the YAML turns it on and an actuator is given.
+        self.actuators = fitted(params.get('capabilities'), actuators)
         self.tree.setup(timeout=15.0, navigator=navigator, report=self.report,
-                        preempt=self.preempt, runner=self.config)
+                        preempt=self.preempt, runner=self.config, actuators=self.actuators)
         self.started = None
         self.outcome = None
 
     # World memory -------------------------------------------------------------------
 
-    def remember(self, seen, priors=None):
-        """Remember tracks seen now; ``priors`` replaces the course-map priors."""
-        if priors is not None:
-            self.priors = priors  # republished while they hold
+    def remember(self, seen, priors=True):
+        """Remember one tracker message's tracks, seen now.
+
+        Its course-map priors (``prior`` true) replace the remembered ones, unless
+        ``priors`` is false (a source that carries none, such as /objects/map).
+        """
+        if priors:
+            self.priors = [track for track in seen if track.prior]  # republished while held
         self.memory = track_memory.remember(self.memory, seen, self.clock(),
-                                            self.memory_horizon, horizons=self.landmarks)
+                                            self.memory_horizon, horizons=self.landmarks,
+                                            exclusive=self.exclusive)
         self._world()
 
     def _world(self):
@@ -201,7 +213,8 @@ class MissionHost:
         if self.memory:
             before = len(self.memory)
             self.memory = track_memory.remember(self.memory, [], now, self.memory_horizon,
-                                                horizons=self.landmarks)
+                                                horizons=self.landmarks,
+                                                exclusive=self.exclusive)
             if len(self.memory) != before:
                 self._world()
         self.board.objects, self.board.tracks = self.objects, self.tracks
