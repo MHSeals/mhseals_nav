@@ -467,6 +467,9 @@ class GateRun(Driver):
     order, so a gate crossed the wrong way never counts; ``any`` takes either.
     ``corner_side`` (m) is when a turn between gates gets a mid-point, and
     ``exit_after`` (m) how far past each gate the route goes on (geometry.chain).
+    While ``gates`` still owes one after a gate is cleared, the search goes on up to
+    ``next_search`` metres (the next gate may stand beyond camera range); a run that
+    ends short of ``gates`` fails, never claims success.
     The cleared gates go to ``key``; each is reported as ``gate_cleared``.
     """
 
@@ -474,7 +477,7 @@ class GateRun(Driver):
                  max_width=8.0, min_width=1.0, near=None, radius=None, lookahead=3,
                  replan=0.7, retries=2, exclude=(), toward=None, red_side='any',
                  first_radius=None, exclude_radius=None, spread=None, corner_side=None,
-                 exit_after=None):
+                 exit_after=None, next_search=None):
         super().__init__(name, reads=((near,) if near else ()) + tuple(exclude),
                          writes=(key,))
         if red_side not in ('port', 'starboard', 'any'):
@@ -485,7 +488,7 @@ class GateRun(Driver):
         self.search, self.step, self.max_width, self.min_width = search, step, max_width, min_width
         self.near, self.radius, self.lookahead = near, radius, lookahead
         self.replan, self.retries, self.corner_side = replan, retries, corner_side
-        self.exit_after = exit_after
+        self.exit_after, self.next_search = exit_after, next_search
 
     def initialise(self):
         super().initialise()
@@ -604,7 +607,10 @@ class GateRun(Driver):
             self.decide('search', 'no gate ahead: looking around')
             self.looks = 2 if coverage is not None else geometry.look_around(
                 (*pose[:2], direction))
-        if coverage is not None and self.looks and self.searched < self.search:
+        reach = self.search
+        if self.cleared and self.limit is not None and self.next_search is not None:
+            reach = max(reach, self.next_search)  # owed a gate: it may be out of range
+        if coverage is not None and self.looks and self.searched < reach:
             self.looks -= 1
             self.searched += self.step  # a look drives a leg too
             bearing = coverage.bearing_gaps(pose, self.board.fov, self.spread, direction)
@@ -615,13 +621,17 @@ class GateRun(Driver):
         elif self.looks:
             self.drive(self.looks.pop(0), why='sweep the camera for the next gate')
             return Status.RUNNING
-        if self.searched < self.search:
+        if self.searched < reach:
             self.searched += self.step
             self.looks = 1 if coverage is not None else []
             self.drive([geometry.forward((*pose[:2], direction), self.step)],
                        why='drive on to find the next gate')
             return Status.RUNNING
         self.feedback_message = f'{len(self.cleared)} gates, none ahead'
+        if self.cleared and self.limit is not None and len(self.cleared) < self.limit:
+            self.decide('give_up', f'{len(self.cleared)} of {self.limit} gates: '
+                                   f'none ahead in {reach:.0f} m')
+            return Status.FAILURE
         return Status.SUCCESS if self.cleared else Status.FAILURE
 
 

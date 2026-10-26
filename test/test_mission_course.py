@@ -251,3 +251,34 @@ def test_a_short_run_skips_the_task_worth_least_per_second_and_still_gets_out():
     assert any(r.startswith('no time for docking') for r in decisions)
     assert 'speed_finished' in world.names()
     assert world.names()[-2:] == ['returned_home', 'stage_completed']
+
+
+@pytest.mark.parametrize('spacing', [20.1, 25.0, 30.0, 40.0])
+def test_the_channel_is_entered_through_both_gates_however_far_apart(spacing):
+    """The second entry gate may lie past the camera's 20 m range from the first.
+
+    The channel is two gates: after the first, the boat searches forward until it sees
+    and crosses the second, rather than calling the channel done after one.
+    """
+    red, green = ELEMENTS_2026[0][:3], ELEMENTS_2026[1][:3]
+    course = [red, green, ('red_pole_buoy', red[1] + spacing, 1.36),
+              ('green_pole_buoy', green[1] + spacing, -1.36)]
+    params = dict(mission('mission_2026.yaml'), tasks=['nav_channel'])
+    world = Course(params, course=course)
+    outcome, _ = world.run(300.0)
+    decisions = [d['reason'] for e, d in world.events if e == 'decision']
+    cleared = [d['position'] for e, d in world.events if e == 'gate_cleared']
+    assert outcome == 'SUCCESS' and len(cleared) == 2, decisions
+    assert cleared[1][0] == pytest.approx(red[1] + spacing, abs=0.5)
+
+
+def test_a_channel_short_of_its_second_gate_is_never_claimed_done():
+    """With gate 2 past the whole forward search, one gate fails the channel."""
+    red, green = ELEMENTS_2026[0][:3], ELEMENTS_2026[1][:3]
+    course = [red, green, ('red_pole_buoy', red[1] + 90.0, 1.36),
+              ('green_pole_buoy', green[1] + 90.0, -1.36)]
+    world = Course(dict(mission('mission_2026.yaml'), tasks=['nav_channel']), course=course)
+    outcome, _ = world.run(300.0)
+    decisions = [d['reason'] for e, d in world.events if e == 'decision']
+    assert outcome != 'SUCCESS' and 'stage_completed' not in world.names()
+    assert any(r.startswith('1 of 2 gates: none ahead') for r in decisions), decisions

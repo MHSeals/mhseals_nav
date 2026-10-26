@@ -8,6 +8,7 @@ red_side: port
 gates: 2
 max_gate_width: 8.0     # m; wider red/green pairs are not one gate
 search_distance: 10.0   # m driven ahead while looking for the next gate
+next_gate_search: 50.0  # m searched on past gate 1 for gate 2 (it may stand past camera range)
 first_gate_radius: 30.0 # m; the task's first gate is the nearest within this, any way
 corner_side: 1.0        # m the next gate lies to the side before the route gets a mid-point
 gate_exit: 1.1          # m past each gate: half the hull (0.53) and a margin
