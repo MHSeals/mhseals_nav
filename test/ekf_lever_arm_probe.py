@@ -19,8 +19,8 @@ import tempfile
 import time
 
 from ament_index_python.packages import get_package_prefix
-import rclpy
 from nav_msgs.msg import Odometry
+import rclpy
 from sensor_msgs.msg import Imu, NavSatFix
 import yaml
 
