@@ -87,6 +87,14 @@ def test_deskew_puts_every_point_where_it_was_at_the_stamp():
     assert fixed < 1e-3
 
 
+def test_deskew_uses_only_a_fresh_twist():
+    from mhseals_nav.lidar_relay import fresh_twist, TWIST_MAX_AGE
+    twist = {'w': 0.3, 'v': (1., 0.), 'at': 100.}
+    assert fresh_twist({}, 100.) is None                     # no /odom/local yet
+    assert fresh_twist(twist, 100. + TWIST_MAX_AGE / 2) == (0.3, (1., 0.))
+    assert fresh_twist(twist, 100.01 + TWIST_MAX_AGE) is None  # ekf_local stalled: as scanned
+
+
 def test_deskew_leaves_clouds_without_point_times_alone():
     from mhseals_nav.lidar_relay import deskew
     from sensor_msgs.msg import PointField

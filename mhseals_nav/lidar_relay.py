@@ -41,6 +41,13 @@ def decimate(message, max_bytes):
 TWIST_MAX_AGE = 0.3   # s; an older twist leaves the cloud as scanned
 
 
+def fresh_twist(twist, now):
+    """Return the latest (yaw_rate, velocity) if under TWIST_MAX_AGE old at now, else None."""
+    if 'at' in twist and now - twist['at'] < TWIST_MAX_AGE:
+        return twist['w'], twist['v']
+    return None
+
+
 def deskew(message, yaw_rate, velocity):
     """Move each point to where the sensor saw it at the header stamp.
 
@@ -133,8 +140,9 @@ def publish(pipe, topic):
         while pipe.poll(0):
             payload = pipe.recv_bytes()
         cloud = deserialize_message(payload, PointCloud2)
-        if time.monotonic() - twist.get('at', -1e9) < TWIST_MAX_AGE:
-            cloud = deskew(cloud, twist['w'], twist['v'])
+        motion = fresh_twist(twist, time.monotonic())
+        if motion:
+            cloud = deskew(cloud, *motion)
         publisher.publish(cloud)
 
 
