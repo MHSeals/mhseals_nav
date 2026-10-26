@@ -41,7 +41,13 @@
     gap_min_m: 0.3
     ring_spacing_deg: 2.0
     n_frac: 0.3
-    near_face_k: 0.87             # rho_obj = median near face + 0.87 R
+    # rho_obj = median near face + k R, k of the longest class-name suffix listed. 0.87 is a
+    # vertical cylinder; the others are fitted on sim E0 lidar ranges (S1, S3, S4, S6, 5 seeds:
+    # balls read +0.041 m and pole buoys +0.124 m long at 0.87). Refit from boat bags.
+    near_face_k:
+      default: 0.87
+      buoy: 0.67                  # a sphere's rings hit chords: (pi/4)^2 = 0.62 in theory
+      pole_buoy: 0.38             # the lidar sees the narrow pole, not the 0.25 m class disc
     gate_pad_m: 0.3
     iou_min: 0.3
     accept_cost: 1.0
@@ -50,16 +56,22 @@
     # Covariance
     sigma_w_m: 0.03
     bias_radius_frac: 0.15
-    sigma_t_ext_m: 0.05           # 0.02 once calibrated on the mast
+    # Calibrated (board, design §6) value, required before enabling. Sim E0 per-pass lidar
+    # bias was 0.029 m RMS after the near-face fit, which 0.15 R alone covers; 0.05 tripled
+    # sigma_r and held the fused track NEES at 0.16-0.43.
+    sigma_t_ext_m: 0.02
     bias_time_s: 1.0
     box_beta_frac: 0.05
     split_beta_rad: 0.0052
     sigma_z_m: 0.5
     rate_alpha: 0.3
     default_hz: 10.0
-    held_alpha: 0.3
+    # Held ratio: the stereo bias moves a lot between frames (sim ACF 0.86 at 0.125 s), so
+    # keep the latest lidar ratio (alpha 1) and shrink it by e^(-age/tau). tau 1.5 s gave the
+    # least held MSE on sim E0 (the depth noise alone fits 0.9 s; a box offset persists).
+    held_alpha: 1.0
     held_s: 2.0
-    held_tau_s: 1.0
+    held_tau_s: 1.5
     # Extrinsic estimate (detect and alert; applies at most apply_max_deg)
     isolation_deg: 2.0
     border_px: 2.0
@@ -68,7 +80,7 @@
     extrinsic:
       window_n: 60
       min_n: 30
-      stride: 20
+      stride: 10                  # S2 gave ~1 sample/s: at 20 its only fit fell in the spin
       sample_dt_s: 0.2
       sigma_u_px: 1.5
       # Weak priors [w_x, w_y, w_z (rad), c_x, c_y, c_z (m), tau (s)] keep the fit regular.

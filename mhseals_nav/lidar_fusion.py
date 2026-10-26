@@ -175,13 +175,20 @@ class HeldRatio:
         h['t'], h['s2'] = t, sigma_r2
 
     def held(self, key, t, rho_s, depth_k):
-        """(k, sigma_r^2) for a stereo-only frame within hold_s of the last match, else None."""
+        """(k, sigma_r^2) for a stereo-only frame within hold_s of the last match, else None.
+
+        The stereo bias is AR(1) (tau_s): its prediction at age a is phi = e^(-a/tau_s) times
+        the last one, error variance (depth_k rho^2)^2 (1 - phi^2); holding k unshrunk costs
+        2 (1 - phi), worse than plain stereo past a = 0.7 tau_s. The variance is doubled
+        (capped at stereo's): frames that miss lidar are those whose stereo jumped (range
+        gate), and sim E0 held errors ran 1.2-2.4x the AR(1) value.
+        """
         h = self.ids.get(key) if key else None
         if h is None or not 0 <= t - h['t'] <= self.hold_s:
             return None
-        age = t - h['t']
-        s_age = depth_k * rho_s ** 2 * min(1.0, math.sqrt(2 * (1 - math.exp(-age / self.tau_s))))
-        return h['k'], h['s2'] + rho_s ** 2 * h['var'] + s_age ** 2
+        phi = math.exp(-(t - h['t']) / self.tau_s)
+        s_age2 = (depth_k * rho_s ** 2) ** 2 * min(1.0, 2 * (1 - phi * phi))
+        return 1 + (h['k'] - 1) * phi, h['s2'] + (phi * rho_s) ** 2 * h['var'] + s_age2
 
     def clear(self):
         self.ids.clear()
@@ -199,6 +206,7 @@ class Box:
         self.ok = bool(np.all(np.isfinite(self.s))) and self.s[2] > 0
         self.rho = math.hypot(self.s[0], self.s[2]) if self.ok else math.nan
         self.radius = ctx.radius(ob.class_id)
+        self.near = ctx.near_face(ob.class_id) * self.radius    # near face -> centre
         cov = ctx.A @ np.array(ob.position_covariance, float).reshape(3, 3) @ ctx.A.T
         self.has_cov = bool(np.any(cov))
         self.boxed = bool(ob.has_box2d) and self.ok
@@ -264,22 +272,33 @@ def n_floor(cl, box, ctx):
     return max(2.0, cfg['n_frac'] * n_exp)
 
 
+STAGES = ('points', 'overlap', 'range', 'width')     # pair tests, in order
+
+
 def pair_cost(cl, box, ctx):
-    """Association cost of a cluster for a box, or None when infeasible (design §2)."""
+    """(association cost, '') of a cluster for a box, or (None, first failed test) (§2)."""
     cfg, fx = ctx.cfg, ctx.K[0]
     da_px = fx * cfg['delta_a_rad']
     if cl.n < n_floor(cl, box, ctx):
-        return None
+        return None, 'points'
     iou = iou_x(cl.u0, cl.u1, box.u0 - box.e_u, box.u1 + box.e_u)
     if iou < cfg['iou_min'] or min(cl.v1, box.v1 + box.e_v) - max(cl.v0, box.v0 - box.e_v) <= 0:
-        return None
-    rho_obj = cl.rho + cfg['near_face_k'] * box.radius
+        return None, 'overlap'
+    rho_obj = cl.rho + box.near
     if abs(rho_obj - box.rho) >= 3 * box.sigma_s + cfg['gate_pad_m']:
-        return None
+        return None, 'range'
     if cl.w > 2 * max(box.w, box.w_exp) + da_px:
-        return None
+        return None, 'width'
     return (1 - iou) + 0.5 * abs(rho_obj - box.rho) / (3 * box.sigma_s) + \
-        0.5 * abs(cl.w - box.w_exp) / max(box.w_exp, da_px)
+        0.5 * abs(cl.w - box.w_exp) / max(box.w_exp, da_px), ''
+
+
+def part_of(cl, box, ctx):
+    """Test a cluster as a merged box's part: overlap counted over the cluster only."""
+    inside = min(cl.u1, box.u1 + box.e_u) - max(cl.u0, box.u0 - box.e_u)
+    return inside >= 0.5 * cl.w and cl.n >= n_floor(cl, box, ctx) and \
+        min(cl.v1, box.v1 + box.e_v) - max(cl.v0, box.v0 - box.e_v) > 0 and \
+        abs(cl.rho + box.near - box.rho) < 3 * box.sigma_s + ctx.cfg['gate_pad_m']
 
 
 class Context:
@@ -292,6 +311,13 @@ class Context:
 
     def radius(self, class_id):
         return float(self.radii.get(class_id, self.radii['default']))
+
+    def near_face(self, class_id):
+        """near_face_k of the longest class-name suffix listed, else its default."""
+        ks = self.cfg['near_face_k']
+        key = max((s for s in ks if s != 'default' and class_id.endswith(s)), key=len,
+                  default='default')
+        return float(ks[key])
 
 
 def candidates(boxes, P, u, v, rho):
@@ -344,16 +370,23 @@ def assignment(C):
 
 
 def associate(boxes, cls, ctx):
-    """Per box: ('lidar', [c]) | ('split', [c...]) | ('ambiguous', []) | ('none', [])."""
+    """Per box: ('lidar', [c]) | ('split', [c...]) | ('ambiguous:<why>', []) | ('none:<why>', []).
+
+    A 'none' says why: the furthest pair test any cluster passed failed (STAGES), 'cost'
+    (feasible but above accept_cost), 'taken' (its clusters went to other boxes) or 'empty'.
+    """
     cfg, fx = ctx.cfg, ctx.K[0]
     da_px = fx * cfg['delta_a_rad']
     nb, nc = len(boxes), len(cls)
     C = np.full((nb, nc), np.inf)
+    fails = [[] for _ in boxes]
     for i, b in enumerate(boxes):
         for j, c in enumerate(cls):
-            cost = pair_cost(c, b, ctx)
+            cost, failed = pair_cost(c, b, ctx)
             if cost is not None:
                 C[i, j] = cost
+            else:
+                fails[i].append(failed)
     feasible = np.isfinite(C)
     owner = {}
     if nb and nc:
@@ -364,21 +397,31 @@ def associate(boxes, cls, ctx):
     out = []
     for i, b in enumerate(boxes):
         if b.w > cfg['merge_w_frac'] * b.w_exp:
-            sized = [j for j in np.nonzero(feasible[i])[0]
+            # A part need not overlap the whole merged box by iou_min (one ball of a pair
+            # 1 m apart has IoU 2R/(s + 2R) < 0.3): it must lie mostly inside it instead.
+            sized = [j for j, c in enumerate(cls)
                      if (j not in taken or owner.get(i) == j)
-                     and cls[j].w <= 1.5 * fx * 2 * b.radius / cls[j].rho + da_px]
-            cover = sum(max(0.0, min(cls[j].u1, b.u1) - max(cls[j].u0, b.u0)) for j in sized)
-            if len(sized) >= 2 and cover >= 0.6 * b.w:
+                     and c.w <= 1.5 * fx * 2 * b.radius / c.rho + da_px
+                     and (feasible[i, j] or part_of(c, b, ctx))]
+            # The parts span the box (outer edges), not fill it: a pair s apart fills only
+            # 2 * 2R / (s + 2R) of its union box, under 60% past 0.93 m.
+            span = (min(max((cls[j].u1 for j in sized), default=b.u0), b.u1) -
+                    max(min((cls[j].u0 for j in sized), default=b.u1), b.u0))
+            if len(sized) >= 2 and span >= 0.6 * b.w:
                 out.append(('split', sorted(sized, key=lambda j: cls[j].uc)))
                 continue
         j = owner.get(i)
         if j is None:
-            out.append(('none', []))
+            feas = np.nonzero(feasible[i])[0]
+            why = ('cost' if C[i, feas].min() > cfg['accept_cost'] else 'taken') if len(feas) \
+                else max(fails[i], key=STAGES.index, default='empty')
+            out.append(('none:' + why, []))
             continue
         c1, dc = C[i, j], cfg['ambiguity_cost']
         second = any(C[i, k] - c1 < dc for k in np.nonzero(feasible[i])[0] if k != j)
         contested = any(C[k, j] < c1 + dc for k in np.nonzero(feasible[:, j])[0] if k != i)
-        out.append(('ambiguous', []) if second or contested else ('lidar', [j]))
+        out.append(('ambiguous:second' if second else 'ambiguous:contested', [])
+                   if second or contested else ('lidar', [j]))
     return out
 
 
@@ -388,7 +431,7 @@ def lidar_sigma_r2(cfg, radius, f_obs):
     return cfg['sigma_w_m'] ** 2 + f_obs * cfg['bias_time_s'] * sb2
 
 
-def adjust(obs, P, ctx, t, rates=None, held=None, use_lidar=True):
+def adjust(obs, P, ctx, t, rates=None, held=None, use_lidar=True, why=None):
     """Fuse one frame. Returns [(source, index, position (frame axes), cov9, box2d|None, id)].
 
     ``P`` (N, 3) are motion-compensated, extrinsic-corrected lidar points in optical axes.
@@ -438,7 +481,7 @@ def adjust(obs, P, ctx, t, rates=None, held=None, use_lidar=True):
         kind, js = decisions.get(b.index, ('none', []))
         if kind == 'lidar':
             c = cls[js[0]]
-            rho_obj = c.rho + cfg['near_face_k'] * b.radius
+            rho_obj = c.rho + b.near
             s_r2 = lidar_sigma_r2(cfg, b.radius, f_obs)
             if key:
                 held.lidar(key, t, rho_obj / b.rho, s_r2)
@@ -448,7 +491,7 @@ def adjust(obs, P, ctx, t, rates=None, held=None, use_lidar=True):
             parts = []
             for j in js:
                 c = cls[j]
-                rho_obj = c.rho + cfg['near_face_k'] * b.radius
+                rho_obj = c.rho + b.near
                 az = math.atan((c.uc - cx) / fx)
                 p = np.array([rho_obj * math.sin(az), b.s[1] * rho_obj / b.rho,
                               rho_obj * math.cos(az)])
@@ -466,6 +509,10 @@ def adjust(obs, P, ctx, t, rates=None, held=None, use_lidar=True):
                 emit('held', b, b.s * h[0], h[1], beta)
             else:
                 emit('stereo', b, b.s, b.sigma_s ** 2, beta)
+    if why is not None:         # per output row: the association decision, for diagnosis
+        why.extend(s if s in ('pass', 'lidar', 'split') else
+                   decisions.get(i, ('gated' if boxes[i].boxed else 'nobox',))[0]
+                   for s, i, *_ in out)
     return out, cls
 
 
@@ -540,7 +587,8 @@ class ExtrinsicEstimate:
         s_az = cfg['sigma_u_px'] / (fx * (1 + x * x))
         s_el = (b.v1 - b.v0) / (fy * math.sqrt(12) * (1 + y * y))
         rows = model_rows(x, y, c.rho, yaw_rate)
-        self.samples.append((rows, (r_az, r_el), (s_az, max(s_el, 1e-4))))
+        self.samples.append((rows, (r_az, r_el), (s_az, max(s_el, 1e-4)),
+                             key or len(self.samples)))
         self.last = (x, y, c.rho, yaw_rate, r_az, r_el, s_az, max(s_el, 1e-4))
         self.new += 1
         if len(self.samples) >= cfg['min_n'] and self.new >= cfg['stride']:
@@ -550,7 +598,7 @@ class ExtrinsicEstimate:
 
     def fit(self):
         A, r, w = [], [], []
-        for rows, res, sig in self.samples:
+        for rows, res, sig, _ in self.samples:
             A += rows
             r += res
             w += [1 / s ** 2 for s in sig]
@@ -561,7 +609,10 @@ class ExtrinsicEstimate:
         theta = cov @ (A.T @ (w * r))
         chi2 = float(np.sum(w * (r - A @ theta) ** 2))
         dof = max(1, len(r) - len(theta))
-        return theta, np.sqrt(np.diag(cov) * max(1.0, chi2 / dof))
+        # N_eff = distinct objects: one buoy's samples share its geometric bias (partial
+        # hits, a dock behind), which read 0.85-1.6 deg of yaw at sim E0 (S6) at 5 SE.
+        n_eff = len({k for *_, k in self.samples})
+        return theta, np.sqrt(np.diag(cov) * max(1.0, chi2 / dof) * len(self.samples) / n_eff)
 
     def evaluate(self):
         cfg = self.cfg
@@ -573,9 +624,10 @@ class ExtrinsicEstimate:
         if np.any(big & (np.abs(w) > cfg['k_se'] * s)):
             return self.error(f'lidar-camera rotation {np.degrees(w).round(2).tolist()} deg '
                               f'(pitch, yaw, roll) beyond {cfg["error_deg"]} deg')
-        if s[1] < cfg['apply_se_deg'] * DEG:
-            lim = cfg['apply_max_deg'] * DEG
-            self.applied = np.clip(w, -lim, lim)
+        # Per axis, on its own SE: pitch and roll ride on r_el, whose box-vs-ring bias (ring
+        # quantisation, box height) read up to 1 deg at E0 while the yaw SE was 0.1 deg.
+        lim, ok = cfg['apply_max_deg'] * DEG, s < cfg['apply_se_deg'] * DEG
+        self.applied = np.where(ok, np.clip(w, -lim, lim), self.applied)
         rp, rp_se = math.hypot(w[0], w[2]), math.hypot(s[0], s[2])
         warn = (abs(w[1]) > cfg['warn_deg'] * DEG and abs(w[1]) > cfg['k_se'] * s[1]) or \
             (rp > cfg['warn_deg'] * DEG and rp > cfg['k_se'] * rp_se)
@@ -654,6 +706,8 @@ class LidarFusion(Node):
         self.held = HeldRatio(cfg['held_alpha'], cfg['held_s'], cfg['held_tau_s'])
         self.extrinsic = ExtrinsicEstimate(cfg['extrinsic'])
         self.counts = dict.fromkeys(SOURCES, 0)
+        self.frames = 0
+        self.report_at = (self.now(), 0, dict(self.counts))
         self.skips = {}
         self.proc = deque(maxlen=200)
         self.cpu_at = (time.monotonic(), time.process_time())
@@ -805,12 +859,13 @@ class LidarFusion(Node):
                     return          # waiting for TF or the scan
                 self.queue.popleft()
                 self.pub.publish(out)
+                self.frames += 1
                 t = out.header.stamp.sec + out.header.stamp.nanosec * 1e-9
                 # lat: image capture -> publish (ROS time); wait: frame arrival -> publish
                 self.sources_pub.publish(self.String(data=json.dumps(
                     {'t': t, 'sources': self.sources, 'skip': self.last_skip,
                      'lat': self.now() - t, 'wait': time.monotonic() - arrived,
-                     'ex': self.ex_log})))
+                     'ex': self.ex_log, 'why': self.why})))
 
     def skip(self, cause):
         self.skips[cause] = self.skips.get(cause, 0) + 1
@@ -820,7 +875,7 @@ class LidarFusion(Node):
         """Return the fused array, or None while TF may still arrive (at most tf_wait_s)."""
         started = time.process_time()
         cfg = self.cfg
-        self.last_skip, self.ex_log = '', []
+        self.last_skip, self.ex_log, self.why = '', [], []
         stamp = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
         t_c = stamp + cfg['image_time_offset_s']
         frame = cfg['camera_frame'] or msg.header.frame_id
@@ -859,7 +914,8 @@ class LidarFusion(Node):
         ctx = Context(cfg, self.tracker, self.K or (1, 1, 0, 0), self.image or (1, 1),
                       getattr(self, 'A', np.eye(3)), e_mc, self.extrinsic.se[1]
                       if np.isfinite(self.extrinsic.se[1]) else 0.0)
-        rows, _ = adjust(msg.observations, P, ctx, t_c, self.rates, self.held, use)
+        rows, _ = adjust(msg.observations, P, ctx, t_c, self.rates, self.held, use,
+                         self.why)
         if use:
             self.sample_extrinsic(msg.observations, P_raw, ctx, t_c, yaw_rate, rows)
         out = self.message(msg, rows)
@@ -935,12 +991,15 @@ class LidarFusion(Node):
         load = (cpu - self.cpu_at[1]) / max(wall - self.cpu_at[0], 1e-6)
         self.cpu_at = (wall, cpu)
         proc = sorted(self.proc)
-        boxed = sum(self.counts[s] for s in ('lidar', 'split', 'held', 'stereo'))
+        now, (t0, frames0, counts0) = self.now(), self.report_at
+        self.report_at = (now, self.frames, dict(self.counts))
+        d = {k: n - counts0[k] for k, n in self.counts.items()}     # since the last report
+        boxed = sum(d[s] for s in ('lidar', 'split', 'held', 'stereo'))
         p95 = proc[int(.95 * (len(proc) - 1))] if proc else math.nan
-        values = {'cpu_pct': f'{100 * load:.0f}',
+        values = {'hz': f'{(self.frames - frames0) / (now - t0):.1f}' if now > t0 else 'nan',
+                  'cpu_pct': f'{100 * load:.0f}',
                   'proc_ms_p95': f'{1e3 * p95:.1f}',
-                  'lidar_share': f'{(self.counts["lidar"] + self.counts["split"]) / boxed:.2f}'
-                  if boxed else 'nan',
+                  'lidar_share': f'{(d["lidar"] + d["split"]) / boxed:.2f}' if boxed else 'nan',
                   **{f'n_{k}': v for k, v in self.counts.items()},
                   **{f'skip_{k}': v for k, v in sorted(self.skips.items())},
                   'scans': len(self.scans),

@@ -150,15 +150,25 @@ def test_lidar_reranges_a_biased_stereo_buoy_along_its_own_ray():
 @pytest.mark.parametrize('R,shape', [(0.25, 'pole'), (0.2, 'ball')])
 def test_near_face_offset_recovers_the_centre_within_the_known_bias(R, shape):
     errs = []
+    cylinder = lf.Context({**CFG, 'near_face_k': {'default': 0.87}}, TRACKER, K, IMAGE,
+                          np.eye(3))     # the synthetic bodies are vertical cylinders
     for rho in (3, 6, 10, 15):
         P = scan([(0.0, rho, R, 0.3 if shape == 'ball' else -0.5, 1.0)])
         cls = 'red_pole_buoy' if shape == 'pole' else 'red_buoy'
         rows, _ = lf.adjust([observation(0.0, rho, R, 0.3 if shape == 'ball' else -0.5,
-                                         cls=cls, rho_scale=1.05)], P, ctx(), 0.0)
+                                         cls=cls, rho_scale=1.05)], P, cylinder, 0.0)
         (source, _, p, *_), = rows
         assert source == 'lidar'
         errs.append(math.hypot(p[0], p[2]) - rho)
     assert max(abs(e) for e in errs) < 0.13 * R + 0.01
+
+
+def test_near_face_k_takes_the_longest_class_suffix():
+    """Pole buoys, balls and the rest each get their own near-face k."""
+    c = lf.Context({**CFG, 'near_face_k': {'default': 0.9, 'buoy': 0.8, 'pole_buoy': 0.4}},
+                   TRACKER, K, IMAGE, np.eye(3))
+    assert [c.near_face(n) for n in ('red_pole_buoy', 'green_buoy', 'black_cross')] == \
+        [0.4, 0.8, 0.9]
 
 
 def test_lidar_covariance_is_bias_aware_and_stereo_matches_the_tracker_total():
@@ -237,9 +247,9 @@ def test_one_cluster_in_two_overlapping_boxes_is_contested():
     assert [r[0] for r in rows] == ['lidar', 'stereo']       # a clear winner keeps it
 
 
-@pytest.mark.parametrize('gap', [0.6, 0.7])
+@pytest.mark.parametrize('gap', [0.6, 0.7, 1.0, 1.5])
 def test_a_merged_box_splits_into_one_observation_per_buoy(gap):
-    """Near-touching boxes merge (sim merge_gap_px); IoU and 60% cover hold to ~0.9 m."""
+    """A merged pair splits beyond the ~0.93 m that whole-box IoU >= 0.3 allowed."""
     Z = 8.0
     objs = [(-gap / 2, Z, 0.2, 0.4, 1.0), (gap / 2, Z, 0.2, 0.4, 1.0)]
     P = scan(objs)
@@ -254,26 +264,27 @@ def test_a_merged_box_splits_into_one_observation_per_buoy(gap):
     assert [r[5] for r in sorted(rows, key=lambda r: r[2][0])][0] == '7'
 
 
-def test_held_ratio_carries_lidar_for_two_seconds_with_growing_sigma():
+def test_held_ratio_decays_to_stereo_as_an_ar1_bias_for_two_seconds():
     held = lf.HeldRatio(CFG['held_alpha'], CFG['held_s'], CFG['held_tau_s'])
     X, Z = 0.0, 8.0
     P = scan([(X, Z, 0.2, 0.4, 1.0)])
     for k in range(10):
         lf.adjust([observation(X, Z, rho_scale=1.2)], P, ctx(), k * 0.1, held=held)
     sig = []
-    for t in (1.0, 1.9, 2.95):
+    for t in (0.95, 1.9, 2.95):
         frame = [observation(X, Z, rho_scale=1.2)]
         (source, _, p, cov, *_), = lf.adjust(frame, np.zeros((0, 3)), ctx(), t, held=held)[0]
         sig.append(np.array(cov).reshape(3, 3)[2, 2])
         if t < 2.9:
             assert source == 'held'
-            assert abs(math.hypot(p[0], p[2]) - Z) < 0.05
+            phi = math.exp(-(t - 0.9) / CFG['held_tau_s'])
+            assert math.hypot(p[0], p[2]) == pytest.approx(1.2 * Z - 0.2 * Z * phi, abs=0.1)
     assert source == 'stereo'
-    assert sig[0] < sig[1]
+    assert sig[0] < sig[1] < (TRACKER['meas']['depth_k'] * 1.2 ** 2 * Z ** 2) ** 2 + sig[0]
 
 
 # ------------------------------------------------------------ extrinsic
-def fake_samples(est, w, c=(0, 0, 0), tau=0.0, n=60, seed=1, noise=True):
+def fake_samples(est, w, c=(0, 0, 0), tau=0.0, n=60, seed=1, noise=True, h=12.0):
     rng = np.random.default_rng(seed)
     fx, fy, cx, cy = K
     for k in range(n):
@@ -284,7 +295,6 @@ def fake_samples(est, w, c=(0, 0, 0), tau=0.0, n=60, seed=1, noise=True):
         theta = np.array([*w, *c, tau])
         r_az = float(np.dot(rows[0], theta)) + noise * rng.normal(0, 1.0 / fx)
         r_el = float(np.dot(rows[1], theta)) + noise * rng.normal(0, 3e-3)
-        h = 12.0
         b = NS(u0=cx + fx * x - 5, u1=cx + fx * x + 5, v0=cy + fy * y - h / 2,
                v1=cy + fy * y + h / 2)
         cl = NS(uc=cx + fx * math.tan(math.atan(x) + r_az),
@@ -323,6 +333,29 @@ def test_half_degree_is_corrected_without_alarm():
     fake_samples(est, np.radians([0, 0.5, 0]), n=200)
     assert est.level == est.OK
     assert math.degrees(est.applied[1]) == pytest.approx(0.5, abs=0.1)
+
+
+def test_each_axis_applies_only_on_its_own_se():
+    """A weak pitch fit is not applied while a precise yaw fit is."""
+    est = lf.ExtrinsicEstimate(CFG['extrinsic'])
+    fake_samples(est, np.radians([0.5, 0.5, 0]), n=60, h=80.0)   # tall boxes: weak r_el
+    assert math.degrees(est.se[0]) > CFG['extrinsic']['apply_se_deg']
+    assert est.applied[0] == 0.0
+    assert math.degrees(est.applied[1]) == pytest.approx(0.5, abs=0.1)
+
+
+def test_per_object_biases_of_a_few_buoys_raise_no_alarm():
+    """Three buoys' own yaw biases (mean 1.6 deg) are three samples, not sixty."""
+    est = lf.ExtrinsicEstimate(CFG['extrinsic'])
+    fx, fy, cx, cy = K
+    rng = np.random.default_rng(3)
+    for k in range(60):
+        x, y, Z = rng.uniform(-0.8, 0.8), rng.uniform(0.02, 0.15), rng.uniform(3.0, 9.0)
+        r_az = math.radians((2.5, 0.5, 1.8)[k % 3])
+        b = NS(u0=cx + fx * x - 5, u1=cx + fx * x + 5, v0=cy + fy * y - 6, v1=cy + fy * y + 6)
+        cl = NS(uc=cx + fx * math.tan(math.atan(x) + r_az), vc=cy + fy * y, rho=Z)
+        est.add(k * 0.25, f'buoy{k % 3}', b, cl, ctx(), 0.0)
+    assert est.level == est.OK
 
 
 def test_two_degrees_raise_error_and_stop_applying():
