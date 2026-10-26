@@ -45,6 +45,17 @@ lead: 1.5                 # m; plan the next goal this close to the current one'
 pattern: auto             # lawnmower | expanding_square | auto: lawnmower with an area
 spacing_frac: 0.8         # leg spacing as a fraction of camera range
 
+# Placement priors (soft): where the course rules put the target, as boxes in the start
+# frame, each {box: [[x0, y0], [x1, y1]], weight, mirror}. A mirrored box also counts on
+# the other side of the start line until a side cue fixes the course side S. Unseen
+# cells inside a box weigh 1 + weight, elsewhere prior_floor: search goes where the
+# target is likely, yet never rules the rest out. NextView also tries a view of each box.
+regions: []
+prior_floor: 0.2
+side_cues: []         # labels only side S carries (the marina's banners and lights)
+# A label that counts only beside its companions: {label, with: [labels], min, max} (m).
+pair: null
+
 enable:
   priors: true
   scan: true

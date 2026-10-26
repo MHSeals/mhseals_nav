@@ -187,15 +187,26 @@ def test_full_mission_without_a_layout_searches_and_recognises_its_way():
 
 
 # crane_ml course-gen seed 1 (2026 rules) in the start frame: test/fixtures/course_2026_s1.json.
-COURSE_2026 = [tuple(e[:3]) for e in json.loads(
-    (Path(__file__).parent / 'fixtures/course_2026_s1.json').read_text())['elements']]
+ELEMENTS_2026 = json.loads(
+    (Path(__file__).parent / 'fixtures/course_2026_s1.json').read_text())['elements']
+COURSE_2026 = [tuple(e[:3]) for e in ELEMENTS_2026]
+SWAP = {'red_pole_buoy': 'green_pole_buoy', 'green_pole_buoy': 'red_pole_buoy',
+        'red_buoy': 'green_buoy', 'green_buoy': 'red_buoy'}
+# The same course with side S on the other side: mirrored across the start line, the
+# gates' colours swapped so red stays to port, lights and banners as they were.
+MIRRORED_2026 = [(SWAP.get(label, label) if role == 'gate' else label, x, -y)
+                 for label, x, y, _task, role in ELEMENTS_2026]
 
 
-@pytest.mark.xfail(strict=True, reason='Phase 1 gap: the marina beside the start is never '
-                   'searched (no placement priors) and the speed search outlasts its limit')
-def test_full_2026_mission_finds_and_completes_every_task_by_search():
-    """The 2026 course with no layout: every stage by search, in the fixed order."""
-    world = Course(mission('mission_2026.yaml'), course=COURSE_2026)
+@pytest.mark.parametrize('course, side', [(COURSE_2026, 1), (MIRRORED_2026, -1)],
+                         ids=['side-port', 'side-starboard'])
+def test_full_2026_mission_finds_and_completes_every_task_by_search(course, side):
+    """The 2026 course with no layout: every stage by search, in the fixed order.
+
+    Side S is unknown at the start: the start look finds the marina on either side,
+    and the speed challenge is searched for on the side the marina fixed.
+    """
+    world = Course(mission('mission_2026.yaml'), course=course)
     outcome, elapsed = world.run()
     names = world.names()
     decisions = [d['reason'] for e, d in world.events if e == 'decision']
@@ -205,12 +216,15 @@ def test_full_2026_mission_finds_and_completes_every_task_by_search():
     # Marina: the lowest-numbered free green slip is N3, banner_1 (truth 3.39, 12.84).
     docked = next(d for e, d in world.events if e == 'docked')
     assert docked['bay_number'] == 1 and docked['bay_colour'] == 'green'
-    assert docked['bay'] == pytest.approx((3.39, 12.842))
+    assert docked['bay'] == pytest.approx((3.39, side * 12.842))
     # Debris: both green beacons circled, and the debris positions reported.
     assert sum(1 for g in world.goals if g.why.startswith('round the beacon')) >= 4
     reported = {tuple(d['position']) for e, d in world.events if e == 'debris'}
     assert len(reported) >= 8
-    # Speed: the red indicator turns the lap counter-clockwise.
+    # Speed: the red indicator turns the lap counter-clockwise, round the turn mark and
+    # not the harbor buoy off the marina.
     assert any(r.startswith('red indicator: counter') for r in decisions)
+    started = next(d for e, d in world.events if e == 'speed_started')
+    assert math.dist(started['pose'][:2], (48.0, side * 40.0)) < 3.0
     assert names[-2:] == ['returned_home', 'stage_completed']
-    assert elapsed < 1500
+    assert elapsed < 600

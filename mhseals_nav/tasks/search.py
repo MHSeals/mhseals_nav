@@ -72,13 +72,59 @@ class Coverage:
         now = self.now if now is None else now
         return np.clip((now - self.seen[window]) / self.forget_s, 0.0, 1.0)
 
-    def gain(self, pose, fov, now=None):
-        """Unseen area (m^2, weighted) the camera would see from ``pose``."""
+    def gain(self, pose, fov, now=None, weight=None):
+        """Unseen area (m^2, weighted) the camera would see from ``pose``.
+
+        ``weight`` (a grid from ``prior``) scales each cell by how likely the target is there.
+        """
         window, mask = self.cone(pose, fov)
-        return float(self.unseen(window, now)[mask].sum()) * self.cell ** 2
+        unseen = self.unseen(window, now)
+        if weight is not None:
+            unseen = unseen * weight[window]
+        return float(unseen[mask].sum()) * self.cell ** 2
+
+    def prior(self, regions, side=None, floor=0.2):
+        """Return a weight grid: ``floor`` everywhere, plus each region's ``weight``.
+
+        A region is {box: [[x0, y0], [x1, y1]], weight, mirror}: a soft placement prior
+        from the course rules. ``mirror`` also weights the box mirrored across the start
+        line (y -> -y) while the course side is unknown; a known ``side`` (port: y > 0)
+        keeps only the box on that side.
+        """
+        grid = np.full(self.seen.shape, float(floor))
+        for region in regions or ():
+            (x0, y0), (x1, y1) = region['box']
+            boxes = [(y0, y1)]
+            if region.get('mirror'):
+                boxes.append((-y1, -y0))
+                if side is not None:
+                    boxes = [b for b in boxes if (b[0] + b[1] > 0) == (side == 'port')]
+            inx = (self.xs >= min(x0, x1)) & (self.xs <= max(x0, x1))
+            for lo, hi in boxes:
+                iny = (self.ys >= min(lo, hi)) & (self.ys <= max(lo, hi))
+                grid[np.ix_(inx, iny)] += region.get('weight', 1.0)
+        return grid
+
+    def region_views(self, regions, pose, rng, side=None):
+        """Return a view pose per prior region box: ``rng`` back from its centre, facing it."""
+        views = []
+        for region in regions or ():
+            (x0, y0), (x1, y1) = region['box']
+            for sign in ((1, -1) if region.get('mirror') else (1,)):
+                centre = ((x0 + x1) / 2, sign * (y0 + y1) / 2)
+                if region.get('mirror') and side is not None and (
+                        (centre[1] > 0) != (side == 'port')):
+                    continue
+                if math.dist(centre, pose[:2]) <= rng:
+                    view = (pose[0], pose[1], geometry.heading(pose, centre))
+                else:
+                    view = view_pose(centre, pose, rng)
+                if self.contains(view):
+                    views.append(view)
+        return views
 
     def bearing_gaps(self, pose, fov, spread, direction, min_gain=1.0, prefer=None,
-                     hysteresis=0.3):
+                     hysteresis=0.3, weight=None):
         """Return the bearing within +-``spread`` of ``direction`` that sees most unseen.
 
         Ties go to the bearing nearest ``direction``; ``prefer`` (the last bearing) is
@@ -86,11 +132,11 @@ class Coverage:
         """
         step = max(fov[0] / 4, math.radians(5))
         offsets = sorted(np.arange(-spread, spread + 1e-9, step), key=abs)
-        scored = [(self.gain((pose[0], pose[1], wrap(direction + o)), fov), wrap(direction + o))
-                  for o in offsets]
+        scored = [(self.gain((pose[0], pose[1], wrap(direction + o)), fov, weight=weight),
+                   wrap(direction + o)) for o in offsets]
         best = max(scored, key=lambda s: s[0])  # max keeps the first (straightest) of ties
         if prefer is not None:
-            kept = self.gain((pose[0], pose[1], prefer), fov)
+            kept = self.gain((pose[0], pose[1], prefer), fov, weight=weight)
             if kept >= min_gain and kept * (1 + hysteresis) >= best[0]:
                 return prefer
         return best[1] if best[0] >= min_gain else None
@@ -104,6 +150,19 @@ def view_pose(target_xy, pose, standoff):
     return (x, y, wrap(back + math.pi))
 
 
+def course_side(tracks, cues, min_offset=4.0):
+    """Return the course's side S (port: y > 0 in the start frame) from ``cues`` seen, or None.
+
+    Cues are labels only side S carries (the marina's banners and slip lights): the
+    mean lateral offset of their tracks beyond ``min_offset`` m tells the side.
+    """
+    ys = [t.y for t in tracks or () if t.label in cues and not t.prior
+          and abs(t.y) >= min_offset]
+    if not ys:
+        return None
+    return 'port' if sum(ys) > 0 else 'starboard'
+
+
 def wanted(tracks, labels, cfg):
     """Wanted tracks still worth a look: priors, weak or uncertain live ones."""
     return [t for t in tracks or () if t.label in labels and (
@@ -113,7 +172,7 @@ def wanted(tracks, labels, cfg):
 
 def view_score(coverage, view, pose, fov, now, targets, cfg):
     """Return (gain, score) of ``view``: unseen m^2 plus track bonuses, over travel cost."""
-    gain = coverage.gain(view, fov, now)
+    gain = coverage.gain(view, fov, now, cfg.get('_weight'))
     for t in targets:  # tracks in the view's cone: a prior or weak one, and its sigma
         off = abs(wrap(geometry.heading(view, (t.x, t.y)) - view[2]))
         if math.dist(view[:2], (t.x, t.y)) <= fov[1] and off <= fov[0] / 2:
@@ -129,18 +188,19 @@ def next_view(coverage, pose, fov, now, tracks, labels, cfg):
 
     Candidates face outward and a few headings either side, inside the area.
     """
-    targets, best = wanted(tracks, labels, cfg), None
+    targets, best, views = wanted(tracks, labels, cfg), None, []
     for radius in cfg['rings']:
         for k in range(cfg['ring_points']):
             out = pose[2] + 2 * math.pi * k / cfg['ring_points']
             xy = (pose[0] + radius * math.cos(out), pose[1] + radius * math.sin(out))
-            if not coverage.contains(xy):
-                continue
-            for h in cfg['headings_deg']:
-                view = (*xy, wrap(out + math.radians(h)))
-                gain, score = view_score(coverage, view, pose, fov, now, targets, cfg)
-                if gain >= cfg['min_gain'] and (best is None or score > best[1]):
-                    best = (view, score)
+            if coverage.contains(xy):
+                views += [(*xy, wrap(out + math.radians(h))) for h in cfg['headings_deg']]
+    # Placement priors: a view of each likely region, however far (travel is costed).
+    views += coverage.region_views(cfg.get('regions'), pose, 0.6 * fov[1], cfg.get('_side'))
+    for view in views:
+        gain, score = view_score(coverage, view, pose, fov, now, targets, cfg)
+        if gain >= cfg['min_gain'] and (best is None or score > best[1]):
+            best = (view, score)
     return best
 
 
@@ -183,9 +243,16 @@ def expanding_square(pose, step, area):
 
 
 def found(tracks, labels, cfg):
-    """Tell whether the labels are tracked live (``need`` all or any) at ``min_confidence``."""
-    live = {t.label for t in tracks or () if not t.prior
-            and t.confidence >= cfg['min_confidence']}
+    """Tell whether the labels are tracked live (``need`` all or any) at ``min_confidence``.
+
+    With ``pair`` ({label, with, min, max}), that label counts only beside its companions.
+    """
+    live = [t for t in tracks or () if not t.prior and t.confidence >= cfg['min_confidence']]
+    pair = cfg.get('pair')
+    if pair:
+        keep = geometry.paired([(t.label, t.x, t.y) for t in live], pair)
+        live = [t for t in live if t.label != pair['label'] or (t.label, t.x, t.y) in keep]
+    live = {t.label for t in live}
     hits = [label in live for label in labels]
     return any(hits) if cfg['need'] == 'any' else all(hits)
 
@@ -203,7 +270,7 @@ class SearchLeaf(Driver):
 
     def __init__(self, name, labels, cfg):
         super().__init__(name)
-        self.labels, self.cfg, self.own = tuple(labels), cfg, None
+        self.labels, self.cfg, self.own = tuple(labels), dict(cfg), None
 
     def get(self, key):
         return self.board.get(key) if self.board.exists(key) else None
@@ -225,6 +292,17 @@ class SearchLeaf(Driver):
             self.own = Coverage(self.cfg['area'], self.cfg['cell'], home, self.cfg['radius'],
                                 self.cfg['forget_s'])
         return self.own
+
+    def prior(self):
+        """Put the placement-prior weights and the course side into the config copy."""
+        cfg = self.cfg
+        if not cfg.get('regions'):
+            return
+        side = course_side(self.tracks(), cfg.get('side_cues') or ())
+        cover = self.coverage()
+        if cfg.get('_side', 0) != side or cfg.get('_cover') is not cover:
+            cfg['_side'], cfg['_cover'] = side, cover
+            cfg['_weight'] = cover.prior(cfg['regions'], side, cfg['prior_floor'])
 
     def send(self, route, why):
         if self.target is None:  # this strategy's first goal: tell the operator why
@@ -248,6 +326,7 @@ class SearchLeaf(Driver):
             return Status.RUNNING
         if self.get('coverage') is None:  # a private coverage needs this leaf's own looks
             self.coverage().observe(self.board.pose, self.fov(), self.board.now)
+        self.prior()
         return self.step(self.driving())
 
 
@@ -299,7 +378,7 @@ class Scan(SearchLeaf):
             return Status.RUNNING if state == 'RUNNING' else Status.FAILURE
         bearing = cover.bearing_gaps(pose, self.fov(), math.radians(self.cfg['scan_spread_deg']),
                                      self.direction, self.cfg['min_gain'], self.bearing,
-                                     self.cfg['hysteresis'])
+                                     self.cfg['hysteresis'], self.cfg.get('_weight'))
         if bearing is None:
             self.feedback_message = 'nothing unseen ahead'
             return Status.RUNNING if state == 'RUNNING' else Status.FAILURE

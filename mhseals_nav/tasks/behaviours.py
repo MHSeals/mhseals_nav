@@ -682,28 +682,36 @@ class CountObjects(Leaf):
         return Status.RUNNING
 
 
-class WatchColour(CountObjects):
-    """Read an indicator's colour in ``key`` by the most sightings; never finishes.
+class ReadColour(Leaf):
+    """Read the indicator that sets a manoeuvre into ``key``, just before it is planned.
 
-    ``labels`` maps a label to its value (``red_light_buoy: red``). Run it in parallel
-    with the task, like CountObjects; with ``beyond``, only past that key's first gate.
+    ``labels`` maps a label to its value (``red_light_buoy: red``). The indicator read is
+    the one nearest the segment from the first gate in ``gate`` to the nearest ``mark``
+    and within ``reach`` of it, so another task's light is never taken for this one.
+    Always succeeds: with no indicator in reach, ``key`` is cleared and the planner falls
+    back to its configured way (and says so).
     """
 
-    def __init__(self, name, key, labels, beyond=None, horizon=30.0):
-        super().__init__(name, key, None, beyond=beyond, horizon=horizon)
-        self.labels = dict(labels)
-
-    def initialise(self):
-        self.votes = {}
+    def __init__(self, name, key, labels, gate, marks, reach=8.0):
+        super().__init__(name, reads=(gate,), writes=(key,))
+        self.key, self.labels, self.gate = key, dict(labels), gate
+        self.marks, self.reach = tuple(marks), reach
 
     def update(self):
-        for label, x, y in self.board.objects:
-            if label in self.labels and self.in_task((x, y)):
-                value = self.labels[label]
-                self.votes[value] = self.votes.get(value, 0) + 1
-        if self.votes:
-            self.board.set(self.key, max(self.votes, key=self.votes.get), overwrite=True)
-        return Status.RUNNING
+        gates = self.board.get(self.gate) if self.board.exists(self.gate) else None
+        marks = self.labelled(*self.marks)
+        value = None
+        if gates and marks:
+            start = gates[0][:2]
+            end = min(marks, key=lambda m: math.dist(m, start))
+            lights = [(geometry.segment_distance((x, y), start, end), self.labels[label])
+                      for label, x, y in self.board.objects if label in self.labels]
+            lights = [light for light in lights if light[0] <= self.reach]
+            if lights:
+                value = min(lights)[1]
+        self.board.set(self.key, value, overwrite=True)
+        self.feedback_message = f'indicator {value or "not seen"}'
+        return Status.SUCCESS
 
 
 class ReportCount(Driver):
@@ -1008,16 +1016,20 @@ class PlanPose(Leaf):
 
 
 class PlanLook(Leaf):
-    """Write an in-place sweep: one side to ``key``, the other to ``key``_rest."""
+    """Write an in-place sweep: one side to ``key``, the other to ``key``_rest.
 
-    def __init__(self, name, key):
-        super().__init__(name, writes=(key, key + '_rest'))
-        self.key = key
+    ``angle`` (rad) is how far each way; ``key``_back faces the way the boat faced.
+    """
+
+    def __init__(self, name, key, angle=1.05):
+        super().__init__(name, writes=(key, key + '_rest', key + '_back'))
+        self.key, self.angle = key, angle
 
     def update(self):
         if self.board.pose is None:
             return Status.FAILURE
-        first, rest = geometry.look_around(self.board.pose)
+        self.board.set(self.key + '_back', [tuple(self.board.pose)], overwrite=True)
+        first, rest = geometry.look_around(self.board.pose, self.angle)
         self.board.set(self.key, first, overwrite=True)
         self.board.set(self.key + '_rest', rest, overwrite=True)
         return Status.SUCCESS
@@ -1069,12 +1081,15 @@ class PlanHypothesis(Leaf):
 class PlanView(Leaf):
     """Write a view of the nearest ``label``, ``standoff`` m off on the boat's side, to ``key``."""
 
-    def __init__(self, name, key, label, standoff=8.0):
+    def __init__(self, name, key, label, standoff=8.0, pair=None):
+        """``pair`` ({label, with, min, max}): only a ``label`` beside its companions."""
         super().__init__(name, writes=(key,))
-        self.key, self.label, self.standoff = key, label, standoff
+        self.key, self.label, self.standoff, self.pair = key, label, standoff, pair
 
     def update(self):
         pose, targets = self.board.pose, self.labelled(self.label)
+        if self.pair:
+            targets = [(x, y) for _, x, y in geometry.paired(self.board.objects, self.pair)]
         if pose is None or not targets:
             return Status.FAILURE
         target = min(targets, key=lambda t: math.dist(t, pose[:2]))

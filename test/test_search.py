@@ -176,3 +176,41 @@ def test_no_goal_is_resent_every_tick(cfg):
     assert 3 <= len(sent) <= 600 / 15
     assert all(later - earlier >= 5 for earlier, later in zip(sent, sent[1:]))
     assert all(len(goal.why) <= 60 for goal in world.goals)
+
+
+def test_placement_priors_weigh_both_sides_until_a_cue_fixes_the_side():
+    cover = search.Coverage([[-20, -30], [20, 30]], 1.0)
+    regions = [{'box': [[-5, 10], [5, 20]], 'weight': 4.0, 'mirror': True}]
+    both = cover.prior(regions, None, 0.2)
+    assert both[cell(cover, 0, 15)] == pytest.approx(4.2)
+    assert both[cell(cover, 0, -15)] == pytest.approx(4.2)
+    assert both[cell(cover, 0, 0)] == pytest.approx(0.2)  # never ruled out
+    port = cover.prior(regions, 'port', 0.2)
+    assert port[cell(cover, 0, 15)] == pytest.approx(4.2)
+    assert port[cell(cover, 0, -15)] == pytest.approx(0.2)
+    # The weighted gain prefers looking at the likely region.
+    left, ahead = (0, 0, math.pi / 2), (0, 0, 0.0)
+    assert cover.gain(left, (math.radians(90), 20.0), weight=both) > cover.gain(
+        ahead, (math.radians(90), 20.0), weight=both)
+    # A view per region box, facing its centre; only the known side once fixed.
+    assert len(cover.region_views(regions, (0, 0, 0), 12.0)) == 2
+    (view,) = cover.region_views(regions, (0, 0, 0), 12.0, 'starboard')
+    assert view[1] < 0 and view[2] == pytest.approx(-math.pi / 2)
+
+
+def test_the_course_side_comes_from_side_cues_only():
+    cues = ('banner_1',)
+    assert search.course_side([live('banner_1', 2, 12)], cues) == 'port'
+    assert search.course_side([live('banner_1', 2, -12)], cues) == 'starboard'
+    assert search.course_side([live('red_buoy', 2, -12), prior('banner_1', 2, 9)], cues) is None
+
+
+def test_a_paired_label_is_found_only_beside_its_companions():
+    cfg = search.load_config({'pair': {'label': 'yellow_buoy', 'with': ['red_buoy', 'green_buoy'],
+                                       'min': 10.0, 'max': 33.0}})
+    harbor = [live('yellow_buoy', 4, 26)]
+    assert not search.found(harbor, ('yellow_buoy',), cfg)
+    speed = [live('red_buoy', 47, 40), live('green_buoy', 49, 40), live('yellow_buoy', 50, 56)]
+    assert search.found(harbor + speed, ('yellow_buoy',), cfg)
+    objects = [(t.label, t.x, t.y) for t in harbor + speed]
+    assert geometry.paired(objects, cfg['pair']) == [('yellow_buoy', 50, 56)]

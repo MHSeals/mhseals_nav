@@ -3,7 +3,11 @@
 # Phase 1 baseline: fixed order. Run: run_task --task mission --params <this file>.
 tasks: [nav_channel, follow_path, docking, speed_challenge, return_home]
 timeout: 1800.0
-search: {area: [[-20.0, -60.0], [80.0, 60.0]]}
+start_look_deg: 90.0    # turn to each side at the start: the marina lies beside it
+# Every search: the course box, and the marina's banners and lights fix the side S.
+search:
+  area: [[-20.0, -60.0], [80.0, 60.0]]
+  side_cues: [banner_1, banner_2, banner_3, red_light_beacon, green_light_beacon]
 # Task 2, debris clearance: the channel out, circle each green beacon, back the same way.
 follow_path:
   red: red_buoy
@@ -26,12 +30,20 @@ docking:
   staging: 4.0
   berth: 1.3
   bay_depth: 2.4
+  # The marina lies beside the entry, on side S (unknown until seen): both sides.
+  search:
+    regions: [{box: [[-15.0, 6.0], [15.0, 30.0]], weight: 4.0, mirror: true}]
 # Task 3, speed: the yellow mark; the indicator before it sets the way round.
 speed_challenge:
   mark: yellow_buoy
   indicators: {red_light_buoy: red, green_light_buoy: green, red_light_sign: red, green_light_sign: green}
   turn: {red: false, green: true}   # red counter-clockwise, green clockwise
   count: black_buoy
+  # The turn mark is 12-31 m past its red/green gate; the harbor buoy has no gate.
+  pair: {label: yellow_buoy, with: [red_buoy, green_buoy], min: 10.0, max: 33.0}
+  # Beyond entry gate 2 on side S (fixed by the marina once seen), any heading.
+  search:
+    regions: [{box: [[15.0, 10.0], [80.0, 60.0]], weight: 4.0, mirror: true}]
 # Exit: back out through the entry gates (nav_channel's cleared gates), last first.
 return_home:
   exit_source: channel

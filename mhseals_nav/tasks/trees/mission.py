@@ -5,11 +5,13 @@ fails is tried again up to its ``attempts`` while its time limit lasts; then it 
 reported as skipped and the run moves on, ending with the return home.
 """
 
-from mhseals_nav.tasks.behaviours import Deadline, Report
+import math
+
+from mhseals_nav.tasks.behaviours import Deadline, Navigate, PlanLook, Report
 from mhseals_nav.tasks.conditions import Gate, Watch
 from py_trees.common import ParallelPolicy, Status
 from py_trees.composites import Parallel, Selector, Sequence
-from py_trees.decorators import Decorator
+from py_trees.decorators import Decorator, FailureIsSuccess
 
 
 class Attempts(Decorator):
@@ -76,4 +78,27 @@ def build(params):
                            reason=f'skipping {name}'
                            + (f': on to {following}' if following else '')),
                 ])]))
+    look = params.get('start_look_deg')
+    if look:
+        stages.insert(0, start_look(math.radians(look)))
     return Sequence('mission', memory=True, children=stages)
+
+
+def start_look(angle):
+    """Turn in place to each side and back before the first task: the cheapest survey.
+
+    The course rules put the marina beside the start on side S (port or starboard), out
+    of a forward camera's view; a turn either way finds it and fixes the side, which
+    also tells where the speed challenge lies. A failed turn costs nothing but time.
+    """
+    look = Sequence('start look', memory=True, children=[
+        Gate('start look go', False),
+        Report('start look why', 'decision', kind='search',
+               reason='look around the start: the marina lies to one side'),
+        PlanLook('plan start look', 'start_look', angle),
+        Navigate('look to one side', 'start_look', why='look around the start', phase='search'),
+        Navigate('look to the other', 'start_look_rest', why='look around the start',
+                 phase='search'),
+        Navigate('face the course', 'start_look_back', why='face the course', phase='search'),
+    ])
+    return FailureIsSuccess(name='start look done', child=look)

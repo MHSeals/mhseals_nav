@@ -920,3 +920,30 @@ def test_offset_gates_get_a_mid_point_so_the_corner_is_not_cut():
     assert route[1][2] == pytest.approx(route[2][2])  # the exit already faces the leg
     assert route[2] == pytest.approx((21.3, -1.0, geometry.heading((20.1, 0), (22.5, -2))))
     assert len(route) == 7  # no mid-point between the two gates in line
+
+
+def test_the_speed_indicator_is_read_between_the_gate_and_the_mark_when_planned():
+    from mhseals_nav.tasks.behaviours import PlanCircle, ReadColour
+    from py_trees.composites import Sequence
+    py_trees.blackboard.Blackboard.clear()
+    board = py_trees.blackboard.Client(name='world')
+    for key in ('objects', 'pose', 'now', 'speed_gate', 'speed_colour'):
+        board.register_key(key=key, access=py_trees.common.Access.WRITE)
+    board.pose, board.now, board.speed_gate = (5.0, 0.0, 0.0), 0.0, [(5.0, 0.0, 0.0)]
+    # A green light off another task, a red one on the way to the mark.
+    board.objects = [('yellow_buoy', 20.0, 0.0), ('red_light_buoy', 12.0, 1.0),
+                     ('green_light_buoy', 12.0, 20.0)]
+    decisions = []
+    tree = py_trees.trees.BehaviourTree(Sequence('lap', memory=True, children=[
+        ReadColour('read', 'speed_colour', {'red_light_buoy': 'red',
+                                            'green_light_buoy': 'green'},
+                   'speed_gate', ('yellow_buoy',)),
+        PlanCircle('plan', 'circle', ('yellow_buoy',), 2.5, False,
+                   direction=('speed_colour', {'red': False, 'green': True}))]))
+    tree.setup(report=lambda event, **d: decisions.append(d.get('reason')))
+    tree.tick()
+    assert tree.root.status == py_trees.common.Status.SUCCESS
+    assert board.speed_colour == 'red' and 'red indicator: counter-clockwise' in decisions
+    board.objects = board.objects[:1] + board.objects[2:]  # none in reach: the default way
+    tree.tick()
+    assert board.speed_colour is None and 'no indicator read: the default way' in decisions

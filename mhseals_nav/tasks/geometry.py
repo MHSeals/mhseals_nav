@@ -145,6 +145,27 @@ def unique(points, separation=1.5):
     return kept
 
 
+def segment_distance(point, a, b):
+    """Distance from ``point`` to the segment from ``a`` to ``b``."""
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    length = dx * dx + dy * dy
+    t = 0.0 if length == 0 else max(0.0, min(1.0, (
+        (point[0] - a[0]) * dx + (point[1] - a[1]) * dy) / length))
+    return math.dist(point, (a[0] + t * dx, a[1] + t * dy))
+
+
+def paired(objects, pair):
+    """The (label, x, y) objects of ``pair['label']`` with each of ``pair['with']`` near.
+
+    Near is between ``pair['min']`` and ``pair['max']`` m. It tells a task's mark from
+    a look-alike: the speed turn mark lies 12-31 m past its red/green gate, the harbor
+    buoy off the marina has no such gate.
+    """
+    return [(label, x, y) for label, x, y in objects if label == pair['label'] and all(
+        any(other == w and pair['min'] <= math.dist((ox, oy), (x, y)) <= pair['max']
+            for other, ox, oy in objects) for w in pair['with'])]
+
+
 def spin(pose, turns, step=math.pi / 2):
     """Poses turning in place ``turns`` full circles, a quarter turn per pose."""
     x, y, yaw = pose
