@@ -223,27 +223,61 @@ def test_actual_factory_consumes_final_projection(base, tmp_path):
     assert effective['lifecycle_manager_navigation']['ros__parameters']['use_sim_time'] is True
 
 
-def test_factory_bounds_the_overlay_by_the_installed_ceilings(base, tmp_path):
-    base_path = tmp_path / 'base.yaml'
-    base_path.write_text(yaml.safe_dump(base))
-    overlay = tmp_path / 'typo.yaml'
-    overlay.write_text('controller_server: {ros__parameters: {FollowPath: {vx_max: 5.0, wz_max: 0.5}}}')
-    ns = inert_navigation_factory()
-    nodes = ns['navigation_nodes']({'params_file': str(base_path), 'limits_file': str(overlay)})
-    assert nodes
+def write(tmp_path, name, text):
+    path = tmp_path / name
+    path.write_text(text)
+    return path
+
+
+def test_factory_accepts_an_overlay_within_the_ceilings(base, tmp_path):
+    base_path = write(tmp_path, 'base.yaml', yaml.safe_dump(base))
+    overlay = write(tmp_path, 'ok.yaml', 'controller_server: {ros__parameters: {FollowPath: {wz_max: 0.5, vx_min: -0.05}}}')
     from mhseals_nav.startup_projection import compile_navigation
+    ns = inert_navigation_factory()
+    assert ns['navigation_nodes']({'params_file': str(base_path), 'limits_file': str(overlay)})
     result = compile_navigation(base_path, overlay, sim='true', use_lidar='true', share=ns['share'])
     follow = result['controller_server']['ros__parameters']['FollowPath']
-    assert follow['vx_max'] == base['controller_server']['ros__parameters']['FollowPath']['vx_max']
-    assert follow['wz_max'] == 0.5
-    assert result['velocity_smoother']['ros__parameters']['max_velocity'][0] <= 0.8
+    assert follow['wz_max'] == 0.5 and follow['vx_min'] == -0.05
+
+
+@pytest.mark.parametrize('typo', ['vx_max: 5.0', 'vx_max: 1.0e+6', 'vx_min: -5.0', 'ax_min: -0.7', 'ay_min: -2.0'])
+def test_factory_refuses_an_overlay_beyond_the_ceilings(base, tmp_path, typo):
+    base_path = write(tmp_path, 'base.yaml', yaml.safe_dump(base))
+    overlay = write(tmp_path, 'typo.yaml', 'controller_server: {ros__parameters: {FollowPath: {%s}}}' % typo)
+    ns = inert_navigation_factory()
+    ns['Node'] = lambda **kw: pytest.fail('Node constructed past a ceiling')
+    with pytest.raises(ValueError, match='ceiling'):
+        ns['navigation_nodes']({'params_file': str(base_path), 'limits_file': str(overlay)})
+
+
+def test_legacy_merge_still_drops_beyond_the_ceiling(base):
+    from mhseals_nav.navigation_config import merge_limits
+    limits = {'controller_server': {'ros__parameters': {'FollowPath': {'vx_min': -5.0}}}}
+    merged = merge_limits(base, limits, {'vx_min': 0.2})
+    follow = merged['controller_server']['ros__parameters']['FollowPath']
+    assert follow['vx_min'] == base['controller_server']['ros__parameters']['FollowPath']['vx_min']
 
 
 def test_missing_ceilings_fail_closed(base, tmp_path):
-    base_path = tmp_path / 'base.yaml'
-    base_path.write_text(yaml.safe_dump(base))
+    base_path = write(tmp_path, 'base.yaml', yaml.safe_dump(base))
     ns = inert_navigation_factory()
     (ns['share'] / 'config/nav2_ceilings.yaml').unlink()
     ns['Node'] = lambda **kw: pytest.fail('Node constructed without ceilings')
     with pytest.raises(FileNotFoundError):
         ns['navigation_nodes']({'params_file': str(base_path), 'limits_file': ''})
+
+
+@pytest.mark.parametrize('text', ['vx_max: .nan', 'vx_max: .inf', 'vx_max: 0', 'vx_max: -0.8',
+                                  "vx_max: '0.8'", 'vx_max: true', '[0.8]'])
+def test_invalid_ceilings_fail_at_load(base, tmp_path, text):
+    base_path = write(tmp_path, 'base.yaml', yaml.safe_dump(base))
+    ns = inert_navigation_factory()
+    (ns['share'] / 'config/nav2_ceilings.yaml').write_text(text)
+    ns['Node'] = lambda **kw: pytest.fail('Node constructed with an invalid ceiling')
+    with pytest.raises(ValueError):
+        ns['navigation_nodes']({'params_file': str(base_path), 'limits_file': ''})
+
+
+def test_a_nan_ceiling_passed_in_directly_is_refused(base):
+    with pytest.raises(ValueError, match='positive finite'):
+        validated_merge_limits(base, {}, {'vx_max': float('nan')})

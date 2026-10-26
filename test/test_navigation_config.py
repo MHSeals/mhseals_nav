@@ -200,9 +200,9 @@ def test_packaged_ceilings_sit_above_the_base_limits():
         'behavior_server': config['behavior_server']['ros__parameters'],
     }
     assert ceilings.keys() == {'vx_max', 'vy_max', 'wz_max', 'ax_max', 'az_max', 'ay_max',
-                               'max_rotational_vel', 'rotational_acc_lim'}
+                               'max_rotational_vel', 'rotational_acc_lim', 'vx_min', 'ax_min', 'ay_min'}
     for key, ceiling in ceilings.items():
-        base = next(section[key] for section in sections.values() if key in section)
+        base = abs(next(section[key] for section in sections.values() if key in section))
         assert base < ceiling <= 2 * base, key
 
 

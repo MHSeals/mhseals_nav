@@ -1,4 +1,5 @@
-# Most an overlay (characterization or hand edit) may set; merge_limits drops larger values.
+# Most an overlay (characterization or hand edit) may set, by magnitude (the *_min entries bound
+# reverse limits). The launch refuses a larger value; the legacy merge_limits drops it.
 # About 2x the field limits in nav2_params.yaml. Kept out of that file because Nav2 servers
 # reject any top-level key that is not a node section.
 vx_max: 0.8
@@ -9,3 +10,6 @@ az_max: 1.0
 ay_max: 0.6
 max_rotational_vel: 0.6
 rotational_acc_lim: 1.0
+vx_min: 0.2
+ax_min: 0.6
+ay_min: 0.6

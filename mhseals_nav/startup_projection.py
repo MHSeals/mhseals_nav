@@ -2,7 +2,7 @@
 from copy import deepcopy
 from pathlib import Path
 
-from .navigation_config import load_overlay, validate_navigation_base, validated_merge_limits
+from .navigation_config import load_ceilings, load_overlay, validate_navigation_base, validated_merge_limits
 
 SERVERS = (
     ('nav2_controller', 'controller_server'),
@@ -42,10 +42,7 @@ def compile_navigation(params_file, limits_file, *, sim, use_lidar, share=None):
     base = load_overlay(params_file, strict=True)
     validate_navigation_base(base)
     limits = load_overlay(limits_file, strict=True) if limits_file else {}
-    ceilings = ceilings_path(share)
-    if not ceilings.is_file():   # a missing file would lift every bound
-        raise FileNotFoundError(f'Navigation ceilings file not found: {ceilings}')
-    ceilings = load_overlay(ceilings, strict=True)
+    ceilings = load_ceilings(ceilings_path(share))
     return project_launch(validated_merge_limits(base, limits, ceilings),
                           {'sim': boolean(sim), 'use_lidar': boolean(use_lidar)}, bt_paths(share))
 

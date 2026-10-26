@@ -239,19 +239,41 @@ def typed_like(base, limits, path=(), keep_sign=True):
     return result
 
 
-def within_ceilings(ceilings, limits, path=()):
-    """Copy of limits without the values above the `ceilings` entry of the same key name.
+def validate_ceilings(ceilings):
+    """Ceilings must map names to positive finite numbers: a NaN, zero or text bound fails."""
+    if not isinstance(ceilings, dict):
+        raise ValueError('ceilings: expected mapping')
+    for key, value in ceilings.items():
+        if (isinstance(value, bool) or not isinstance(value, (int, float))
+                or not isfinite(value) or value <= 0):
+            raise ValueError(f'ceilings.{key}: required positive finite number, got {value!r}')
+    return ceilings
 
-    ceilings maps a limit name (vx_max, az_max, ...) to the most the boat may be told, so a
-    typo like 5.0 or 1e6 keeps the base value instead of reaching the controller.
+
+def load_ceilings(path):
+    """Strictly load and validate config/nav2_ceilings.yaml; a missing file would lift every bound."""
+    if not Path(path).is_file():
+        raise FileNotFoundError(f'Navigation ceilings file not found: {path}')
+    return validate_ceilings(load_overlay(path, strict=True))
+
+
+def within_ceilings(ceilings, limits, path=(), strict=False):
+    """Copy of limits without the values whose magnitude is above the `ceilings` entry of the same key name.
+
+    ceilings maps a limit name (vx_max, az_max, and the magnitude of vx_min, ax_min, ...) to the
+    most the boat may be told, so a typo like 5.0, -5.0 or 1e6 cannot reach the controller:
+    strict raises, otherwise the value is dropped and the base kept.
     """
     result = {}
     for key, value in limits.items():
         if isinstance(value, dict):
-            result[key] = within_ceilings(ceilings, value, path + (key,))
+            result[key] = within_ceilings(ceilings, value, path + (key,), strict)
         elif (key in ceilings and isinstance(value, (int, float)) and not isinstance(value, bool)
-              and value > ceilings[key]):
-            log.error('Ignoring overlay %s = %r: above the ceiling %r', '.'.join(path + (key,)), value, ceilings[key])
+              and abs(value) > ceilings[key]):
+            location = '.'.join(path + (key,))
+            if strict:
+                raise ValueError(f'{location} = {value!r}: magnitude above the ceiling {ceilings[key]!r}')
+            log.error('Ignoring overlay %s = %r: magnitude above the ceiling %r', location, value, ceilings[key])
         else:
             result[key] = value
     return result
@@ -356,7 +378,7 @@ def validate_navigation_base(base):
 
 
 def validated_merge_limits(base, limits, ceilings=None):
-    """Validate, bound by ceilings (values above one keep the base), then lower."""
+    """Validate, refuse values beyond the ceilings, then lower."""
     validate_navigation_overlay(base, limits)
 
     def normalized(template, value):
@@ -370,7 +392,8 @@ def validated_merge_limits(base, limits, ceilings=None):
         if isinstance(template, int) and not isinstance(template, bool):
             return int(value)
         return value
-    return lower_navigation(base, within_ceilings(ceilings or {}, normalized(base, limits)))
+    ceilings = validate_ceilings(ceilings or {})
+    return lower_navigation(base, within_ceilings(ceilings, normalized(base, limits), strict=True))
 
 
 def lower_navigation(base, explicit):
