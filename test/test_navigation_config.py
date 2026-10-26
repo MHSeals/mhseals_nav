@@ -1,6 +1,10 @@
 from pathlib import Path
 
+import yaml
+
 from mhseals_nav.navigation_config import derived, load_overlay, merge_limits
+
+CONFIG = Path(__file__).parents[1] / 'config'
 
 
 def test_limits_use_current_planner_and_horizon_without_mutating_base():
@@ -172,3 +176,44 @@ def test_zero_minimum_forbids_reversing_and_reaches_the_smoother(caplog):
         assert result['controller_server']['ros__parameters']['FollowPath']['vx_min'] == 0.
         assert result['velocity_smoother']['ros__parameters']['min_velocity'][0] == 0.
     assert 'out of range' not in caplog.text
+
+
+def test_overlay_above_the_ceiling_keeps_the_base_and_logs(caplog):
+    follow = {'model_dt': .05, 'time_steps': 56, 'prune_distance': 3., 'vx_max': .4, 'wz_max': .3}
+    ceilings = {'vx_max': .8, 'wz_max': .6}
+    base = {'controller_server': {'ros__parameters': {'FollowPath': follow}}}
+    for bad in (1e6, 5.0):
+        limits = {'controller_server': {'ros__parameters': {'FollowPath': {'vx_max': bad, 'wz_max': .5}}}}
+        with caplog.at_level('ERROR'):
+            merged = merge_limits(base, limits, ceilings)
+        result = merged['controller_server']['ros__parameters']['FollowPath']
+        assert result['vx_max'] == .4 and result['wz_max'] == .5
+        assert 'FollowPath.vx_max' in caplog.text and 'ceiling' in caplog.text
+        caplog.clear()
+
+
+def test_packaged_ceilings_sit_above_the_base_limits():
+    config = yaml.safe_load((CONFIG / 'nav2_params.yaml').read_text())
+    ceilings = yaml.safe_load((CONFIG / 'nav2_ceilings.yaml').read_text())
+    sections = {
+        'FollowPath': config['controller_server']['ros__parameters']['FollowPath'],
+        'behavior_server': config['behavior_server']['ros__parameters'],
+    }
+    assert ceilings.keys() == {'vx_max', 'vy_max', 'wz_max', 'ax_max', 'az_max', 'ay_max',
+                               'max_rotational_vel', 'rotational_acc_lim'}
+    for key, ceiling in ceilings.items():
+        base = next(section[key] for section in sections.values() if key in section)
+        assert base < ceiling <= 2 * base, key
+
+
+def test_nav2_params_has_only_node_sections():
+    """Nav2 servers abort on a top-level key that is not a node with ros__parameters."""
+    def is_node_section(section):
+        # A costmap server nests its costmap node one level down.
+        return isinstance(section, dict) and (
+            set(section) == {'ros__parameters'} or all(is_node_section(inner) for inner in section.values()))
+
+    config = yaml.safe_load((CONFIG / 'nav2_params.yaml').read_text())
+    for node, section in config.items():
+        assert is_node_section(section), node
+    assert 'ceilings' not in config

@@ -121,6 +121,8 @@ def inert_navigation_factory():
     from types import SimpleNamespace
     share = Path(tempfile.mkdtemp())
     shutil.copytree(ROOT / 'mhseals_nav/behavior_trees', share / 'behavior_trees')
+    (share / 'config').mkdir()
+    shutil.copyfile(ROOT / 'config/nav2_ceilings.yaml', share / 'config/nav2_ceilings.yaml')
     (share / 'launch').mkdir()
     shutil.copyfile(ROOT / 'launch/navigation.launch.py', share / 'launch/navigation.launch.py')
     ns = {'LaunchConfiguration': Configuration,
@@ -219,3 +221,29 @@ def test_actual_factory_consumes_final_projection(base, tmp_path):
     tree = ns['share'] / 'behavior_trees/nav_to_pose.xml'
     assert effective['bt_navigator']['ros__parameters']['default_nav_to_pose_bt_xml'] == str(tree)
     assert effective['lifecycle_manager_navigation']['ros__parameters']['use_sim_time'] is True
+
+
+def test_factory_bounds_the_overlay_by_the_installed_ceilings(base, tmp_path):
+    base_path = tmp_path / 'base.yaml'
+    base_path.write_text(yaml.safe_dump(base))
+    overlay = tmp_path / 'typo.yaml'
+    overlay.write_text('controller_server: {ros__parameters: {FollowPath: {vx_max: 5.0, wz_max: 0.5}}}')
+    ns = inert_navigation_factory()
+    nodes = ns['navigation_nodes']({'params_file': str(base_path), 'limits_file': str(overlay)})
+    assert nodes
+    from mhseals_nav.startup_projection import compile_navigation
+    result = compile_navigation(base_path, overlay, sim='true', use_lidar='true', share=ns['share'])
+    follow = result['controller_server']['ros__parameters']['FollowPath']
+    assert follow['vx_max'] == base['controller_server']['ros__parameters']['FollowPath']['vx_max']
+    assert follow['wz_max'] == 0.5
+    assert result['velocity_smoother']['ros__parameters']['max_velocity'][0] <= 0.8
+
+
+def test_missing_ceilings_fail_closed(base, tmp_path):
+    base_path = tmp_path / 'base.yaml'
+    base_path.write_text(yaml.safe_dump(base))
+    ns = inert_navigation_factory()
+    (ns['share'] / 'config/nav2_ceilings.yaml').unlink()
+    ns['Node'] = lambda **kw: pytest.fail('Node constructed without ceilings')
+    with pytest.raises(FileNotFoundError):
+        ns['navigation_nodes']({'params_file': str(base_path), 'limits_file': ''})

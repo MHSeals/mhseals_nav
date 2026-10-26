@@ -1,0 +1,11 @@
+# Most an overlay (characterization or hand edit) may set; merge_limits drops larger values.
+# About 2x the field limits in nav2_params.yaml. Kept out of that file because Nav2 servers
+# reject any top-level key that is not a node section.
+vx_max: 0.8
+vy_max: 0.3
+wz_max: 0.6
+ax_max: 0.6
+az_max: 1.0
+ay_max: 0.6
+max_rotational_vel: 0.6
+rotational_acc_lim: 1.0

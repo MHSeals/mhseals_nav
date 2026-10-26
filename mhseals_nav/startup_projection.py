@@ -29,14 +29,24 @@ def bt_paths(share=None):
     return {key: str(trees / name) for key, name in BT_FILES.items()}
 
 
+def ceilings_path(share=None):
+    """The overlay ceilings of the installed package, or of the source tree."""
+    root = Path(share) if share else Path(__file__).parents[1]
+    return root / 'config' / 'nav2_ceilings.yaml'
+
+
 def compile_navigation(params_file, limits_file, *, sim, use_lidar, share=None):
-    """Strictly load the base and optional operator limits, validate and project them."""
+    """Strictly load the base and optional operator limits, validate, bound by the ceilings and project them."""
     if not Path(params_file).expanduser().is_file():
         raise FileNotFoundError(f'Navigation params file not found: {params_file}')
     base = load_overlay(params_file, strict=True)
     validate_navigation_base(base)
     limits = load_overlay(limits_file, strict=True) if limits_file else {}
-    return project_launch(validated_merge_limits(base, limits),
+    ceilings = ceilings_path(share)
+    if not ceilings.is_file():   # a missing file would lift every bound
+        raise FileNotFoundError(f'Navigation ceilings file not found: {ceilings}')
+    ceilings = load_overlay(ceilings, strict=True)
+    return project_launch(validated_merge_limits(base, limits, ceilings),
                           {'sim': boolean(sim), 'use_lidar': boolean(use_lidar)}, bt_paths(share))
 
 

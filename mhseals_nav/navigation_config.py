@@ -239,9 +239,30 @@ def typed_like(base, limits, path=(), keep_sign=True):
     return result
 
 
-def merge_limits(base, limits):
-    """Overlay limits onto base, recompute derived keys and warn about overlay values that did not stick."""
-    limits = typed_like(base, limits)
+def within_ceilings(ceilings, limits, path=()):
+    """Copy of limits without the values above the `ceilings` entry of the same key name.
+
+    ceilings maps a limit name (vx_max, az_max, ...) to the most the boat may be told, so a
+    typo like 5.0 or 1e6 keeps the base value instead of reaching the controller.
+    """
+    result = {}
+    for key, value in limits.items():
+        if isinstance(value, dict):
+            result[key] = within_ceilings(ceilings, value, path + (key,))
+        elif (key in ceilings and isinstance(value, (int, float)) and not isinstance(value, bool)
+              and value > ceilings[key]):
+            log.error('Ignoring overlay %s = %r: above the ceiling %r', '.'.join(path + (key,)), value, ceilings[key])
+        else:
+            result[key] = value
+    return result
+
+
+def merge_limits(base, limits, ceilings=None):
+    """Overlay limits onto base, recompute derived keys and warn about overlay values that did not stick.
+
+    ceilings (config/nav2_ceilings.yaml) bounds the overlay's maxima; None means unbounded.
+    """
+    limits = within_ceilings(ceilings or {}, typed_like(base, limits))
     result = deep_merge(deepcopy(base), limits)
     controller = result.get('controller_server', {}).get('ros__parameters', {})
     name = mppi_controller(controller, legacy=True)
@@ -334,7 +355,8 @@ def validate_navigation_base(base):
             raise ValueError('FollowPath.time_steps: required positive integer')
 
 
-def validated_merge_limits(base, limits):
+def validated_merge_limits(base, limits, ceilings=None):
+    """Validate, bound by ceilings (values above one keep the base), then lower."""
     validate_navigation_overlay(base, limits)
 
     def normalized(template, value):
@@ -348,7 +370,7 @@ def validated_merge_limits(base, limits):
         if isinstance(template, int) and not isinstance(template, bool):
             return int(value)
         return value
-    return lower_navigation(base, normalized(base, limits))
+    return lower_navigation(base, within_ceilings(ceilings or {}, normalized(base, limits)))
 
 
 def lower_navigation(base, explicit):
