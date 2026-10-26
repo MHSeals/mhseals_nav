@@ -47,3 +47,8 @@ def test_deskew_with_the_true_twist_undoes_the_smear():
                             data=data.tobytes(), is_dense=True)
     fixed = np.frombuffer(deskew(cloud, W, V).data, dtype='<f4').reshape(-1, 4)
     assert np.hypot(fixed[:, 0] - X, fixed[:, 1] - Y).max() < 2e-3   # float32 at 10 m
+
+
+def test_points_without_a_return_stay_nan():
+    px, py, t = smear(np.array([np.nan, 10.]), np.array([np.nan, 0.]), poses())
+    assert np.isnan(px[0]) and np.isnan(py[0]) and t[0] == 0. and np.isfinite(px[1])

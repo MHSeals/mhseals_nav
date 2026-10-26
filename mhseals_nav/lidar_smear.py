@@ -44,7 +44,8 @@ def smear(x, y, poses, lever=(0., 0., 0.)):
     c, s = np.cos(syaw), np.sin(syaw)
     t = sweep_times(x, y)
     for _ in range(2):  # the second pass times each point by the azimuth it is seen at
-        i = np.rint((t / SWEEP + 1) * STEPS).astype(np.intp)
+        # A NaN point (crane's misses) takes t = 0 and stays NaN.
+        i = np.rint((np.nan_to_num(t) / SWEEP + 1) * STEPS).astype(np.intp)
         dx, dy = wx - sx[i], wy - sy[i]
         px, py = c[i] * dx + s[i] * dy, c[i] * dy - s[i] * dx
         t = sweep_times(px, py)
