@@ -115,6 +115,10 @@ class ObjectTracker(Node):
 
     # ------------------------------------------------------------------ TF
     def pose_at(self, t, frame):
+        # Near sim time zero the filter's yaw-rate and camera-velocity spans reach before
+        # t=0; rclpy Time rejects that, which killed the tracker and held costmap_stale.
+        if t < 0.0:
+            raise LookupError(f'no transform before time zero (t={t:.3f})')
         try:
             return unpack(self.tf.lookup_transform(
                 self.odom, frame, Time(nanoseconds=int(t * 1e9))))

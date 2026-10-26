@@ -126,6 +126,16 @@ def test_publish_on_update_sends_tracks_after_an_update_at_most_rate_hz(ros):
     tracker.destroy_node()
 
 
+def test_pose_before_time_zero_is_a_missing_transform_not_a_crash(ros):
+    from mhseals_nav.object_tracker import ObjectTracker
+
+    tracker = ObjectTracker()
+    # A frame stamped within yaw_dt of sim time zero asks for t - yaw_dt < 0.
+    with pytest.raises(LookupError):
+        tracker.pose_at(-0.05, 'base_link')
+    tracker.destroy_node()
+
+
 def test_course_map_saved_through_toll_and_loaded_as_priors(tmp_path, monkeypatch):
     from geometry_msgs.msg import TransformStamped
     from nav_msgs.msg import Odometry
