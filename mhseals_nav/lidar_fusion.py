@@ -541,6 +541,7 @@ class ExtrinsicEstimate:
         s_el = (b.v1 - b.v0) / (fy * math.sqrt(12) * (1 + y * y))
         rows = model_rows(x, y, c.rho, yaw_rate)
         self.samples.append((rows, (r_az, r_el), (s_az, max(s_el, 1e-4))))
+        self.last = (x, y, c.rho, yaw_rate, r_az, r_el, s_az, max(s_el, 1e-4))
         self.new += 1
         if len(self.samples) >= cfg['min_n'] and self.new >= cfg['stride']:
             self.new = 0
@@ -798,16 +799,18 @@ class LidarFusion(Node):
     def drain(self):
         with self.lock:         # the relay's pipe thread drains on each scan too
             while self.queue:
-                msg, _ = self.queue[0]
+                msg, arrived = self.queue[0]
                 out = self.process(msg)
                 if out is None:
                     return          # waiting for TF or the scan
                 self.queue.popleft()
                 self.pub.publish(out)
-                stamp = out.header.stamp
+                t = out.header.stamp.sec + out.header.stamp.nanosec * 1e-9
+                # lat: image capture -> publish (ROS time); wait: frame arrival -> publish
                 self.sources_pub.publish(self.String(data=json.dumps(
-                    {'t': stamp.sec + stamp.nanosec * 1e-9, 'sources': self.sources,
-                     'skip': self.last_skip})))
+                    {'t': t, 'sources': self.sources, 'skip': self.last_skip,
+                     'lat': self.now() - t, 'wait': time.monotonic() - arrived,
+                     'ex': self.ex_log})))
 
     def skip(self, cause):
         self.skips[cause] = self.skips.get(cause, 0) + 1
@@ -817,7 +820,7 @@ class LidarFusion(Node):
         """Return the fused array, or None while TF may still arrive (at most tf_wait_s)."""
         started = time.process_time()
         cfg = self.cfg
-        self.last_skip = ''
+        self.last_skip, self.ex_log = '', []
         stamp = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
         t_c = stamp + cfg['image_time_offset_s']
         frame = cfg['camera_frame'] or msg.header.frame_id
@@ -899,8 +902,8 @@ class LidarFusion(Node):
     def sample_extrinsic(self, obs, P_raw, ctx, t, yaw_rate, rows):
         lidar = {i for s, i, *_ in rows if s in ('lidar', 'split')}
         for b, c in extrinsic_samples(obs, P_raw, ctx):
-            if c is not None:
-                self.extrinsic.add(t, b.ob.backend_id, b, c, ctx, yaw_rate)
+            if c is not None and self.extrinsic.add(t, b.ob.backend_id, b, c, ctx, yaw_rate):
+                self.ex_log.append(self.extrinsic.last)
             self.extrinsic.observe_isolated(t, c is not None, b.index in lidar)
         if self.extrinsic.level == ExtrinsicEstimate.ERROR and self.extrinsic.message:
             self.get_logger().error(self.extrinsic.message, throttle_duration_sec=10.0)
