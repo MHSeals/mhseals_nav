@@ -6,6 +6,8 @@ plain Python over a blackboard the runner fills with tracked objects, the
 boat's pose and the time, so each one is testable without ROS.
 """
 
+from copy import deepcopy
+from functools import lru_cache
 from pathlib import Path
 
 
@@ -15,9 +17,15 @@ def load_config(name, overrides=None):
     Read by the package's one strict loader: a duplicate key or a non-finite number is
     an error naming the file and line.
     """
+    return {**deepcopy(_parsed(name)), **(overrides or {})}
+
+
+@lru_cache(maxsize=None)
+def _parsed(name):
+    """Parse a task YAML once per process (a run builds trees from many); callers get copies."""
     from mhseals_nav.navigation_config import load_strict  # only the runner and tests
     path = Path(__file__).resolve().parents[2] / 'config/tasks' / f'{name}.yaml'
     if not path.exists():
         from ament_index_python.packages import get_package_share_directory
         path = Path(get_package_share_directory('mhseals_nav')) / 'config/tasks' / path.name
-    return {**(load_strict(path.read_text(encoding='utf-8'), path) or {}), **(overrides or {})}
+    return load_strict(path.read_text(encoding='utf-8'), path) or {}
