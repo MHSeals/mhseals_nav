@@ -9,7 +9,8 @@ from visualization_msgs.msg import Marker, MarkerArray
 MOTION_TEXT = ('?', 'S', 'M')
 
 
-# A buoy shows its own colour (red_pole_buoy red, black_cross black); other labels keep a stable hash colour.
+# A buoy shows its own colour (red_pole_buoy red, black_cross black);
+# other labels keep a stable hash colour.
 PALETTE = {'red': (1.0, 0.16, 0.12), 'green': (0.16, 0.9, 0.3), 'blue': (0.15, 0.4, 1.0),
            'yellow': (1.0, 0.85, 0.15), 'black': (0.25, 0.28, 0.32)}
 
