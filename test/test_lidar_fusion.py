@@ -391,8 +391,11 @@ def three_buoys(az_deg, el_deg):
 
 
 def test_a_few_buoys_own_biases_raise_no_alarm_but_3_deg_pitch_does():
-    """Per-buoy biases at the sim E0 worst spread (S6) stay quiet. 3 deg of pitch on the
-    same three buoys raises ERROR: scaling the SE by sqrt(N / objects) hid it (S4)."""
+    """Per-buoy biases at the sim E0 worst spread (S6) stay quiet.
+
+    3 deg of pitch on the same three buoys raises ERROR: scaling the SE by
+    sqrt(N / objects) hid it (S4).
+    """
     assert three_buoys((0.5, -0.3, 0.4), (0.5, -0.4, 0.2)).level == lf.ExtrinsicEstimate.OK
     assert three_buoys((0, 0, 0), (-3, -3, -3)).level == lf.ExtrinsicEstimate.ERROR
 

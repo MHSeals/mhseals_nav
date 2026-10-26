@@ -116,7 +116,7 @@ def test_a_biased_stereo_buoy_comes_out_on_the_lidar_range(rig):
 
 @pytest.fixture
 def bare():
-    """The node alone: no TF, no camera_info, no cloud unless a test sets them."""
+    """Provide the node alone: no TF, no camera_info, no cloud unless a test sets them."""
     rclpy.init(args=['--ros-args', '--params-file', str(CONFIG), '-p', 'points_transport:=direct',
                      '-p', 'camera_axes:=body'])
     node = LidarFusion()
