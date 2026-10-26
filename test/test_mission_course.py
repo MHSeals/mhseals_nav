@@ -194,6 +194,27 @@ def test_the_host_finds_its_config_with_no_ros_on_the_host():
     assert 'docking' in out[1]  # and it read
 
 
+NO_PY_TREES = """
+import importlib.abc, sys
+class NoPyTrees(importlib.abc.MetaPathFinder):
+    def find_spec(self, name, path=None, target=None):
+        if name.split('.')[0] in ('py_trees', 'numpy', 'ament_index_python', 'rclpy'):
+            raise ModuleNotFoundError(name)
+sys.meta_path.insert(0, NoPyTrees())
+from mhseals_nav.tasks.params import config_path, load_params
+params = load_params('mission', config_path('mission_2026.yaml'), 'finals')
+print(params['timeout'], params['exit_reserve'], params['speed_challenge']['expected_s'])
+"""
+
+
+def test_the_run_budget_resolves_with_no_py_trees_on_the_host():
+    """A harness reads the run budget and the profile's params without the trees' imports."""
+    env = {**os.environ, 'PYTHONPATH': os.pathsep.join(sys.path)}
+    out = subprocess.run([sys.executable, '-c', NO_PY_TREES], env=env, capture_output=True,
+                         text=True, check=True).stdout.split()
+    assert [float(v) for v in out] == [720.0, 300.0, 380.0]
+
+
 def mission(path):
     return load_params('mission', config_path(path))
 
