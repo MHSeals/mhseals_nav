@@ -133,6 +133,23 @@ def test_unknown_class_needs_n_unknown_min_hits():
     assert track.motion == MOTION_STATIC
 
 
+def test_a_marker_seen_from_afar_stays_unknown_and_goes_soon():
+    """Pin the hold-over the task host gets (tasks/host.py, ``tracks``).
+
+    A class of no group (a dock banner, a light beacon) seen from 10 m never turns
+    STATIC, so it is gone timeout.unknown (10 s) after it leaves the view; a buoy
+    stays 900 s.
+    """
+    f = TrackFilter(CFG)
+    t = run(f, lambda t: [ob('banner_1', 10.0, 0.0), ob('red_buoy', 10.0, 1.0)], 10.0)
+    assert {tr.class_id: tr.motion for tr in f.tracks} == {
+        'banner_1': MOTION_UNKNOWN, 'red_buoy': MOTION_STATIC}
+    f.expire(t + CFG['timeout']['unknown'] + 0.1)  # looked away: no fov misses
+    assert [tr.class_id for tr in f.tracks] == ['red_buoy']
+    f.expire(t + CFG['timeout']['static'] + 0.1)
+    assert f.tracks == []
+
+
 def test_static_wobble_within_floor_stays_static():
     f = TrackFilter(CFG)
     run(f, lambda t: [ob('red_buoy', 5.0 + 0.1 * math.sin(t), 0.0)], 30.0, noise=0.05)

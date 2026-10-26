@@ -41,19 +41,24 @@ def from_track_array(message):
     return tracks
 
 
-def remember(memory, seen, now, horizon=5.0, separation=1.0):
+def remember(memory, seen, now, horizon=5.0, separation=1.0, horizons=None):
     """Merge ``seen`` tracks into ``memory`` [(Track, last_seen)], forgetting stale ones.
 
-    A sighting within ``separation`` of a remembered track of the same label replaces
-    it, so a track that drops out for a moment stays put rather than flickering.
-    Priors are never remembered: the course map republishes them while they hold.
+    A track is forgotten ``horizon`` s after it was last seen, or its label's own
+    ``horizons`` entry (fixed landmarks). A sighting with a remembered track's id, or
+    within ``separation`` of one of the same label, replaces it, so a track that drops
+    out for a moment stays put rather than flickering. Priors are never remembered: the
+    course map republishes them while they hold.
     """
-    kept = [(track, seen_at) for track, seen_at in memory if now - seen_at <= horizon]
+    horizons = horizons or {}
+    kept = [(track, seen_at) for track, seen_at in memory
+            if now - seen_at <= horizons.get(track.label, horizon)]
     for track in seen:
         if track.prior:
             continue
-        match = next((i for i, (old, _) in enumerate(kept) if old.label == track.label
-                      and math.dist((track.x, track.y), (old.x, old.y)) < separation), None)
+        match = next((i for i, (old, _) in enumerate(kept) if old.label == track.label and (
+            (track.id is not None and old.id == track.id)
+            or math.dist((track.x, track.y), (old.x, old.y)) < separation)), None)
         if match is None:
             kept.append((track, now))
         else:

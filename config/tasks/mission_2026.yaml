@@ -37,6 +37,7 @@ docking:
   numbers: {banner_1: 1, banner_2: 2, banner_3: 3}
   prefer: [green]
   vessels: [boat, black_target_boat, orange_target_boat]
+  landmarks: [banner_1, banner_2, banner_3, red_light_beacon, green_light_beacon]
   staging: 4.0
   berth: 1.3
   bay_depth: 2.4

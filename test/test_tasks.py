@@ -86,6 +86,18 @@ def test_unique_spin_and_memory():
     assert tracks.remember([], [buoy._replace(prior=True)], now=0.0) == []
 
 
+def test_landmarks_outlive_the_memory_and_a_track_id_replaces_its_own_sighting():
+    """The host's side of the tracker contract (MissionHost.tick ``tracks``)."""
+    banner = Track('banner_1', 5, 5, 0.9, None, False, False, '7')
+    boat = Track('black_target_boat', 0, 0, 0.9, None, False, False, '8')
+    memory = tracks.remember([], [banner, boat], now=0.0, horizons={'banner_1': 900.0})
+    assert tracks.remember(memory, [], now=600.0, horizons={'banner_1': 900.0}) == [
+        (banner, 0.0)]
+    # The same tracker id 3 m on is the same object, not a second one left behind.
+    far = boat._replace(x=3.0)
+    assert tracks.remember(memory, [far], now=1.0) == [(banner, 0.0), (far, 1.0)]
+
+
 def test_dock_bays_open_toward_the_boat():
     banners = [(10, -5), (10, -3), (10, -1)]
     opening = geometry.dock_axis(banners, (10, -3), (0, 0, 0))

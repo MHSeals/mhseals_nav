@@ -6,11 +6,16 @@ the sim's would. It checks the task logic end to end: every stage in succession,
 search when things are out of view, and no stop-and-go between gates.
 """
 
+from fnmatch import fnmatch
 import importlib.util
 import json
 import math
+import os
 from pathlib import Path
+import subprocess
+import sys
 
+from mhseals_nav.navigation_config import load_strict
 from mhseals_nav.tasks.host import config_path, load_params
 from mhseals_nav.tasks.tracks import Track
 import pytest
@@ -53,8 +58,30 @@ class Goal:
             self.done, self.status = True, 'CANCELED'
 
 
+TRACKER = load_strict((Path(__file__).resolve().parents[1] / 'config/tracker.yaml').read_text(
+    encoding='utf-8'), 'tracker.yaml')['/**']['ros__parameters']
+
+
+def hold_over(label):
+    """Return how long (s) the object tracker keeps a track of ``label`` after its last sighting.
+
+    Its timeout for the class group's prior motion: a buoy is STATIC (900 s); a class
+    of no group (banners, light beacons) stays UNKNOWN when seen from beyond ~9 m, so it
+    goes 10 s after it leaves the view (test_a_marker_seen_from_afar_stays_unknown_and_goes_soon in
+    test_track_filter); a boat 3 s.
+    """
+    groups = TRACKER['class_groups']
+    group = next((g for g, spec in groups.items() if g != 'unknown' and any(
+        fnmatch(label, p) for p in spec['match'])), 'unknown')
+    return TRACKER['timeout'][groups[group]['prior']]
+
+
 class Course:
-    """A boat that drives Nav2 routes at ``speed`` and a camera with a cone of view."""
+    """A boat that drives Nav2 routes at ``speed`` and a camera with a cone of view.
+
+    The tracks it hands the host are the object tracker's: everything seen, until the
+    tracker's hold-over for its class runs out (``hold_over``).
+    """
 
     def __init__(self, params, dt=0.5, speed=1.0, hfov=math.radians(110), range_m=20.0,
                  course=COURSE, host=True):
@@ -113,11 +140,11 @@ class Course:
 
     def look(self):
         x, y, yaw = self.pose
-        for label, ox, oy in self.course:
+        for i, (label, ox, oy) in enumerate(self.course):
             bearing = math.atan2(oy - y, ox - x) - yaw
             if (math.dist((ox, oy), (x, y)) <= self.fov[1]
                     and abs(math.atan2(math.sin(bearing), math.cos(bearing))) <= self.fov[0] / 2):
-                self.seen[(label, ox, oy)] = True  # the tracker keeps static tracks
+                self.seen[(i, label, ox, oy)] = self.now
 
     def step(self, now):
         """Move the boat on to ``now``; return its pose and the tracks seen so far."""
@@ -128,7 +155,8 @@ class Course:
             self.stops += 1
         self.look()
         return self.pose, [Track(label, x, y, 0.9, None, True, False, str(i))
-                           for i, (label, x, y) in enumerate(self.seen)]
+                           for (i, label, x, y), at in self.seen.items()
+                           if self.now - at <= hold_over(label)]
 
     def run(self, seconds=1800.0):
         for tick in range(int(seconds / self.dt)):
@@ -142,6 +170,28 @@ class Course:
         """List the trees' own events: no goals, decisions or the host's start and finish."""
         return [event for event, _ in self.events
                 if event not in ('goal', 'decision', 'task_started', 'home', 'task_finished')]
+
+
+NO_ROS = """
+import importlib.abc, sys
+class NoRos(importlib.abc.MetaPathFinder):
+    def find_spec(self, name, path=None, target=None):
+        if name.split('.')[0] in ('ament_index_python', 'rclpy'):
+            raise ModuleNotFoundError(name)
+sys.meta_path.insert(0, NoRos())
+from mhseals_nav.tasks.host import config_path, load_params, MissionHost
+print(config_path('mission_2026.yaml'))
+print(sorted(load_params('mission', config_path('mission_2026.yaml'))['tasks']))
+"""
+
+
+def test_the_host_finds_its_config_with_no_ros_on_the_host():
+    """The fast sim imports the host on a bare host: no ament index, no rclpy."""
+    env = {**os.environ, 'PYTHONPATH': os.pathsep.join(sys.path)}
+    out = subprocess.run([sys.executable, '-c', NO_ROS], env=env, capture_output=True,
+                         text=True, check=True).stdout.splitlines()
+    assert out[0].endswith('/config/tasks/mission_2026.yaml')  # the source tree's
+    assert 'docking' in out[1]  # and it read
 
 
 def mission(path):
@@ -234,6 +284,28 @@ def test_full_2026_mission_finds_and_completes_every_task_by_search(course, side
     assert math.dist(started['pose'][:2], (48.0, side * 40.0)) < 3.0
     assert names[-2:] == ['returned_home', 'stage_completed']
     assert elapsed < 600
+
+
+@pytest.mark.parametrize('landmarks', [True, False], ids=['remembered', 'forgotten'])
+def test_the_marina_found_at_the_start_is_docked_at_field_speed(landmarks):
+    """At 0.4 m/s the marina, seen at the start look, is docked at ~10 min.
+
+    The tracker has dropped its banners and lights 10 s after they left the view
+    (``hold_over``), so only the host's landmark memory keeps the slips: without it,
+    docking fails.
+    """
+    params = mission('mission_2026.yaml')
+    if not landmarks:
+        params['docking'].pop('landmarks')
+    world = Course(params, course=COURSE_2026, speed=0.4)
+    outcome, _ = world.run()
+    docked = [d for e, d in world.events if e == 'docked']
+    assert outcome == 'SUCCESS'
+    if landmarks:
+        assert [(d['bay_colour'], d['bay_number']) for d in docked] == [('green', 1)]
+    else:
+        assert docked == [] and ('stage_skipped', {'stage': 'docking'}) in [
+            (e, {'stage': d.get('stage')}) for e, d in world.events if e == 'stage_skipped']
 
 
 def test_a_short_run_skips_the_task_worth_least_per_second_and_still_gets_out():

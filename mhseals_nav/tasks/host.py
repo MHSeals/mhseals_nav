@@ -33,12 +33,17 @@ OUTCOMES = ('SUCCESS', 'FAILURE', 'TIMEOUT', 'PREEMPTED', 'REFUSED')
 
 def config_path(name):
     """Return a task YAML's path in the installed share, else in this source tree."""
+    path = None
     try:
         from ament_index_python.packages import (get_package_share_directory,
                                                  PackageNotFoundError)
-        path = Path(get_package_share_directory('mhseals_nav')) / 'config/tasks' / name
-    except (ImportError, PackageNotFoundError):
-        path = None
+    except ImportError:  # no ROS on this host: the source tree only
+        pass
+    else:
+        try:
+            path = Path(get_package_share_directory('mhseals_nav')) / 'config/tasks' / name
+        except PackageNotFoundError:
+            pass
     if path is None or not path.exists():
         path = Path(__file__).resolve().parents[2] / 'config/tasks' / name
     return str(path)
@@ -66,13 +71,18 @@ class MissionHost:
         self.timeout = float(params.get('timeout', 600.0))
         self.objects, self.tracks, self.memory, self.priors = [], [], [], []
         self.memory_horizon = float(params.get('memory', 5.0))
+        # Fixed course markers (a task's ``landmarks``) outlive ``memory``: see tick().
+        stages = params.get('tasks', [task] if task != 'mission' else [])
+        self.landmarks = dict.fromkeys(
+            [label for p in [params] + [params.get(n) or {} for n in stages]
+             for label in p.get('landmarks', ())],
+            float(params.get('landmark_memory', 900.0)))
         search = load_search(params.get('search'))
         self.coverage_config = search
         self.fov = (math.radians(float(search['hfov_deg'])), float(search['range_m']))
         self.conditions = Conditions(params.get('conditions') or {})
         self.recogniser = Recogniser(load_config('recognition'))
         self.status_at, self.status_last, self.hypotheses_at = None, None, None
-        stages = params.get('tasks', [task] if task != 'mission' else [])
         self.stages = {name: {'state': 'pending', 'attempts': 0, 'failures': 0,
                               'elapsed': 0.0, 'since': None} for name in stages}
         self.stage, self.recent = None, []
@@ -99,7 +109,7 @@ class MissionHost:
         if priors is not None:
             self.priors = priors  # republished while they hold
         self.memory = track_memory.remember(self.memory, seen, self.clock(),
-                                            self.memory_horizon)
+                                            self.memory_horizon, horizons=self.landmarks)
         self._world()
 
     def _world(self):
@@ -153,9 +163,24 @@ class MissionHost:
     def tick(self, pose, tracks=None, fov=None):
         """Run one tick; return the outcome once the run has ended, else None.
 
-        ``tracks`` (when given) are remembered as seen now; ``fov`` (hfov rad, range m)
-        replaces the camera's field of view. The run starts at the first tick with a
-        pose and a ready navigator.
+        ``tracks`` (when given; the node passes None and calls ``remember`` from its
+        callbacks instead) is what one object-tracker message carries, as
+        ``tasks.tracks.Track`` (label, x, y in the map frame, confidence, sigma, static,
+        prior, id): every confirmed track the tracker still holds, out of view ones
+        included, not only this frame's detections. The tracker (config/tracker.yaml)
+        holds a track ``timeout`` s after its last sighting by its motion class: STATIC
+        900 s, UNKNOWN 10 s, MOVING 3 s; and drops a STATIC one sooner when it stands in
+        the camera's view and range unseen for ``miss_in_fov_s`` (5 s). A buoy turns
+        STATIC; a class of no group (banners, light beacons) seen from beyond ~9 m stays
+        UNKNOWN; a boat is MOVING. ``confidence`` is the class score times
+        exp(-age / tau) (tau 300 s STATIC, 5 s UNKNOWN, 2 s MOVING); the last-seen
+        stamp itself is not passed. ``id`` is the tracker's, stable while it holds the
+        track. Course-map priors come with ``prior`` true. Every track given is
+        remembered as reported now and kept ``memory`` s (5) after its last report,
+        a ``landmarks`` label ``landmark_memory`` s (900): the task logic must not
+        need any other track longer than the tracker holds it. ``fov`` (hfov rad,
+        range m) replaces the camera's field of view. The run starts at the first tick
+        with a pose and a ready navigator.
         """
         if self.outcome is not None:
             return self.outcome
@@ -175,7 +200,8 @@ class MissionHost:
         # Forget tracks the tracker stopped sending: it may have died.
         if self.memory:
             before = len(self.memory)
-            self.memory = track_memory.remember(self.memory, [], now, self.memory_horizon)
+            self.memory = track_memory.remember(self.memory, [], now, self.memory_horizon,
+                                                horizons=self.landmarks)
             if len(self.memory) != before:
                 self._world()
         self.board.objects, self.board.tracks = self.objects, self.tracks
