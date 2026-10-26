@@ -1,0 +1,42 @@
+# The whole run on a 2026 course (crane_ml procedural course-gen, RoboBoat 2026 rules):
+# no day's layout, so every task is found by search; the map frame is the start pose.
+# Phase 1 baseline: fixed order. Run: run_task --task mission --params <this file>.
+tasks: [nav_channel, follow_path, docking, speed_challenge, return_home]
+timeout: 1800.0
+search: {area: [[-20.0, -60.0], [80.0, 60.0]]}
+# Task 2, debris clearance: the channel out, circle each green beacon, back the same way.
+follow_path:
+  red: red_buoy
+  green: green_buoy
+  count: black_buoy
+  rescue: [green_light_buoy]
+  rescues: 2
+  circle_radius: 2.0
+  circle_clockwise: true
+  circle_points: 8
+  report_labels: [black_buoy, green_light_buoy, red_light_buoy]
+  and_back: true
+  time_limit: 420.0
+# Task 5, marina: the lowest-numbered free green slip of either pier.
+docking:
+  indicators: {green_light_beacon: green, red_light_beacon: red}
+  numbers: {banner_1: 1, banner_2: 2, banner_3: 3}
+  prefer: [green]
+  vessels: [boat, black_target_boat, orange_target_boat]
+  staging: 4.0
+  berth: 1.3
+  bay_depth: 2.4
+# Task 3, speed: the yellow mark; the indicator before it sets the way round.
+speed_challenge:
+  mark: yellow_buoy
+  indicators: {red_light_buoy: red, green_light_buoy: green, red_light_sign: red, green_light_sign: green}
+  turn: {red: false, green: true}   # red counter-clockwise, green clockwise
+  count: black_buoy
+# Exit: back out through the entry gates (nav_channel's cleared gates), last first.
+return_home:
+  exit_source: channel
+  red: red_pole_buoy
+  green: green_pole_buoy
+  gates: 2
+  red_side: starboard
+  home_radius: 35.0

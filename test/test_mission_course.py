@@ -7,6 +7,7 @@ search when things are out of view, and no stop-and-go between gates.
 """
 
 import importlib.util
+import json
 import math
 from pathlib import Path
 
@@ -54,8 +55,9 @@ class Goal:
 class Course:
     """A boat that drives Nav2 routes at ``speed`` and a camera with a cone of view."""
 
-    def __init__(self, params, dt=0.5, speed=1.0, hfov=math.radians(110), range_m=20.0):
-        self.dt, self.speed, self.fov = dt, speed, (hfov, range_m)
+    def __init__(self, params, dt=0.5, speed=1.0, hfov=math.radians(110), range_m=20.0,
+                 course=COURSE):
+        self.dt, self.speed, self.fov, self.course = dt, speed, (hfov, range_m), course
         py_trees.blackboard.Blackboard.clear()  # one run per process, as for real
         self.pose, self.seen, self.goal = (0.0, 0.0, 0.0), {}, None
         self.events, self.goals, self.stops, self.path = [], [], 0, 0.0
@@ -75,6 +77,7 @@ class Course:
         if self.goal is not None and not self.goal.done:
             self.goal.done, self.goal.status = True, 'ABORTED'  # preempted
         self.goal = Goal(route, precise)
+        self.goal.why = why
         self.goals.append(self.goal)
         return self.goal
 
@@ -104,7 +107,7 @@ class Course:
 
     def look(self):
         x, y, yaw = self.pose
-        for label, ox, oy in COURSE:
+        for label, ox, oy in self.course:
             bearing = math.atan2(oy - y, ox - x) - yaw
             if (math.dist((ox, oy), (x, y)) <= self.fov[1]
                     and abs(math.atan2(math.sin(bearing), math.cos(bearing))) <= self.fov[0] / 2):
@@ -181,3 +184,33 @@ def test_full_mission_without_a_layout_searches_and_recognises_its_way():
     reasons = [d['reason'] for e, d in world.events if e == 'decision']
     assert any(r.startswith('red_circle not seen') for r in reasons)
     assert elapsed < 1400
+
+
+# crane_ml course-gen seed 1 (2026 rules) in the start frame: test/fixtures/course_2026_s1.json.
+COURSE_2026 = [tuple(e[:3]) for e in json.loads(
+    (Path(__file__).parent / 'fixtures/course_2026_s1.json').read_text())['elements']]
+
+
+@pytest.mark.xfail(strict=True, reason='Phase 1 gap: the marina beside the start is never '
+                   'searched (no placement priors) and the speed search outlasts its limit')
+def test_full_2026_mission_finds_and_completes_every_task_by_search():
+    """The 2026 course with no layout: every stage by search, in the fixed order."""
+    world = Course(mission('mission_2026.yaml'), course=COURSE_2026)
+    outcome, elapsed = world.run()
+    names = world.names()
+    decisions = [d['reason'] for e, d in world.events if e == 'decision']
+    assert outcome == 'SUCCESS', decisions[-8:]
+    assert 'stage_skipped' not in names, decisions
+    assert names.count('stage_completed') == 5
+    # Marina: the lowest-numbered free green slip is N3, banner_1 (truth 3.39, 12.84).
+    docked = next(d for e, d in world.events if e == 'docked')
+    assert docked['bay_number'] == 1 and docked['bay_colour'] == 'green'
+    assert docked['bay'] == pytest.approx((3.39, 12.842))
+    # Debris: both green beacons circled, and the debris positions reported.
+    assert sum(1 for g in world.goals if g.why.startswith('round the beacon')) >= 4
+    reported = {tuple(d['position']) for e, d in world.events if e == 'debris'}
+    assert len(reported) >= 8
+    # Speed: the red indicator turns the lap counter-clockwise.
+    assert any(r.startswith('red indicator: counter') for r in decisions)
+    assert names[-2:] == ['returned_home', 'stage_completed']
+    assert elapsed < 1500

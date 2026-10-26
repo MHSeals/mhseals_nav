@@ -238,19 +238,43 @@ class PlanCircle(Leaf):
     entry pose to ``key``_entry. Approach the entry before starting a full lap.
     """
 
-    def __init__(self, name, key, labels, radius, clockwise, points=6):
-        super().__init__(name, writes=(key, key + '_rest', key + '_target', key + '_entry'))
+    def __init__(self, name, key, labels, radius, clockwise, points=6, direction=None,
+                 done=None, separation=1.5):
+        """``direction`` is (key, {value: clockwise}): a colour read on the way wins.
+
+        ``done`` names a key listing targets already circled (xy): those within
+        ``separation`` are skipped. The chosen target's xy goes to ``key``_at.
+        """
+        super().__init__(name, reads=tuple(k for k in ((direction or (None,))[0], done) if k),
+                         writes=(key, key + '_rest', key + '_target', key + '_entry',
+                                 key + '_at'))
         self.key, self.labels, self.radius = key, tuple(labels), radius
-        self.clockwise, self.points = clockwise, points
+        self.clockwise, self.points, self.direction = clockwise, points, direction
+        self.done, self.separation = done, separation
+
+    def turn(self, label):
+        """Clockwise or not: the colour read under ``direction``, else the configured way."""
+        if self.direction:
+            key, ways = self.direction
+            value = self.board.get(key) if self.board.exists(key) else None
+            if value in ways:
+                self.decide('circle', f'{value} indicator: '
+                            + ('clockwise' if ways[value] else 'counter-clockwise'))
+                return ways[value]
+            self.decide('circle', 'no indicator read: the default way')
+        return self.clockwise[label] if isinstance(self.clockwise, dict) else self.clockwise
 
     def update(self):
         pose = self.board.pose
-        targets = [(label, x, y) for label, x, y in self.board.objects if label in self.labels]
+        done = (self.board.get(self.done) or []) if self.done and self.board.exists(
+            self.done) else []
+        targets = [(label, x, y) for label, x, y in self.board.objects if label in self.labels
+                   and all(math.dist((x, y), d) > self.separation for d in done)]
         if pose is None or not targets:
             return Status.FAILURE
         label, x, y = min(targets, key=lambda t: math.dist(t[1:], pose[:2]))
-        clockwise = (self.clockwise[label] if isinstance(self.clockwise, dict)
-                     else self.clockwise)
+        clockwise = self.turn(label)
+        self.board.set(self.key + '_at', (x, y), overwrite=True)
         poses = geometry.circle((x, y), self.radius, self.points, clockwise, pose[:2])
         # Two halves: Nav2 checks only the distance to a route's last pose, and a whole
         # circle ends where the boat starts it, so it would "arrive" at once.
@@ -658,6 +682,30 @@ class CountObjects(Leaf):
         return Status.RUNNING
 
 
+class WatchColour(CountObjects):
+    """Read an indicator's colour in ``key`` by the most sightings; never finishes.
+
+    ``labels`` maps a label to its value (``red_light_buoy: red``). Run it in parallel
+    with the task, like CountObjects; with ``beyond``, only past that key's first gate.
+    """
+
+    def __init__(self, name, key, labels, beyond=None, horizon=30.0):
+        super().__init__(name, key, None, beyond=beyond, horizon=horizon)
+        self.labels = dict(labels)
+
+    def initialise(self):
+        self.votes = {}
+
+    def update(self):
+        for label, x, y in self.board.objects:
+            if label in self.labels and self.in_task((x, y)):
+                value = self.labels[label]
+                self.votes[value] = self.votes.get(value, 0) + 1
+        if self.votes:
+            self.board.set(self.key, max(self.votes, key=self.votes.get), overwrite=True)
+        return Status.RUNNING
+
+
 class ReportCount(Driver):
     """Report the count in ``key`` as ``event``; ``spin`` also turns once per object.
 
@@ -727,6 +775,70 @@ class PlanBay(Leaf):
         return Status.SUCCESS
 
 
+class PlanSlip(Leaf):
+    """Choose the best free slip of a marina by its indicator and number; write its poses.
+
+    Each indicator (``indicators``: label -> colour) belongs to the nearest number
+    banner (``banners``: label -> number) within ``pair_radius``. The choice is the
+    lowest-numbered free slip of the first colour in ``prefer`` that has one (2026:
+    green, lowest number first), then the nearest. A slip is taken when a vessel is
+    tracked within ``vessel_radius`` of its centre. The bay opens on the normal of
+    the banners within ``pier_radius`` (one pier's spine). Writes as PlanBay, plus
+    ``key``_number and ``key``_colour.
+    """
+
+    def __init__(self, name, key, indicators, banners, vessels, prefer=('green',),
+                 berth=0.85, staging=3.0, depth=1.5, vessel_radius=1.0, pair_radius=1.0,
+                 pier_radius=5.0):
+        super().__init__(name, writes=(key, key + '_staging', key + '_berth',
+                                       key + '_number', key + '_colour'))
+        self.key, self.indicators, self.banners = key, dict(indicators), dict(banners)
+        self.vessels, self.prefer = tuple(vessels), tuple(prefer)
+        self.berth, self.staging, self.depth = berth, staging, depth
+        self.vessel_radius, self.pair_radius, self.pier_radius = (
+            vessel_radius, pair_radius, pier_radius)
+
+    def slips(self, pose):
+        """Every paired slip as (colour, number, banner xy, poses)."""
+        banners = [(self.banners[label], (x, y)) for label, x, y in self.board.objects
+                   if label in self.banners]
+        found = []
+        for label, x, y in self.board.objects:
+            if label not in self.indicators or not banners:
+                continue
+            number, banner = min(banners, key=lambda b: math.dist(b[1], (x, y)))
+            if math.dist(banner, (x, y)) > self.pair_radius:
+                continue
+            pier = [b for _, b in banners if math.dist(b, banner) <= self.pier_radius]
+            poses = geometry.bay(banner, geometry.dock_axis(pier, banner, pose), self.berth,
+                                 self.staging, self.depth)
+            found.append((self.indicators[label], number, banner, poses))
+        return found
+
+    def update(self):
+        pose = self.board.pose
+        if pose is None:
+            return Status.FAILURE
+        vessels = self.labelled(*self.vessels)
+        free = [s for s in self.slips(pose)
+                if all(math.dist(v, s[3]['centre']) > self.vessel_radius for v in vessels)]
+        for colour in self.prefer:
+            options = [s for s in free if s[0] == colour]
+            if options:
+                break
+        else:
+            self.feedback_message = f'no free {"/".join(self.prefer)} slip in view'
+            return Status.FAILURE
+        colour, number, banner, poses = min(
+            options, key=lambda s: (s[1], math.dist(s[2], pose[:2])))
+        self.decide('slip', f'{colour} slip {number}')
+        for suffix, value in (('', banner), ('_staging', [poses['staging']]),
+                              ('_berth', [poses['berth']]), ('_number', number),
+                              ('_colour', colour)):
+            self.board.set(self.key + suffix, value, overwrite=True)
+        return Status.SUCCESS
+
+
 class Hold(Driver):
     """RUNNING for ``seconds`` of ROS time, then SUCCESS; with ``station``, keep station.
 
@@ -773,6 +885,41 @@ class PlanGatePass(Leaf):
             route = geometry.reverse(route)
         self.board.set(self.key, route, overwrite=True)
         self.board.set(self.key + '_end', [route[-1]], overwrite=True)
+        return Status.SUCCESS
+
+
+class Remember(Leaf):
+    """Append the value under ``source`` to the list under ``key`` (e.g. targets done)."""
+
+    def __init__(self, name, key, source):
+        super().__init__(name, reads=(source, key), writes=(key,))
+        self.key, self.source = key, source
+
+    def update(self):
+        done = list(self.board.get(self.key) or []) if self.board.exists(self.key) else []
+        self.board.set(self.key, done + [self.board.get(self.source)], overwrite=True)
+        return Status.SUCCESS
+
+
+class PlanChainBack(Leaf):
+    """Route back through every gate in ``source``, last first, each crossed the other way.
+
+    The way out through gates the boat came in by (2026: the exit is the entry
+    gates reversed); ``corner_side`` and ``after`` as for ``geometry.chain``.
+    """
+
+    def __init__(self, name, key, source, corner_side=1.0, after=1.1):
+        super().__init__(name, reads=(source,), writes=(key,))
+        self.key, self.source, self.corner_side, self.after = key, source, corner_side, after
+
+    def update(self):
+        gates = self.board.get(self.source) if self.board.exists(self.source) else None
+        if not gates:
+            self.feedback_message = f'no {self.source} gates to go back through'
+            return Status.FAILURE
+        back = [(x, y, geometry.wrap(yaw + math.pi)) for x, y, yaw in reversed(gates)]
+        self.board.set(self.key, geometry.chain(back, self.corner_side, self.after),
+                       overwrite=True)
         return Status.SUCCESS
 
 

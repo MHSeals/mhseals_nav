@@ -1,4 +1,7 @@
-"""Task 4, speed challenge: out through the gate, around the blue mark, and back.
+"""Speed challenge: out through the gate, around the mark, and back.
+
+On the 2026 course (``indicators`` set) the colour indicator between the gate
+and the mark sets the way round: ``turn`` maps its colour to clockwise.
 
 The black buoys (oil spills) past the gate are counted and reported before
 leaving. There is no light panel yet, so the run starts at once; the time from the
@@ -8,7 +11,7 @@ through the gate are one route: the boat never stops between them.
 
 from mhseals_nav.tasks.behaviours import (
     CountObjects, GateRun, Navigate, PlanCircle, PlanConcat, PlanGatePass, PlanView, Report,
-    ReportCount, Search,
+    ReportCount, Search, WatchColour,
 )
 from py_trees.common import ParallelPolicy
 from py_trees.composites import Parallel, Selector, Sequence
@@ -17,6 +20,7 @@ from py_trees.composites import Parallel, Selector, Sequence
 def build(params):
     from mhseals_nav.tasks.trees import gate_options, look_for
     red, green, mark = params['red'], params['green'], params['mark']
+    indicators = params.get('indicators') or {}
     # Without the day's layout, the blue mark (only this task has one) leads the boat to
     # the task; red/green gates look alike, so other tasks' gates are excluded.
     near, radius, find = 'speed_challenge_approach', params['gate_radius'], []
@@ -38,8 +42,10 @@ def build(params):
         Selector('find the mark', memory=True, children=[
             Search('drive on to the mark', (mark,), params['search_distance']),
             look_for('search for the mark', (mark,), params)]),
+        # 2026: the indicator between the gate and the mark sets the way round.
         PlanCircle('plan circle', 'circle', (mark,), params['circle_radius'],
-                   clockwise=params['circle_clockwise'], points=params['circle_points']),
+                   clockwise=params['circle_clockwise'], points=params['circle_points'],
+                   direction=('speed_colour', params['turn']) if indicators else None),
         PlanGatePass('plan return', 'return', 'speed_gate', back=True),
         PlanConcat('plan lap', 'lap', ('circle', 'circle_rest', 'return')),
         Navigate('round the mark and back through the gate', 'lap', retries=2,
@@ -47,6 +53,9 @@ def build(params):
         ReportCount('report count', 'spills', 'spill_count', spin=params['report'] == 'spin'),
         Report('report finish', 'speed_finished'),
     ])
-    count = CountObjects('count spills', 'spills', params['count'], beyond='speed_gate')
+    watchers = [CountObjects('count spills', 'spills', params['count'], beyond='speed_gate')]
+    if indicators:
+        watchers.append(WatchColour('read the indicator', 'speed_colour', indicators,
+                                    beyond='speed_gate'))
     return Parallel('speed challenge', policy=ParallelPolicy.SuccessOnSelected([run]),
-                    children=[run, count])
+                    children=[run, *watchers])
