@@ -231,3 +231,15 @@ def test_box_jitter_moves_each_edge_independently():
              for _ in range(500)]
     d = np.subtract(boxes, truth)
     assert d.std(axis=0) == pytest.approx([1.5] * 4, rel=0.15)
+
+
+def test_course_truth_relative_to_the_data_root(tmp_path, monkeypatch):
+    # crane_full_stack writes the truth under the data root; the YAML names it relatively.
+    assert sb.truth_path('/bags/t.json', tmp_path) == Path('/bags/t.json')
+    assert sb.truth_path('course_truth.json', tmp_path) == tmp_path / 'course_truth.json'
+    monkeypatch.setenv('MHSEALS_DATA', str(tmp_path))
+    assert sb.truth_path('course_truth.json') == tmp_path / 'course_truth.json'
+    config = yaml.safe_load(CONFIG.read_text())['/**']['ros__parameters']
+    assert not Path(config['course_truth']).is_absolute()
+    assert sb.truth_elements('{"elements": [{"label": "red_buoy"}, {"label": ""}]}') == [
+        {'label': 'red_buoy'}]

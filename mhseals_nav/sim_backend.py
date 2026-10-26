@@ -12,6 +12,8 @@ estimates lag_s = +heading_lag.
 
 import json
 import math
+import os
+from pathlib import Path
 from socket import gethostname
 from time import monotonic
 
@@ -110,6 +112,25 @@ def to_world(p, pose_wb, R_bc, t_bc):
 def to_camera(p_w, pose_wb, R_bc, t_bc):
     R_wb, t_wb = pose_wb
     return R_bc.T @ (R_wb.T @ (p_w - t_wb) - t_bc)
+
+
+def truth_path(value, root=None):
+    """``course_truth`` as a path: absolute as given, relative under the data root.
+
+    The data root is the one crane's --crane-roboboat-course-truth writes to in a harness run and
+    the profile's course_truth is relative to: $MHSEALS_DATA, else $ROS_WS/bags.
+    """
+    if os.path.isabs(value):
+        return Path(value)
+    if root is None:
+        from mhseals_nav.course_map import data_root
+        root = data_root()
+    return Path(root) / value
+
+
+def truth_elements(text):
+    """Return the labelled elements of a course truth JSON (KeyError/ValueError if bad)."""
+    return [e for e in json.loads(text)['elements'] if e.get('label')]
 
 
 def match_truth(label, xy, elements, max_m):
@@ -309,12 +330,9 @@ class SimBackend(Node):
         rules.update(emulate=one_of('plain', 'zed'), max_detection_age=positive,
                      case=one_of('none', *cfg['cases']['names']))
         self.live = LiveParams(self, rules, self.apply)
-        self.elements = []
-        try:
-            truth = json.loads(open(cfg['course_truth']).read())
-            self.elements = [e for e in truth['elements'] if e.get('label')]
-        except (OSError, ValueError, KeyError) as error:
-            self.get_logger().warning(f'no course truth ({error}): emulate zed runs as plain')
+        self.elements, self.truth_file = [], truth_path(cfg['course_truth'])
+        self.truth_mtime = self.truth_error = None
+        self.load_truth()
         self.case_start = self.now()
         self.apply(self.live.values, {})
         self.tf = Buffer()
@@ -340,6 +358,26 @@ class SimBackend(Node):
 
     def now(self):
         return self.get_clock().now().nanoseconds * 1e-9
+
+    def load_truth(self):
+        """(Re)read the course truth when the file appears or changes (checked at 1 Hz).
+
+        A harness starts the stack before crane writes the truth, and a restarted player writes
+        a new course; without the file, emulate zed falls back to plain (no truth ids).
+        """
+        try:
+            mtime = self.truth_file.stat().st_mtime_ns
+            if mtime == self.truth_mtime:
+                return
+            self.elements, self.truth_mtime, self.truth_error = (
+                truth_elements(self.truth_file.read_text()), mtime, None)
+            self.get_logger().info(f'course truth: {len(self.elements)} labelled elements '
+                                   f'from {self.truth_file}')
+        except (OSError, ValueError, KeyError) as error:
+            if self.truth_error is None:
+                self.get_logger().warning(f'no course truth ({error}): emulate zed runs as '
+                                          'plain until the file appears')
+            self.truth_error = str(error)
 
     def apply(self, values, changed):
         from mhseals_nav.yaml_params import merge
@@ -421,6 +459,7 @@ class SimBackend(Node):
 
     def report(self):
         """1 Hz backend stage, plus the inject stage (also at once after a param set)."""
+        self.load_truth()
         cfg = self.cfg
         emulate = cfg['emulate'] if self.elements else 'plain'
         values = self.stage.values(monotonic())

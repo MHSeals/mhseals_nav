@@ -99,3 +99,21 @@ def test_bad_live_values_are_refused(rig):
                                       Parameter('case', value='nope')])
     assert not any(r.successful for r in results)
     assert math.isclose(backend.cfg['inject']['heading_bias_deg'], 0.0)
+
+
+def test_course_truth_written_after_start_is_loaded(tmp_path, monkeypatch):
+    # A harness starts the stack first; crane writes the truth once its course is built.
+    monkeypatch.setenv('MHSEALS_DATA', str(tmp_path))
+    rclpy.init(args=['--ros-args', '--params-file', str(CONFIG),
+                     '-p', 'course_truth:=course_truth.json'])
+    backend = SimBackend()
+    try:
+        assert backend.elements == [] and backend.truth_file == tmp_path / 'course_truth.json'
+        backend.report()
+        (tmp_path / 'course_truth.json').write_text(json.dumps(
+            {'elements': [{'label': 'red_buoy', 'x': 5.0, 'y': 0.0}, {'label': ''}]}))
+        backend.report()
+        assert [e['label'] for e in backend.elements] == ['red_buoy']
+    finally:
+        backend.destroy_node()
+        rclpy.shutdown()
