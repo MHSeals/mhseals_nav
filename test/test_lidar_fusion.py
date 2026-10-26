@@ -180,7 +180,8 @@ def test_lidar_covariance_is_bias_aware_and_stereo_matches_the_tracker_total():
     rows, _ = lf.adjust([observation(X, Z)], P, ctx(), 2.0, rates=rates)
     cov = np.array(rows[0][3]).reshape(3, 3)
     f = rates.hz['7']
-    expect = CFG['sigma_w_m'] ** 2 + f * ((0.15 * 0.2) ** 2 + CFG['sigma_t_ext_m'] ** 2)
+    sb2 = (CFG['bias_radius_frac'] * 0.2) ** 2 + CFG['sigma_t_ext_m'] ** 2
+    expect = CFG['sigma_w_m'] ** 2 + f * sb2
     assert cov[2, 2] == pytest.approx(expect, rel=1e-6)
     assert f == pytest.approx(15, rel=0.05)
     # Stereo pass: the fused tracker (depth_term false) sees the radial total of today's.
@@ -228,10 +229,13 @@ def test_spray_and_sparse_points_never_range_a_box():
 
 
 def test_in_line_buoys_inside_the_stereo_gate_are_ambiguous_but_separate_when_far():
-    near = [(0.0, 8.0, 0.2, 0.4, 1.0), (0.0, 8.6, 0.2, -0.5, 1.0)]   # a pole over the ball
-    P = scan(near)
-    rows, _ = lf.adjust([observation(0.0, 8.0, rho_scale=1.06)], P, ctx(), 0.0)
+    near = [(0.0, 8.0, 0.2, 0.4, 1.0), (0.0, 8.6, 0.2, -0.3, 1.0)]   # a taller ball behind
+    rows, _ = lf.adjust([observation(0.0, 8.0, rho_scale=1.06)], scan(near), ctx(), 0.0)
     assert rows[0][0] == 'stereo'        # rule (a): two feasible clusters at similar cost
+    pole = [(0.0, 8.0, 0.2, 0.4, 1.0), (0.0, 8.6, 0.2, -1.5, 1.0)]   # a pole over the ball
+    rows, _ = lf.adjust([observation(0.0, 8.0, rho_scale=1.06)], scan(pole), ctx(), 0.0)
+    assert rows[0][0] == 'lidar'         # the pole spans more rings than the ball's box
+    assert math.hypot(rows[0][2][0], rows[0][2][2]) == pytest.approx(8.0, abs=0.1)
     far = scan([(0.0, 4.0, 0.2, 0.4, 1.0), (0.0, 12.0, 0.2, -0.5, 1.0)])
     rows, _ = lf.adjust([observation(0.0, 4.0)], far, ctx(), 0.0)
     assert rows[0][0] == 'lidar'
@@ -251,17 +255,33 @@ def test_one_cluster_in_two_overlapping_boxes_is_contested():
 def test_a_merged_box_splits_into_one_observation_per_buoy(gap):
     """A merged pair splits beyond the ~0.93 m that whole-box IoU >= 0.3 allowed."""
     Z = 8.0
-    objs = [(-gap / 2, Z, 0.2, 0.4, 1.0), (gap / 2, Z, 0.2, 0.4, 1.0)]
+    objs = [(-gap / 2, Z, 0.2, 0.4, 1.0), (gap / 2, Z + 0.2, 0.2, 0.4, 1.0)]
     P = scan(objs)
     b0, b1 = box_of(*objs[0]), box_of(*objs[1])
     union = [b0[0], min(b0[1], b1[1]), b1[2], max(b0[3], b1[3])]
-    ob = observation(-gap / 2 * 0.9, Z * 1.1, box=union)
+    ob = observation(gap / 2 * 0.9, Z * 1.1, box=union)   # stereo bearing nearer the far one
     rows, _ = lf.adjust([ob], P, ctx(), 0.0)
     assert [r[0] for r in rows] == ['split', 'split']
     xs = sorted(r[2][0] for r in rows)
     assert xs == pytest.approx([-gap / 2, gap / 2], abs=0.08)
     assert sorted(r[5] for r in rows) == ['', '7']
-    assert [r[5] for r in sorted(rows, key=lambda r: r[2][0])][0] == '7'
+    assert [r[5] for r in sorted(rows, key=lambda r: r[2][0])][0] == '7'   # the nearer keeps it
+
+
+def test_a_wall_behind_a_far_ball_no_ring_hits_is_too_wide():
+    """Only a wall 3 m behind returns inside the ball's window: the full extent is wide."""
+    wall = [(x, 21.0, 0.2, -0.5, 1.0) for x in np.arange(-3.0, 3.01, 0.3)]
+    P = scan(wall)
+    rows, _ = lf.adjust([observation(0.0, 18.0, y_top=0.75, rho_scale=1.05)], P, ctx(), 0.0)
+    assert rows[0][0] == 'stereo'
+    lone = scan([(0.0, 21.0, 0.2, -0.5, 1.0)])          # a single post there still ranges
+    rows, _ = lf.adjust([observation(0.0, 18.0, y_top=-0.5, rho_scale=1.05)], lone, ctx(), 0.0)
+    assert rows[0][0] == 'lidar'
+
+
+def test_a_boat_gives_no_samples_and_does_not_count_as_silent():
+    obs = [observation(0.0, 6.0, R=0.6, cls='black_target_boat')]
+    assert lf.extrinsic_samples(obs, scan([(0.0, 6.0, 0.6, 0.4, 1.0)]), ctx()) == []
 
 
 def test_held_ratio_decays_to_stereo_as_an_ar1_bias_for_two_seconds():

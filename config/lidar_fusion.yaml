@@ -41,6 +41,8 @@
     gap_min_m: 0.3
     ring_spacing_deg: 2.0
     n_frac: 0.3
+    span_pad_deg: 0.5             # a cluster's rows may span the box height plus this
+                                  # (rejects a pole or shore behind a ball no ring hits)
     # rho_obj = median near face + k R, k of the longest class-name suffix listed. 0.87 is a
     # vertical cylinder; the others are fitted on sim E0 lidar ranges (S1, S3, S4, S6, 5 seeds:
     # balls read +0.041 m and pole buoys +0.124 m long at 0.87). Refit from boat bags.
@@ -55,7 +57,9 @@
     merge_w_frac: 1.6
     # Covariance
     sigma_w_m: 0.03
-    bias_radius_frac: 0.15
+    # Per-object bias after the near_face_k fit: sim lidar RMS (bias + white) 0.02-0.03 m by
+    # bin; 0.15 R (0.03-0.04 m) on top of sigma_t_ext held fused track NEES at 0.10-0.57.
+    bias_radius_frac: 0.07
     # Calibrated (board, design §6) value, required before enabling. Sim E0 per-pass lidar
     # bias was 0.029 m RMS after the near-face fit, which 0.15 R alone covers; 0.05 tripled
     # sigma_r and held the fused track NEES at 0.16-0.43.
@@ -73,6 +77,10 @@
     held_s: 2.0
     held_tau_s: 1.5
     # Extrinsic estimate (detect and alert; applies at most apply_max_deg)
+    # Class-name suffixes that give samples and count for the silent check: a buoy's centre
+    # and size are known. A side-on target boat rarely fuses (S1_s4 E0: 193 isolated boat
+    # boxes, 0 lidar), which alone raised a false silent ERROR.
+    sample_classes: [buoy]
     isolation_deg: 2.0
     border_px: 2.0
     sample_max_range_m: 10.0

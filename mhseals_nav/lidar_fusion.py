@@ -260,19 +260,58 @@ class Cluster:
         self.v0, self.v1 = float(v[idx].min()), float(v[idx].max())
         self.vc = float(np.mean(v[idx]))
         self.uc, self.w = (self.u0 + self.u1) / 2, self.u1 - self.u0
+        self.w_full, self.h_full = self.w, self.v1 - self.v0
+
+
+def extent(cl, u, v, rho, az, cfg, K, by_rho):
+    """Set the cluster's full width and height (px), grown through same-range points.
+
+    Candidates are cropped to the box window, so a wall or a taller object behind a far ball
+    that no ring hits would pass the width cap and height test clipped to that window. Rows
+    grow along the cluster's rings by azimuth gaps (as clusters splits), columns over rings.
+    """
+    fx, fy = K[0], K[1]
+    da, idx = cfg['delta_a_rad'], cl.idx
+    g = max(cfg['gap_min_m'], 3 * cl.rho * da)
+    order, sorted_rho = by_rho        # argsort(rho) and rho in that order, once per frame
+    pool = order[np.searchsorted(sorted_rho, rho[idx].min() - g):
+                 np.searchsorted(sorted_rho, rho[idx].max() + g)]
+    step_a = 3 * da + cfg['divergence_rad']
+
+    def grow(key, band, step):
+        o = pool[band]
+        o = o[np.argsort(key[o])]
+        seg = np.cumsum(np.r_[0, np.diff(key[o]) > step])
+        return o[np.isin(seg, seg[np.isin(o, idx)])]
+    row = grow(az, (v[pool] >= cl.v0 - 2) & (v[pool] <= cl.v1 + 2), step_a)
+    col = grow(v, (az[pool] >= az[idx].min() - step_a) & (az[pool] <= az[idx].max() + step_a),
+               fy * math.tan(1.5 * cfg['ring_spacing_deg'] * DEG))
+    cl.w_full = float(u[row].max() - u[row].min()) + fx * da
+    cl.h_full = float(v[col].max() - v[col].min())
+
+
+def tall(cl, box, ctx):
+    """Test whether the cluster spans more rows than the box holds (a taller object).
+
+    Pitch shifts every point alike, so it never stretches the span.
+    """
+    return cl.h_full > box.v1 - box.v0 + ctx.K[1] * math.tan(ctx.cfg['span_pad_deg'] * DEG)
 
 
 def n_floor(cl, box, ctx):
-    """max(2, 0.3 n_exp): rings over the box's visible height times beams across 2R."""
-    cfg, fy = ctx.cfg, ctx.K[1]
+    """max(2, 0.3 n_exp): rings over the box's visible height times beams across its width.
+
+    The width is 2R, or less for a box clipped at the image edge (most 2-5 m misses in sim).
+    """
+    cfg, fx, fy = ctx.cfg, ctx.K[0], ctx.K[1]
     ring = math.tan(cfg['ring_spacing_deg'] * DEG)
     h_vis = (box.v1 - box.v0) * cl.rho / fy
     rings = max(1, math.floor(h_vis / (cl.rho * ring)))
-    n_exp = rings * 2 * box.radius / (cl.rho * cfg['delta_a_rad'])
+    n_exp = rings * min(2 * box.radius, box.w * cl.rho / fx) / (cl.rho * cfg['delta_a_rad'])
     return max(2.0, cfg['n_frac'] * n_exp)
 
 
-STAGES = ('points', 'overlap', 'range', 'width')     # pair tests, in order
+STAGES = ('points', 'overlap', 'height', 'range', 'width')     # pair tests, in order
 
 
 def pair_cost(cl, box, ctx):
@@ -284,10 +323,12 @@ def pair_cost(cl, box, ctx):
     iou = iou_x(cl.u0, cl.u1, box.u0 - box.e_u, box.u1 + box.e_u)
     if iou < cfg['iou_min'] or min(cl.v1, box.v1 + box.e_v) - max(cl.v0, box.v0 - box.e_v) <= 0:
         return None, 'overlap'
+    if tall(cl, box, ctx):
+        return None, 'height'
     rho_obj = cl.rho + box.near
     if abs(rho_obj - box.rho) >= 3 * box.sigma_s + cfg['gate_pad_m']:
         return None, 'range'
-    if cl.w > 2 * max(box.w, box.w_exp) + da_px:
+    if cl.w_full > 2 * max(box.w, box.w_exp) + da_px:
         return None, 'width'
     return (1 - iou) + 0.5 * abs(rho_obj - box.rho) / (3 * box.sigma_s) + \
         0.5 * abs(cl.w - box.w_exp) / max(box.w_exp, da_px), ''
@@ -296,7 +337,7 @@ def pair_cost(cl, box, ctx):
 def part_of(cl, box, ctx):
     """Test a cluster as a merged box's part: overlap counted over the cluster only."""
     inside = min(cl.u1, box.u1 + box.e_u) - max(cl.u0, box.u0 - box.e_u)
-    return inside >= 0.5 * cl.w and cl.n >= n_floor(cl, box, ctx) and \
+    return inside >= 0.5 * cl.w and cl.n >= n_floor(cl, box, ctx) and not tall(cl, box, ctx) and \
         min(cl.v1, box.v1 + box.e_v) - max(cl.v0, box.v0 - box.e_v) > 0 and \
         abs(cl.rho + box.near - box.rho) < 3 * box.sigma_s + ctx.cfg['gate_pad_m']
 
@@ -401,7 +442,7 @@ def associate(boxes, cls, ctx):
             # 1 m apart has IoU 2R/(s + 2R) < 0.3): it must lie mostly inside it instead.
             sized = [j for j, c in enumerate(cls)
                      if (j not in taken or owner.get(i) == j)
-                     and c.w <= 1.5 * fx * 2 * b.radius / c.rho + da_px
+                     and c.w_full <= 1.5 * fx * 2 * b.radius / c.rho + da_px
                      and (feasible[i, j] or part_of(c, b, ctx))]
             # The parts span the box (outer edges), not fill it: a pair s apart fills only
             # 2 * 2R / (s + 2R) of its union box, under 60% past 0.93 m.
@@ -451,9 +492,12 @@ def adjust(obs, P, ctx, t, rates=None, held=None, use_lidar=True, why=None):
         rho = np.hypot(P[:, 0], P[:, 2])
         keep = candidates(usable, P, u, v, rho)
         idx = np.nonzero(keep)[0]
-        az = np.arctan2(P[idx, 0], P[idx, 2])
-        for part in clusters(rho[idx], az, cfg):
+        az = np.arctan2(P[:, 0], P[:, 2])
+        order = np.argsort(rho)
+        by_rho = (order, rho[order])
+        for part in clusters(rho[idx], az[idx], cfg):
             cls.append(Cluster(idx[part], rho, u, v, fx, cfg['delta_a_rad']))
+            extent(cls[-1], u, v, rho, az, cfg, ctx.K, by_rho)
         for b, d in zip(usable, associate(usable, cls, ctx)):
             decisions[b.index] = d
     out = []
@@ -487,7 +531,6 @@ def adjust(obs, P, ctx, t, rates=None, held=None, use_lidar=True, why=None):
                 held.lidar(key, t, rho_obj / b.rho, s_r2)
             emit('lidar', b, b.s * (rho_obj / b.rho), s_r2, beta)
         elif kind == 'split':
-            az_s = math.atan2(b.s[0], b.s[2])
             parts = []
             for j in js:
                 c = cls[j]
@@ -495,7 +538,9 @@ def adjust(obs, P, ctx, t, rates=None, held=None, use_lidar=True, why=None):
                 az = math.atan((c.uc - cx) / fx)
                 p = np.array([rho_obj * math.sin(az), b.s[1] * rho_obj / b.rho,
                               rho_obj * math.cos(az)])
-                parts.append((abs(az - az_s), c, p))
+                parts.append((rho_obj, c, p))
+            # The nearer part keeps the id: it occludes, so it dominates the box and its
+            # stereo. (The nearest bearing is a coin toss for an oblique pair.)
             nearest = min(range(len(parts)), key=lambda k: parts[k][0])
             for k, (_, c, p) in enumerate(parts):
                 beta2 = ((cfg['box_beta_frac'] * c.w + 1.0) / fx) ** 2 + \
@@ -535,7 +580,8 @@ def extrinsic_samples(obs, P, ctx):
     rho = np.hypot(P[:, 0], P[:, 2])
     win = math.tan((cfg['sample_window_deg'] + cfg['delta_h_deg']) * DEG)
     for b in boxes:
-        if b.rho >= cfg['sample_max_range_m'] or b.u0 < edge or b.v0 < edge or \
+        if not b.ob.class_id.endswith(tuple(cfg['sample_classes'])) or \
+                b.rho >= cfg['sample_max_range_m'] or b.u0 < edge or b.v0 < edge or \
                 b.u1 > W - edge or b.v1 > H - edge:
             continue
         if any(o is not b and min(o.u1, b.u1 + iso) - max(o.u0, b.u0 - iso) > 0 for o in boxes):
@@ -591,9 +637,13 @@ class ExtrinsicEstimate:
                              key or len(self.samples)))
         self.last = (x, y, c.rho, yaw_rate, r_az, r_el, s_az, max(s_el, 1e-4))
         self.new += 1
-        if len(self.samples) >= cfg['min_n'] and self.new >= cfg['stride']:
-            self.new = 0
-            self.evaluate()
+        if len(self.samples) >= cfg['min_n']:
+            # The correction refits on every sample (S2 at ~1 sample/s missed its window at
+            # N 49 of 50); alarms still count stride windows.
+            window = self.new >= cfg['stride']
+            if window:
+                self.new = 0
+            self.evaluate(window)
         return True
 
     def fit(self):
@@ -614,20 +664,22 @@ class ExtrinsicEstimate:
         n_eff = len({k for *_, k in self.samples})
         return theta, np.sqrt(np.diag(cov) * max(1.0, chi2 / dof) * len(self.samples) / n_eff)
 
-    def evaluate(self):
+    def evaluate(self, window=True):
         cfg = self.cfg
         self.theta, self.se = self.fit()
         w, s = self.theta[:3], self.se[:3]
         if self.level == self.ERROR:
             return
         big = np.abs(w) > cfg['error_deg'] * DEG
-        if np.any(big & (np.abs(w) > cfg['k_se'] * s)):
+        if window and np.any(big & (np.abs(w) > cfg['k_se'] * s)):
             return self.error(f'lidar-camera rotation {np.degrees(w).round(2).tolist()} deg '
                               f'(pitch, yaw, roll) beyond {cfg["error_deg"]} deg')
         # Per axis, on its own SE: pitch and roll ride on r_el, whose box-vs-ring bias (ring
         # quantisation, box height) read up to 1 deg at E0 while the yaw SE was 0.1 deg.
         lim, ok = cfg['apply_max_deg'] * DEG, s < cfg['apply_se_deg'] * DEG
         self.applied = np.where(ok, np.clip(w, -lim, lim), self.applied)
+        if not window:
+            return
         rp, rp_se = math.hypot(w[0], w[2]), math.hypot(s[0], s[2])
         warn = (abs(w[1]) > cfg['warn_deg'] * DEG and abs(w[1]) > cfg['k_se'] * s[1]) or \
             (rp > cfg['warn_deg'] * DEG and rp > cfg['k_se'] * rp_se)
