@@ -52,3 +52,8 @@ def test_deskew_with_the_true_twist_undoes_the_smear():
 def test_points_without_a_return_stay_nan():
     px, py, t = smear(np.array([np.nan, 10.]), np.array([np.nan, 0.]), poses())
     assert np.isnan(px[0]) and np.isnan(py[0]) and t[0] == 0. and np.isfinite(px[1])
+
+
+def test_an_empty_cloud_gives_empty_arrays():
+    px, py, t = smear(np.empty(0), np.empty(0), poses())
+    assert px.shape == py.shape == t.shape == (0,)

@@ -33,6 +33,7 @@ def factory(lidar_resolver=resolve_lidar):
                  'DeclareLaunchArgument': lambda name, **kw: dict(name=name, **kw),
                  'OpaqueFunction': lambda **kw: kw, 'LaunchDescription': list}
     exec(compile(ast.Module(body=functions, type_ignores=[]), str(path), 'exec'), namespace)
+    namespace['lidar_smear_enabled'] = lambda: False   # the installed config is not read here
     return namespace
 
 
@@ -64,3 +65,18 @@ def test_invalid_boolean_fails_before_any_node():
     namespace['Node'] = lambda **kw: pytest.fail('constructed a node')
     with pytest.raises(ValueError, match='Invalid sim boolean'):
         namespace['sensor_nodes']({'sim': 'yes', 'sensors_ignore': ''})
+
+
+@pytest.mark.parametrize('enabled', [True, False])
+def test_simulation_lidar_smear_follows_the_config(enabled):
+    namespace = factory()
+    namespace['lidar_smear_enabled'] = lambda: enabled
+    nodes = namespace['sensor_nodes']({'sim': 'true', 'sensors_ignore': ''})
+    endpoint = nodes[0]
+    if enabled:
+        assert endpoint['remappings'] == [('/points', '/points/instant')]
+        assert [(n['package'], n['executable']) for n in nodes] == [
+            ('ros_tcp_endpoint', 'default_server_endpoint'), ('mhseals_nav', 'lidar_smear')]
+    else:
+        assert endpoint['remappings'] == []
+        assert [n['package'] for n in nodes] == ['ros_tcp_endpoint']
