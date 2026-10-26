@@ -209,7 +209,7 @@ class Box:
         self.near = ctx.near_face(ob.class_id) * self.radius    # near face -> centre
         cov = ctx.A @ np.array(ob.position_covariance, float).reshape(3, 3) @ ctx.A.T
         self.has_cov = bool(np.any(cov))
-        self.boxed = bool(ob.has_box2d) and self.ok
+        self.boxed = bool(ob.has_box2d) and self.ok and ctx.has_K
         if self.ok:
             m = ctx.meas
             u = np.array([self.s[0], 0.0, self.s[2]]) / self.rho
@@ -346,7 +346,9 @@ class Context:
     """Per-frame constants: intrinsics, axes, config, tracker measurement model, e_mc."""
 
     def __init__(self, cfg, tracker, K, image, A, e_mc=0.0, se_yaw=0.0):
-        self.cfg, self.K, self.image, self.A = cfg, K, image, A
+        # Without camera_info no box is usable: rows go box-less (stereo tangential variance).
+        self.has_K = K is not None
+        self.cfg, self.K, self.image, self.A = cfg, K or (1, 1, 0, 0), image, A
         self.meas, self.radii = tracker['meas'], tracker['radius']
         self.e_mc, self.se_yaw = e_mc, se_yaw
 
@@ -619,7 +621,7 @@ class ExtrinsicEstimate:
         self.cfg = cfg
         self.samples = deque(maxlen=cfg['window_n'])
         self.last_key = {}
-        self.new = 0
+        self.new = self.anon = 0
         self.theta, self.se = np.zeros(7), np.full(7, np.inf)
         self.applied = np.zeros(3)
         self.level, self.message, self.warn_windows = self.OK, '', 0
@@ -638,8 +640,9 @@ class ExtrinsicEstimate:
         s_az = cfg['sigma_u_px'] / (fx * (1 + x * x))
         s_el = (b.v1 - b.v0) / (fy * math.sqrt(12) * (1 + y * y))
         rows = model_rows(x, y, c.rho, yaw_rate)
-        self.samples.append((rows, (r_az, r_el), (s_az, max(s_el, 1e-4)),
-                             key or len(self.samples)))
+        # A key-less sample is its own object; len(samples) repeats once the window is full.
+        self.anon += 1
+        self.samples.append((rows, (r_az, r_el), (s_az, max(s_el, 1e-4)), key or self.anon))
         self.last = (x, y, c.rho, yaw_rate, r_az, r_el, s_az, max(s_el, 1e-4))
         self.new += 1
         if len(self.samples) >= cfg['min_n']:
@@ -926,7 +929,7 @@ class LidarFusion(Node):
         with self.lock:         # the relay's pipe thread drains on each scan too
             while self.queue:
                 msg, arrived = self.queue[0]
-                out = self.process(msg)
+                out = self.process(msg, arrived)
                 if out is None:
                     return          # waiting for TF or the scan
                 self.queue.popleft()
@@ -943,12 +946,18 @@ class LidarFusion(Node):
         self.skips[cause] = self.skips.get(cause, 0) + 1
         self.last_skip = cause
 
-    def process(self, msg):
+    def process(self, msg, arrived=None):
         """Return the fused array, or None while TF may still arrive (at most tf_wait_s)."""
         started = time.process_time()
         cfg = self.cfg
         self.last_skip, self.ex_log, self.why = '', [], []
         stamp = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
+        arrived = time.monotonic() if arrived is None else arrived
+
+        def may_wait():
+            # Both clocks: a future stamp or a ROS/sim clock mismatch must not hold the queue.
+            return self.now() - stamp < cfg['tf_wait_s'] and \
+                time.monotonic() - arrived < cfg['tf_wait_s']
         t_c = stamp + cfg['image_time_offset_s']
         frame = cfg['camera_frame'] or msg.header.frame_id
         use, P, P_raw, yaw_rate, e_mc = False, np.zeros((0, 3)), np.zeros((0, 3)), 0.0, 0.0
@@ -962,7 +971,7 @@ class LidarFusion(Node):
             # A sweep ends (and is stamped) up to 0.1 s after the image it covers: wait for
             # it, as for TF, rather than skip (the campaign skipped 42-60% of smeared frames).
             coming = not self.scans or self.scans[-1]['t_s'] < t_c + cfg['scan_max_dt_s'] / 2
-            if scan is None and coming and self.now() - stamp < cfg['tf_wait_s']:
+            if scan is None and coming and may_wait():
                 return None
             if scan is None:
                 self.skip('no_scan')
@@ -975,7 +984,7 @@ class LidarFusion(Node):
                     poses = [self.pose_at(t) for t in knot_t]
                     c = self.pose_at(t_c)
                 except LookupError:
-                    if self.now() - stamp < cfg['tf_wait_s']:
+                    if may_wait():
                         return None
                     self.skip('tf_missing')
                     c = None
@@ -983,8 +992,12 @@ class LidarFusion(Node):
                     use, P, P_raw, yaw_rate, e_mc = self.points(scan, t_i, knot_t, poses, c, t_c)
         if self.extrinsic.level == ExtrinsicEstimate.ERROR:
             self.held.clear()
-        ctx = Context(cfg, self.tracker, self.K or (1, 1, 0, 0), self.image or (1, 1),
-                      getattr(self, 'A', np.eye(3)), e_mc, self.extrinsic.se[1]
+        # The axes come from the frame name alone: a body-axes sim frame must not use eye(3)
+        # while the camera TF is missing.
+        A = getattr(self, 'A', None)
+        ctx = Context(cfg, self.tracker, self.K, self.image or (1, 1),
+                      axes_matrix(frame, cfg['camera_axes']) if A is None else A, e_mc,
+                      self.extrinsic.se[1]
                       if np.isfinite(self.extrinsic.se[1]) else 0.0)
         rows, _ = adjust(msg.observations, P, ctx, t_c, self.rates, self.held, use,
                          self.why)

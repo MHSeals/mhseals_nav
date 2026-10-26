@@ -1,6 +1,7 @@
 """lidar_fusion node: TF, camera_info, a timed cloud and a boxed observation -> fused range."""
 import math
 from pathlib import Path
+import time
 
 import numpy as np
 import pytest
@@ -34,7 +35,7 @@ def cloud(points, stamp):
 
 
 @pytest.fixture
-def rig():
+def rig(request):
     rclpy.init(args=['--ros-args', '--params-file', str(CONFIG), '-p', 'points_transport:=direct',
                      '-p', 'camera_info_topic:=/cam/info', '-p', 'camera_axes:=body'])
     node, peer = LidarFusion(), rclpy.create_node('lidar_fusion_peer')
@@ -54,9 +55,12 @@ def rig():
     moving = TransformBroadcaster(peer)
     imu = peer.create_publisher(Imu, '/imu/raw', qos_profile_sensor_data)
 
+    age = int(getattr(request, 'param', {}).get('tf_age_s', 0.0) * 1e9)    # stale odom TF
+
     def tick():
         tf = TransformStamped()
-        tf.header.stamp = peer.get_clock().now().to_msg()
+        tf.header.stamp = rclpy.time.Time(
+            nanoseconds=peer.get_clock().now().nanoseconds - age).to_msg()
         tf.header.frame_id, tf.child_frame_id = 'odom', 'base_link'
         tf.transform.rotation.w = 1.0
         moving.sendTransform(tf)
@@ -108,3 +112,98 @@ def test_a_biased_stereo_buoy_comes_out_on_the_lidar_range(rig):
     assert math.hypot(last.position.x, last.position.y) == pytest.approx(
         math.hypot(X, Z), abs=0.1)
     assert last.backend_id == '3' and fused[-1].header.frame_id == 'front_camera_link'
+
+
+@pytest.fixture
+def bare():
+    """The node alone: no TF, no camera_info, no cloud unless a test sets them."""
+    rclpy.init(args=['--ros-args', '--params-file', str(CONFIG), '-p', 'points_transport:=direct',
+                     '-p', 'camera_axes:=body'])
+    node = LidarFusion()
+    yield node
+    node.destroy_node()
+    rclpy.shutdown()
+
+
+def frame(node, stamp_offset_s=0.0, cov=(0.25, 0.01, 0.0025), body=(8.0, 1.0, -0.7)):
+    """One boxed body-axes observation from front_camera_link, stamped now + offset."""
+    o = Observation(class_id='red_buoy', score=0.9, backend_id='3', has_box2d=True)
+    o.position.x, o.position.y, o.position.z = body
+    o.position_covariance = np.diag(cov).reshape(-1).tolist()
+    o.box2d = [0.45, 0.45, 0.5, 0.55]
+    a = ObservationArray(backend='sim', observations=[o])
+    a.header.stamp = rclpy.time.Time(
+        nanoseconds=node.get_clock().now().nanoseconds + int(stamp_offset_s * 1e9)).to_msg()
+    a.header.frame_id = 'front_camera_link'
+    return a
+
+
+def known_camera(node):
+    node.K, node.image = (F, F, W / 2, H / 2), (W, H)
+    node._camera, node.A = (BODY_TO_OPTICAL.T, np.zeros(3)), BODY_TO_OPTICAL
+
+
+def tangential_var(ob):
+    """Body-axes horizontal variance across the ray (z up)."""
+    u = np.array([ob.position.x, ob.position.y, 0.0])
+    u /= np.linalg.norm(u)
+    n = np.array([-u[1], u[0], 0.0])
+    C = np.array(ob.position_covariance).reshape(3, 3)
+    return float(n @ C @ n)
+
+
+def test_no_camera_info_nor_camera_tf_passes_stereo_box_less_in_body_axes(bare):
+    msg = frame(bare)
+    out = bare.process(msg)
+    assert bare.last_skip == 'no_camera' and bare.sources == ['stereo']
+    ob, src = out.observations[0], msg.observations[0]
+    assert (ob.position.x, ob.position.y, ob.position.z) == pytest.approx(
+        (src.position.x, src.position.y, src.position.z))
+    # Box-less keeps the stereo tangential sigma (K = (1, 1, 0, 0) made it ~rho), and the
+    # body axes come from the frame name, not eye(3) (z up stays up).
+    assert tangential_var(ob) == pytest.approx(tangential_var(src), rel=1e-6)
+    C = np.array(ob.position_covariance).reshape(3, 3)
+    assert C[2, 2] == pytest.approx(0.0025, rel=1e-6)
+
+
+def test_no_lidar_frames_leave_on_stereo_once_the_wait_ends(bare):
+    known_camera(bare)
+    bare.on_frame(frame(bare))
+    assert len(bare.queue) == 1                 # waits for a scan, as for TF
+    time.sleep(bare.cfg['tf_wait_s'] + 0.05)
+    bare.drain()
+    assert not bare.queue and bare.skips.get('no_scan') == 1
+    assert bare.sources == ['stereo'] and bare.counts['lidar'] == 0
+
+
+def test_a_future_stamp_does_not_hold_the_queue_past_the_wait(bare):
+    known_camera(bare)
+    bare.on_frame(frame(bare, stamp_offset_s=30.0))     # clock mismatch: ROS age stays < 0
+    assert len(bare.queue) == 1
+    time.sleep(bare.cfg['tf_wait_s'] + 0.05)
+    bare.drain()
+    assert not bare.queue and bare.skips.get('no_scan') == 1
+
+
+@pytest.mark.parametrize('rig', [{'tf_age_s': 2.0}], indirect=True)
+def test_stale_tf_skips_after_the_wait_and_keeps_stereo(rig):
+    node, peer, executor, info, points, obs, got = rig
+    target = (1.0, 8.0, 0.2, 0.4, 1.0)
+    body = scan([target]) @ BODY_TO_OPTICAL
+    k = CameraInfo(width=W, height=H)
+    k.k = [F, 0.0, W / 2, 0.0, F, H / 2, 0.0, 0.0, 1.0]
+    end = peer.get_clock().now().nanoseconds + 3e9
+    while peer.get_clock().now().nanoseconds < end and not node.skips.get('tf_missing'):
+        now = peer.get_clock().now()
+        info.publish(k)
+        points.publish(cloud(body, now.to_msg()))
+        for _ in range(5):
+            executor.spin_once(timeout_sec=0.01)
+        a = frame(peer, -0.03)
+        a.observations[0].box2d = [float(b) for b in box_of(*target)]
+        obs.publish(a)
+        for _ in range(30):
+            executor.spin_once(timeout_sec=0.01)
+    assert node.skips.get('tf_missing'), node.skips
+    assert node.counts['lidar'] == 0 and node.counts['stereo'] >= 1
+    assert len(node.queue) <= 1

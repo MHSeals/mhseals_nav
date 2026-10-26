@@ -308,7 +308,7 @@ def test_held_ratio_decays_to_stereo_as_an_ar1_bias_for_two_seconds():
 
 
 # ------------------------------------------------------------ extrinsic
-def fake_samples(est, w, c=(0, 0, 0), tau=0.0, n=60, seed=1, noise=True, h=12.0):
+def fake_samples(est, w, c=(0, 0, 0), tau=0.0, n=60, seed=1, noise=True, h=12.0, keyed=True):
     rng = np.random.default_rng(seed)
     fx, fy, cx, cy = K
     for k in range(n):
@@ -323,7 +323,14 @@ def fake_samples(est, w, c=(0, 0, 0), tau=0.0, n=60, seed=1, noise=True, h=12.0)
                v1=cy + fy * y + h / 2)
         cl = NS(uc=cx + fx * math.tan(math.atan(x) + r_az),
                 vc=cy + fy * math.tan(math.atan(y) + r_el), rho=Z)
-        est.add(k * 0.25, str(k), b, cl, ctx(), yaw_rate)
+        est.add(k * 0.25, str(k) if keyed else '', b, cl, ctx(), yaw_rate)
+
+
+def test_key_less_samples_stay_separate_objects_once_the_window_is_full():
+    est = lf.ExtrinsicEstimate(CFG['extrinsic'])
+    fake_samples(est, (0, 0, 0), n=2 * CFG['extrinsic']['window_n'], keyed=False)
+    keys = [s[3] for s in est.samples]
+    assert len(est.samples) == CFG['extrinsic']['window_n'] and len(set(keys)) == len(keys)
 
 
 def test_extrinsic_fit_recovers_rotation_translation_and_time():
