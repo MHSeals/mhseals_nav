@@ -1,0 +1,5 @@
+# Qualifying and practice slots: several runs per slot, so a run may try harder.
+# An overlay on the mission YAML (tasks/host.py load_params): only keys the mission
+# already has, merged key by key. Same code as finals, different parameters.
+exit_reserve: 240.0     # s kept back for the exit
+docking: {attempts: 2, confirm_tries: 3}

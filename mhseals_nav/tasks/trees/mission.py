@@ -65,7 +65,8 @@ class Budget(Leaf):
     def update(self):
         started = self.board.get('mission_started') if self.board.exists(
             'mission_started') else None
-        left = self.timeout - (self.board.now - (started or self.board.now)) - self.reserve
+        elapsed = self.board.now - started if started is not None else 0.0  # 0.0: a start
+        left = self.timeout - elapsed - self.reserve
         here = [t['name'] for t in self.tasks].index(self.task)
         ok, why = budget.fits(self.task, left, self.tasks[here:], self.capabilities)
         self.board.set(self.limit_key, max(left, 0.0), overwrite=True)

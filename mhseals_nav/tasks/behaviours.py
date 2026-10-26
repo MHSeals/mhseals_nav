@@ -877,25 +877,27 @@ class PlanSlip(PlanDock):
     lowest-numbered free slip of the first colour in ``prefer`` that has one (2026:
     green, lowest number first), then the nearest. A slip is taken when a vessel is
     tracked within ``vessel_radius`` of its centre. The bay opens on the normal of
-    the banners within ``pier_radius`` (one pier's spine). Writes as PlanBay, plus
-    ``key``_number and ``key``_colour. ``confirm``: see PlanDock.
+    the banners within ``pier_radius`` (one pier's spine), on the side toward the
+    other pier (geometry.opening_side). Writes as PlanBay, plus ``key``_number,
+    ``key``_colour and ``key``_slip (the slip's centre). ``confirm``: see PlanDock.
     """
 
     def __init__(self, name, key, indicators, banners, vessels, prefer=('green',),
                  berth=0.85, staging=3.0, depth=1.5, vessel_radius=1.0, pair_radius=1.0,
                  pier_radius=5.0, confirm=False):
         super().__init__(name, key, (key, key + '_staging', key + '_berth', key + '_number',
-                                     key + '_colour'), confirm)
+                                     key + '_colour', key + '_slip'), confirm)
         self.indicators, self.banners = dict(indicators), dict(banners)
         self.vessels, self.prefer = tuple(vessels), tuple(prefer)
         self.berth, self.staging, self.depth = berth, staging, depth
         self.vessel_radius, self.pair_radius, self.pier_radius = (
             vessel_radius, pair_radius, pier_radius)
 
-    def slips(self, pose):
+    def slips(self, pose, vessels=()):
         """Every paired slip as (colour, number, banner xy, poses)."""
         banners = [(self.banners[label], (x, y)) for label, x, y in self.board.objects
                    if label in self.banners]
+        spots = [b for _, b in banners]
         found = []
         for label, x, y in self.board.objects:
             if label not in self.indicators or not banners:
@@ -903,8 +905,9 @@ class PlanSlip(PlanDock):
             number, banner = min(banners, key=lambda b: math.dist(b[1], (x, y)))
             if math.dist(banner, (x, y)) > self.pair_radius:
                 continue
-            pier = [b for _, b in banners if math.dist(b, banner) <= self.pier_radius]
-            poses = geometry.bay(banner, geometry.dock_axis(pier, banner, pose), self.berth,
+            pier = [b for b in spots if math.dist(b, banner) <= self.pier_radius]
+            side = geometry.opening_side(pier, spots, vessels, pose)
+            poses = geometry.bay(banner, geometry.dock_axis(pier, banner, side), self.berth,
                                  self.staging, self.depth)
             found.append((self.indicators[label], number, banner, poses))
         return found
@@ -914,7 +917,7 @@ class PlanSlip(PlanDock):
         if pose is None:
             return Status.FAILURE
         vessels = self.labelled(*self.vessels)
-        free = [s for s in self.slips(pose)
+        free = [s for s in self.slips(pose, vessels)
                 if all(math.dist(v, s[3]['centre']) > self.vessel_radius for v in vessels)]
         for colour in self.prefer:
             options = [s for s in free if s[0] == colour]
@@ -930,7 +933,7 @@ class PlanSlip(PlanDock):
                         + (': the chosen one is not free' if self.confirm else ''))
         return self.write(banner, (('_staging', [poses['staging']]),
                                    ('_berth', [poses['berth']]), ('_number', number),
-                                   ('_colour', colour)))
+                                   ('_colour', colour), ('_slip', poses['centre'])))
 
 
 class Hold(Driver):

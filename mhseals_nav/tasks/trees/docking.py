@@ -24,7 +24,7 @@ def plan_bay(params, name, confirm=False):
 
 def build(params):
     from mhseals_nav.tasks.trees import look_for
-    banner = params.get('banner', 'slip')
+    banner = 'slip' if params.get('indicators') else params.get('banner', 'slip')
     find = ([look_for('find the marina', tuple(params['indicators']), params, need='any')]
             if params.get('indicators') else
             [look_for('find the dock', params['banners'], params, need='any'),
@@ -52,7 +52,7 @@ def build(params):
         # Nav2's stopped checker can refuse a berthed boat that waves keep stirring.
         Navigate('into the bay', 'bay_berth', precise=True, retries=2,
                  accept=params['berth_accept'], why='slide into the bay'),
-        Report('report docked', 'docked', include=('bay', 'bay_number', 'bay_colour')
+        Report('report docked', 'docked', include=('bay', 'bay_slip', 'bay_number', 'bay_colour')
                if params.get('indicators') else ('bay',), banner=banner),
         Hold('hold in the bay', params['dock_time'], station=params['hold_redrive'],
              precise=params['hold_precise']),

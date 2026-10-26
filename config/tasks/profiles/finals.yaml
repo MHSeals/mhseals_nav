@@ -1,0 +1,15 @@
+# Finals: one autonomous attempt, so a failure costs the whole result. Reliability
+# first: every difference from qualifying (profiles/qualifying.yaml) trades points for
+# fewer ways to fail. Same code, different parameters.
+# Head home a minute earlier: the exit is the one task that must never run short.
+exit_reserve: 300.0
+docking:
+  attempts: 1           # a second try means more slow moves beside the piers
+  confirm_tries: 2      # line up on at most one other slip before giving it up
+  expected_s: 200.0     # planning margin (qualifying 150): the marina, where contact
+                        # is likeliest, is admitted only with time to spare
+  # No lawnmower sweep for an optional task: it crosses unsurveyed water for minutes;
+  # a task its views did not find is skipped instead (the channel and exit keep theirs).
+  search: {enable: {sweep: false}}
+speed_challenge:
+  search: {enable: {sweep: false}}

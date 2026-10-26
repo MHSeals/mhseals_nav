@@ -433,12 +433,15 @@ def main(args=None):
     parser = argparse.ArgumentParser(description='Run one RoboBoat task tree')
     parser.add_argument('--task', required=True, choices=sorted(TREES))
     parser.add_argument('--params', help='task YAML (default: config/tasks/<task>.yaml)')
+    parser.add_argument('--profile', help='mission overlay config/tasks/profiles/<name>.yaml '
+                        "(default: the mission YAML's profile)")
     argv = rclpy.utilities.remove_ros_args(args=sys.argv if args is None else args)
     options = parser.parse_args(argv[1:])
     # Without rclpy's SIGINT handler, Ctrl+C reaches finish() with a live context, so
     # the final event goes out and a running Nav2 goal is cancelled.
     rclpy.init(args=args, signal_handler_options=SignalHandlerOptions.NO)
-    runner = TaskRunner(options.task, load_params(options.task, options.params))
+    params = load_params(options.task, options.params, options.profile)
+    runner = TaskRunner(options.task, params)
     try:
         run(runner)
     finally:

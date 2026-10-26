@@ -105,6 +105,27 @@ class Coverage:
                 grid[np.ix_(inx, iny)] += region.get('weight', 1.0)
         return grid
 
+    def region_area(self, regions, side=None):
+        """Return the box around the prior regions on the course's side, inside the area.
+
+        None without regions, or while a mirrored region's side is still unknown.
+        """
+        boxes = []
+        for region in regions or ():
+            (x0, y0), (x1, y1) = region['box']
+            if region.get('mirror'):
+                if side is None:
+                    return None
+                if side != 'port':
+                    y0, y1 = -y1, -y0
+            boxes.append((min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1)))
+        if not boxes:
+            return None
+        (ax0, ay0), (ax1, ay1) = self.area
+        box = (max(min(b[0] for b in boxes), ax0), max(min(b[1] for b in boxes), ay0),
+               min(max(b[2] for b in boxes), ax1), min(max(b[3] for b in boxes), ay1))
+        return [box[:2], box[2:]] if box[0] < box[2] and box[1] < box[3] else None
+
     def region_views(self, regions, pose, rng, side=None):
         """Return a view pose per prior region box: ``rng`` back from its centre, facing it."""
         views = []
@@ -448,7 +469,10 @@ class Sweep(SearchLeaf):
             self.feedback_message = f'sweep ended ({state}), nothing found'
             return Status.FAILURE
         self.started, pose, cfg = True, self.board.pose, self.cfg
-        area, spacing = self.coverage().area, cfg['spacing_frac'] * self.fov()[1]
+        # Where the rules put the target, once the course side is known: mow that first.
+        self.prior()
+        cover, spacing = self.coverage(), cfg['spacing_frac'] * self.fov()[1]
+        area = cover.region_area(cfg.get('regions'), cfg.get('_side')) or cover.area
         # auto: a known course area is mown; around an unknown one, spiral out from here.
         pattern = cfg['pattern']
         if pattern == 'auto':

@@ -243,10 +243,15 @@ def test_full_mission_without_a_layout_searches_and_recognises_its_way():
 ELEMENTS_2026 = json.loads(
     (Path(__file__).parent / 'fixtures/course_2026_s1.json').read_text())['elements']
 SEED_2026 = [tuple(e[:3]) for e in ELEMENTS_2026]
-# Seed 1 with a boat in green slip 1 (centre 1.2 m out from banner_1, as the far pier's
-# boat stands from its banner_2): the run sees it only at the start look, so docking
+# Seed 1 with a boat in green slip 1, 1.2 m out from banner_1 toward the far pier: the
+# piers' slips open toward each other, as the far pier's boat stands from its banner_2
+# and the docked hull from banner_3. The run sees it only at the start look, so docking
 # starts on remembered slips and must find it taken at the staging pose.
-SLIP_1_BOAT = ('boat', 4.563, 11.99)
+SLIP_1_BOAT = ('boat', 2.419, 13.546)
+# Truth slip centres of the near pier (crane seed 1, 1.45 m out from each banner).
+SLIPS_2026 = {1: (2.22, 13.69), 2: (1.03, 12.05)}
+# The logic tests run the course with time to spare; the timeslot's budget has its own.
+UNHURRIED = 1800.0
 COURSE_2026 = SEED_2026 + [SLIP_1_BOAT]
 SWAP = {'red_pole_buoy': 'green_pole_buoy', 'green_pole_buoy': 'red_pole_buoy',
         'red_buoy': 'green_buoy', 'green_buoy': 'red_buoy'}
@@ -264,7 +269,7 @@ def test_full_2026_mission_finds_and_completes_every_task_by_search(course, side
     Side S is unknown at the start: the start look finds the marina on either side,
     and the speed challenge is searched for on the side the marina fixed.
     """
-    world = Course(mission('mission_2026.yaml'), course=course)
+    world = Course(dict(mission('mission_2026.yaml'), timeout=UNHURRIED), course=course)
     outcome, elapsed = world.run()
     names = world.names()
     decisions = [d['reason'] for e, d in world.events if e == 'decision']
@@ -279,6 +284,11 @@ def test_full_2026_mission_finds_and_completes_every_task_by_search(course, side
     docked = next(d for e, d in world.events if e == 'docked')
     assert docked['bay_number'] == 2 and docked['bay_colour'] == 'green'
     assert docked['bay'] == pytest.approx((2.199, side * 11.2))
+    # In the slip, on the side it opens to (toward the far pier), not behind the pier.
+    slip = (SLIPS_2026[2][0], side * SLIPS_2026[2][1])
+    assert math.dist(docked['bay_slip'], slip) < 0.5
+    berth = next(g.route[-1] for g in world.goals if g.why == 'slide into the bay')
+    assert math.dist(berth[:2], slip) < 0.5
     # Debris: both green beacons circled, and the debris positions reported.
     assert sum(1 for g in world.goals if g.why.startswith('round the beacon')) >= 4
     reported = {tuple(d['position']) for e, d in world.events if e == 'debris'}
@@ -300,7 +310,7 @@ def test_the_marina_found_at_the_start_is_docked_at_field_speed(landmarks):
     (``hold_over``), so only the host's landmark memory keeps the slips: without it,
     docking fails.
     """
-    params = mission('mission_2026.yaml')
+    params = dict(mission('mission_2026.yaml'), timeout=UNHURRIED)
     if not landmarks:
         params['docking'].pop('landmarks')
     world = Course(params, course=COURSE_2026, speed=0.4)
@@ -345,15 +355,16 @@ def test_a_slip_taken_while_the_boat_lines_up_is_not_entered(change):
     At the staging pose, with the slip in view, the choice is made again: the boat
     lines up on green slip 2 instead and docks there, never driving into slip 1.
     """
-    world = Changing(mission('mission_2026.yaml'), change, course=SEED_2026)
+    world = Changing(dict(mission('mission_2026.yaml'), timeout=UNHURRIED), change,
+                     course=SEED_2026)
     outcome, _ = world.run()
     docked = [(d['bay_colour'], d['bay_number']) for e, d in world.events if e == 'docked']
     slips = [d['reason'] for e, d in world.events if e == 'decision' and d['kind'] == 'slip']
     assert outcome == 'SUCCESS' and docked == [('green', 2)], slips
     assert slips == ['green slip 1', 'green slip 2: the chosen one is not free']
     berths = [g.route[-1][:2] for g in world.goals if g.why == 'slide into the bay']
-    slip_1 = (3.39 + 1.3 * 0.81, 12.842 - 1.3 * 0.59)  # its berth, roughly
-    assert berths and all(math.dist(b, slip_1) > 1.5 for b in berths)
+    assert berths and all(math.dist(b, SLIPS_2026[1]) > 1.5 for b in berths)
+    assert math.dist(berths[-1], SLIPS_2026[2]) < 0.5
 
 
 def test_a_failed_mandatory_task_still_goes_home():
@@ -388,21 +399,67 @@ def test_the_host_hands_the_trees_its_actuators_and_none_is_on_by_default():
     assert isinstance(host.actuators['ball_dropper'], Unavailable)  # given, but off
 
 
-def test_a_short_run_skips_the_task_worth_least_per_second_and_still_gets_out():
-    """With 700 s, 460 s are left after the exit's reserve.
+@pytest.mark.parametrize('profile, done, skipped', [
+    ('qualifying', ['follow_path', 'docking'], ['speed_challenge', 'supply_drop']),
+    ('finals', ['follow_path'], ['docking', 'speed_challenge', 'supply_drop'])])
+@pytest.mark.parametrize('course', [COURSE_2026, MIRRORED_2026], ids=['port', 'starboard'])
+def test_the_timeslot_budget_at_field_speed(profile, done, skipped, course):
+    """A 900 s slot less 180 s of set-up leaves a 720 s run, which the run states.
 
-    The debris task and the speed run fit (the most points per second), the marina
-    does not; the exit always runs.
+    At 0.4 m/s it holds the channel, the debris field and the marina, not the speed
+    run as well: an optional task starts only if it fits before the exit's reserve, by
+    points per second. Finals keeps a minute more for the exit and plans the marina
+    with a margin, so it heads home after the debris field.
     """
-    params = dict(mission('mission_2026.yaml'), timeout=700.0)
-    world = Course(params, course=COURSE_2026)
+    params = load_params('mission', config_path('mission_2026.yaml'), profile)
+    world = Course(params, course=course, speed=0.4)
     outcome, elapsed = world.run()
+    started = next(d for e, d in world.events if e == 'task_started')
+    assert started['time_limit_s'] == params['timeout'] == 720.0
     decisions = [d['reason'] for e, d in world.events if e == 'decision']
-    skipped = [d['stage'] for e, d in world.events if e == 'stage_skipped']
-    assert outcome == 'SUCCESS' and 'docking' in skipped, decisions
-    assert any(r.startswith('no time for docking') for r in decisions)
-    assert 'speed_finished' in world.names()
-    assert world.names()[-2:] == ['returned_home', 'stage_completed']
+    completed = [d['stage'] for e, d in world.events if e == 'stage_completed']
+    assert outcome == 'SUCCESS' and completed == ['nav_channel', *done, 'return_home']
+    assert [d['stage'] for e, d in world.events if e == 'stage_skipped'] == skipped
+    assert all(any(r.startswith(f'no time for {task}') or r.startswith(f'{task}: capability')
+                   for r in decisions) for task in skipped)
+    # Home with the exit reserve's margin to spare, never on the limit.
+    assert elapsed < 720.0 - 60.0
+
+
+def test_a_timeslot_sets_the_run_budget_and_a_profile_changes_only_known_keys(tmp_path):
+    finals = load_params('mission', config_path('mission_2026.yaml'), 'finals')
+    assert finals['timeout'] == 720.0 and finals['profile'] == 'finals'
+    assert finals['exit_reserve'] == 300.0 and finals['docking']['attempts'] == 1
+    assert finals['docking']['berth'] == 1.3  # untouched keys stay the mission's
+    assert finals['docking']['search']['regions']  # merged key by key
+    path = tmp_path / 'mission.yaml'
+    path.write_text('tasks: [return_home]\ntimeslot: {slot_s: 900.0, setup_reserve_s: 300.0}\n'
+                    'exit_reserve: 240.0\n')
+    assert load_params('mission', str(path))['timeout'] == 600.0
+    path.write_text('tasks: [return_home]\ntimeslot: {slot_s: 900.0, setup_reserve_s: 700.0}\n'
+                    'exit_reserve: 240.0\n')
+    with pytest.raises(ValueError):
+        load_params('mission', str(path))
+    path.write_text('tasks: [return_home]\ntimeout: 600.0\nprofile: finals\n')
+    with pytest.raises(KeyError, match='exit_reserve is not a mission key'):
+        load_params('mission', str(path))
+
+
+@pytest.mark.parametrize('course, side', [(COURSE_2026, 1), (MIRRORED_2026, -1)],
+                         ids=['side-port', 'side-starboard'])
+def test_the_sweep_mows_the_speed_region_on_the_side_the_marina_fixed(course, side):
+    """At field speed the speed run's views miss the turn mark; the sweep then mows.
+
+    Side S is known from the marina, so the lawnmower covers the speed challenge's
+    region on that side only, never the mirrored half of the course box.
+    """
+    world = Course(dict(mission('mission_2026.yaml'), timeout=UNHURRIED), course=course,
+                   speed=0.4)
+    outcome, _ = world.run()
+    sweeps = [g.route for g in world.goals if 'sweep' in g.why]
+    assert outcome == 'SUCCESS' and sweeps
+    assert all(10.0 - 1e-6 <= side * y <= 60.0 and 15.0 <= x <= 80.0
+               for route in sweeps for x, y, _ in route)
 
 
 @pytest.mark.parametrize('spacing', [20.1, 25.0, 30.0, 40.0])

@@ -1,6 +1,6 @@
 [
  {"schema": "mhseals.task_events/1", "task": "mission", "event": "task_started",
-  "time": 1012.4, "elapsed": 0.0},
+  "time": 1012.4, "elapsed": 0.0, "time_limit_s": 720.0},
  {"schema": "mhseals.task_events/1", "task": "mission", "event": "goal", "time": 1013.0,
   "elapsed": 0.6, "x": 8.1, "y": 0.0, "yaw": 0.0, "why": "between gate 1 markers"},
  {"schema": "mhseals.task_events/1", "task": "mission", "event": "gate_cleared",

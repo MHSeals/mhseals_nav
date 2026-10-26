@@ -174,12 +174,12 @@ def spin(pose, turns, step=math.pi / 2):
 
 
 def dock_axis(banners, banner, pose):
-    """Direction a dock's bays open toward, at ``banner``, seen from ``pose``.
+    """Direction a dock's bays open toward, at ``banner``, toward ``pose`` (a point).
 
     Banners stand along the dock's spine, so with two or more the spine is the
-    line through them and the opening is its normal on the boat's side. With
-    one, the opening is taken to face the boat (the camera can only see a
-    banner from the open side).
+    line through them and the opening is its normal on the side of ``pose``. With
+    one, the opening is taken to face ``pose``. ``pose`` is the boat, unless the
+    caller knows better where the open side lies (``opening_side``).
     """
     others = [b for b in banners if math.dist(b, banner) > 0.3]
     toward_boat = heading(banner, pose)
@@ -196,6 +196,23 @@ def dock_axis(banners, banner, pose):
     if math.cos(normal - toward_boat) < 0:
         normal += math.pi
     return wrap(normal)
+
+
+def opening_side(pier, banners, vessels, pose, reach=3.0):
+    """Return a point on the side a pier's slips open toward.
+
+    The slips of a marina's piers open toward each other (2026 rules), so with
+    another pier's banners (any in ``banners`` not on ``pier``) it is their middle;
+    else a vessel moored within ``reach`` of the pier, which lies in a slip; else
+    the boat (``pose``), which may stand behind the pier.
+    """
+    other = [b for b in banners if b not in pier]
+    moored = [v for v in vessels if any(math.dist(v, b) <= reach for b in pier)]
+    for points in (other, moored):
+        if points:
+            return (sum(p[0] for p in points) / len(points),
+                    sum(p[1] for p in points) / len(points))
+    return pose[:2]
 
 
 def bay(banner, opening, berth=0.85, staging=3.0, depth=1.5):
