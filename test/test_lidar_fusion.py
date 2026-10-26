@@ -266,6 +266,10 @@ def test_a_merged_box_splits_into_one_observation_per_buoy(gap):
     assert xs == pytest.approx([-gap / 2, gap / 2], abs=0.08)
     assert sorted(r[5] for r in rows) == ['', '7']
     assert [r[5] for r in sorted(rows, key=lambda r: r[2][0])][0] == '7'   # the nearer keeps it
+    # The keyed part's covariance covers the jump from the union (where its track sat).
+    keyed = next(r for r in rows if r[5] == '7')
+    d = keyed[2] - np.array([ob.position.x, ob.position.y, ob.position.z])
+    assert d @ np.linalg.solve(np.reshape(keyed[3], (3, 3)), d) < 1.0
 
 
 def test_a_wall_behind_a_far_ball_no_ring_hits_is_too_wide():
@@ -364,18 +368,26 @@ def test_each_axis_applies_only_on_its_own_se():
     assert math.degrees(est.applied[1]) == pytest.approx(0.5, abs=0.1)
 
 
-def test_per_object_biases_of_a_few_buoys_raise_no_alarm():
-    """Three buoys' own yaw biases (mean 1.6 deg) are three samples, not sixty."""
+def three_buoys(az_deg, el_deg):
+    """60 samples of three buoys (30 px boxes) with their own (r_az, r_el) biases."""
     est = lf.ExtrinsicEstimate(CFG['extrinsic'])
     fx, fy, cx, cy = K
     rng = np.random.default_rng(3)
     for k in range(60):
         x, y, Z = rng.uniform(-0.8, 0.8), rng.uniform(0.02, 0.15), rng.uniform(3.0, 9.0)
-        r_az = math.radians((2.5, 0.5, 1.8)[k % 3])
-        b = NS(u0=cx + fx * x - 5, u1=cx + fx * x + 5, v0=cy + fy * y - 6, v1=cy + fy * y + 6)
-        cl = NS(uc=cx + fx * math.tan(math.atan(x) + r_az), vc=cy + fy * y, rho=Z)
+        r_az, r_el = math.radians(az_deg[k % 3]), math.radians(el_deg[k % 3] + rng.normal(0, 0.3))
+        b = NS(u0=cx + fx * x - 5, u1=cx + fx * x + 5, v0=cy + fy * y - 15, v1=cy + fy * y + 15)
+        cl = NS(uc=cx + fx * math.tan(math.atan(x) + r_az),
+                vc=cy + fy * math.tan(math.atan(y) + r_el), rho=Z)
         est.add(k * 0.25, f'buoy{k % 3}', b, cl, ctx(), 0.0)
-    assert est.level == est.OK
+    return est
+
+
+def test_a_few_buoys_own_biases_raise_no_alarm_but_3_deg_pitch_does():
+    """Per-buoy biases at the sim E0 worst spread (S6) stay quiet. 3 deg of pitch on the
+    same three buoys raises ERROR: scaling the SE by sqrt(N / objects) hid it (S4)."""
+    assert three_buoys((0.5, -0.3, 0.4), (0.5, -0.4, 0.2)).level == lf.ExtrinsicEstimate.OK
+    assert three_buoys((0, 0, 0), (-3, -3, -3)).level == lf.ExtrinsicEstimate.ERROR
 
 
 def test_two_degrees_raise_error_and_stop_applying():

@@ -93,6 +93,10 @@
       sigma_u_px: 1.5
       # Weak priors [w_x, w_y, w_z (rad), c_x, c_y, c_z (m), tau (s)] keep the fit regular.
       prior_sigma: [0.1, 0.1, 0.1, 0.2, 0.2, 0.2, 0.1]
+      # Per-object bias SD [r_az, r_el] (deg) in the fit. Sim E0 spread of per-buoy mean
+      # residuals: az 0.07-0.15, el ~0 (S1-S4); S6 (dock behind) az 0.37, el 0.42. Replayed
+      # over all 153 cells: no E0 alarm (0.15/0.3 gave one), 3 deg alarms 15 s sooner in S4.
+      object_sigma_deg: [0.2, 0.4]
       apply_se_deg: 0.2
       apply_max_deg: 1.0
       warn_deg: 0.75

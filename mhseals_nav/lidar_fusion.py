@@ -503,8 +503,10 @@ def adjust(obs, P, ctx, t, rates=None, held=None, use_lidar=True, why=None):
     out = []
     Ainv = ctx.A.T
 
-    def emit(source, b, p, s_r2, s_beta, box2d=None, key=None, tan2=None):
+    def emit(source, b, p, s_r2, s_beta, box2d=None, key=None, tan2=None, jump=None):
         Sigma = covariance(p, s_r2, s_beta, b.sz)
+        if jump is not None:      # identity: the id's track may still sit at the union box
+            Sigma += np.outer(jump, jump)
         if tan2 is not None:      # box-less: keep the stereo tangential variance
             rho_p = max(math.hypot(p[0], p[2]), 1e-6)
             n = np.cross(UP, np.array([p[0], 0.0, p[2]]) / rho_p)
@@ -540,14 +542,17 @@ def adjust(obs, P, ctx, t, rates=None, held=None, use_lidar=True, why=None):
                               rho_obj * math.cos(az)])
                 parts.append((rho_obj, c, p))
             # The nearer part keeps the id: it occludes, so it dominates the box and its
-            # stereo. (The nearest bearing is a coin toss for an oblique pair.)
+            # stereo. (The nearest bearing is a coin toss for an oblique pair.) Its covariance
+            # adds (p - s)(p - s)': the id's track followed the union box (stereo s) until the
+            # split, and without it the id gate dropped that track on the 0.3-0.6 m jump, so
+            # every part restarted (S5 E0 id switches 1 -> 2-3 once the 19 m cluster split).
             nearest = min(range(len(parts)), key=lambda k: parts[k][0])
             for k, (_, c, p) in enumerate(parts):
                 beta2 = ((cfg['box_beta_frac'] * c.w + 1.0) / fx) ** 2 + \
                     cfg['delta_a_rad'] ** 2 / 12 + ctx.se_yaw ** 2 + cfg['split_beta_rad'] ** 2
                 box2d = [max(0.0, c.u0 / W), b.v0 / H, min(1.0, c.u1 / W), b.v1 / H]
-                emit('split', b, p, lidar_sigma_r2(cfg, b.radius, f_obs),
-                     math.sqrt(beta2), box2d, key if k == nearest else '')
+                emit('split', b, p, lidar_sigma_r2(cfg, b.radius, f_obs), math.sqrt(beta2),
+                     box2d, *((key, None, p - b.s) if k == nearest else ('',)))
         else:
             h = held.held(key, t, b.rho, ctx.meas['depth_k'])
             if h is not None:
@@ -647,22 +652,37 @@ class ExtrinsicEstimate:
         return True
 
     def fit(self):
-        A, r, w = [], [], []
-        for rows, res, sig, _ in self.samples:
-            A += rows
-            r += res
-            w += [1 / s ** 2 for s in sig]
-        A, r, w = np.array(A), np.array(r), np.array(w)
-        prior = 1 / np.array(self.cfg['prior_sigma']) ** 2
-        N = A.T @ (A * w[:, None]) + np.diag(prior)
+        """GLS: white noise per sample plus one random bias per object on r_az and on r_el.
+
+        One buoy's samples share its geometric bias (partial hits, a dock behind). Counting
+        whole objects instead (SE x sqrt(N/N_eff)) quadrupled the pitch SE in S4, whose two or
+        three isolated buoys give most samples and whose r_el noise outweighs that bias, so
+        3 deg never alarmed. Per object, V^-1 = W - W1 1'W / (1/sigma_b^2 + 1'W1).
+        """
+        groups = {}
+        for rows, res, sig, key in self.samples:
+            for ch in (0, 1):
+                g = groups.setdefault((key, ch), ([], [], []))
+                g[0].append(rows[ch])
+                g[1].append(res[ch])
+                g[2].append(sig[ch] ** -2)
+        groups = [(np.array(A), np.array(r), np.array(w), ch)
+                  for (_, ch), (A, r, w) in groups.items()]
+        sb2 = (np.array(self.cfg['object_sigma_deg']) * DEG) ** 2
+        N = np.diag(1 / np.array(self.cfg['prior_sigma']) ** 2)
+        rhs = np.zeros(len(N))
+        for A, r, w, ch in groups:
+            g, d = A.T @ w, 1 / sb2[ch] + w.sum()
+            N += A.T @ (A * w[:, None]) - np.outer(g, g) / d
+            rhs += A.T @ (w * r) - g * (w @ r) / d
         cov = np.linalg.inv(N)
-        theta = cov @ (A.T @ (w * r))
-        chi2 = float(np.sum(w * (r - A @ theta) ** 2))
-        dof = max(1, len(r) - len(theta))
-        # N_eff = distinct objects: one buoy's samples share its geometric bias (partial
-        # hits, a dock behind), which read 0.85-1.6 deg of yaw at sim E0 (S6) at 5 SE.
-        n_eff = len({k for *_, k in self.samples})
-        return theta, np.sqrt(np.diag(cov) * max(1.0, chi2 / dof) * len(self.samples) / n_eff)
+        theta = cov @ rhs
+        chi2 = 0.0
+        for A, r, w, ch in groups:
+            e = r - A @ theta
+            chi2 += e @ (w * e) - (w @ e) ** 2 / (1 / sb2[ch] + w.sum())
+        dof = max(1, 2 * len(self.samples) - len(theta))
+        return theta, np.sqrt(np.diag(cov) * max(1.0, chi2 / dof))
 
     def evaluate(self, window=True):
         cfg = self.cfg
