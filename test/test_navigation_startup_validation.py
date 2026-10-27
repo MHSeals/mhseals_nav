@@ -24,7 +24,7 @@ def base():
 ])
 def test_invalid_requested_values_fail(base, patch):
     with pytest.raises(ValueError):
-        validated_merge_limits(base, patch)
+        validated_merge_limits(base, patch, {})
 
 
 @pytest.mark.parametrize('text', ['[', '[]', 'false', 'a: 1\na: 2', 'a: &x {}\nb: *x', '<<: {}'])
@@ -38,7 +38,7 @@ def test_invalid_existing_file_is_not_absent(tmp_path, text):
 def test_absent_optional_file_and_valid_overlay(base, tmp_path):
     assert load_overlay(tmp_path / 'absent', strict=True) == {}
     patch = {'controller_server': {'ros__parameters': {'controller_frequency': 20}}}
-    result = validated_merge_limits(base, patch)
+    result = validated_merge_limits(base, patch, {})
     assert result['controller_server']['ros__parameters']['FollowPath']['model_dt'] == .05
     with pytest.raises(ValueError):
         load_overlay(tmp_path, strict=True)  # existing but unreadable as a file
@@ -64,13 +64,13 @@ def test_actual_navigation_factory_fails_before_node(base, tmp_path):
 ])
 def test_known_zero_default_domains_rejected(base, patch):
     with pytest.raises(ValueError):
-        validated_merge_limits(base, patch)
+        validated_merge_limits(base, patch, {})
 
 
 @pytest.mark.parametrize('vector', [[0, 0, 0], [0, 0.0, 0]])
 def test_emitted_deadband_vector_has_selected_base_float_type(base, vector):
     result = validated_merge_limits(base, {'velocity_smoother': {'ros__parameters': {
-        'deadband_velocity': vector}}})
+        'deadband_velocity': vector}}}, {})
     emitted = yaml.safe_load(yaml.safe_dump(result))
     assert all(type(v) is float for v in
                emitted['velocity_smoother']['ros__parameters']['deadband_velocity'])
@@ -93,7 +93,7 @@ def test_empty_requested_file_is_supported(tmp_path, text):
 
 def test_unrelated_zero_default_can_remain_signed(base):
     base['Extension'] = {'signed_offset': 0.0}
-    result = validated_merge_limits(base, {'Extension': {'signed_offset': -1.0}})
+    result = validated_merge_limits(base, {'Extension': {'signed_offset': -1.0}}, {})
     assert result['Extension']['signed_offset'] == -1.0
 
 
@@ -165,7 +165,7 @@ def test_absent_optional_overlay_preserves_custom_controller_base(base, tmp_path
     assert 'FollowPath' not in emitted['controller_server']['ros__parameters']
     # A real overlay on this selected base must not require a FollowPath mapping.
     merged = validated_merge_limits(base, {'controller_server': {'ros__parameters': {
-        'CustomController': {'vx_max': 0.3}}}})
+        'CustomController': {'vx_max': 0.3}}}}, {})
     assert merged['controller_server']['ros__parameters']['CustomController']['vx_max'] == 0.3
     assert 'FollowPath' not in merged['controller_server']['ros__parameters']
 
@@ -260,6 +260,24 @@ def test_legacy_merge_still_drops_beyond_the_ceiling(base):
     merged = merge_limits(base, limits, {'vx_min': 0.2})
     follow = merged['controller_server']['ros__parameters']['FollowPath']
     assert follow['vx_min'] == base['controller_server']['ros__parameters']['FollowPath']['vx_min']
+
+
+def test_the_packaged_ceilings_bound_an_overlay(base):
+    from mhseals_nav.navigation_config import load_ceilings, merge_limits
+    from mhseals_nav.startup_projection import ceilings_path
+    ceilings = load_ceilings(ceilings_path())
+
+    def follow(vx_min):
+        overlay = {'controller_server': {'ros__parameters': {'FollowPath': {'vx_min': vx_min}}}}
+        merged = merge_limits(base, overlay, ceilings)
+        return merged['controller_server']['ros__parameters']['FollowPath']
+    assert follow(-0.15)['vx_min'] == -0.1      # within the 0.2 ceiling, then capped by the base
+    assert follow(-0.25)['vx_min'] == -0.1      # beyond the ceiling: dropped
+    with pytest.raises(ValueError, match='ceiling'):
+        validated_merge_limits(base, {'controller_server': {'ros__parameters': {
+            'FollowPath': {'vx_min': -0.25}}}}, ceilings)
+    with pytest.raises(ValueError, match='mapping'):
+        validated_merge_limits(base, {}, None)                       # no ceilings is not unbounded
 
 
 def test_missing_ceilings_fail_closed(base, tmp_path):

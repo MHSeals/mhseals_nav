@@ -288,13 +288,13 @@ def within_ceilings(ceilings, limits, path=(), strict=False):
     return result
 
 
-def merge_limits(base, limits, ceilings=None):
+def merge_limits(base, limits, ceilings):
     """
     Overlay limits onto base, recompute derived keys and warn about overlay values that did not stick.
 
-    ceilings (config/nav2_ceilings.yaml) bounds the overlay's maxima; None means unbounded.
+    ceilings (config/nav2_ceilings.yaml) bounds the overlay's maxima; {} bounds nothing.
     """
-    limits = within_ceilings(ceilings or {}, typed_like(base, limits))
+    limits = within_ceilings(ceilings, typed_like(base, limits))
     result = deep_merge(deepcopy(base), limits)
     controller = result.get('controller_server', {}).get('ros__parameters', {})
     name = mppi_controller(controller, legacy=True)
@@ -387,7 +387,7 @@ def validate_navigation_base(base):
             raise ValueError('FollowPath.time_steps: required positive integer')
 
 
-def validated_merge_limits(base, limits, ceilings=None):
+def validated_merge_limits(base, limits, ceilings):
     """Validate, refuse values beyond the ceilings, then lower."""
     validate_navigation_overlay(base, limits)
 
@@ -402,7 +402,7 @@ def validated_merge_limits(base, limits, ceilings=None):
         if isinstance(template, int) and not isinstance(template, bool):
             return int(value)
         return value
-    ceilings = validate_ceilings(ceilings or {})
+    ceilings = validate_ceilings(ceilings)
     return lower_navigation(base, within_ceilings(ceilings, normalized(base, limits), strict=True))
 
 
@@ -414,7 +414,7 @@ def lower_navigation(base, explicit):
     Only the supported FollowPath closure is bound; unrelated plugin maps and
     behavior-server rotational limits are independent inputs.
     """
-    result = merge_limits(base, explicit)
+    result = merge_limits(base, explicit, {})     # explicit is already within the ceilings
     controller = explicit.get('controller_server', {}).get('ros__parameters', {})
     output_controller = result.get('controller_server', {}).get('ros__parameters', {})
     name = mppi_controller(output_controller, legacy=True)

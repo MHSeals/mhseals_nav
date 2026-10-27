@@ -11,7 +11,7 @@ def test_limits_use_current_planner_and_horizon_without_mutating_base():
             'controller_server': {'ros__parameters': {'FollowPath': {
                 'model_dt': .1, 'time_steps': 40, 'prune_distance': 3., 'vx_min': -.2}}}}
     limits = {'controller_server': {'ros__parameters': {'FollowPath': {'vx_max': 2.}}}}
-    merged = merge_limits(base, limits)
+    merged = merge_limits(base, limits, {})
     assert merged['planner_server'] == base['planner_server']
     follow = merged['controller_server']['ros__parameters']['FollowPath']
     assert follow['prune_distance'] == 9.6
@@ -26,7 +26,7 @@ def test_current_reverse_cap_and_shorter_horizon_win_over_old_limits():
     limits = {'controller_server': {'ros__parameters': {'FollowPath': {
                   'vx_max': 1., 'vx_min': -.2, 'prune_distance': 9.6}}},
               'velocity_smoother': {'ros__parameters': {'min_velocity': [-.2, -.4, -.3]}}}
-    result = merge_limits(base, limits)
+    result = merge_limits(base, limits, {})
     follow = result['controller_server']['ros__parameters']['FollowPath']
     assert follow['vx_min'] == -.1 and follow['prune_distance'] == 1.2
     assert result['velocity_smoother']['ros__parameters']['min_velocity'][0] == -.1
@@ -39,7 +39,7 @@ def test_sampling_noise_never_exceeds_a_measured_axis_limit():
                 'prune_distance': 3.}}}}
     limits = {'controller_server': {'ros__parameters': {'FollowPath': {
                   'vx_max': .3, 'vy_max': .05, 'wz_max': .4}}}}
-    follow = merge_limits(base, limits)['controller_server']['ros__parameters']['FollowPath']
+    follow = merge_limits(base, limits, {})['controller_server']['ros__parameters']['FollowPath']
     assert (follow['vx_std'], follow['vy_std'], follow['wz_std']) == (.15, .05, .25)
     assert follow['prune_distance'] == 3.0  # max(3.0, 1.2 x .3 x 4.8) keeps the base floor
 
@@ -65,7 +65,7 @@ def test_empty_and_comment_only_overlays_are_no_overlay(tmp_path):
         overlay = tmp_path / 'nav2.yaml'
         overlay.write_text(text)
         assert load_overlay(overlay) == {}
-        merged = merge_limits(base, load_overlay(overlay))
+        merged = merge_limits(base, load_overlay(overlay), {})
         assert merged['controller_server']['ros__parameters']['FollowPath']['vx_max'] == 1.0
 
 
@@ -83,7 +83,7 @@ def test_overlay_values_the_merge_overrides_are_warned_about(caplog):
     limits = {'controller_server': {'ros__parameters': {'FollowPath': {
                 'vx_max': .4, 'vx_min': -.9, 'prune_distance': 9.}}}}
     with caplog.at_level('WARNING'):
-        merge_limits(base, limits)
+        merge_limits(base, limits, {})
     assert 'FollowPath.vx_min' in caplog.text
     assert 'FollowPath.prune_distance' in caplog.text
     assert 'FollowPath.vx_max' not in caplog.text
@@ -121,7 +121,7 @@ def overlay_params(**params):
     controller = {k: v for k, v in params.items() if k != 'vx_max'}
     follow = {'vx_max': params['vx_max']} if 'vx_max' in params else {}
     limits = {'controller_server': {'ros__parameters': {**controller, 'FollowPath': follow}}}
-    return base, merge_limits(base, limits)
+    return base, merge_limits(base, limits, {})
 
 
 def test_integer_overlay_values_launch_as_their_float_forms():
@@ -134,7 +134,7 @@ def test_integer_overlay_values_launch_as_their_float_forms():
 def test_non_numeric_overlay_values_are_dropped_not_handed_to_nav2(caplog):
     with caplog.at_level('ERROR'):
         base, merged = overlay_params(vx_max='0.4', controller_frequency=True)
-    assert merged == merge_limits(base, {})
+    assert merged == merge_limits(base, {}, {})
     assert 'not a number' in caplog.text
 
 
@@ -144,14 +144,14 @@ def test_non_finite_zero_and_negative_overlay_values_keep_the_base(caplog):
         caplog.clear()
         with caplog.at_level('ERROR'):
             base, merged = overlay_params(**params)
-        assert merged == merge_limits(base, {}), params
+        assert merged == merge_limits(base, {}, {}), params
         assert 'out of range' in caplog.text
 
 
 def follow_path(**params):
     base, _ = overlay_params()
     limits = {'controller_server': {'ros__parameters': {'FollowPath': params}}}
-    return merge_limits(base, limits)['controller_server']['ros__parameters']['FollowPath']
+    return merge_limits(base, limits, {})['controller_server']['ros__parameters']['FollowPath']
 
 
 def test_integral_float_for_an_integer_key_launches_as_int_and_others_keep_the_base(caplog):
@@ -171,7 +171,7 @@ def test_zero_minimum_forbids_reversing_and_reaches_the_smoother(caplog):
     for zero in (0, 0.):
         limits = {'controller_server': {'ros__parameters': {'FollowPath': {'vx_min': zero}}}}
         with caplog.at_level('ERROR'):
-            result = merge_limits(base, limits)
+            result = merge_limits(base, limits, {})
         assert result['controller_server']['ros__parameters']['FollowPath']['vx_min'] == 0.
         assert result['velocity_smoother']['ros__parameters']['min_velocity'][0] == 0.
     assert 'out of range' not in caplog.text

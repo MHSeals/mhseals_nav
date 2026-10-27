@@ -22,7 +22,7 @@ def patch():
 
 def test_nondefault_complete_consumer_fixture(base):
     before = deepcopy(base)
-    result = validated_merge_limits(base, patch())
+    result = validated_merge_limits(base, patch(), {})
     follow = result['controller_server']['ros__parameters']['FollowPath']
     assert follow['model_dt'] == .05
     assert [follow[k] for k in ('vx_std', 'vy_std', 'wz_std')] == [.1, .07, .15]
@@ -44,7 +44,7 @@ def test_conflicting_explicit_derived_value_refused(base, key, value):
     explicit = patch()
     explicit['controller_server']['ros__parameters']['FollowPath'][key] = value
     with pytest.raises(ValueError, match='conflicts with canonical lowering'):
-        validated_merge_limits(base, explicit)
+        validated_merge_limits(base, explicit, {})
 
 
 def test_smoother_conflict_and_optional_absence(base):
@@ -52,20 +52,20 @@ def test_smoother_conflict_and_optional_absence(base):
     explicit['velocity_smoother'] = {'ros__parameters': {
         'max_velocity': [.2, .1, .1]}}
     with pytest.raises(ValueError, match='conflicts with canonical lowering'):
-        validated_merge_limits(base, explicit)
+        validated_merge_limits(base, explicit, {})
     del base['velocity_smoother']
-    result = validated_merge_limits(base, patch())
+    result = validated_merge_limits(base, patch(), {})
     assert 'velocity_smoother' not in result
 
 
 def test_plugin_map_and_behavior_limit_are_independent(base):
     base['behavior_server']['ros__parameters']['max_rotational_vel'] = .7
-    result = validated_merge_limits(base, patch())
+    result = validated_merge_limits(base, patch(), {})
     assert result['behavior_server']['ros__parameters']['max_rotational_vel'] == .7
     controller = base['controller_server']['ros__parameters']
     controller['Custom'] = controller.pop('FollowPath')
     controller['controller_plugins'] = ['Custom']
-    result = validated_merge_limits(base, {})
+    result = validated_merge_limits(base, {}, {})
     assert result['controller_server'] == base['controller_server']
 
 
@@ -96,7 +96,7 @@ def test_renamed_selected_mppi_uses_its_plugin_contract(base):
     controller['Boat'] = controller.pop('FollowPath')
     controller['controller_plugins'] = ['Boat']
     result = validated_merge_limits(base, {'controller_server': {'ros__parameters': {
-        'controller_frequency': 20}}})
+        'controller_frequency': 20}}}, {})
     assert result['controller_server']['ros__parameters']['Boat']['model_dt'] == .05
 
 
