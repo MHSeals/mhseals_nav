@@ -135,10 +135,14 @@ class Layout:
         """
         if self.exit_margin is None:
             return cap
+        return min(cap, max(self.exit_floor_s, self.exit_margin * self.way_out(xy, via)))
+
+    def way_out(self, xy, via):
+        """Return the seconds from ``xy`` home through ``via`` at the boat's speed."""
         way, here = 0.0, tuple(xy[:2])
         for point in via:
             way, here = way + math.dist(here, point[:2]), tuple(point[:2])
-        return min(cap, max(self.exit_floor_s, self.exit_margin * way / self.speed))
+        return way / self.speed
 
     def plan(self, names, start, via, left_s, guesses, rows, cap):
         """Return the best order of ``names``: {name: (seconds, exit reserve after it)}.
@@ -161,7 +165,8 @@ class Layout:
                 if used + seconds + reserve <= left_s:
                     used, points, here = used + seconds, points + row['value'], end
                     kept[name] = (seconds, reserve)
-            key = (-points, used + self.reserve(here, via, math.inf), rank)
+            # The way out itself, not the reserve: a fixed reserve would tie every order.
+            key = (-points, used + self.way_out(here, via), rank)
             if best is None or key < best[0]:
                 best = (key, kept)
         return best[1] if best else {}

@@ -26,10 +26,14 @@ layout:
   transit_mps: 0.35
   measure_m: 50.0
   moving_mps: 0.05
-  # The exit's reserve after an agenda task: exit_margin x the way out from where it
-  # ends (back through the entry gates, then home) at the measured speed, at least
-  # exit_floor_s, never more than exit_reserve. null: always exit_reserve.
-  exit_margin: 1.5
+  # The exit's reserve after an agenda task. null (the default, reliability first):
+  # always the fixed exit_reserve. A number turns on the dynamic reserve: exit_margin x
+  # the way out from where the task ends (back through the entry gates, then home) at
+  # the measured speed, at least exit_floor_s, never more than exit_reserve. Off until
+  # Unity runs back it: it is planned from the guess, and a task ending in its region's
+  # far corner needs more than 1.5 x the guess's way out (docking 49 m vs 46 m budgeted;
+  # speed 102 m vs 92 m, about 292 s at 0.35 m/s).
+  exit_margin: null
   exit_floor_s: 120.0
   search_s_per_m: 3.0
   miss: 0.2               # weight kept by a cell the camera looked at without a find

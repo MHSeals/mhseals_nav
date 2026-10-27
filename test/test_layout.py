@@ -89,14 +89,15 @@ def test_the_belief_and_the_search_share_one_prior():
     assert len(grid.region_views(regions, (0.0, 0.0, 0.0), 10.0)) == 2
 
 
-def test_the_mission_yaml_is_the_only_source_and_finals_keep_the_fixed_reserve():
+def test_the_mission_yaml_is_the_only_source_and_both_profiles_keep_the_fixed_reserve():
     from mhseals_nav.tasks.params import config_path, load_params
     params = load_params('mission', config_path('mission_2026.yaml'), 'qualifying')
     layout = Layout(params)
     assert layout.tasks['docking']['labels'] == tuple(params['docking']['landmarks'])
     assert layout.tasks['speed_challenge']['labels'] == (
         'yellow_buoy', *params['speed_challenge']['indicators'])
-    assert layout.reserve((0.0, 20.0), [(0.0, 0.0)], 240.0) == layout.exit_floor_s
+    assert layout.exit_margin is None  # the dynamic reserve is off until Unity backs it
+    assert layout.reserve((0.0, 20.0), [(0.0, 0.0)], 240.0) == 240.0
     with pytest.raises(KeyError):
         Layout({**params, 'layout': {k: v for k, v in params['layout'].items()
                                      if k != 'miss'}})
@@ -107,9 +108,16 @@ def test_the_mission_yaml_is_the_only_source_and_finals_keep_the_fixed_reserve()
 
 
 def test_the_reserve_covers_a_task_that_ends_a_spread_beyond_its_guess():
-    """The reserve is planned from the guess; the task may end a spread further out."""
+    """The dynamic reserve (off by default) is planned from the guess.
+
+    It covers a task that ends a spread beyond its guess, but not one that ends in its
+    region's far corner: docking needs 49 m against the 46 m budgeted, the speed task
+    102 m against 92 m (about 292 s at 0.35 m/s). That shortfall is why exit_margin is
+    null in mission_2026.yaml until Unity runs show the dynamic reserve is safe.
+    """
     from mhseals_nav.tasks.params import config_path, load_params
     params = load_params('mission', config_path('mission_2026.yaml'), 'qualifying')
+    params = {**params, 'layout': {**params['layout'], 'exit_margin': 1.5}}
     layout, grid = Layout(params), cover()
     via = [(25.0, 0.0), (10.0, 0.0), (0.0, 0.0)]  # the entry gates, last first, then home
     for name in ('docking', 'speed_challenge'):
