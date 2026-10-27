@@ -9,12 +9,37 @@ gate to the gate is what scores, so once the mark is known the lap and the retur
 through the gate are one route: the boat never stops between them.
 """
 
+import math
+
+from mhseals_nav.tasks import geometry
 from mhseals_nav.tasks.behaviours import (
-    CountObjects, GateRun, Navigate, PlanCircle, PlanConcat, PlanGatePass, PlanView, ReadColour,
-    Report, ReportCount, Search,
+    CountObjects, GateRun, Leaf, Navigate, PlanCircle, PlanConcat, PlanGatePass, PlanView,
+    ReadColour, Report, ReportCount, Search,
 )
-from py_trees.common import ParallelPolicy
+from py_trees.common import ParallelPolicy, Status
 from py_trees.composites import Parallel, Selector, Sequence
+
+
+class GateNear(Leaf):
+    """SUCCESS when a live ``red``/``green`` pair at most ``width`` apart is within
+    ``radius`` m of the ``key`` point (one gate: the route to it is known). Gates within
+    ``exclude_radius`` of those other tasks cleared (``exclude`` keys) are theirs."""
+
+    def __init__(self, name, key, red, green, width, radius, exclude=(), exclude_radius=0.0):
+        super().__init__(name, reads=(key, *exclude))
+        self.key, self.labels, self.width, self.radius = key, (red, green), width, radius
+        self.exclude, self.exclude_radius = exclude, exclude_radius
+
+    def update(self):
+        spot = self.board.get(self.key) if self.board.exists(self.key) else None
+        live = [t for t in self.board.tracks or () if not t.prior and t.confidence >= 0.5]
+        sides = [[(t.x, t.y) for t in live if t.label == label] for label in self.labels]
+        gates = geometry.gate_midpoints(*sides, self.board.home or (0.0, 0.0), self.width)
+        done = [g for key in self.exclude if self.board.exists(key)
+                for g in self.board.get(key) or ()]
+        gates = geometry.unclaimed(gates, done, self.exclude_radius)
+        near = spot and any(math.dist(g[:2], spot[-1][:2]) <= self.radius for g in gates)
+        return Status.SUCCESS if near else Status.FAILURE
 
 
 def build(params):
@@ -31,11 +56,17 @@ def build(params):
         pair = params.get('pair') and {
             **params['pair'], 'gate': params['max_gate_width'], 'exclude': ('path', 'channel'),
             'exclude_radius': params['exclude_radius']}
+        # With its gate already in view, the boat goes straight to the gate: no detour.
         find = [look_for('find the mark first', (mark,), params, pair=pair),
-                PlanView('plan a view of the mark', 'speed_view', mark, pair=pair),
-                Navigate('to the mark', 'speed_view', accept=3.0, why='to the speed mark',
-                         phase='approach'),
-                PlanView('where the mark is', 'speed_mark', mark, standoff=0.0, pair=pair)]
+                PlanView('where the mark is', 'speed_mark', mark, standoff=0.0, pair=pair),
+                Selector('see the gate', memory=True, children=[
+                    GateNear('gate seen', 'speed_mark', red, green, params['max_gate_width'],
+                             params['mark_radius'], ('path', 'channel'),
+                             params['exclude_radius']),
+                    Sequence('to the mark', memory=True, children=[
+                        PlanView('plan a view of the mark', 'speed_view', mark, pair=pair),
+                        Navigate('to the mark', 'speed_view', accept=3.0,
+                                 why='to the speed mark', phase='approach')])])]
     run = Sequence('speed run', memory=True, children=find + [
         look_for('find the gate', (red, green), params),
         GateRun('through the gate', 'speed_gate', red, green, gates=1,

@@ -2,6 +2,7 @@
 
 ``search(name, labels, cfg)`` tries the cheapest strategy first and stops the moment
 the wanted labels are tracked live:
+  HeadFor       drive to a view of where the course-layout belief puts the task
   LookAtPriors  look where the course map, or a weak track, says the thing is
   Scan          turn toward the least-seen bearing ahead while moving on
   NextView      next-best-view by information gain over the camera coverage grid
@@ -12,7 +13,7 @@ clearly (``hysteresis``) better, so the boat turns while moving and never dither
 
 import math
 
-from mhseals_nav.tasks import geometry, load_config as load_task_config
+from mhseals_nav.tasks import geometry, layout, load_config as load_task_config
 from mhseals_nav.tasks.behaviours import Driver, Leaf
 from mhseals_nav.tasks.geometry import wrap
 from mhseals_nav.tasks.tracks import Track
@@ -322,7 +323,7 @@ class SearchLeaf(Driver):
     """A Driver that succeeds as soon as the labels are seen live; plans once per goal."""
 
     def __init__(self, name, labels, cfg):
-        super().__init__(name, reads=tuple((cfg.get('pair') or {}).get('exclude', ())))
+        super().__init__(name, reads=('layout', *(cfg.get('pair') or {}).get('exclude', ())))
         self.labels, self.cfg, self.own = tuple(labels), dict(cfg), None
 
     def get(self, key):
@@ -354,7 +355,13 @@ class SearchLeaf(Driver):
         tracks = [t for t in self.tracks()
                   if t.prior or t.confidence >= self.cfg['min_confidence']]
         done = [g for key in pair.get('exclude', ()) for g in self.get(key) or ()]
-        return cue_gates(tracks, pair, self.get('home') or self.board.pose, done)
+        gates = cue_gates(tracks, pair, self.get('home') or self.board.pose, done)
+        if not self.cfg.get('regions'):
+            return gates
+        # Only where the course rules put the task: another task's gates are no cue,
+        # whether it has been done yet or not (the debris channel before the speed run).
+        side = course_side(tracks, self.cfg.get('side_cues') or ())
+        return [g for g in gates if layout.inside(g, self.cfg['regions'], side)]
 
     def prior(self):
         """Put the placement-prior weights, the course side and the cues into the config copy.
@@ -417,6 +424,49 @@ class SearchLeaf(Driver):
             self.coverage().observe(self.board.pose, self.fov(), self.board.now)
         self.prior()
         return self.step(self.driving())
+
+
+class HeadFor(SearchLeaf):
+    """Drive to a view of where the course-layout belief puts the search's ``task``.
+
+    A seen cue gate (``pair``) narrows it to the stretch past the gate. The view stands ``head_standoff`` of the camera range short of the guess and faces
+    it, so the camera is on the likely place all the way in; the goal moves only when
+    the guess moves ``head_replan`` m (what the camera has passed counts against it).
+    Done (FAILURE: on to the other strategies) on arrival, or with no guess.
+    """
+
+    def initialise(self):
+        super().initialise()
+        self.checked = None
+
+    def step(self, state):
+        board, cfg = self.board, self.cfg
+        recheck = self.checked is None or board.now - self.checked >= cfg['replan_s']
+        if self.target is not None and state != 'RUNNING':
+            return Status.FAILURE  # there: the other strategies take it from here
+        if not recheck:
+            return Status.RUNNING
+        self.checked = board.now
+        belief, task = self.get('layout'), cfg.get('task')
+        tracks = self.tracks()
+        side = course_side(tracks, cfg.get('side_cues') or ())
+        guess = belief.guess(task, self.coverage(), tracks, side,
+                             cfg['min_confidence']) if belief and task else None
+        pair, cues = cfg.get('pair') or {}, cfg.get('_cues') or ()
+        if cues:  # the target lies past a seen gate: the middle of that stretch
+            gate = min(cues, key=lambda g: math.dist(g[:2], board.pose[:2]))
+            spot, why = geometry.forward(gate, (pair['min'] + pair['max']) / 2)[:2], 'past the gate'
+        elif guess is not None and not guess.found:
+            spot, why = guess.xy, f'the likely {task} ({guess.spread:.0f} m spread)'
+        else:
+            return Status.RUNNING if state == 'RUNNING' else Status.FAILURE
+        standoff = cfg['head_standoff'] * self.fov()[1]
+        view = view_pose(spot, board.pose, standoff)
+        if self.target is None and math.dist(spot, board.pose[:2]) <= standoff + cfg['lead']:
+            return Status.FAILURE  # already where the spot is best seen from
+        if self.target is None or math.dist(view[:2], self.target[:2]) > cfg['head_replan']:
+            self.send([view], f'head for {why}')
+        return Status.RUNNING
 
 
 class LookAtPriors(SearchLeaf):
@@ -551,7 +601,7 @@ class Found(Leaf):
         return Status.SUCCESS if hit else Status.FAILURE
 
 
-STRATEGIES = (('priors', LookAtPriors), ('scan', Scan), ('next_view', NextView),
+STRATEGIES = (('head_for', HeadFor), ('priors', LookAtPriors), ('scan', Scan), ('next_view', NextView),
               ('sweep', Sweep))
 
 

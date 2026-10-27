@@ -3,6 +3,8 @@
 # fewer ways to fail. Same code, different parameters.
 # Head home a minute earlier: the exit is the one task that must never run short.
 exit_reserve: 300.0
+# One attempt: the exit keeps its whole fixed reserve after every task.
+layout: {exit_margin: null}
 docking:
   attempts: 1           # a second try means more slow moves beside the piers
   confirm_tries: 2      # line up on at most one other slip before giving it up

@@ -1,0 +1,162 @@
+"""The course-layout belief: where each task not found yet most likely is, and its cost.
+
+Built from the handbook and rotation-rule priors and from every observation so far:
+- prior: each task's placement ``regions`` (its search boxes in the start frame, a
+  mirrored box counting on both sides until a side cue fixes the course side S);
+- found: a task's own ``labels`` seen inside its regions place it there;
+- not found: the cells the camera has looked at (the run's coverage grid, any task's
+  looks) keep only ``miss`` of their weight, so the belief moves to what is still unseen.
+
+The mission plans with it: the cost of a task from a place is the travel to where the
+task likely is, a search that grows with how spread out that guess still is, and the
+task's own ``service_s`` (both timed at ``transit_mps``, scaled by the speed measured
+so far); the order of the ``agenda`` tasks is the one that fits the
+most points into the time left, the way out from the last one counted (``plan``), and
+the exit's reserve after each task is what the way out from there needs (``reserve``).
+The search heads for the guess first (``HeadFor``). No ROS, no py_trees: numpy only.
+"""
+
+import itertools
+import math
+
+import numpy as np
+
+
+class Guess:
+    """Where a task likely is: ``xy`` (m), ``spread`` (m, 0 once found), ``found``."""
+
+    def __init__(self, xy, spread, found):
+        self.xy, self.spread, self.found = tuple(xy), float(spread), found
+
+
+def side_boxes(regions, side):
+    """Yield (box, weight) of ``regions`` on the course side: both while ``side`` is None."""
+    for region in regions or ():
+        (x0, y0), (x1, y1) = region['box']
+        boxes = [(y0, y1)]
+        if region.get('mirror'):
+            boxes.append((-y1, -y0))
+            if side is not None:
+                boxes = [b for b in boxes if (b[0] + b[1] > 0) == (side == 'port')]
+        for lo, hi in boxes:
+            yield ((min(x0, x1), min(lo, hi)), (max(x0, x1), max(lo, hi))), region.get(
+                'weight', 1.0)
+
+
+def inside(xy, regions, side):
+    """Tell whether ``xy`` lies in one of ``regions`` on the course side."""
+    return any(x0 <= xy[0] <= x1 and y0 <= xy[1] <= y1
+               for ((x0, y0), (x1, y1)), _ in side_boxes(regions, side))
+
+
+class Layout:
+    """The belief over the mission's tasks; ``params`` is the mission's (its ``layout``)."""
+
+    def __init__(self, params):
+        cfg = params.get('layout') or {}
+        self.miss = float(cfg.get('miss', 0.2))
+        self.transit = float(cfg.get('transit_mps', 0.35))
+        self.search_s_per_m = float(cfg.get('search_s_per_m', 3.0))
+        margin = cfg.get('exit_margin')
+        self.exit_margin = None if margin is None else float(margin)
+        self.exit_floor_s = float(cfg.get('exit_floor_s', 120.0))
+        self.measure_m, self.moving_mps = float(cfg.get('measure_m', 50.0)), 0.05
+        self.last, self.moved, self.moving = None, 0.0, 0.0
+        self.agenda = list(params.get('agenda') or ())
+        self.tasks = {}
+        for name, task in (cfg.get('tasks') or {}).items():
+            regions = ((params.get(name) or {}).get('search') or {}).get('regions') or []
+            self.tasks[name] = {'regions': regions, 'labels': tuple(task.get('labels', ())),
+                                'service_s': float(task['service_s'])}
+
+    def observe(self, pose, now):
+        """Measure the boat's speed while it moves (the speed policy's, whatever it is)."""
+        if self.last is not None and now > self.last[2]:
+            step, dt = math.dist(pose[:2], self.last[:2]), now - self.last[2]
+            if step / dt >= self.moving_mps:
+                self.moved, self.moving = self.moved + step, self.moving + dt
+        self.last = (pose[0], pose[1], now)
+
+    @property
+    def speed(self):
+        """Return the measured speed once ``measure_m`` were driven, else ``transit_mps``."""
+        return self.moved / self.moving if self.moved >= self.measure_m else self.transit
+
+    def grid(self, name, coverage, side):
+        """Return the task's weight per coverage cell: its prior, less what was looked at."""
+        weight = np.zeros(coverage.seen.shape)
+        for ((x0, y0), (x1, y1)), w in side_boxes(self.tasks[name]['regions'], side):
+            inx = (coverage.xs >= x0) & (coverage.xs <= x1)
+            iny = (coverage.ys >= y0) & (coverage.ys <= y1)
+            weight[np.ix_(inx, iny)] += w
+        return np.where(np.isfinite(coverage.seen), weight * self.miss, weight)
+
+    def guess(self, name, coverage, tracks, side, min_confidence=0.5):
+        """Return the task's Guess, or None for a task the layout has no prior for."""
+        task = self.tasks.get(name)
+        if task is None:
+            return None
+        seen = [(t.x, t.y) for t in tracks or () if t.label in task['labels'] and (
+            not t.prior and t.confidence >= min_confidence) and inside(
+                (t.x, t.y), task['regions'], side)]
+        if seen:
+            return Guess(np.mean(seen, axis=0), 0.0, True)
+        weight = self.grid(name, coverage, side)
+        total = weight.sum()
+        if total <= 0:
+            return None
+        gx, gy = np.meshgrid(coverage.xs, coverage.ys, indexing='ij')
+        mx, my = (weight * gx).sum() / total, (weight * gy).sum() / total
+        spread = math.sqrt((weight * ((gx - mx) ** 2 + (gy - my) ** 2)).sum() / total)
+        return Guess((mx, my), spread, False)
+
+    def cost(self, name, start, guess, expected_s):
+        """Return (seconds, where it ends) of the task from ``start`` (x, y).
+
+        A task with no guess costs its mission ``expected_s`` and ends where it started.
+        """
+        if guess is None:
+            return float(expected_s), tuple(start[:2])
+        # Search and service were timed at transit_mps: they scale with the boat's speed.
+        scale = self.transit / self.speed
+        return (math.dist(start[:2], guess.xy) / self.speed + scale * (
+            self.search_s_per_m * guess.spread + self.tasks[name]['service_s']), guess.xy)
+
+    def reserve(self, xy, via, cap):
+        """Return the exit's reserve from ``xy``: ``exit_margin`` times the way out through
+        ``via`` (the entry gates, last first, then home) at the boat's speed, at least
+        ``exit_floor_s``, never more than ``cap`` (the mission's fixed ``exit_reserve``).
+        Without ``exit_margin`` it is ``cap``.
+        """
+        if self.exit_margin is None:
+            return cap
+        way, here = 0.0, tuple(xy[:2])
+        for point in via:
+            way, here = way + math.dist(here, point[:2]), tuple(point[:2])
+        return min(cap, max(self.exit_floor_s, self.exit_margin * way / self.speed))
+
+    def plan(self, names, start, via, left_s, guesses, rows, cap):
+        """Return the best order of ``names``: {name: (seconds, exit reserve after it)}.
+
+        Every order is tried (an agenda is a few tasks): each task in turn is kept when
+        its cost from where the last one ended and the exit's ``reserve`` from where it
+        ends still fit ``left_s``; the order with the most points wins, then the least
+        time including the way out, then the mission's order. ``rows`` maps a name to its
+        budget row (value, expected_s); a task worth no points is never planned.
+        """
+        best = None
+        for rank, order in enumerate(itertools.permutations(names)):
+            here, used, points, kept = tuple(start[:2]), 0.0, 0.0, {}
+            for name in order:
+                row = rows[name]
+                if row['value'] <= 0:
+                    continue
+                seconds, end = self.cost(name, here, guesses.get(name), row['expected_s'])
+                reserve = self.reserve(end, via, cap)
+                if used + seconds + reserve <= left_s:
+                    used, points, here = used + seconds, points + row['value'], end
+                    kept[name] = (seconds, reserve)
+            key = (-points, used + self.reserve(here, via, math.inf), rank)
+            if best is None or key < best[0]:
+                best = (key, kept)
+        return best[1] if best else {}

@@ -16,6 +16,7 @@ import subprocess
 import sys
 
 from mhseals_nav.navigation_config import load_strict
+from mhseals_nav.startup_projection import effective_limits
 from mhseals_nav.tasks.host import config_path, load_params
 from mhseals_nav.tasks.tracks import Track
 import pytest
@@ -76,6 +77,16 @@ def hold_over(label):
     return TRACKER['timeout'][groups[group]['prior']]
 
 
+def field():
+    """Return Course keywords for the boat as the launch resolves it: speed and turn rate."""
+    limits = effective_limits()
+    (vx, vy, wz), back = limits['velocity']['max'], -limits['velocity']['min'][0]
+    checkers = limits['goal_checkers']
+    return {'speed': vx, 'omni': (vy, back, wz, {
+        False: checkers['general_goal_checker']['yaw'],
+        True: checkers['precise_goal_checker']['yaw']})}
+
+
 class Course:
     """A boat that drives Nav2 routes at ``speed`` and a camera with a cone of view.
 
@@ -84,11 +95,13 @@ class Course:
     """
 
     def __init__(self, params, dt=0.5, speed=1.0, hfov=math.radians(110), range_m=20.0,
-                 course=COURSE, host=True):
+                 course=COURSE, host=True, omni=None):
         self.dt, self.speed, self.fov, self.course = dt, speed, (hfov, range_m), course
+        self.omni = omni
         py_trees.blackboard.Blackboard.clear()  # one run per process, as for real
         self.pose, self.seen, self.goal, self.now = (0.0, 0.0, 0.0), {}, None, 0.0
         self.events, self.goals, self.stops, self.path = [], [], 0, 0.0
+        self.trace = []  # (time, metres moved) per step
         if host:  # else the caller drives its own host (the ROS node, in its test)
             self.host = MissionHost('mission', params, self, self.sink, lambda: self.now)
 
@@ -118,6 +131,8 @@ class Course:
         goal = self.goal
         if goal is None or goal.done:
             return
+        if self.omni:
+            return self.drive_omni(goal)
         x, y, yaw = self.pose
         # Nav2 passes via-poses within a metre; the last one must be reached.
         while len(goal.route) > 1 and math.dist(goal.route[0][:2], (x, y)) < 1.0:
@@ -138,6 +153,49 @@ class Course:
         self.path += min(gap, step)
         self.pose = (x, y, yaw)
 
+    def drive_omni(self, goal):
+        """Drive as the holonomic boat does: ``omni`` = (vy, vx astern, wz, {precise: yaw tol}).
+
+        It translates any way (forward at ``speed``, sideways at vy, astern at vx_back,
+        an ellipse between) while it turns at wz: toward the way it goes, and to the
+        goal's heading for the last metre, which the goal checker holds to its tolerance.
+        """
+        vy, back, wz, tolerance = self.omni
+        x, y, yaw = self.pose
+        while len(goal.route) > 1 and math.dist(goal.route[0][:2], (x, y)) < 1.0:
+            goal.route.pop(0)
+        tx, ty, tyaw = goal.route[0]
+        final, gap = len(goal.route) == 1, math.dist((tx, ty), (x, y))
+        way = math.atan2(ty - y, tx - x) if gap > 1e-6 else tyaw
+        want = tyaw if final and gap < 1.0 else way
+        turn = math.atan2(math.sin(want - yaw), math.cos(want - yaw))
+        yaw += max(-wz * self.dt, min(wz * self.dt, turn))
+        off = way - yaw
+        ahead = self.speed if math.cos(off) >= 0 else back
+        step = self.dt / math.hypot(math.cos(off) / ahead, math.sin(off) / vy)
+        moved = min(gap, step)
+        if gap > 1e-6:
+            x, y = x + moved * math.cos(way), y + moved * math.sin(way)
+        self.path += moved
+        self.pose = (x, y, yaw)
+        if gap <= step and not final:
+            goal.route.pop(0)
+        elif gap <= step and abs(math.atan2(math.sin(tyaw - yaw), math.cos(tyaw - yaw))) <= (
+                tolerance[goal.precise]):
+            goal.done, goal.status = True, 'SUCCEEDED'
+
+    def stalls(self, limit, speed=0.05):
+        """Return the (start, seconds) of every span over ``limit`` s moving under ``speed``."""
+        spans, since = [], None
+        for now, moved in self.trace + [(self.now + self.dt, math.inf)]:
+            if moved < speed * self.dt:
+                since = now if since is None else since
+            elif since is not None:
+                if now - since > limit:
+                    spans.append((since, now - since))
+                since = None
+        return spans
+
     def look(self):
         x, y, yaw = self.pose
         for i, (label, ox, oy) in enumerate(self.course):
@@ -149,8 +207,9 @@ class Course:
     def step(self, now):
         """Move the boat on to ``now``; return its pose and the tracks seen so far."""
         self.now = now
-        moving = self.goal is not None and not self.goal.done
+        moving, travelled = self.goal is not None and not self.goal.done, self.path
         self.drive()
+        self.trace.append((now, self.path - travelled))
         if moving and (self.goal.done or self.goal is None):
             self.stops += 1
         self.look()
@@ -479,8 +538,8 @@ def test_the_sweep_mows_the_speed_region_on_the_side_the_marina_fixed(course, si
     """
     params = mission('mission_2026.yaml')
     speed = params['speed_challenge']
-    params['speed_challenge'] = dict(speed, search=dict(
-        speed['search'], enable={**speed['search']['enable'], 'next_view': False}))
+    params['speed_challenge'] = dict(speed, search=dict(speed['search'], enable={
+        **speed['search']['enable'], 'next_view': False, 'head_for': False}))
     world = Course(dict(params, timeout=UNHURRIED), course=course, speed=0.4)
     outcome, _ = world.run()
     sweeps = [g.route for g in world.goals if 'sweep' in g.why]
@@ -511,10 +570,12 @@ def test_a_seen_speed_gate_leads_the_views_on_to_its_turn_mark_at_field_speed(
     gate = (48.0, side * 40.0)
     started = next(d for e, d in world.events if e == 'speed_started')
     assert math.dist(started['pose'][:2], gate) < 3.0
-    # A view from the gate or past it (away from the start) found the mark.
-    views = [g.route[-1] for g in world.goals if g.why.startswith('next view')]
-    assert any(math.dist(v[:2], gate) < 10.0 and side * v[1] >= side * gate[1] - 1.0
-               for v in views)
+    # A view from the gate or past it (away from the start) found the mark, or the
+    # layout's guess of the task already led the boat to where it saw it.
+    views = [g.route[-1] for g in world.goals if g.why.startswith(('next view', 'head for past'))]
+    assert any(math.dist(v[:2], gate) < 15.0 and side * v[1] >= side * gate[1] - 1.0
+               for v in views) or (not views and any(
+                   g.why.startswith('head for the likely speed') for g in world.goals))
 
 
 @pytest.mark.parametrize('spacing', [20.1, 25.0, 30.0, 40.0])
@@ -546,3 +607,64 @@ def test_a_channel_short_of_its_second_gate_is_never_claimed_done():
     decisions = [d['reason'] for e, d in world.events if e == 'decision']
     assert outcome != 'SUCCESS' and 'stage_completed' not in world.names()
     assert any(r.startswith('1 of 2 gates: none ahead') for r in decisions), decisions
+
+
+ROTATED = ['nav_channel', 'speed_challenge', 'follow_path', 'docking', 'supply_drop',
+           'return_home']
+
+
+@pytest.mark.parametrize('course, side', [(COURSE_2026, 1), (MIRRORED_2026, -1)],
+                         ids=['side-port', 'side-starboard'])
+def test_the_speed_run_before_the_debris_field_is_not_led_off_by_its_gates(course, side):
+    """The rotated order: the speed run comes before the debris field, at field speed.
+
+    The debris channel's red/green gates lie straight ahead, not yet cleared (so not
+    excluded); they are no cue for the turn mark, being outside the speed challenge's
+    region on the course side. The views go to the speed gate, never past the debris.
+    """
+    params = dict(load_params('mission', config_path('mission_2026.yaml'), 'qualifying'),
+                  tasks=ROTATED, agenda=[], timeout=UNHURRIED)
+    world = Course(params, course=course, **field())
+    outcome, _ = world.run()
+    completed = [d['stage'] for e, d in world.events if e == 'stage_completed']
+    assert outcome == 'SUCCESS' and completed[:2] == ['nav_channel', 'speed_challenge']
+    started = next(d for e, d in world.events if e == 'speed_started')
+    assert math.dist(started['pose'][:2], (48.0, side * 40.0)) < 3.0
+    searched = [g.route[-1] for g in world.goals if g.why.startswith(('next view', 'head'))]
+    assert searched and all(side * y > 5.0 for _, y, _ in searched)
+
+
+@pytest.mark.parametrize('course, side', [(COURSE_2026, 1), (MIRRORED_2026, -1)],
+                         ids=['side-port', 'side-starboard'])
+def test_the_layout_plans_the_order_and_the_boat_never_stalls_long(course, side):
+    """At the field's speed and turn rate, every scoring task, in the order planned.
+
+    The boat turns at wz while it moves (``field``): the start look stops once the marina
+    fixes the side and does not turn back; the speed run heads for where the layout puts
+    it, then past the gate it saw; the marina, beside the way out, comes last. Before
+    (fixed order, stop-turn-look) this course took 952 s with a 15 s start stall.
+    """
+    params = load_params('mission', config_path('mission_2026.yaml'), 'qualifying')
+    world = Course(dict(params, timeout=UNHURRIED), course=course, **field())
+    outcome, elapsed = world.run()
+    completed = [d['stage'] for e, d in world.events if e == 'stage_completed']
+    assert outcome == 'SUCCESS'
+    assert completed == ['nav_channel', 'follow_path', 'speed_challenge', 'docking',
+                         'return_home']
+    assert any(g.why.startswith('head for the likely speed') for g in world.goals)
+    # The start look (one side, or both) is the longest stop; the rest are short.
+    assert not world.stalls(13.0) and all(at < 20.0 for at, _ in world.stalls(6.0))
+    assert elapsed < 870.0
+
+
+@pytest.mark.parametrize('course', [COURSE_2026, MIRRORED_2026], ids=['port', 'starboard'])
+def test_every_task_fits_the_timeslot_at_the_speed_policys_transit_speed(course):
+    """With the boat at 0.6 m/s (the speed policy's open-water pace, under the 0.8 m/s
+    ceiling), qualifying fits every scoring task into the 720 s run, home with time to
+    spare: the plan keeps the exit's reserve from where the marina is."""
+    params = load_params('mission', config_path('mission_2026.yaml'), 'qualifying')
+    world = Course(params, course=course, **dict(field(), speed=0.6))
+    outcome, elapsed = world.run()
+    completed = [d['stage'] for e, d in world.events if e == 'stage_completed']
+    assert outcome == 'SUCCESS' and len(completed) == 5, completed
+    assert elapsed < 660.0

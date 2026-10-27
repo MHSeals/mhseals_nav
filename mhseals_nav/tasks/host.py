@@ -23,6 +23,7 @@ import math
 from mhseals_nav.tasks import load_config, tracks as track_memory
 from mhseals_nav.tasks.actuators import fitted
 from mhseals_nav.tasks.conditions import Conditions
+from mhseals_nav.tasks.layout import Layout
 # The parameters live in the py_trees-free params module; kept here for their callers.
 from mhseals_nav.tasks.params import config_path, load_params  # noqa: F401
 from mhseals_nav.tasks.recognition import Recogniser
@@ -67,9 +68,11 @@ class MissionHost:
         self.preempting = self.ticking = False
         self.board = py_trees.blackboard.Client(name='runner')
         for key in ('objects', 'tracks', 'pose', 'now', 'home', 'fov', 'coverage', 'hypotheses',
-                    'conditions'):
+                    'conditions', 'layout'):
             self.board.register_key(key=key, access=py_trees.common.Access.WRITE)
         self.board.home = self.board.coverage = None
+        # The course-layout belief: where the tasks not seen yet likely are (tasks/layout.py).
+        self.board.layout = Layout(params) if params.get('layout') else None
         self.board.conditions = self.conditions
         self.board.fov = self.fov
         self.tree = py_trees.trees.BehaviourTree(TREES[task](params))
@@ -199,6 +202,8 @@ class MissionHost:
                                            c['forget_s'])
         if self.board.coverage is not None:
             self.board.coverage.observe(pose, self.fov, now)
+        if self.board.layout is not None:
+            self.board.layout.observe(pose, now)
         if self.on_tick is not None:
             self.on_tick(now)
         self.recognise(now)
