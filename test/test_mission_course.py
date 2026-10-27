@@ -658,36 +658,32 @@ def test_the_layout_plans_the_order_and_the_boat_never_stalls_long(course, side)
 
 
 @pytest.mark.parametrize('course', [COURSE_2026, MIRRORED_2026], ids=['port', 'starboard'])
-def test_the_fixed_reserve_skips_the_marina_in_the_timeslot_at_transit_speed(course):
-    """Qualifying's 720 s run at 0.6 m/s with the fixed 240 s exit reserve (the default).
+def test_every_task_fits_the_timeslot_at_the_speed_policys_transit_speed(course):
+    """Fit every scoring task into qualifying's 720 s run at 0.6 m/s.
 
-    That is the speed policy's open-water pace, under the 0.8 m/s ceiling. The fixed
-    reserve leaves ~90 s for the marina after the speed run, too few: docking is skipped
-    and the boat is home at ~505 s, with time unused (the price of reliability first).
+    That is the speed policy's open-water pace, under the 0.8 m/s ceiling. The exit's
+    reserve is sized from the far corner of each task's region at the measured speed:
+    home at ~612 s on both sides, ~108 s to spare.
     """
     params = load_params('mission', config_path('mission_2026.yaml'), 'qualifying')
-    assert params['layout']['exit_margin'] is None
-    world = Course(params, course=course, **dict(field(), speed=0.6))
-    outcome, elapsed = world.run()
-    completed = [d['stage'] for e, d in world.events if e == 'stage_completed']
-    assert outcome == 'SUCCESS'
-    assert completed == ['nav_channel', 'follow_path', 'speed_challenge', 'return_home']
-    assert any(str(d.get('reason')).startswith('no time for docking')
-               for e, d in world.events if e == 'decision')
-    assert elapsed < 560.0
-
-
-@pytest.mark.parametrize('course', [COURSE_2026, MIRRORED_2026], ids=['port', 'starboard'])
-def test_the_dynamic_reserve_fits_every_task_at_transit_speed(course):
-    """With the dynamic reserve (exit_margin 1.5, off by default) every scoring task fits.
-
-    The plan keeps the exit's reserve from where the marina is, by the way out. It is
-    off until Unity backs it: a task ending in its region's far corner outruns it.
-    """
-    params = load_params('mission', config_path('mission_2026.yaml'), 'qualifying')
-    params = dict(params, layout={**params['layout'], 'exit_margin': 1.5})
     world = Course(params, course=course, **dict(field(), speed=0.6))
     outcome, elapsed = world.run()
     completed = [d['stage'] for e, d in world.events if e == 'stage_completed']
     assert outcome == 'SUCCESS' and len(completed) == 5, completed
+    assert elapsed < 660.0
+
+
+@pytest.mark.parametrize('course, done', [
+    (COURSE_2026, []), (MIRRORED_2026, ['docking'])], ids=['port', 'starboard'])
+def test_at_field_speed_the_corner_safe_reserve_skips_what_may_not_fit(course, done):
+    """At 0.4 m/s in 720 s the far-corner reserve skips the speed run on both sides.
+
+    Port also skips the marina (home at ~408 s); starboard docks (home at ~596 s).
+    """
+    params = load_params('mission', config_path('mission_2026.yaml'), 'qualifying')
+    world = Course(params, course=course, **dict(field(), speed=0.4))
+    outcome, elapsed = world.run()
+    completed = [d['stage'] for e, d in world.events if e == 'stage_completed']
+    assert outcome == 'SUCCESS'
+    assert completed == ['nav_channel', 'follow_path', *done, 'return_home']
     assert elapsed < 660.0

@@ -62,8 +62,9 @@ class Layout:
         cfg = params['layout']
         self.miss, self.transit = float(cfg['miss']), float(cfg['transit_mps'])
         self.search_s_per_m = float(cfg['search_s_per_m'])
-        margin = cfg['exit_margin']
-        self.exit_margin = None if margin is None else float(margin)
+        margin = cfg['exit_margin_s']
+        self.exit_margin_s = None if margin is None else float(margin)
+        self.exit_mps = None if cfg['exit_mps'] is None else float(cfg['exit_mps'])
         self.exit_floor_s = float(cfg['exit_floor_s'])
         self.measure_m, self.moving_mps = float(cfg['measure_m']), float(cfg['moving_mps'])
         self.last, self.moved, self.moving = None, 0.0, 0.0
@@ -126,25 +127,34 @@ class Layout:
         return (math.dist(start[:2], guess.xy) / self.speed + scale * (
             self.search_s_per_m * guess.spread + self.tasks[name]['service_s']), guess.xy)
 
-    def reserve(self, xy, via, cap):
-        """Return the exit's reserve from ``xy``, at most ``cap`` (the fixed ``exit_reserve``).
+    def reserve(self, name, end, via, cap, side=None):
+        """Return the exit's reserve after task ``name`` ending at ``end``.
 
-        It is ``exit_margin`` times the way out through ``via`` (the entry gates, last
-        first, then home) at the boat's speed, at least ``exit_floor_s``. Without
-        ``exit_margin`` it is ``cap``.
+        Without ``exit_margin_s`` it is ``cap`` (the fixed ``exit_reserve``). Otherwise it
+        is sized from the worst place the boat can leave from: the farthest (by the way
+        out through ``via``: the entry gates, last first, then home) of ``end`` (the
+        guess, or the boat's own position once known) and every corner of the task's
+        regions on the course ``side`` (both sides while unknown). That way at the slow
+        ``exit_mps`` (None: the boat's measured ``speed``), plus ``exit_margin_s``, at
+        least ``exit_floor_s``; never capped.
         """
-        if self.exit_margin is None:
+        if self.exit_margin_s is None:
             return cap
-        return min(cap, max(self.exit_floor_s, self.exit_margin * self.way_out(xy, via)))
+        places = [tuple(end[:2])] + [
+            (x, y) for ((x0, y0), (x1, y1)), _ in side_boxes(
+                self.tasks.get(name, {}).get('regions'), side)
+            for x in (x0, x1) for y in (y0, y1)]
+        way = max(self.way_out(xy, via, 1.0) for xy in places)
+        return max(self.exit_floor_s, way / (self.exit_mps or self.speed) + self.exit_margin_s)
 
-    def way_out(self, xy, via):
-        """Return the seconds from ``xy`` home through ``via`` at the boat's speed."""
+    def way_out(self, xy, via, speed=None):
+        """Return the seconds from ``xy`` home through ``via`` at ``speed`` (the boat's)."""
         way, here = 0.0, tuple(xy[:2])
         for point in via:
             way, here = way + math.dist(here, point[:2]), tuple(point[:2])
-        return way / self.speed
+        return way / (speed or self.speed)
 
-    def plan(self, names, start, via, left_s, guesses, rows, cap):
+    def plan(self, names, start, via, left_s, guesses, rows, cap, side=None):
         """Return the best order of ``names``: {name: (seconds, exit reserve after it)}.
 
         Every order is tried (an agenda is a few tasks): each task in turn is kept when
@@ -161,7 +171,7 @@ class Layout:
                 if row['value'] <= 0:
                     continue
                 seconds, end = self.cost(name, here, guesses.get(name), row['expected_s'])
-                reserve = self.reserve(end, via, cap)
+                reserve = self.reserve(name, end, via, cap, side)
                 if used + seconds + reserve <= left_s:
                     used, points, here = used + seconds, points + row['value'], end
                     kept[name] = (seconds, reserve)

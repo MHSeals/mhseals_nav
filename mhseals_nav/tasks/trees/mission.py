@@ -123,7 +123,8 @@ class PlanNext(Leaf):
         # The way out: back through the cleared entry gates, last first, then home.
         via = [*reversed(self.board.get(self.exit_via) or []), self.board.home or pose]
         plan = layout.plan(left, pose, via, time_left, guesses,
-                           {name: self.rows[name] for name in left}, self.reserve)
+                           {name: self.rows[name] for name in left}, self.reserve,
+                           side)
         order = list(plan) + [n for n in left if n not in plan]
         self.board.set('plan', {name: reserve for name, (_, reserve) in plan.items()},
                        overwrite=True)
