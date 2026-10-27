@@ -89,6 +89,23 @@ def test_the_belief_and_the_search_share_one_prior():
     assert len(grid.region_views(regions, (0.0, 0.0, 0.0), 10.0)) == 2
 
 
+def test_a_mirrored_box_drawn_on_starboard_gives_the_port_box_for_port():
+    """The side picks the box by where it lies, not by which of the pair was drawn."""
+    grid = cover()
+    drawn = [{'box': [[20.0, -30.0], [60.0, -6.0]], 'mirror': True}]
+    ported = [{'box': [[20.0, 6.0], [60.0, 30.0]], 'mirror': True}]
+    (x0, y0), (x1, y1) = grid.region_area(drawn, 'port')
+    assert (x0, y0, x1, y1) == (20.0, 6.0, 60.0, 30.0)
+    (view,) = grid.region_views(drawn, (0.0, 0.0, 0.0), 10.0, 'port')
+    assert view[1] > 0
+    for side in ('port', 'starboard'):
+        assert np.array_equal(grid.prior(drawn, side, 0.0), grid.prior(ported, side, 0.0))
+    port = grid.prior(drawn, 'port', 0.0)
+    assert port[np.ix_((grid.xs > 25.0) & (grid.xs < 55.0),
+                       (grid.ys > 10.0) & (grid.ys < 25.0))].min() == 1.0
+    assert port[:, grid.ys < 0.0].max() == 0.0
+
+
 def test_the_mission_yaml_is_the_only_source_and_both_profiles_keep_the_fixed_reserve():
     from mhseals_nav.tasks.params import config_path, load_params
     params = load_params('mission', config_path('mission_2026.yaml'), 'qualifying')
