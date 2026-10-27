@@ -1044,6 +1044,10 @@ def test_an_agenda_tasks_budget_is_the_plans_and_keeps_the_no_points_reasons():
         return leaf.status.name, leaf.feedback_message, limit
 
     # 720 - 500 - 240 leaves no time for 300 s: the plan's own reserve (120 s) does.
+    # A planned task's expected_s (300 s) is not checked here: the plan (layout.plan)
+    # already kept the task only if its own cost from where the boat is (travel, search
+    # of the guess's spread, service_s) and the exit's reserve after it fit the time
+    # left. expected_s is the fixed-order estimate, for a task with no plan or no guess.
     assert verdict('dock', {'dock': 120.0}) == ('SUCCESS', '', 100.0)
     assert verdict('dock', {'dock': 120.0}, planned=False)[:2] == (
         'FAILURE', 'no time for dock: -20 s left')
@@ -1051,6 +1055,61 @@ def test_an_agenda_tasks_budget_is_the_plans_and_keeps_the_no_points_reasons():
     assert verdict('drop', {'drop': 120.0})[:2] == (
         'FAILURE', 'drop: capability off (water_gun)')
     assert verdict('nil', {'nil': 120.0})[:2] == ('FAILURE', 'nil: no points')
+
+
+def speed_board(keys):
+    py_trees.blackboard.Blackboard.clear()
+    board = py_trees.blackboard.Client(name='world')
+    for key in ('objects', 'tracks', 'pose', 'now', 'home', *keys):
+        board.register_key(key=key, access=py_trees.common.Access.WRITE)
+    board.objects, board.tracks, board.pose, board.now, board.home = [], [], None, 0.0, None
+    return board
+
+
+def tick_once(root):
+    tree = py_trees.trees.BehaviourTree(root)
+    tree.setup(report=lambda event, **details: None)
+    tree.tick()
+    return tree.root.status
+
+
+def test_the_speed_gate_counts_only_inside_its_region_and_not_cleared():
+    from mhseals_nav.tasks.trees.speed_challenge import GateNear
+    board = speed_board(('speed_mark', 'path', 'channel'))
+    gate = {'with': ('red_buoy', 'green_buoy'), 'gate': 8.0,
+            'exclude': ('path', 'channel'), 'exclude_radius': 3.0}
+    regions = [{'box': [[15.0, 10.0], [80.0, 60.0]], 'mirror': True}]
+    banner = Track('banner_1', 10.0, 20.0, 0.9, None, True, False, 'b')  # side: port
+
+    def near(x, y, cleared=()):
+        board.tracks = [banner, Track('red_buoy', x, y - 2.0, 0.9, None, True, False, 'r'),
+                        Track('green_buoy', x, y + 2.0, 0.9, None, True, False, 'g')]
+        board.speed_mark, board.path, board.channel = [(x + 1.0, y, 0.0)], list(cleared), []
+        return tick_once(GateNear('gate seen', 'speed_mark', gate, 15.0, regions,
+                                  ('banner_1',))).name
+
+    assert near(40.0, 30.0) == 'SUCCESS'  # in the port region, beside the mark
+    assert near(5.0, 0.0) == 'FAILURE'  # outside the region (the channel's look-alike)
+    assert near(40.0, -30.0) == 'FAILURE'  # the mirrored box, but the course is port
+    assert near(40.0, 30.0, cleared=[(40.0, 30.0, 0.0)]) == 'FAILURE'  # debris cleared
+
+
+def test_the_speed_mark_is_re_placed_by_a_closer_sighting_and_kept_when_unseen():
+    from mhseals_nav.tasks.behaviours import PlanView
+    from py_trees.decorators import FailureIsSuccess
+    board = speed_board(('speed_mark',))
+    board.speed_mark = [(30.0, 0.0, 0.0)]  # placed from the start, 30 m off
+
+    def refresh():
+        return tick_once(FailureIsSuccess(name='where the mark is now', child=PlanView(
+            'where the mark is now', 'speed_mark', 'yellow_buoy', standoff=0.0))).name
+
+    board.pose, board.objects = (25.0, 0.0, 0.0), [('yellow_buoy', 28.5, 1.0)]
+    assert refresh() == 'SUCCESS'
+    assert board.speed_mark[0][:2] == pytest.approx((28.5, 1.0))
+    board.objects = []  # out of view now: the last place stands, and the run goes on
+    assert refresh() == 'SUCCESS'
+    assert board.speed_mark[0][:2] == pytest.approx((28.5, 1.0))
 
 
 class FakeGun:
