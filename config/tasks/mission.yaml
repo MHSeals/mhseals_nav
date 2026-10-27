@@ -1,7 +1,10 @@
 # The whole run, in order; each task's own YAML is loaded under its name and can be
 # overridden here (e.g. docking: {banner: red_circle}).
 tasks: [nav_channel, follow_path, docking, speed_challenge, return_home]
-timeout: 1800.0
+# The run budget (tasks/params.py timeslot), every mission's unless it sets its own: the
+# competition slot less what set-up, launch and recovery take (owner-adjustable); it
+# becomes the run's `timeout`, which the run records as its time limit.
+timeslot: {slot_s: 900.0, setup_reserve_s: 180.0}
 # The course area for searches, map frame, from the day's layout; null searches around home.
 search: {area: null}
 # Go/no-go gates (tasks/conditions.py; tuning plant study). They only stop or skip; a

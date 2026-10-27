@@ -35,21 +35,24 @@ def load_params(task, path=None, profile=None):
     keys the mission already has. A ``timeslot`` {slot_s, setup_reserve_s} sets the
     run's ``timeout`` (the run budget): what the slot leaves once set-up is kept back.
     """
-    path = path or config_path(f'{task}.yaml')
-    params = load_strict(Path(path).read_text(encoding='utf-8'), path) or {}
+    params = read(path or config_path(f'{task}.yaml'))
     if task == 'mission':
         for name in params['tasks']:
             params[name] = {**load_params(name), **params.get(name, {})}
         profile = profile or params.get('profile')
         if profile:
             source = config_path(f'profiles/{profile}.yaml')
-            top = load_strict(Path(source).read_text(encoding='utf-8'), source) or {}
-            params = overlay(params, top, source)
+            params = overlay(params, read(source), source)
             for name in params['tasks']:  # a profile's task list may name a new one
                 params.setdefault(name, load_params(name))
             params['profile'] = profile
         params = timeslot(params)
     return params
+
+
+def read(path):
+    """Parse one YAML with the package's strict loader (an empty file is {})."""
+    return load_strict(Path(path).read_text(encoding='utf-8'), path) or {}
 
 
 def overlay(base, top, source, at=''):
@@ -68,12 +71,13 @@ def timeslot(params):
 
     The slot is the competition's (900 s); set-up, launch and recovery come off it first.
     The exit reserve, each task's admission and its own limit all count from this budget.
+    A mission with neither takes mission.yaml's timeslot, the one the competition sets.
     """
-    slot = params.get('timeslot')
-    if not slot:
-        return params
-    if 'timeout' in params:
+    if 'timeslot' in params and 'timeout' in params:
         raise KeyError('a mission has a timeslot or a timeout, not both')
+    if 'timeout' in params:
+        return params
+    slot = params.get('timeslot') or read(config_path('mission.yaml'))['timeslot']
     budget = float(slot['slot_s']) - float(slot['setup_reserve_s'])
     if budget <= float(params.get('exit_reserve', 0.0)):
         raise ValueError(f'timeslot leaves {budget:.0f} s: no more than the exit reserve')

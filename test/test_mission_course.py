@@ -201,18 +201,21 @@ class NoPyTrees(importlib.abc.MetaPathFinder):
         if name.split('.')[0] in ('py_trees', 'numpy', 'ament_index_python', 'rclpy'):
             raise ModuleNotFoundError(name)
 sys.meta_path.insert(0, NoPyTrees())
+from mhseals_nav.tasks.budget import choose
 from mhseals_nav.tasks.params import config_path, load_params
 params = load_params('mission', config_path('mission_2026.yaml'), 'finals')
 print(params['timeout'], params['exit_reserve'], params['speed_challenge']['expected_s'])
+task = {'name': 'a', 'points': 1, 'expected_s': 50}
+print(load_params('mission')['timeout'], *choose(60.0, [task], {}))
 """
 
 
 def test_the_run_budget_resolves_with_no_py_trees_on_the_host():
-    """A harness reads the run budget and the profile's params without the trees' imports."""
+    """A harness reads the run budget, the profile's params and the budget's choice alone."""
     env = {**os.environ, 'PYTHONPATH': os.pathsep.join(sys.path)}
     out = subprocess.run([sys.executable, '-c', NO_PY_TREES], env=env, capture_output=True,
                          text=True, check=True).stdout.split()
-    assert [float(v) for v in out] == [720.0, 300.0, 380.0]
+    assert [float(v) for v in out[:4]] == [720.0, 300.0, 380.0, 720.0] and out[4] == 'a'
 
 
 def mission(path):

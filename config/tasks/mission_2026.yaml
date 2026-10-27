@@ -2,10 +2,8 @@
 # no day's layout, so every task is found by search; the map frame is the start pose.
 # Phase 1 baseline: fixed order. Run: run_task --task mission --params <this file>.
 tasks: [nav_channel, follow_path, docking, speed_challenge, supply_drop, return_home]
-# The run budget (tasks/host.py timeslot): the competition slot less what set-up,
-# launch and recovery take (owner-adjustable); it becomes the run's `timeout`, which
-# the run records as its time limit. Everything below counts from it.
-timeslot: {slot_s: 900.0, setup_reserve_s: 180.0}
+# The run budget is mission.yaml's timeslot (900 s less 180 s of set-up: 720 s), the
+# run's `timeout`. Everything below counts from it.
 profile: qualifying     # config/tasks/profiles/<profile>.yaml; run_task --profile finals
 # The time budget (tasks/budget.py): the exit's time is kept back, and an optional task
 # starts only if it is among those worth the time left (points per expected second);
