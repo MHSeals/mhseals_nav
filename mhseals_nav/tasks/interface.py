@@ -35,6 +35,8 @@ from mhseals_nav.tasks.trees import TREES
 from nav2_msgs.action import BackUp, NavigateThroughPoses, NavigateToPose
 from nav2_msgs.msg import SpeedLimit
 from nav_msgs.msg import Odometry
+from rcl_interfaces.msg import ParameterType
+from rcl_interfaces.srv import GetParameters
 import rclpy
 from rclpy.action import ActionClient
 from rclpy.node import Node
@@ -125,7 +127,8 @@ class Navigator:
     """
 
     def __init__(self, node, frame='map', hold_topic='/cmd_vel_nav', backup_wait_s=0.0,
-                 speed_limit_topic='/speed_limit'):
+                 speed_limit_topic='/speed_limit', controller='controller_server',
+                 vx_max_param='FollowPath.vx_max'):
         from ament_index_python.packages import get_package_share_directory
         self.node, self.frame, self.report, self.last = node, frame, None, None
         self.backup_wait_s, self.backup_since = backup_wait_s, None
@@ -134,6 +137,8 @@ class Navigator:
         self.driven_at = None  # monotonic time of Nav2's last non-zero command on hold_topic
         node.create_subscription(Twist, hold_topic, self._driven, 10)
         self.limit = node.create_publisher(SpeedLimit, speed_limit_topic, 10)
+        self.limits = node.create_client(GetParameters, f'{controller}/get_parameters')
+        self.vx_max_param, self.vx_max, self.vx_asked = vx_max_param, None, None
         self.to_pose = ActionClient(node, NavigateToPose, 'navigate_to_pose')
         self.through = ActionClient(node, NavigateThroughPoses, 'navigate_through_poses')
         self.backup = ActionClient(node, BackUp, 'backup')  # behavior_server's backup plugin
@@ -185,6 +190,31 @@ class Navigator:
         cap left behind would slow whoever drives with Nav2 next.
         """
         self.limit.publish(SpeedLimit(percentage=False, speed_limit=float(speed)))
+
+    def controller_vx_max(self):
+        """Return the controller's own forward limit (m/s), as launched; None until known.
+
+        Asked of the controller server once it answers, without blocking the tick.
+        Raises ValueError, naming why, when the answer is no positive double.
+        """
+        if self.vx_max is None:
+            if self.vx_asked is None and self.limits.service_is_ready():
+                self.vx_asked = self.limits.call_async(
+                    GetParameters.Request(names=[self.vx_max_param]))
+            if self.vx_asked is not None and self.vx_asked.done():
+                asked, self.vx_asked = self.vx_asked, None
+                try:
+                    answer = asked.result()
+                except Exception as error:  # the service call itself failed
+                    raise ValueError(f'{self.vx_max_param}: read failed ({error})') from error
+                values = answer.values if answer is not None else []
+                if not values or values[0].type != ParameterType.PARAMETER_DOUBLE:
+                    kind = values[0].type if values else 'no value'
+                    raise ValueError(f'{self.vx_max_param}: not a double ({kind})')
+                if not math.isfinite(values[0].double_value) or values[0].double_value <= 0:
+                    raise ValueError(f'{self.vx_max_param}: {values[0].double_value} m/s')
+                self.vx_max = values[0].double_value
+        return self.vx_max
 
     def ready(self):
         """Nav2's navigators are up, and the backup behaviour or ``backup_wait_s`` gone by.

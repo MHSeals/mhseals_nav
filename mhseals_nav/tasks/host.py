@@ -7,7 +7,9 @@ The caller supplies the world each tick (``tick(pose, tracks, fov)``) and the ou
 
   navigator  sends routes: ``send(route, precise, quiet, why, reverse)`` -> goal with
              ``done``/``status``/``cancel()``; ``ready()``, ``keep_still()``, ``close()``;
-             ``last`` (the latest goal, for the status) and ``report`` (set here)
+             ``last`` (the latest goal, for the status) and ``report`` (set here);
+             with a ``speed_profile``, ``speed_limit(m/s)`` and ``controller_vx_max()``
+             (the controller's own forward limit, None until known)
   sink       ``sink(payload)``: every task_events/1 dict, as /task/events carries it
   clock      ``clock()`` -> seconds
 
@@ -20,8 +22,9 @@ thruster-health check from it).
 
 import math
 
-from mhseals_nav.tasks import load_config, tracks as track_memory
+from mhseals_nav.tasks import load_config, speed, tracks as track_memory
 from mhseals_nav.tasks.actuators import fitted
+from mhseals_nav.tasks.behaviours import SpeedCap
 from mhseals_nav.tasks.conditions import Conditions
 from mhseals_nav.tasks.layout import Layout
 # The parameters live in the py_trees-free params module; kept here for their callers.
@@ -46,6 +49,7 @@ class MissionHost:
         self.config = load_config('runner', params.get('runner'))
         self.timeout = float(params.get('timeout', 600.0))
         self.objects, self.tracks, self.memory, self.priors = [], [], [], []
+        self.heard_at = None  # the last tracker message's time: the speed profile's feed
         self.memory_horizon = float(params.get('memory', 5.0))
         # Fixed course markers (a task's ``landmarks``) outlive ``memory``: see tick().
         # A slip light's colours (a task's ``indicators``) are states of one object.
@@ -75,7 +79,14 @@ class MissionHost:
         self.board.layout = Layout(params) if params.get('layout') else None
         self.board.conditions = self.conditions
         self.board.fov = self.fov
-        self.tree = py_trees.trees.BehaviourTree(TREES[task](params))
+        root, self.profile, self.vx_max = TREES[task](params), None, None
+        if params.get('speed_profile'):  # the run's cap by segment (tasks/speed.py)
+            self.profile = speed.Profile(speed.load(params['speed_profile'], speed.ceiling()))
+            # Never above the controller's own limit: Nav2's MPPI scales all its limits
+            # by cap / vx_max, so a higher cap would raise its turn and sideways rates.
+            root = SpeedCap('speed profile', root, lambda board: min(self.profile.cap(
+                board.pose, board.tracks, self.board.now, self.heard_at), self.vx_max))
+        self.tree = py_trees.trees.BehaviourTree(root)
         navigator.report = self.report
         # Every capability is off unless the YAML turns it on and an actuator is given.
         self.actuators = fitted(params.get('capabilities'), actuators)
@@ -94,6 +105,7 @@ class MissionHost:
         """
         if priors:
             self.priors = [track for track in seen if track.prior]  # republished while held
+        self.heard_at = self.clock()
         self.memory = track_memory.remember(self.memory, seen, self.clock(),
                                             self.memory_horizon, horizons=self.landmarks,
                                             exclusive=self.exclusive)
@@ -182,6 +194,14 @@ class MissionHost:
             # Planning also needs the initial map pose (and a valid home).
             if pose is None or not self.navigator.ready():
                 return None
+            if self.profile is not None:
+                try:
+                    self.vx_max = self.navigator.controller_vx_max()
+                except ValueError as error:  # the profile cannot be bounded: never start
+                    self.refuse(f'controller vx_max unknown: {error}')
+                    return self.outcome
+                if self.vx_max is None:
+                    return None
             self.started = now
             self.report('task_started', time_limit_s=self.timeout)
         # Forget tracks the tracker stopped sending: it may have died.
@@ -268,10 +288,10 @@ class MissionHost:
 
     # Ends ---------------------------------------------------------------------------
 
-    def refuse(self):
-        """Do not start while a human has control, nor later by itself."""
-        self.decide('give_up', f'{self.owner} has control: not starting')
-        self.report('task_refused', owner=self.owner)
+    def refuse(self, why=None):
+        """Do not start while a human has control (or for ``why``), nor later by itself."""
+        self.decide('give_up', f'{why or f"{self.owner} has control"}: not starting')
+        self.report('task_refused', owner=self.owner, **({'reason': why} if why else {}))
         self.finish('REFUSED')
 
     def preempt(self, why=None):

@@ -1052,27 +1052,73 @@ class Deadline(Decorator):
 class SpeedCap(Decorator):
     """Cap Nav2's speed at ``speed`` m/s while the child runs; 0 leaves it uncapped.
 
-    However the child ends (done, failed, stopped by an override), the cap is lifted.
+    ``speed`` may be a function of the board (pose, tracks) instead, read every tick
+    (tasks/speed.py: the mission's speed profile). Caps nest: a cap inside another's
+    child takes the lower of the two, and when it ends the outer one's applies again.
+    Only the innermost running cap sends, and only on a change. However the outermost
+    child ends (done, failed, stopped by an override), the cap is lifted.
     """
 
     def __init__(self, name, child, speed):
         super().__init__(name=name, child=child)
-        self.speed = speed
+        self.speed, self.inner, self.sent, self.detached = speed, None, None, False
+        if callable(speed):
+            self.board = self.attach_blackboard_client(name=name)
+            for key in ('pose', 'tracks'):
+                self.board.register_key(key=key, access=Access.READ)
 
     def setup(self, **kwargs):
         self.navigator = kwargs.get('navigator')
 
+    def outer(self):
+        """Return the running cap this one runs inside, if any."""
+        node = self.parent
+        while node is not None and not isinstance(node, SpeedCap):
+            node = node.parent
+        return node
+
+    def limit(self):
+        """Return this cap with every running outer one's (m/s; 0 for none)."""
+        own = self.speed(self.board) if callable(self.speed) else self.speed
+        outer = self.outer()
+        above = outer.limit() if outer is not None else 0.0
+        return min(own, above) if own and above else own or above
+
     def initialise(self):
-        self.cap(self.speed)
+        outer = self.outer()
+        if outer is not None:
+            outer.inner = self
+        self.inner, self.sent, self.detached = None, None, False
+        self.send()
 
     def update(self):
+        if self.inner is None:
+            self.send()
         return self.decorated.status
 
     def terminate(self, new_status):
-        self.cap(0.0)
+        # An outer cap stops before the caps inside it: it settles the cap for them all.
+        inner, self.inner = self.inner, None
+        while inner is not None:
+            inner.sent, inner.detached, inner = None, True, inner.inner
+        if not self.detached:
+            outer = self.outer()
+            if outer is not None:
+                outer.inner, outer.sent = None, None
+                outer.send()
+            elif self.sent:
+                self.cap(0.0)
+        self.sent, self.detached = None, False
+
+    def send(self):
+        speed = self.limit()
+        if speed != self.sent:
+            if speed or self.sent:
+                self.cap(speed)
+            self.sent = speed
 
     def cap(self, speed):
-        if self.speed and hasattr(self.navigator, 'speed_limit'):
+        if hasattr(self.navigator, 'speed_limit'):
             self.navigator.speed_limit(speed)
 
 

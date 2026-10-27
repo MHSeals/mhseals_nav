@@ -88,7 +88,7 @@ def field():
 
 
 class Course:
-    """A boat that drives Nav2 routes at ``speed`` and a camera with a cone of view.
+    """A boat that drives Nav2 routes at ``speed`` under any cap; a camera with a cone of view.
 
     The tracks it hands the host are the object tracker's: everything seen, until the
     tracker's hold-over for its class runs out (``hold_over``).
@@ -102,6 +102,7 @@ class Course:
         self.pose, self.seen, self.goal, self.now = (0.0, 0.0, 0.0), {}, None, 0.0
         self.events, self.goals, self.stops, self.path = [], [], 0, 0.0
         self.trace = []  # (time, metres moved) per step
+        self.cap, self.caps = 0.0, []
         if host:  # else the caller drives its own host (the ROS node, in its test)
             self.host = MissionHost('mission', params, self, self.sink, lambda: self.now)
 
@@ -111,6 +112,14 @@ class Course:
 
     def ready(self):
         return True
+
+    def speed_limit(self, speed):
+        """Nav2's /speed_limit: a cap on the controller's own (``speed``); 0 lifts it."""
+        self.cap = speed
+        self.caps.append((self.now, speed))
+
+    def controller_vx_max(self):
+        return self.speed
 
     def keep_still(self):
         pass
@@ -139,7 +148,7 @@ class Course:
             goal.route.pop(0)
         tx, ty, tyaw = goal.route[0]
         gap = math.dist((tx, ty), (x, y))
-        step = self.speed * self.dt
+        step = (min(self.speed, self.cap) if self.cap else self.speed) * self.dt
         if gap <= step:
             x, y = tx, ty
             if len(goal.route) == 1:
@@ -382,7 +391,7 @@ def test_full_2026_mission_finds_and_completes_every_task_by_search(course, side
     started = next(d for e, d in world.events if e == 'speed_started')
     assert math.dist(started['pose'][:2], (48.0, side * 40.0)) < 3.0
     assert names[-2:] == ['returned_home', 'stage_completed']
-    assert elapsed < 600
+    assert elapsed < 840  # at 1 m/s, under the debris gates' cap and the speed profile's
 
 
 @pytest.mark.parametrize('landmarks', [True, False], ids=['remembered', 'forgotten'])
@@ -391,7 +400,8 @@ def test_the_marina_found_at_the_start_is_docked_at_field_speed(landmarks):
 
     The tracker has dropped its banners and lights 10 s after they left the view
     (``hold_over``), so only the host's landmark memory keeps the slips: without it,
-    docking fails.
+    docking has to search for the marina again (with the debris gates' 0.25 cap
+    honoured, the unhurried run has the time to find it).
     """
     params = dict(mission('mission_2026.yaml'), timeout=UNHURRIED)
     if not landmarks:
@@ -407,8 +417,8 @@ def test_the_marina_found_at_the_start_is_docked_at_field_speed(landmarks):
         assert 'green slip 2: the chosen one is not free' in [
             d['reason'] for e, d in world.events if e == 'decision']
     else:
-        assert docked == [] and ('stage_skipped', {'stage': 'docking'}) in [
-            (e, {'stage': d.get('stage')}) for e, d in world.events if e == 'stage_skipped']
+        assert any(d['reason'].startswith('green_light_beacon not seen: head for the likely')
+                   for e, d in world.events if e == 'decision')
 
 
 class Changing(Course):
@@ -482,20 +492,26 @@ def test_the_host_hands_the_trees_its_actuators_and_none_is_on_by_default():
     assert isinstance(host.actuators['ball_dropper'], Unavailable)  # given, but off
 
 
-@pytest.mark.parametrize('profile, done, skipped', [
-    ('qualifying', ['follow_path'], ['docking', 'speed_challenge', 'supply_drop']),
-    ('finals', ['follow_path'], ['docking', 'speed_challenge', 'supply_drop'])])
+SKIPPED = ['docking', 'speed_challenge', 'supply_drop']
+
+
+@pytest.mark.parametrize('profile, base, done, skipped', [
+    ('qualifying', 0.4, ['follow_path'], SKIPPED), ('finals', 0.4, ['follow_path'], SKIPPED),
+    ('qualifying', 0.8, ['follow_path'], SKIPPED), ('finals', 0.8, ['follow_path'], SKIPPED)])
 @pytest.mark.parametrize('course', [COURSE_2026, MIRRORED_2026], ids=['port', 'starboard'])
-def test_the_timeslot_budget_at_field_speed(profile, done, skipped, course):
+def test_the_timeslot_budget_at_field_speed(profile, base, done, skipped, course):
     """A 900 s slot less 180 s of set-up leaves a 720 s run, which the run states.
 
-    At 0.4 m/s it holds the channel and the debris field: an optional task starts only
-    if it fits before the exit's reserve. Qualifying's corner-safe reserve (1.2 x the way
-    out from the padded far corner at most 0.35 m/s, plus 30 s) leaves no time for the
-    marina or the speed run; finals keeps the fixed 300 s and heads home there too.
+    At 0.4 m/s, through the debris gates at their 0.25 m/s cap, it holds the channel
+    and the debris field: an optional task starts only if it fits before the exit's
+    reserve. Qualifying's corner-safe reserve (1.2 x the way out from the padded far
+    corner at most 0.35 m/s, plus 30 s) leaves no time for the marina or the speed run;
+    finals keeps the fixed 300 s and heads home there too. With the controller at the
+    0.8 ceiling (``base``) the speed profile brings it home sooner (442-471 s, against
+    475-477 s), but admits no more: the tasks' expected_s are fitted at 0.4.
     """
     params = load_params('mission', config_path('mission_2026.yaml'), profile)
-    world = Course(params, course=course, speed=0.4)
+    world = Course(params, course=course, speed=base)
     outcome, elapsed = world.run()
     started = next(d for e, d in world.events if e == 'task_started')
     assert started['time_limit_s'] == params['timeout'] == 720.0
@@ -506,7 +522,96 @@ def test_the_timeslot_budget_at_field_speed(profile, done, skipped, course):
     assert all(any(r.startswith(f'no time for {task}') or r.startswith(f'{task}: capability')
                    for r in decisions) for task in skipped)
     # Home with the exit reserve's margin to spare, never on the limit.
-    assert elapsed < 720.0 - 60.0
+    assert elapsed < 720.0 - 60.0 - (40.0 if base > 0.4 and profile == 'qualifying' else 0.0)
+
+
+def capped(world, elapsed):
+    """Return the seconds the run spent under each cap (0: none)."""
+    spent = {}
+    for (start, cap), (end, _) in zip(world.caps, world.caps[1:] + [(elapsed, 0.0)]):
+        spent[cap] = spent.get(cap, 0.0) + end - start
+    return spent
+
+
+@pytest.mark.parametrize('profile, base, most', [
+    ('qualifying', 0.4, 900.0), ('qualifying', 0.8, 770.0), ('finals', 0.8, 850.0)])
+@pytest.mark.parametrize('course', [COURSE_2026, MIRRORED_2026], ids=['port', 'starboard'])
+def test_the_speed_profile_runs_open_water_fast_and_buoys_at_the_field_speed(
+        profile, base, most, course):
+    """The whole course by segment speed, unhurried: every task done.
+
+    ``base`` is the controller's own limit: 0.4 today, 0.8 at most (the ceiling, once a
+    measured limits overlay allows it); no cap goes above it. At 0.4 the profile only
+    ever caps at 0.4. At 0.8 the open legs run at 0.8, approaches at 0.6, and the boat
+    stays at the field speed by buoys, and for the dwell after them (the debris gates at
+    their own 0.25). It still takes more than the 720 s run (qualifying 755-756 s,
+    finals 836-837 s, 0.4 everywhere 894-896 s): most of it is inside tasks (240 s at
+    0.25 through the debris gates, the rest mostly at 0.4 by buoys), not open water.
+    """
+    params = load_params('mission', config_path('mission_2026.yaml'), profile)
+    world = Course(dict(params, timeout=UNHURRIED), course=course, speed=base)
+    outcome, elapsed = world.run()
+    completed = [d['stage'] for e, d in world.events if e == 'stage_completed']
+    assert outcome == 'SUCCESS' and completed == [
+        'nav_channel', 'follow_path', 'speed_challenge', 'docking', 'return_home']
+    assert elapsed < most
+    spent, speeds = capped(world, elapsed), params['speed_profile']
+    assert max(spent) <= base and spent[params['follow_path']['speed']] > 200.0
+    assert set(spent) <= {0.0, base, params['follow_path']['speed'], speeds['open'],
+                          speeds['approach'], speeds['near']}
+    if base > speeds['open']:
+        assert spent[speeds['open']] > 100.0 and spent[speeds['near']] > 100.0
+
+
+def test_the_run_waits_for_the_controllers_own_limit_and_caps_below_it():
+    params = load_params('mission', config_path('mission_2026.yaml'), 'qualifying')
+    world = Course(params, course=COURSE_2026, speed=0.5)
+    asked = []
+    world.controller_vx_max = lambda: asked.append(1) or (0.5 if len(asked) > 2 else None)
+    for tick in range(3):
+        pose, tracks = world.step(tick * world.dt)
+        world.host.tick(pose, tracks, world.fov)
+        started = [d for e, d in world.events if e == 'task_started']
+        assert bool(started) == (tick == 2) and (started or not world.caps)
+    for tick in range(3, 240):  # on for 2 minutes: open water, buoys, the debris gates
+        pose, tracks = world.step(tick * world.dt)
+        world.host.tick(pose, tracks, world.fov)
+    assert world.caps and max(cap for _, cap in world.caps) == 0.5
+
+
+def test_the_run_caps_at_the_slowest_within_a_tick_of_the_tracker_going_silent():
+    params = load_params('mission', config_path('mission_2026.yaml'), 'qualifying')
+    world = Course(params, course=[], speed=0.8)
+    speeds = params['speed_profile']
+    for tick in range(4):  # fresh messages, nothing anywhere: open water
+        pose, tracks = world.step(tick * world.dt)
+        world.host.tick(pose, tracks, world.fov)
+    assert world.cap == speeds['open']
+    silent = world.now
+    for tick in range(4, 12):  # the tracker dies: the host is ticked with no message
+        pose, _ = world.step(tick * world.dt)
+        world.host.tick(pose, None, world.fov)
+        if world.now - silent > speeds['stale_s']:
+            assert world.cap == speeds['near'], world.now
+            break
+    else:
+        pytest.fail('never stale')
+
+
+@pytest.mark.parametrize('error', ['FollowPath.vx_max: not a double (4)',
+                                   'FollowPath.vx_max: read failed (timeout)'])
+def test_a_controller_limit_that_cannot_be_read_refuses_the_run_and_says_why(error):
+    params = load_params('mission', config_path('mission_2026.yaml'), 'qualifying')
+    world = Course(params, course=COURSE_2026, speed=0.5)
+
+    def unreadable():
+        raise ValueError(error)
+    world.controller_vx_max = unreadable
+    pose, tracks = world.step(0.0)
+    assert world.host.tick(pose, tracks, world.fov) == 'REFUSED'
+    assert ('task_refused', {'owner': None,
+                             'reason': f'controller vx_max unknown: {error}'}) in world.events
+    assert not world.goals and not world.caps
 
 
 def test_a_timeslot_sets_the_run_budget_and_a_profile_changes_only_known_keys(tmp_path):

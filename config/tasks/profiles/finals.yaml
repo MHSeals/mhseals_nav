@@ -16,3 +16,8 @@ docking:
   search: {enable: {sweep: false}}
 speed_challenge:
   search: {enable: {sweep: false}}
+# Open water at 0.6, not the ceiling (ASSUMED, as are the wider bands: start slowing
+# sooner): no boat has measured speed above 0.4, and the one attempt that counts is not
+# where to find out. Never below the field speed by buoys: the tasks' limits are tuned at
+# 0.4 (SIM-DERIVED: at 0.3 the debris field ran out of its time in the kinematic course).
+speed_profile: {open: 0.6, approach: 0.4, approach_m: 10.0, near_m: 4.0}

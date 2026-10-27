@@ -288,6 +288,135 @@ def test_follow_path_runs_every_gate_and_reports_the_species_count():
     assert world.limits == [params('follow_path')['speed'], 0.0]  # capped, then lifted
 
 
+class Ticks(py_trees.behaviour.Behaviour if importlib.util.find_spec('py_trees') else object):
+    """RUNNING for ``n`` ticks, then SUCCESS."""
+
+    def __init__(self, name, n):
+        super().__init__(name)
+        self.n, self.left = n, n
+
+    def initialise(self):
+        self.left = self.n
+
+    def update(self):
+        self.left -= 1
+        return py_trees.common.Status.RUNNING if self.left > 0 else py_trees.common.Status.SUCCESS
+
+
+class Limits:
+    def __init__(self):
+        self.limits = []
+
+    def speed_limit(self, speed):
+        self.limits.append(speed)
+
+
+def test_a_cap_inside_another_takes_the_lower_and_hands_the_outer_back():
+    from mhseals_nav.tasks.behaviours import SpeedCap
+    py_trees.blackboard.Blackboard.clear()
+    board = py_trees.blackboard.Client(name='world')
+    for key in ('pose', 'tracks'):
+        board.register_key(key=key, access=py_trees.common.Access.WRITE)
+    board.pose, board.tracks = (0.0, 0.0, 0.0), []
+    profile = {'speed': 0.6}
+    inner = SpeedCap('gate speed', Ticks('gates', 3), 0.25)
+    root = SpeedCap('speed profile', py_trees.composites.Sequence(
+        'run', memory=True, children=[Ticks('leg', 2), inner, Ticks('home', 4)]),
+        lambda board: profile['speed'])
+    navigator = Limits()
+    tree = py_trees.trees.BehaviourTree(root)
+    tree.setup(navigator=navigator)
+    for tick in range(12):
+        profile['speed'] = 0.4 if tick == 2 else 0.6 if tick < 6 else 0.3
+        tree.tick()
+        if root.status != py_trees.common.Status.RUNNING:
+            break
+    assert root.status == py_trees.common.Status.SUCCESS
+    # Open 0.6; the gates' 0.25 under it (the outer's dip to 0.4 then changes nothing);
+    # the outer again once the gates end; its own change; lifted at the end.
+    assert navigator.limits == [0.6, 0.25, 0.6, 0.3, 0.0]
+
+
+def test_an_override_inside_nested_caps_lifts_the_cap_once():
+    from mhseals_nav.tasks.behaviours import SpeedCap
+    py_trees.blackboard.Blackboard.clear()
+    root = SpeedCap('outer', SpeedCap('inner', Ticks('gates', 10), 0.25), 0.5)
+    navigator = Limits()
+    tree = py_trees.trees.BehaviourTree(root)
+    tree.setup(navigator=navigator)
+    tree.tick()
+    tree.tick()
+    root.stop(py_trees.common.Status.INVALID)
+    assert navigator.limits == [0.5, 0.25, 0.0]
+
+
+PROFILE = {'open': 0.6, 'approach': 0.4, 'near': 0.25, 'approach_m': 10.0, 'near_m': 4.0,
+           'ahead_deg': 60.0, 'stale_s': 1.0, 'dwell_s': 3.0, 'dwell_m': 3.0,
+           'stop': {'decel_mps2': 0.3, 'latency_s': 1.0, 'margin_m': 2.0, 'detect_m': 15.0}}
+
+
+def test_the_speed_profile_is_fast_in_open_water_and_slow_on_approach_and_by_buoys():
+    from mhseals_nav.tasks import speed
+
+    def at(x, y):
+        return speed.segment(PROFILE, (0.0, 0.0, 0.0), [buoy(x, y)])
+    assert speed.segment(PROFILE, (0.0, 0.0, 0.0), []) == 0.6
+    assert at(12.0, 0.0) == 0.6       # beyond approach_m
+    assert at(8.0, 1.0) == 0.4        # ahead within approach_m
+    assert at(-8.0, 0.0) == 0.6       # behind: passed
+    assert at(0.0, 8.0) == 0.6        # abeam, outside the ahead cone
+    assert at(-3.0, 1.0) == 0.25      # near, any side
+    profile = speed.Profile(PROFILE)
+    assert profile.cap(None, [], 0.0, 0.0) == 0.25  # no pose yet
+    assert profile.cap((0.0, 0.0, 0.0), [], 0.0, 0.0) == 0.6  # fresh feed, nothing near
+
+
+def buoy(x, y):
+    return Track('red_buoy', x, y, 1.0, None, True, False, '')
+
+
+def test_the_speed_profile_is_slowest_when_the_tracker_is_silent():
+    from mhseals_nav.tasks import speed
+    profile = speed.Profile(PROFILE)
+    assert profile.cap((0.0, 0.0, 0.0), [], 0.0, None) == 0.25  # perception never reported
+    profile = speed.Profile(PROFILE)
+    assert profile.cap((0.0, 0.0, 0.0), [], 10.0, 9.9) == 0.6
+    # The last message 1.1 s ago: the first tick past stale_s is at the slowest.
+    assert profile.cap((0.5, 0.0, 0.0), [], 11.0, 9.9) == 0.25
+
+
+def test_the_speed_profile_stays_slow_for_the_dwell_after_a_buoy():
+    from mhseals_nav.tasks import speed
+    profile = speed.Profile(PROFILE)
+    assert profile.cap((0.0, 0.0, 0.0), [buoy(1.0, 1.0)], 0.0, 0.0) == 0.25  # near
+    # Passed and out of the tracker: slow for dwell_s and dwell_m, both.
+    assert profile.cap((1.0, 0.0, 0.0), [], 1.0, 1.0) == 0.25   # 1 s, 1 m
+    assert profile.cap((2.5, 0.0, 0.0), [], 3.5, 3.5) == 0.25   # 3.5 s, 2.5 m
+    assert profile.cap((3.1, 0.0, 0.0), [], 3.6, 3.6) == 0.6    # 3.6 s, 3.1 m: open
+    # Approach then nothing: held at the approach speed, not the near one.
+    assert profile.cap((3.1, 0.0, 0.0), [buoy(11.0, 0.0)], 4.0, 4.0) == 0.4
+    assert profile.cap((3.1, 0.0, 1.0), [], 5.0, 5.0) == 0.4
+    assert profile.cap((6.2, 0.0, 1.0), [], 7.0, 7.0) == 0.6
+
+
+@pytest.mark.parametrize('change,error', [
+    ({'open': 0.9}, 'ceiling'),                       # above nav2_ceilings.yaml vx_max
+    ({'approach': 0.7}, 'near <= approach <= open'),
+    ({'near_m': 10.0}, 'near_m < approach_m'),
+    ({'stop': {**PROFILE['stop'], 'detect_m': 3.0}}, 'open: 0.6 m/s needs'),  # seen too late
+    ({'near_m': 2.0}, 'approach: 0.4 m/s needs'),     # 2 m to stop in
+    ({'extra': 1.0}, 'expected keys'),
+    ({'near': True}, 'positive finite'),
+])
+def test_the_speed_profile_refuses_a_speed_over_the_ceiling_or_one_that_cannot_stop(
+        change, error):
+    from mhseals_nav.tasks import speed
+    with pytest.raises(ValueError, match=error):
+        speed.load({**PROFILE, **change}, speed.ceiling())
+    assert speed.load(dict(PROFILE), speed.ceiling()) == PROFILE
+    assert speed.ceiling() == 0.8
+
+
 def test_the_gate_speed_cap_is_lifted_when_an_override_stops_the_task():
     world = World('follow_path', params('follow_path'))
     world.state['objects'] = gate(5, 0, 2.4, 'red_buoy', 'green_buoy')

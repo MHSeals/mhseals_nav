@@ -438,6 +438,38 @@ def test_an_override_cancels_a_back_out_in_flight_and_none_goes_out_after(monkey
         rclpy.try_shutdown()
 
 
+def test_the_controllers_own_limit_is_asked_once_it_answers_and_kept():
+    from mhseals_nav.tasks.interface import Navigator
+    from rcl_interfaces.msg import ParameterType, ParameterValue
+    navigator = Navigator.__new__(Navigator)
+    navigator.vx_max_param, navigator.vx_max, navigator.vx_asked = 'FollowPath.vx_max', None, None
+    up, asked, answers = [False], [], []
+
+    def call(request):
+        asked.append(list(request.names))
+        future = SimpleNamespace(done=lambda: bool(answers), result=lambda: answers[-1])
+        return future
+    navigator.limits = SimpleNamespace(service_is_ready=lambda: up[0], call_async=call)
+    assert navigator.controller_vx_max() is None and not asked  # no server yet
+    up[0] = True
+    assert navigator.controller_vx_max() is None and asked == [['FollowPath.vx_max']]
+    answers.append(SimpleNamespace(values=[ParameterValue(type=ParameterType.PARAMETER_NOT_SET)]))
+    # Asked only once Nav2 is ready, so the controller's plugin has declared it: unset or
+    # not a double is a refusal with its reason, not a silent wait.
+    with pytest.raises(ValueError, match=r'FollowPath.vx_max: not a double \(0\)'):
+        navigator.controller_vx_max()
+
+    def failed():
+        raise RuntimeError('service gone')
+    navigator.vx_asked = SimpleNamespace(done=lambda: True, result=failed)
+    with pytest.raises(ValueError, match=r'read failed \(service gone\)'):
+        navigator.controller_vx_max()
+    answers.append(SimpleNamespace(values=[ParameterValue(
+        type=ParameterType.PARAMETER_DOUBLE, double_value=0.4)]))
+    assert navigator.controller_vx_max() == 0.4 and len(asked) == 2
+    assert navigator.controller_vx_max() == 0.4 and len(asked) == 2
+
+
 def test_ready_waits_for_the_backup_server_but_not_for_good(monkeypatch):
     from mhseals_nav.tasks import interface
     from mhseals_nav.tasks.interface import Navigator
@@ -716,7 +748,8 @@ def test_the_node_and_the_bare_host_emit_the_same_events_for_the_same_world(
         node_events = []
         monkeypatch.setattr(runner.events, 'publish', lambda m: node_events.append(
             json.loads(m.data)))
-        for name in ('send', 'ready', 'keep_still', 'close'):
+        for name in ('send', 'ready', 'keep_still', 'close', 'speed_limit',
+                     'controller_vx_max'):
             monkeypatch.setattr(runner.host.navigator, name, getattr(world, name))
         monkeypatch.setattr(runner, 'now', lambda: world.now)
         monkeypatch.setattr(runner, 'pose', lambda: world.pose)

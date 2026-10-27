@@ -46,6 +46,31 @@ layout:
 # Actuators not built yet (tasks/actuators.py): a task needing only these is worth 0.
 capabilities: {water_gun: false, ball_dropper: false, horn: false}
 start_look_deg: 90.0    # turn to each side at the start: the marina lies beside it
+# The run's speed by segment (tasks/speed.py): open water, approach, by buoys. A cap on
+# Nav2's own limit, never above it: the controller's vx_max as launched (nav2_params.yaml
+# 0.4, the field limit) unless the launch's limits overlay raises it (bounded by
+# nav2_ceilings.yaml). With today's 0.4 the profile changes nothing. Refused above the
+# ceiling or unable to stop. Labels: MEASURED (boat data), SIM-DERIVED, ASSUMED; no value
+# here is MEASURED (no boat speed above 0.4 or stop has been measured). NEEDS real
+# braking and latency measurement (stop distance from 0.4-0.8 m/s, sighting-to-command
+# delay) before any overlay raises vx_max above 0.4.
+speed_profile:
+  open: 0.8             # m/s, ASSUMED: the ceiling; nothing known within approach_m ahead
+  approach: 0.6         # m/s, ASSUMED: a known object within approach_m, ahead_deg of the bow
+  near: 0.4             # m/s, ASSUMED (the field limit; SIM-DERIVED: the tasks are tuned
+                        # at it): a known object within near_m, any side
+  approach_m: 8.0       # ASSUMED
+  near_m: 3.0           # ASSUMED: a gate's buoys, the circle, the marina
+  ahead_deg: 45.0       # ASSUMED
+  stale_s: 1.0          # s, ASSUMED: no tracker message this long (10 Hz) = not knowing: near
+  dwell_s: 3.0          # s, ASSUMED: after near or approach, keep that speed this long
+  dwell_m: 3.0          # ASSUMED: and this far, before going faster
+  # decel_mps2 ASSUMED (the smoother's configured deceleration, not a measured stop);
+  # latency_s ASSUMED (tracker 3 hits in 0.5 s at 10 Hz, unmeasured end to end);
+  # margin_m SIM-DERIVED (stereo depth error ~1 m at 10 m, replay fit); detect_m
+  # ASSUMED/SIM-DERIVED (camera range 20 m configured, lidar ring meets the water at 16 m
+  # in the sim's geometry; no measured first-sighting range).
+  stop: {decel_mps2: 0.3, latency_s: 1.0, margin_m: 1.5, detect_m: 15.0}
 # Every search: the course box, and the marina's banners and lights fix the side S.
 search:
   area: [[-20.0, -60.0], [80.0, 60.0]]
