@@ -11,7 +11,8 @@ pytest.importorskip('py_trees')
 from mhseals_nav.tasks.search import Coverage  # noqa: E402, I100
 
 LAYOUT = {'transit_mps': 0.5, 'search_s_per_m': 2.0, 'miss': 0.2, 'exit_margin_s': 10.0,
-          'exit_mps': 0.5, 'exit_floor_s': 60.0, 'measure_m': 50.0, 'moving_mps': 0.05,
+          'exit_mps': 0.5, 'exit_factor': 1.2, 'exit_pad_m': 2.0, 'exit_floor_s': 60.0,
+          'measure_m': 50.0, 'moving_mps': 0.05,
           'tasks': {'far': ['mark'], 'near': ['landmarks']}}
 PARAMS = {
     'layout': LAYOUT,
@@ -60,7 +61,7 @@ def test_the_plan_fits_the_most_points_and_ends_near_the_way_out():
     assert list(plan) == ['far', 'near']  # the marina, by the way out, last
     seconds, reserve = plan['near']
     assert 60.0 <= reserve < 240.0
-    short = layout.plan(['near', 'far'], (30.0, 0.0), via, 400.0, guesses, rows, 240.0)
+    short = layout.plan(['near', 'far'], (30.0, 0.0), via, 450.0, guesses, rows, 240.0)
     assert list(short) == ['far']  # time for one: the one worth more
     assert layout.plan(['near', 'far'], (30.0, 0.0), via, 50.0, guesses, rows, 240.0) == {}
 
@@ -113,8 +114,9 @@ def test_the_mission_yaml_is_the_only_source_and_finals_keep_the_fixed_reserve()
     assert layout.tasks['docking']['labels'] == tuple(params['docking']['landmarks'])
     assert layout.tasks['speed_challenge']['labels'] == (
         'yellow_buoy', *params['speed_challenge']['indicators'])
-    # Qualifying: the dynamic reserve, at least the floor near home.
-    assert layout.reserve('none', (0.0, 20.0), [(0.0, 0.0)], 240.0) == layout.exit_floor_s
+    assert layout.exit_speed == 0.35 and layout.exit_factor == 1.2
+    assert layout.tasks['speed_challenge']['pad'] == params['speed_challenge'][
+        'circle_radius'] + layout.exit_pad_m
     with pytest.raises(KeyError):
         Layout({**params, 'layout': {k: v for k, v in params['layout'].items()
                                      if k != 'miss'}})
@@ -131,30 +133,88 @@ def way(xy):
     return sum(math.dist(a, b) for a, b in zip([xy, *WAY_IN], WAY_IN))
 
 
+def corners(regions, side, pad):
+    return [way((x, y)) for ((x0, y0), (x1, y1)), _ in side_boxes(regions, side)
+            for x in (x0 - pad, x1 + pad) for y in (y0 - pad, y1 + pad)]
+
+
 def test_the_reserve_covers_a_task_that_ends_in_its_regions_far_corner():
-    """The reserve is sized from the region's farthest corner, not the guess.
+    """The reserve is sized from the region's farthest padded corner, not the guess.
 
     The guess-based reserve (1.5 x the way out from the guess) fell short when a task
     ended in its region's far corner: docking needed 49 m against 46 m budgeted, the
-    speed task 102 m against 92 m (about 292 s at 0.35 m/s). Now every corner of the
-    region on the side (both while it is unknown), and the end if farther, is covered.
+    speed task 102 m against 92 m. Now every corner of the region on the side (both
+    while it is unknown), padded by the task's circle radius plus exit_pad_m, and the
+    end if farther, is covered at exit_factor x the way out plus exit_margin_s.
     """
     from mhseals_nav.tasks.params import config_path, load_params
     params = load_params('mission', config_path('mission_2026.yaml'), 'qualifying')
     layout, grid = Layout(params), cover()
     need = {'docking': 49.0, 'speed_challenge': 102.0}
     for name in need:
-        regions = layout.tasks[name]['regions']
+        task = layout.tasks[name]
         for side in ('port', 'starboard', None):
             guess = layout.guess(name, grid, [], side)
             reserve = layout.reserve(name, guess.xy, WAY_IN, 240.0, side)
-            corners = [way((x, y)) for ((x0, y0), (x1, y1)), _ in side_boxes(regions, side)
-                       for x in (x0, x1) for y in (y0, y1)]
-            assert max(corners) >= need[name]  # the corner shortfall case is in range
-            assert reserve >= max(corners) / layout.speed + layout.exit_margin_s
-            assert reserve >= need[name] / 0.35 + layout.exit_margin_s, (name, side)
+            far = max(corners(task['regions'], side, task['pad']))
+            assert far > max(corners(task['regions'], side, 0.0)) >= need[name]
+            assert reserve == pytest.approx(1.2 * far / 0.35 + layout.exit_margin_s)
             assert reserve > 1.5 * way(guess.xy) / layout.speed  # more than before
         # The boat's own end, farther than any corner, is covered too.
-        far = (150.0, 0.0)
-        assert layout.reserve(name, far, WAY_IN, 240.0, 'port') == pytest.approx(
-            way(far) / layout.speed + layout.exit_margin_s)
+        end = (150.0, 0.0)
+        assert layout.reserve(name, end, WAY_IN, 240.0, 'port') == pytest.approx(
+            1.2 * way(end) / 0.35 + layout.exit_margin_s)
+
+
+def test_a_mark_circled_at_the_box_edge_is_inside_the_padded_corner():
+    """The speed turn circles a mark on the box edge: the way out starts past the box.
+
+    The mark at the region's far corner, circled at circle_radius, puts the boat up to
+    that radius beyond the box; the padded corner (radius plus exit_pad_m) is farther.
+    """
+    from mhseals_nav.tasks.params import config_path, load_params
+    params = load_params('mission', config_path('mission_2026.yaml'), 'qualifying')
+    layout = Layout(params)
+    radius = params['speed_challenge']['circle_radius']
+    (_, _), (x1, y1) = next(side_boxes(layout.tasks['speed_challenge']['regions'], 'port'))[0]
+    reserve = layout.reserve('speed_challenge', (0.0, 0.0), WAY_IN, 240.0, 'port')
+    for angle in np.linspace(0.0, 2 * math.pi, 16, endpoint=False):
+        on_circle = (x1 + radius * math.cos(angle), y1 + radius * math.sin(angle))
+        assert reserve > 1.2 * way(on_circle) / 0.35 + layout.exit_margin_s
+
+
+def test_a_fast_mean_does_not_shrink_the_reserve_below_a_slow_real_exit():
+    """Reviewer's case: measured mean 0.6 m/s, the real exit at 0.4 m/s, a 102 m corner.
+
+    Timed at the mean the reserve would leave the speed corner 55 s short; the exit is
+    timed at min(measured, exit_mps 0.35), so the slower real exit still fits.
+    """
+    from mhseals_nav.tasks.params import config_path, load_params
+    params = load_params('mission', config_path('mission_2026.yaml'), 'qualifying')
+    layout = Layout(params)
+    layout.observe((0.0, 0.0, 0.0), 0.0)
+    layout.observe((60.0, 0.0, 0.0), 100.0)  # 60 m in 100 s: a measured 0.6 m/s
+    assert layout.speed == pytest.approx(0.6) and layout.exit_speed == 0.35
+    for side in ('port', 'starboard'):
+        reserve = layout.reserve('speed_challenge', (40.0, 0.0), WAY_IN, 240.0, side)
+        assert reserve >= 102.0 / 0.4  # the real exit's need is covered
+        # Timed at the mean it would not be: the shortfall the review found.
+        assert 1.2 * 102.0 / 0.6 + layout.exit_margin_s < 102.0 / 0.4
+    # A slower measured speed lowers the exit's speed further: never timed faster.
+    slow = Layout(params)
+    slow.moved, slow.moving = 60.0, 200.0  # 0.3 m/s measured
+    assert slow.exit_speed == pytest.approx(0.3)
+    assert slow.reserve('speed_challenge', (40.0, 0.0), WAY_IN, 240.0, 'port') > \
+        layout.reserve('speed_challenge', (40.0, 0.0), WAY_IN, 240.0, 'port')
+
+
+def test_a_task_with_no_regions_keeps_the_fixed_reserve():
+    """No region to size from: the fixed exit_reserve, never the floor or the end alone."""
+    layout = Layout(PARAMS)
+    assert layout.reserve('none', (0.0, 20.0), [(0.0, 0.0)], 240.0) == 240.0
+    bare = Layout({**PARAMS, 'near': {**PARAMS['near'], 'search': {}}})
+    assert bare.reserve('near', (200.0, 0.0), [(0.0, 0.0)], 240.0) == 240.0
+    # A region next to home: at least the floor.
+    home = Layout({**PARAMS, 'near': {**PARAMS['near'], 'search': {
+        'regions': [{'box': [[-1.0, -1.0], [1.0, 1.0]]}]}}})
+    assert home.reserve('near', (0.0, 0.0), [(0.0, 0.0)], 240.0) == home.exit_floor_s

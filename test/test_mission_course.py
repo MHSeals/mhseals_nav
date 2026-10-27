@@ -483,16 +483,16 @@ def test_the_host_hands_the_trees_its_actuators_and_none_is_on_by_default():
 
 
 @pytest.mark.parametrize('profile, done, skipped', [
-    ('qualifying', ['follow_path', 'docking'], ['speed_challenge', 'supply_drop']),
+    ('qualifying', ['follow_path'], ['docking', 'speed_challenge', 'supply_drop']),
     ('finals', ['follow_path'], ['docking', 'speed_challenge', 'supply_drop'])])
 @pytest.mark.parametrize('course', [COURSE_2026, MIRRORED_2026], ids=['port', 'starboard'])
 def test_the_timeslot_budget_at_field_speed(profile, done, skipped, course):
     """A 900 s slot less 180 s of set-up leaves a 720 s run, which the run states.
 
-    At 0.4 m/s it holds the channel, the debris field and the marina, not the speed
-    run as well: an optional task starts only if it fits before the exit's reserve, by
-    points per second. Finals keeps a minute more for the exit and plans the marina
-    with a margin, so it heads home after the debris field.
+    At 0.4 m/s it holds the channel and the debris field: an optional task starts only
+    if it fits before the exit's reserve. Qualifying's corner-safe reserve (1.2 x the way
+    out from the padded far corner at most 0.35 m/s, plus 30 s) leaves no time for the
+    marina or the speed run; finals keeps the fixed 300 s and heads home there too.
     """
     params = load_params('mission', config_path('mission_2026.yaml'), profile)
     world = Course(params, course=course, speed=0.4)
@@ -657,33 +657,24 @@ def test_the_layout_plans_the_order_and_the_boat_never_stalls_long(course, side)
     assert elapsed < 870.0
 
 
+@pytest.mark.parametrize('speed, done, home', [
+    (0.6, ['docking'], 440.0), (0.4, [], 415.0)], ids=['0.6', '0.4'])
 @pytest.mark.parametrize('course', [COURSE_2026, MIRRORED_2026], ids=['port', 'starboard'])
-def test_every_task_fits_the_timeslot_at_the_speed_policys_transit_speed(course):
-    """Fit every scoring task into qualifying's 720 s run at 0.6 m/s.
+def test_the_corner_safe_reserve_skips_what_may_not_fit_the_timeslot(course, speed, done, home):
+    """What fits qualifying's 720 s run at 0.6 m/s (the speed policy's pace) and 0.4 m/s.
 
-    That is the speed policy's open-water pace, under the 0.8 m/s ceiling. The exit's
-    reserve is sized from the far corner of each task's region at the measured speed:
-    home at ~612 s on both sides, ~108 s to spare.
+    The exit's reserve is 1.2 x the way out from the padded far corner of each task's
+    region at the slower of the measured speed and exit_mps 0.35, plus 30 s. All five
+    tasks do NOT fit: the speed run (its region reaches 80 m out, 60 m aside) is
+    skipped at both speeds.
+    At 0.6 m/s the marina fits, home at ~432 s on both sides; at 0.4 m/s it does not,
+    home at ~408 s. Before (the measured mean, a flat 30 s, unpadded) all five fit at
+    0.6 m/s, home at ~612 s, but a real exit at 0.4 m/s left the speed corner 55 s short.
     """
     params = load_params('mission', config_path('mission_2026.yaml'), 'qualifying')
-    world = Course(params, course=course, **dict(field(), speed=0.6))
-    outcome, elapsed = world.run()
-    completed = [d['stage'] for e, d in world.events if e == 'stage_completed']
-    assert outcome == 'SUCCESS' and len(completed) == 5, completed
-    assert elapsed < 660.0
-
-
-@pytest.mark.parametrize('course, done', [
-    (COURSE_2026, []), (MIRRORED_2026, ['docking'])], ids=['port', 'starboard'])
-def test_at_field_speed_the_corner_safe_reserve_skips_what_may_not_fit(course, done):
-    """At 0.4 m/s in 720 s the far-corner reserve skips the speed run on both sides.
-
-    Port also skips the marina (home at ~408 s); starboard docks (home at ~596 s).
-    """
-    params = load_params('mission', config_path('mission_2026.yaml'), 'qualifying')
-    world = Course(params, course=course, **dict(field(), speed=0.4))
+    world = Course(params, course=course, **dict(field(), speed=speed))
     outcome, elapsed = world.run()
     completed = [d['stage'] for e, d in world.events if e == 'stage_completed']
     assert outcome == 'SUCCESS'
     assert completed == ['nav_channel', 'follow_path', *done, 'return_home']
-    assert elapsed < 660.0
+    assert elapsed < home

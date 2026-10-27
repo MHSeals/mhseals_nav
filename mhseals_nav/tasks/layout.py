@@ -64,8 +64,8 @@ class Layout:
         self.search_s_per_m = float(cfg['search_s_per_m'])
         margin = cfg['exit_margin_s']
         self.exit_margin_s = None if margin is None else float(margin)
-        self.exit_mps = None if cfg['exit_mps'] is None else float(cfg['exit_mps'])
-        self.exit_floor_s = float(cfg['exit_floor_s'])
+        self.exit_mps, self.exit_factor = float(cfg['exit_mps']), float(cfg['exit_factor'])
+        self.exit_floor_s, self.exit_pad_m = float(cfg['exit_floor_s']), float(cfg['exit_pad_m'])
         self.measure_m, self.moving_mps = float(cfg['measure_m']), float(cfg['moving_mps'])
         self.last, self.moved, self.moving = None, 0.0, 0.0
         self.agenda = list(params.get('agenda') or ())
@@ -76,7 +76,8 @@ class Layout:
             labels = [label for key in keys for label in (
                 [task[key]] if isinstance(task.get(key), str) else task.get(key) or ())]
             self.tasks[name] = {'regions': (task.get('search') or {}).get('regions') or [],
-                                'labels': tuple(labels), 'service_s': float(task['service_s'])}
+                                'labels': tuple(labels), 'service_s': float(task['service_s']),
+                                'pad': float(task.get('circle_radius') or 0.0) + self.exit_pad_m}
 
     def observe(self, pose, now):
         """Measure the boat's speed while it moves (the speed policy's, whatever it is)."""
@@ -130,22 +131,32 @@ class Layout:
     def reserve(self, name, end, via, cap, side=None):
         """Return the exit's reserve after task ``name`` ending at ``end``.
 
-        Without ``exit_margin_s`` it is ``cap`` (the fixed ``exit_reserve``). Otherwise it
-        is sized from the worst place the boat can leave from: the farthest (by the way
-        out through ``via``: the entry gates, last first, then home) of ``end`` (the
-        guess, or the boat's own position once known) and every corner of the task's
-        regions on the course ``side`` (both sides while unknown). That way at the slow
-        ``exit_mps`` (None: the boat's measured ``speed``), plus ``exit_margin_s``, at
+        Without ``exit_margin_s``, or for a task with no regions on the course ``side``,
+        it is ``cap`` (the fixed ``exit_reserve``). Otherwise it is sized from the worst
+        place the boat can leave from: the farthest (by the way out through ``via``: the
+        entry gates, last first, then home) of ``end`` (the guess, or the boat's own
+        position once known) and every corner of the task's regions on the course
+        ``side`` (both sides while unknown), each box padded by the task's ``pad`` (its
+        circle radius plus ``exit_pad_m``: a turn round a mark on the box edge, a gate
+        reached from behind). That way at the exit's speed (the slower of the measured
+        ``speed`` and ``exit_mps``: the mean leaves out stops and the exit may be slower,
+        a lower vx_max or a headwind), times ``exit_factor``, plus ``exit_margin_s``, at
         least ``exit_floor_s``; never capped.
         """
-        if self.exit_margin_s is None:
+        task = self.tasks.get(name) or {}
+        pad = task.get('pad', 0.0)
+        corners = [(x, y) for ((x0, y0), (x1, y1)), _ in side_boxes(task.get('regions'), side)
+                   for x in (x0 - pad, x1 + pad) for y in (y0 - pad, y1 + pad)]
+        if self.exit_margin_s is None or not corners:
             return cap
-        places = [tuple(end[:2])] + [
-            (x, y) for ((x0, y0), (x1, y1)), _ in side_boxes(
-                self.tasks.get(name, {}).get('regions'), side)
-            for x in (x0, x1) for y in (y0, y1)]
-        way = max(self.way_out(xy, via, 1.0) for xy in places)
-        return max(self.exit_floor_s, way / (self.exit_mps or self.speed) + self.exit_margin_s)
+        way = max(self.way_out(xy, via, 1.0) for xy in [tuple(end[:2]), *corners])
+        return max(self.exit_floor_s, self.exit_factor * way / self.exit_speed
+                   + self.exit_margin_s)
+
+    @property
+    def exit_speed(self):
+        """Return the speed the exit's reserve is timed at: measured, at most exit_mps."""
+        return min(self.speed, self.exit_mps)
 
     def way_out(self, xy, via, speed=None):
         """Return the seconds from ``xy`` home through ``via`` at ``speed`` (the boat's)."""

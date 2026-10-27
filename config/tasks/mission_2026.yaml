@@ -29,13 +29,16 @@ layout:
   # The exit's reserve after an agenda task (corner-safe dynamic reserve): the way out
   # (back through the entry gates, then home) from the worst place the boat can leave
   # from, the farthest corner of the task's regions on the course side (both while it
-  # is unknown) or where the task ends if farther, at exit_mps (null: the boat's
-  # measured transit speed, transit_mps until measure_m were driven; the exit's speed
-  # until the speed-profile segment speeds land), plus exit_margin_s, at least
-  # exit_floor_s. It covers the far corners the guess-based x1.5 reserve missed (docking
-  # 49 m vs 46 m, speed 102 m vs 92 m). null: always the fixed exit_reserve (finals).
+  # is unknown), each box padded by the task's circle_radius plus exit_pad_m (a turn
+  # round a mark on the edge, a gate reached from behind), or where the task ends if
+  # farther. Timed at the slower of the measured speed and exit_mps (the mean leaves out
+  # stops; the exit may be slower: Nav2's vx_max, headwind), times exit_factor, plus
+  # exit_margin_s, at least exit_floor_s. A task with no regions keeps exit_reserve.
+  # exit_margin_s null: always the fixed exit_reserve (finals). All ASSUMED.
   exit_margin_s: 30.0
-  exit_mps: null
+  exit_factor: 1.2
+  exit_mps: 0.35
+  exit_pad_m: 3.0
   exit_floor_s: 120.0
   search_s_per_m: 3.0
   miss: 0.2               # weight kept by a cell the camera looked at without a find
