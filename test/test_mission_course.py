@@ -659,9 +659,11 @@ def test_the_layout_plans_the_order_and_the_boat_never_stalls_long(course, side)
 
 @pytest.mark.parametrize('course', [COURSE_2026, MIRRORED_2026], ids=['port', 'starboard'])
 def test_every_task_fits_the_timeslot_at_the_speed_policys_transit_speed(course):
-    """With the boat at 0.6 m/s (the speed policy's open-water pace, under the 0.8 m/s
-    ceiling), qualifying fits every scoring task into the 720 s run, home with time to
-    spare: the plan keeps the exit's reserve from where the marina is."""
+    """Fit every scoring task into qualifying's 720 s run at 0.6 m/s.
+
+    That is the speed policy's open-water pace, under the 0.8 m/s ceiling: home with time
+    to spare, as the plan keeps the exit's reserve from where the marina is.
+    """
     params = load_params('mission', config_path('mission_2026.yaml'), 'qualifying')
     world = Course(params, course=course, **dict(field(), speed=0.6))
     outcome, elapsed = world.run()

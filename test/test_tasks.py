@@ -1024,6 +1024,35 @@ def test_a_deadline_is_cut_to_the_budget_written_before_it_starts():
     assert tree.root.feedback_message == 'over 5 s'
 
 
+def test_an_agenda_tasks_budget_is_the_plans_and_keeps_the_no_points_reasons():
+    from mhseals_nav.tasks.trees.mission import Budget
+    py_trees.blackboard.Blackboard.clear()
+    board = py_trees.blackboard.Client(name='world')
+    for key in ('now', 'mission_started', 'plan'):
+        board.register_key(key=key, access=py_trees.common.Access.WRITE)
+    rows = [{'name': 'dock', 'points': 450.0, 'expected_s': 300.0, 'needs': []},
+            {'name': 'drop', 'points': 600.0, 'expected_s': 100.0, 'needs': ['water_gun']},
+            {'name': 'nil', 'points': 0.0, 'expected_s': 10.0, 'needs': []}]
+
+    def verdict(task, plan, planned=True):
+        board.now, board.mission_started, board.plan = 500.0, 0.0, plan
+        leaf = Budget('budget', task, rows, 720.0, 240.0, {}, 'limit', planned)
+        tree = py_trees.trees.BehaviourTree(leaf)
+        tree.setup(report=lambda event, **details: None)
+        tree.tick()
+        limit = py_trees.blackboard.Blackboard.get('/limit')
+        return leaf.status.name, leaf.feedback_message, limit
+
+    # 720 - 500 - 240 leaves no time for 300 s: the plan's own reserve (120 s) does.
+    assert verdict('dock', {'dock': 120.0}) == ('SUCCESS', '', 100.0)
+    assert verdict('dock', {'dock': 120.0}, planned=False)[:2] == (
+        'FAILURE', 'no time for dock: -20 s left')
+    assert verdict('dock', {}) == ('FAILURE', 'no time for dock: -20 s left', 0.0)
+    assert verdict('drop', {'drop': 120.0})[:2] == (
+        'FAILURE', 'drop: capability off (water_gun)')
+    assert verdict('nil', {'nil': 120.0})[:2] == ('FAILURE', 'nil: no points')
+
+
 class FakeGun:
     def __init__(self, outcome):
         self.outcome, self.started, self.stopped = outcome, None, 0

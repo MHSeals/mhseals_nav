@@ -3,17 +3,18 @@
 Built from the handbook and rotation-rule priors and from every observation so far:
 - prior: each task's placement ``regions`` (its search boxes in the start frame, a
   mirrored box counting on both sides until a side cue fixes the course side S);
-- found: a task's own ``labels`` seen inside its regions place it there;
+- found: a task's own labels (the ones its ``tasks`` keys name) seen inside its regions
+  place it there;
 - not found: the cells the camera has looked at (the run's coverage grid, any task's
   looks) keep only ``miss`` of their weight, so the belief moves to what is still unseen.
 
 The mission plans with it: the cost of a task from a place is the travel to where the
 task likely is, a search that grows with how spread out that guess still is, and the
-task's own ``service_s`` (both timed at ``transit_mps``, scaled by the speed measured
-so far); the order of the ``agenda`` tasks is the one that fits the
-most points into the time left, the way out from the last one counted (``plan``), and
-the exit's reserve after each task is what the way out from there needs (``reserve``).
-The search heads for the guess first (``HeadFor``). No ROS, no py_trees: numpy only.
+task's own ``service_s`` (both timed at ``transit_mps``, scaled by the speed measured so
+far); the order of the ``agenda`` tasks is the one that fits the most points into the
+time left, the way out from the last one counted (``plan``), and the exit's reserve
+after each task is what the way out from there needs (``reserve``). The search heads
+for the guess first (``HeadFor``). No ROS, no py_trees: numpy only.
 """
 
 import itertools
@@ -30,7 +31,12 @@ class Guess:
 
 
 def side_boxes(regions, side):
-    """Yield (box, weight) of ``regions`` on the course side: both while ``side`` is None."""
+    """Yield (box, weight) of ``regions`` on the course side: both while ``side`` is None.
+
+    A region is {box: [[x0, y0], [x1, y1]], weight, mirror}; ``mirror`` also counts the
+    box mirrored across the start line (y -> -y), and a known ``side`` (port: y > 0)
+    keeps only the one on that side. Each box is ((x0, y0), (x1, y1)), lowest first.
+    """
     for region in regions or ():
         (x0, y0), (x1, y1) = region['box']
         boxes = [(y0, y1)]
@@ -53,21 +59,23 @@ class Layout:
     """The belief over the mission's tasks; ``params`` is the mission's (its ``layout``)."""
 
     def __init__(self, params):
-        cfg = params.get('layout') or {}
-        self.miss = float(cfg.get('miss', 0.2))
-        self.transit = float(cfg.get('transit_mps', 0.35))
-        self.search_s_per_m = float(cfg.get('search_s_per_m', 3.0))
-        margin = cfg.get('exit_margin')
+        cfg = params['layout']
+        self.miss, self.transit = float(cfg['miss']), float(cfg['transit_mps'])
+        self.search_s_per_m = float(cfg['search_s_per_m'])
+        margin = cfg['exit_margin']
         self.exit_margin = None if margin is None else float(margin)
-        self.exit_floor_s = float(cfg.get('exit_floor_s', 120.0))
-        self.measure_m, self.moving_mps = float(cfg.get('measure_m', 50.0)), 0.05
+        self.exit_floor_s = float(cfg['exit_floor_s'])
+        self.measure_m, self.moving_mps = float(cfg['measure_m']), float(cfg['moving_mps'])
         self.last, self.moved, self.moving = None, 0.0, 0.0
         self.agenda = list(params.get('agenda') or ())
         self.tasks = {}
-        for name, task in (cfg.get('tasks') or {}).items():
-            regions = ((params.get(name) or {}).get('search') or {}).get('regions') or []
-            self.tasks[name] = {'regions': regions, 'labels': tuple(task.get('labels', ())),
-                                'service_s': float(task['service_s'])}
+        for name, keys in cfg['tasks'].items():
+            task = params[name]
+            # The labels the task's own keys name: a label, a list, or a map's keys.
+            labels = [label for key in keys for label in (
+                [task[key]] if isinstance(task.get(key), str) else task.get(key) or ())]
+            self.tasks[name] = {'regions': (task.get('search') or {}).get('regions') or [],
+                                'labels': tuple(labels), 'service_s': float(task['service_s'])}
 
     def observe(self, pose, now):
         """Measure the boat's speed while it moves (the speed policy's, whatever it is)."""
@@ -84,11 +92,7 @@ class Layout:
 
     def grid(self, name, coverage, side):
         """Return the task's weight per coverage cell: its prior, less what was looked at."""
-        weight = np.zeros(coverage.seen.shape)
-        for ((x0, y0), (x1, y1)), w in side_boxes(self.tasks[name]['regions'], side):
-            inx = (coverage.xs >= x0) & (coverage.xs <= x1)
-            iny = (coverage.ys >= y0) & (coverage.ys <= y1)
-            weight[np.ix_(inx, iny)] += w
+        weight = coverage.prior(self.tasks[name]['regions'], side, floor=0.0)
         return np.where(np.isfinite(coverage.seen), weight * self.miss, weight)
 
     def guess(self, name, coverage, tracks, side, min_confidence=0.5):
@@ -123,10 +127,11 @@ class Layout:
             self.search_s_per_m * guess.spread + self.tasks[name]['service_s']), guess.xy)
 
     def reserve(self, xy, via, cap):
-        """Return the exit's reserve from ``xy``: ``exit_margin`` times the way out through
-        ``via`` (the entry gates, last first, then home) at the boat's speed, at least
-        ``exit_floor_s``, never more than ``cap`` (the mission's fixed ``exit_reserve``).
-        Without ``exit_margin`` it is ``cap``.
+        """Return the exit's reserve from ``xy``, at most ``cap`` (the fixed ``exit_reserve``).
+
+        It is ``exit_margin`` times the way out through ``via`` (the entry gates, last
+        first, then home) at the boat's speed, at least ``exit_floor_s``. Without
+        ``exit_margin`` it is ``cap``.
         """
         if self.exit_margin is None:
             return cap

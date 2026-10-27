@@ -15,9 +15,9 @@ taking control (the run is over) or a thruster no-go (the exit's own gate) stops
 import math
 
 from mhseals_nav.tasks import budget
-from mhseals_nav.tasks.search import course_side
 from mhseals_nav.tasks.behaviours import Deadline, Leaf, Navigate, PlanLook, Report
 from mhseals_nav.tasks.conditions import Gate, Watch
+from mhseals_nav.tasks.search import course_side
 from py_trees.common import ParallelPolicy, Status
 from py_trees.composites import Parallel, Selector, Sequence
 from py_trees.decorators import Decorator, FailureIsSuccess, Repeat
@@ -77,7 +77,8 @@ class Budget(Leaf):
         here = [t['name'] for t in self.tasks].index(self.task)
         ok, why = budget.fits(self.task, left, self.tasks[here:], self.capabilities)
         plan = self.board.get('plan') if self.board.exists('plan') else None
-        if self.planned and plan is not None and why.startswith(('no time', f'{self.task} fits')):
+        row = self.tasks[here]
+        if self.planned and plan is not None and budget.value(row, self.capabilities) > 0:
             # An agenda task: the layout's plan, from where it is, with the exit's reserve
             # from where the task ends (never more than the fixed one).
             ok = self.task in plan
@@ -123,7 +124,7 @@ class PlanNext(Leaf):
         via = [*reversed(self.board.get(self.exit_via) or []), self.board.home or pose]
         plan = layout.plan(left, pose, via, time_left, guesses,
                            {name: self.rows[name] for name in left}, self.reserve)
-        order = [name for name in plan] + [n for n in left if n not in plan]
+        order = list(plan) + [n for n in left if n not in plan]
         self.board.set('plan', {name: reserve for name, (_, reserve) in plan.items()},
                        overwrite=True)
         self.board.set('next_task', order[0], overwrite=True)
@@ -224,12 +225,17 @@ def build(params):
     from mhseals_nav.tasks.trees import TREES
     stages, names = [StartClock('start the clock')], params['tasks']
     rows, capabilities = plan(params), params.get('capabilities') or {}
+    agenda = [n for n in params.get('agenda') or () if n in names]
+    # The plan is the layout belief's: an agenda without one would skip all its tasks.
+    assert not agenda or params.get('layout'), 'an agenda needs a layout'
     for index, name in enumerate(names):
         # The mission's search settings (its course area) apply to every task.
         settings = dict(params[name], capabilities=capabilities,
                         search={**(params.get('search') or {}), 'task': name,
                                 **(params[name].get('search') or {})})
         following = names[index + 1] if index + 1 < len(names) else None
+        if name in agenda:  # the plan picks what follows an agenda task
+            following = "the plan's next"
         precise = settings.get('precise', False)
         attempts = Attempts(f'{name} attempts', TREES[name](settings), name,
                             settings.get('attempts', 1))
@@ -242,7 +248,7 @@ def build(params):
         task = Deadline(f'{name} time', watched, settings['time_limit'], limit_key=limit)
         admit = [Budget(f'{name} budget', name, rows, params['timeout'],
                         params['exit_reserve'], capabilities, limit,
-                        name in (params.get('agenda') or ()))] if limit else []
+                        name in agenda)] if limit else []
         attempt = Sequence(f'{name} attempt', memory=True, children=[
             *admit,
             Report(f'{name} start', 'stage_started', stage=name),
@@ -262,7 +268,6 @@ def build(params):
                            reason=f'skipping {name}'
                            + (f': on to {following}' if following else '')),
                 ])]))
-    agenda = [n for n in params.get('agenda') or () if n in names]
     if agenda:
         at = [i for i, n in enumerate(names) if n in agenda]
         assert at == list(range(at[0], at[0] + len(at))), 'the agenda is a run of tasks'

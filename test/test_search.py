@@ -262,3 +262,23 @@ def test_the_cue_weights_are_reused_while_the_gate_tracks_jitter():
     world.board.tracks = [live('red_buoy', 57, 40), live('green_buoy', 59, 40)]
     leaf.prior()
     assert leaf.cfg['_weight'] is not weight  # another gate: weighed again
+
+
+def test_head_for_follows_a_moving_guess_only_head_moves_times(cfg):
+    from mhseals_nav.tasks.layout import Guess
+
+    class Drifting:  # each look moves the guess on, as an unseen region's weight does
+        def __init__(self):
+            self.y = 0.0
+
+        def guess(self, task, coverage, tracks, side, min_confidence):
+            self.y += 10.0
+            return Guess((30.0, self.y), 8.0, False)
+
+    cfg = dict(cfg, task='dock')
+    world = World(search.HeadFor('head', ['red'], cfg), cfg, travel=10 ** 6)
+    world.board.register_key(key='layout', access=Access.WRITE)
+    world.board.layout = Drifting()
+    assert world.run(ticks=2000) == 'FAILURE'
+    assert len(world.goals) == 1 + cfg['head_moves']
+    assert all(g.why.startswith('head for the likely dock') for g in world.goals)

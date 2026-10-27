@@ -48,6 +48,7 @@ lead_dwell_s: 0.5         # s held there first, so the camera gets a look
 task: null
 head_standoff: 0.6        # of the camera range, short of the guess, facing it
 head_replan: 6.0          # m the guess must move before the goal follows it
+head_moves: 3             # times it follows the guess before the other strategies take over
 
 # Sweep: the bounded fallback, one route.
 pattern: auto             # lawnmower | expanding_square | auto: lawnmower with an area

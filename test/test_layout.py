@@ -8,15 +8,17 @@ import numpy as np
 import pytest
 
 pytest.importorskip('py_trees')
-from mhseals_nav.tasks.search import Coverage  # noqa: E402
+from mhseals_nav.tasks.search import Coverage  # noqa: E402, I100
 
+LAYOUT = {'transit_mps': 0.5, 'search_s_per_m': 2.0, 'miss': 0.2, 'exit_margin': 1.5,
+          'exit_floor_s': 60.0, 'measure_m': 50.0, 'moving_mps': 0.05,
+          'tasks': {'far': ['mark'], 'near': ['landmarks']}}
 PARAMS = {
-    'layout': {'transit_mps': 0.5, 'search_s_per_m': 2.0, 'miss': 0.2, 'exit_margin': 1.5,
-               'exit_floor_s': 60.0,
-               'tasks': {'far': {'labels': ['yellow_buoy'], 'service_s': 100.0},
-                         'near': {'labels': ['banner_1'], 'service_s': 50.0}}},
-    'far': {'search': {'regions': [{'box': [[20.0, 10.0], [60.0, 50.0]], 'mirror': True}]}},
-    'near': {'search': {'regions': [{'box': [[-10.0, 5.0], [10.0, 25.0]], 'mirror': True}]}},
+    'layout': LAYOUT,
+    'far': {'mark': 'yellow_buoy', 'service_s': 100.0,
+            'search': {'regions': [{'box': [[20.0, 10.0], [60.0, 50.0]], 'mirror': True}]}},
+    'near': {'landmarks': ['banner_1'], 'service_s': 50.0,
+             'search': {'regions': [{'box': [[-10.0, 5.0], [10.0, 25.0]], 'mirror': True}]}},
 }
 
 
@@ -50,7 +52,8 @@ def test_looking_without_a_find_moves_the_guess_to_what_is_unseen():
 def test_the_plan_fits_the_most_points_and_ends_near_the_way_out():
     layout, grid = Layout(PARAMS), cover()
     guesses = {n: layout.guess(n, grid, [], 'port') for n in ('far', 'near')}
-    rows = {'far': {'value': 600.0, 'expected_s': 0.0}, 'near': {'value': 450.0, 'expected_s': 0.0},
+    rows = {'far': {'value': 600.0, 'expected_s': 0.0},
+            'near': {'value': 450.0, 'expected_s': 0.0},
             'off': {'value': 0.0, 'expected_s': 1.0}}
     via = [(20.0, 0.0), (0.0, 0.0)]
     plan = layout.plan(['near', 'far', 'off'], (30.0, 0.0), via, 2000.0, guesses, rows, 240.0)
@@ -71,3 +74,50 @@ def test_the_cost_scales_with_the_speed_the_boat_is_measured_at():
     assert layout.speed == pytest.approx(1.0)
     assert layout.cost('near', (40.0, 0.0), guess, 0.0)[0] == pytest.approx(slow / 2.0)
     assert layout.cost('none', (1.0, 2.0), None, 99.0) == (99.0, (1.0, 2.0))
+
+
+def test_the_belief_and_the_search_share_one_prior():
+    layout, grid = Layout(PARAMS), cover()
+    regions = PARAMS['far']['search']['regions']
+    for side in (None, 'port', 'starboard'):
+        assert np.array_equal(layout.grid('far', grid, side), grid.prior(regions, side, 0.0))
+    assert grid.region_area(regions) is None  # mirrored: the side first
+    (x0, y0), (x1, y1) = grid.region_area(regions, 'starboard')
+    assert (x0, y0, x1, y1) == (20.0, -50.0, 60.0, -10.0)
+    (view,) = grid.region_views(regions, (0.0, 0.0, 0.0), 10.0, 'starboard')
+    assert view[1] < 0
+    assert len(grid.region_views(regions, (0.0, 0.0, 0.0), 10.0)) == 2
+
+
+def test_the_mission_yaml_is_the_only_source_and_finals_keep_the_fixed_reserve():
+    from mhseals_nav.tasks.params import config_path, load_params
+    params = load_params('mission', config_path('mission_2026.yaml'), 'qualifying')
+    layout = Layout(params)
+    assert layout.tasks['docking']['labels'] == tuple(params['docking']['landmarks'])
+    assert layout.tasks['speed_challenge']['labels'] == (
+        'yellow_buoy', *params['speed_challenge']['indicators'])
+    assert layout.reserve((0.0, 20.0), [(0.0, 0.0)], 240.0) == layout.exit_floor_s
+    with pytest.raises(KeyError):
+        Layout({**params, 'layout': {k: v for k, v in params['layout'].items()
+                                     if k != 'miss'}})
+    finals = Layout(load_params('mission', config_path('mission_2026.yaml'), 'finals'))
+    assert finals.exit_margin is None
+    assert finals.reserve((200.0, 200.0), [(0.0, 0.0)], 300.0) == 300.0
+    assert finals.reserve((0.0, 1.0), [(0.0, 0.0)], 300.0) == 300.0
+
+
+def test_the_reserve_covers_a_task_that_ends_a_spread_beyond_its_guess():
+    """The reserve is planned from the guess; the task may end a spread further out."""
+    from mhseals_nav.tasks.params import config_path, load_params
+    params = load_params('mission', config_path('mission_2026.yaml'), 'qualifying')
+    layout, grid = Layout(params), cover()
+    via = [(25.0, 0.0), (10.0, 0.0), (0.0, 0.0)]  # the entry gates, last first, then home
+    for name in ('docking', 'speed_challenge'):
+        for side in ('port', 'starboard'):
+            guess = layout.guess(name, grid, [], side)
+            out = math.dist(guess.xy, via[0])
+            end = tuple(np.add(via[0], np.subtract(guess.xy, via[0])
+                               * (out + guess.spread) / out))
+            way = sum(math.dist(a, b) for a, b in zip([end, *via], via))
+            reserve = layout.reserve(guess.xy, via, math.inf)
+            assert reserve >= way / layout.speed, (name, side, reserve, way)

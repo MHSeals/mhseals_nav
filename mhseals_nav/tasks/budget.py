@@ -1,10 +1,12 @@
 """The run's time budget: which tasks still fit, by points per second, before the exit.
 
-Phase 1 keeps the fixed task order. Before each optional task starts, ``fits`` asks
-whether it is among the tasks worth the time left: the exit's ``reserve`` comes off
-first, then the remaining tasks are kept in order of points per expected second until
-their expected times fill what is left. A task whose capability is off (a delivery
-actuator not built yet) is worth no points and never fits.
+Tasks run in the mission's order, but for its ``agenda``: those go in the order the
+course-layout belief plans (tasks/layout.py), which also replaces ``fits``'s verdict for
+them with its own (the exit's reserve from where each ends). Before each optional task
+starts, ``fits`` asks whether it is among the tasks worth the time left: the exit's
+``reserve`` comes off first, then the remaining tasks are kept in order of points per
+expected second until their expected times fill what is left. A task whose capability
+is off (a delivery actuator not built yet) is worth no points and never fits.
 """
 
 

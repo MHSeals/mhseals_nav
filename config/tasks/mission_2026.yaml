@@ -17,13 +17,15 @@ mandatory: [return_home]
 # least time with the way home, re-planned as each one ends.
 agenda: [docking, speed_challenge, supply_drop]
 # The belief: each task's prior is its search `regions` (handbook and rotation rules),
-# moved by what the camera has seen; `labels` seen inside them place the task. A task's
-# cost from a place: travel at transit_mps (the speed measured once measure_m were
-# driven), search_s_per_m per m of the guess's spread, and its own service_s (kinematic
-# 0.4 m/s runs, seed 1, both sides; both scale with the measured speed).
+# moved by what the camera has seen; the labels its `tasks` keys name (in the task's own
+# block) seen inside them place the task. A task's cost from a place: travel at
+# transit_mps (the speed measured over moves of at least moving_mps, once measure_m
+# were driven), search_s_per_m per m of the guess's spread, and the task's own
+# service_s (kinematic 0.4 m/s runs, seed 1, both sides; both scale with the speed).
 layout:
   transit_mps: 0.35
   measure_m: 50.0
+  moving_mps: 0.05
   # The exit's reserve after an agenda task: exit_margin x the way out from where it
   # ends (back through the entry gates, then home) at the measured speed, at least
   # exit_floor_s, never more than exit_reserve. null: always exit_reserve.
@@ -31,11 +33,7 @@ layout:
   exit_floor_s: 120.0
   search_s_per_m: 3.0
   miss: 0.2               # weight kept by a cell the camera looked at without a find
-  tasks:
-    docking: {labels: [banner_1, banner_2, banner_3, red_light_beacon, green_light_beacon],
-              service_s: 70.0}
-    speed_challenge: {labels: [yellow_buoy, red_buoy, green_buoy, red_light_sign,
-                               green_light_sign], service_s: 110.0}
+  tasks: {docking: [landmarks], speed_challenge: [mark, indicators]}
 # Actuators not built yet (tasks/actuators.py): a task needing only these is worth 0.
 capabilities: {water_gun: false, ball_dropper: false, horn: false}
 start_look_deg: 90.0    # turn to each side at the start: the marina lies beside it
@@ -70,6 +68,7 @@ docking:
   bay_depth: 2.4
   points: 450.0           # lowest green slip 350, report 100
   expected_s: 150.0
+  service_s: 70.0         # the belief's: once found (layout)
   # The marina lies beside the entry, on side S (unknown until seen): both sides.
   search:
     regions: [{box: [[-15.0, 6.0], [15.0, 30.0]], weight: 4.0, mirror: true}]
@@ -82,6 +81,7 @@ speed_challenge:
   count: black_buoy
   points: 600.0           # loop 200, direction 150, time up to 250 - T... (report 100 not yet)
   expected_s: 380.0       # cue-led search: 292 s port, 280 s starboard (~190 s search, 99 s run)
+  service_s: 110.0        # the belief's: once found (layout)
   # The turn mark is 12-31 m past its red/green gate; the harbor buoy has no gate.
   pair: {label: yellow_buoy, with: [red_buoy, green_buoy], min: 10.0, max: 33.0}
   # Beyond entry gate 2 on side S (fixed by the marina once seen), any heading.

@@ -93,17 +93,10 @@ class Coverage:
         keeps only the box on that side.
         """
         grid = np.full(self.seen.shape, float(floor))
-        for region in regions or ():
-            (x0, y0), (x1, y1) = region['box']
-            boxes = [(y0, y1)]
-            if region.get('mirror'):
-                boxes.append((-y1, -y0))
-                if side is not None:
-                    boxes = [b for b in boxes if (b[0] + b[1] > 0) == (side == 'port')]
-            inx = (self.xs >= min(x0, x1)) & (self.xs <= max(x0, x1))
-            for lo, hi in boxes:
-                iny = (self.ys >= min(lo, hi)) & (self.ys <= max(lo, hi))
-                grid[np.ix_(inx, iny)] += region.get('weight', 1.0)
+        for ((x0, y0), (x1, y1)), weight in layout.side_boxes(regions, side):
+            inx = (self.xs >= x0) & (self.xs <= x1)
+            iny = (self.ys >= y0) & (self.ys <= y1)
+            grid[np.ix_(inx, iny)] += weight
         return grid
 
     def region_area(self, regions, side=None):
@@ -111,15 +104,9 @@ class Coverage:
 
         None without regions, or while a mirrored region's side is still unknown.
         """
-        boxes = []
-        for region in regions or ():
-            (x0, y0), (x1, y1) = region['box']
-            if region.get('mirror'):
-                if side is None:
-                    return None
-                if side != 'port':
-                    y0, y1 = -y1, -y0
-            boxes.append((min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1)))
+        if side is None and any(r.get('mirror') for r in regions or ()):
+            return None
+        boxes = [(*lo, *hi) for (lo, hi), _ in layout.side_boxes(regions, side)]
         if not boxes:
             return None
         (ax0, ay0), (ax1, ay1) = self.area
@@ -140,19 +127,14 @@ class Coverage:
     def region_views(self, regions, pose, rng, side=None):
         """Return a view pose per prior region box: ``rng`` back from its centre, facing it."""
         views = []
-        for region in regions or ():
-            (x0, y0), (x1, y1) = region['box']
-            for sign in ((1, -1) if region.get('mirror') else (1,)):
-                centre = ((x0 + x1) / 2, sign * (y0 + y1) / 2)
-                if region.get('mirror') and side is not None and (
-                        (centre[1] > 0) != (side == 'port')):
-                    continue
-                if math.dist(centre, pose[:2]) <= rng:
-                    view = (pose[0], pose[1], geometry.heading(pose, centre))
-                else:
-                    view = view_pose(centre, pose, rng)
-                if self.contains(view):
-                    views.append(view)
+        for ((x0, y0), (x1, y1)), _ in layout.side_boxes(regions, side):
+            centre = ((x0 + x1) / 2, (y0 + y1) / 2)
+            if math.dist(centre, pose[:2]) <= rng:
+                view = (pose[0], pose[1], geometry.heading(pose, centre))
+            else:
+                view = view_pose(centre, pose, rng)
+            if self.contains(view):
+                views.append(view)
         return views
 
     def bearing_gaps(self, pose, fov, spread, direction, min_gain=1.0, prefer=None,
@@ -429,15 +411,17 @@ class SearchLeaf(Driver):
 class HeadFor(SearchLeaf):
     """Drive to a view of where the course-layout belief puts the search's ``task``.
 
-    A seen cue gate (``pair``) narrows it to the stretch past the gate. The view stands ``head_standoff`` of the camera range short of the guess and faces
-    it, so the camera is on the likely place all the way in; the goal moves only when
-    the guess moves ``head_replan`` m (what the camera has passed counts against it).
-    Done (FAILURE: on to the other strategies) on arrival, or with no guess.
+    A seen cue gate (``pair``) narrows it to the stretch past the gate. The view stands
+    ``head_standoff`` of the camera range short of the guess and faces it, so the camera
+    is on the likely place all the way in; the goal moves only when the guess moves
+    ``head_replan`` m (what the camera has passed counts against it), at most
+    ``head_moves`` times. Done (FAILURE: on to the other strategies) on arrival, with no
+    guess, or when the guess would move once more.
     """
 
     def initialise(self):
         super().initialise()
-        self.checked = None
+        self.checked, self.moves = None, 0
 
     def step(self, state):
         board, cfg = self.board, self.cfg
@@ -455,7 +439,8 @@ class HeadFor(SearchLeaf):
         pair, cues = cfg.get('pair') or {}, cfg.get('_cues') or ()
         if cues:  # the target lies past a seen gate: the middle of that stretch
             gate = min(cues, key=lambda g: math.dist(g[:2], board.pose[:2]))
-            spot, why = geometry.forward(gate, (pair['min'] + pair['max']) / 2)[:2], 'past the gate'
+            spot = geometry.forward(gate, (pair['min'] + pair['max']) / 2)[:2]
+            why = 'past the gate'
         elif guess is not None and not guess.found:
             spot, why = guess.xy, f'the likely {task} ({guess.spread:.0f} m spread)'
         else:
@@ -465,6 +450,10 @@ class HeadFor(SearchLeaf):
         if self.target is None and math.dist(spot, board.pose[:2]) <= standoff + cfg['lead']:
             return Status.FAILURE  # already where the spot is best seen from
         if self.target is None or math.dist(view[:2], self.target[:2]) > cfg['head_replan']:
+            if self.target is not None:
+                if self.moves >= cfg['head_moves']:
+                    return Status.FAILURE  # the guess keeps moving: the others sweep it
+                self.moves += 1
             self.send([view], f'head for {why}')
         return Status.RUNNING
 
@@ -601,8 +590,8 @@ class Found(Leaf):
         return Status.SUCCESS if hit else Status.FAILURE
 
 
-STRATEGIES = (('head_for', HeadFor), ('priors', LookAtPriors), ('scan', Scan), ('next_view', NextView),
-              ('sweep', Sweep))
+STRATEGIES = (('head_for', HeadFor), ('priors', LookAtPriors), ('scan', Scan),
+              ('next_view', NextView), ('sweep', Sweep))
 
 
 def load_config(overrides=None):
