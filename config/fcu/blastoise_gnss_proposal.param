@@ -25,21 +25,8 @@ GPS1_RATE_MS,100
 # Measurement lag the EKF compensates. 0 = the driver's default, which for a DroneCAN GPS is the
 # generic 200 ms (GPS_Backend.h); the serial u-blox driver uses 120 ms for an F9 (AP_GPS_UBLOX.cpp).
 GPS1_DELAY_MS,120
-# Lever arms in FRD metres from base_link (the FCU's body origin): gps_link and imu_link of
-# description/blastoise/blastoise.xacro with y and z negated (test_fcu_lever_arms pins them).
-# Owner's tape of 2026-11-01 (+-13 mm); the antenna-forward / Cube-aft reading of the x words.
-GPS1_POS_X,0.070
-GPS1_POS_Y,0.121
-GPS1_POS_Z,-0.095
-# The IMU offset makes base_link the body origin, so GPS1_POS_* above are from base_link too;
-# the Cube's three IMUs share the board.
-INS_POS1_X,-0.057
-INS_POS1_Y,0.102
-INS_POS1_Z,-0.095
-INS_POS2_X,-0.057
-INS_POS2_Y,0.102
-INS_POS2_Z,-0.095
-INS_POS3_X,-0.057
-INS_POS3_Y,0.102
-INS_POS3_Z,-0.095
+# Lever arms (GPS1_POS_*, INS_POS1..3_*) are not pinned here: the URDF is their one source. Print
+# them with `python3 -m mhseals_nav.robot_geometry` (FRD metres from base_link, gps_link and imu_link
+# of description/blastoise/blastoise.xacro with y and z negated; test_fcu_lever_arms checks them).
+# The IMU offset makes base_link the body origin, so GPS1_POS_* are from base_link too.
 # Unchanged on purpose: GPS_INJECT_TO 127 (corrections reach the Here4), GPS1_TYPE 9, GPS_AUTO_CONFIG 1.

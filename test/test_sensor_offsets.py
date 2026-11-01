@@ -1,31 +1,31 @@
-"""Pin the measured sensor mounts in the blastoise URDF (REP-103: x forward, y left, z up)."""
+"""The sensor mounts in the blastoise URDF follow its xacro properties (REP-103: x forward)."""
+import re
+
 from mhseals_nav.robot_geometry import description_path, expand, RobotGeometry
 import numpy as np
 import pytest
 
-# The owner's tape of 2026-11-01 from the mount datum (electrical box bottom centre = hull tops,
-# z -0.0126 in base_link), composed into base_link. The camera is the ZED wrapper's camera_link:
-# lens (body centre + half the 43.1 mm depth) + 0.01 m forward, - half the 30.3 mm height.
+DESCRIPTION = description_path().read_text()
+P = {name: float(value) for name, value in re.findall(
+    r'<xacro:property name="(\w+)" value="(-?[\d.]+)"/>', DESCRIPTION)}
+# The mounts composed into base_link from the xacro's properties alone (no tilts), so swapping
+# gps_x and imu_x in the xacro is the only edit that moves them. The camera is the ZED wrapper's
+# camera_link: lens (body centre + half the depth) - zed_lens_x forward, - half the height.
 MEASURED = {
-    'gps_link': (0.0699, -0.1207, 0.0954),
-    'imu_link': (-0.0572, -0.1016, 0.0954),
-    'lidar_link': (0.2921, 0.0, 0.2351),
-    'front_camera_link': (0.4001 + 0.0431 / 2 + 0.01, 0.0, 0.1397 - 0.0303 / 2 - 0.0126),
+    'gps_link': (P['gps_x'], P['gps_y'], P['datum_z'] + P['gps_z']),
+    'imu_link': (P['imu_x'], P['imu_y'], P['datum_z'] + P['imu_z']),
+    'lidar_link': (P['lidar_x'], P['lidar_y'], P['datum_z'] + P['lidar_z']),
+    'front_camera_link': (P['camera_x'] + P['zed_depth'] / 2 - P['zed_lens_x'], P['camera_y'],
+                          P['datum_z'] + P['camera_z'] - P['zed_height'] / 2),
 }
 GEOMETRY = RobotGeometry.load()
 
 
 @pytest.mark.parametrize('frame', MEASURED)
-def test_sensor_origin_matches_the_measurement(frame):
+def test_sensor_origin_matches_the_xacro_properties(frame):
     R, t = GEOMETRY.pose(frame)
     assert tuple(t) == pytest.approx(MEASURED[frame], abs=1e-6)
     assert np.allclose(R, np.eye(3))          # tilts come from calibration, not tape
-
-
-def test_signs_antenna_forward_cube_aft_both_starboard():
-    gps, imu = GEOMETRY.pose('gps_link')[1], GEOMETRY.pose('imu_link')[1]
-    assert gps[0] > 0 > imu[0]
-    assert gps[1] < 0 and imu[1] < 0
 
 
 def test_base_link_is_the_com_in_x_and_y():

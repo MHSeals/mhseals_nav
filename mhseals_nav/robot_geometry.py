@@ -13,12 +13,26 @@ import xml.etree.ElementTree as ET
 
 import numpy as np
 
-DESCRIPTION = Path(__file__).resolve().parents[1] / 'description'
+SOURCE_DESCRIPTION = Path(__file__).resolve().parents[1] / 'description'
 XACRO = '{http://www.ros.org/wiki/xacro}'
 
 
+def description_dir():
+    """The installed package's share/mhseals_nav/description, else the source tree's.
+
+    A plain install puts this module in site-packages, so ``__file__`` finds the description
+    only for a symlink install or a source checkout (the tests).
+    """
+    try:
+        from ament_index_python.packages import get_package_share_directory
+        share = Path(get_package_share_directory('mhseals_nav')) / 'description'
+    except Exception:       # ament missing or the package not installed
+        return SOURCE_DESCRIPTION
+    return share if share.is_dir() else SOURCE_DESCRIPTION
+
+
 def description_path(robot='blastoise'):
-    return DESCRIPTION / robot / f'{robot}.xacro'
+    return description_dir() / robot / f'{robot}.xacro'
 
 
 def rpy_matrix(roll, pitch, yaw):
@@ -126,3 +140,20 @@ class RobotGeometry:
         T = np.eye(4)
         T[:3, :3], T[:3, 3] = R, t
         return T
+
+
+def fcu_lever_arms(geometry=None):
+    """ArduPilot lever arms (FRD metres from base_link, to the mm) from the URDF."""
+    geometry = geometry or RobotGeometry.load()
+    out = {}
+    for prefixes, frame in [(['GPS1_POS'], 'gps_link'),
+                            (['INS_POS1', 'INS_POS2', 'INS_POS3'], 'imu_link')]:
+        x, y, z = geometry.pose(frame)[1]
+        for prefix in prefixes:
+            out.update({f'{prefix}_X': round(x, 3) + 0.0, f'{prefix}_Y': round(-y, 3) + 0.0,
+                        f'{prefix}_Z': round(-z, 3) + 0.0})
+    return out
+
+
+if __name__ == '__main__':
+    print('\n'.join(f'{name},{value:.3f}' for name, value in fcu_lever_arms().items()))

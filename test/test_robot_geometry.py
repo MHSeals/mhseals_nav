@@ -4,6 +4,7 @@ import math
 from mhseals_nav import robot_geometry as rg
 import numpy as np
 import pytest
+from test_sensor_offsets import P
 
 TEXT = rg.description_path().read_text()
 
@@ -33,7 +34,8 @@ def test_an_unknown_property_is_refused():
 
 def test_pose_composes_rotations_in_urdf_order():
     g = rg.RobotGeometry.load(properties={'box_rpy': f'0 0 {math.pi / 2}'})
-    assert g.pose('gps_link')[1][:2] == pytest.approx([0.1207, 0.0699])   # yawed about the datum
+    # yawed about the datum
+    assert g.pose('gps_link')[1][:2] == pytest.approx([-P['gps_y'], P['gps_x']])
 
 
 def test_matrix_quaternion_round_trips_through_lidar_fusion():

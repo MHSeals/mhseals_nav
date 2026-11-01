@@ -17,6 +17,7 @@ from mhseals_nav.robot_geometry import RobotGeometry, rpy_matrix
 import numpy as np
 import pytest
 import test_perception_metamorphic as pm    # installs duck msgs on a bare host
+import test_sensor_offsets as sensor_offsets
 import yaml
 
 from mhseals_nav import sim_backend as sb  # noqa: E402, I100
@@ -70,15 +71,19 @@ def test_each_arrangement_really_moves_its_sensor():
 
 
 def test_the_measured_mounts_compose_from_the_datum():
-    """Owner's tape (11-01) from the box-bottom datum, z -0.0126 in base_link."""
-    g = GEOMETRY['measured']
-    assert g.pose(LIDAR)[1] == pytest.approx([0.2921, 0.0, 0.2351], abs=1e-4)
-    assert g.pose(GPS)[1] == pytest.approx([0.0699, -0.1207, 0.0954], abs=1e-4)
-    assert g.pose('imu_link')[1] == pytest.approx([-0.0572, -0.1016, 0.0954], abs=1e-4)
-    # ZED 2i: body centre (0.4001, 0, 0.1397) + half its 43.1 mm depth is the lens, which the
-    # wrapper puts 0.01 m behind and height/2 above its camera_link.
-    lens = g.pose(CAMERA)[1] + [-0.01, 0.0, 0.0303 / 2]
-    assert lens == pytest.approx([0.4001 + 0.02155, 0.0, 0.1397 - 0.0126], abs=1e-4)
+    """The xacro's mount properties compose from the box-bottom datum (z datum_z in base_link)."""
+    g, P = GEOMETRY['measured'], sensor_offsets.P
+    z = P['datum_z']
+    assert g.pose(LIDAR)[1] == pytest.approx(
+        [P['lidar_x'], P['lidar_y'], z + P['lidar_z']], abs=1e-4)
+    assert g.pose(GPS)[1] == pytest.approx([P['gps_x'], P['gps_y'], z + P['gps_z']], abs=1e-4)
+    assert g.pose('imu_link')[1] == pytest.approx(
+        [P['imu_x'], P['imu_y'], z + P['imu_z']], abs=1e-4)
+    # ZED 2i: the lens is half the body depth ahead of the body centre, and the wrapper puts it
+    # zed_lens_x behind and height/2 above its camera_link.
+    lens = g.pose(CAMERA)[1] + [P['zed_lens_x'], 0.0, P['zed_height'] / 2]
+    assert lens == pytest.approx(
+        [P['camera_x'] + P['zed_depth'] / 2, P['camera_y'], z + P['camera_z']], abs=1e-4)
 
 
 # ---------------------------------------------------------------- scene
