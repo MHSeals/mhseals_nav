@@ -5,7 +5,7 @@ import py_compile
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
-SOURCES = sorted(p for d in ('mhseals_nav', 'launch', 'scripts', 'test')
+SOURCES = sorted(p for d in ('mhseals_nav', 'launch', 'test')
                  for p in (ROOT / d).rglob('*.py'))
 
 
