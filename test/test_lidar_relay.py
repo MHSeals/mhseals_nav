@@ -32,6 +32,21 @@ def test_decimation_preserves_all_interleaved_vlp16_rings():
     assert reduced.row_step == reduced.width*reduced.point_step
 
 
+def test_decimation_drops_no_return_padding_before_the_stride():
+    from sensor_msgs.msg import PointCloud2, PointField
+    fields = [PointField(name='x', offset=0, datatype=7, count=1),
+              PointField(name='ring', offset=4, datatype=4, count=1)]
+    # An organized scan: 1600 points, every 20th a return, the rest NaN padding.
+    data = b''.join(struct.pack('<fH', float(i) if i % 20 == 0 else math.nan, i % 16)
+                    for i in range(1600))
+    cloud = PointCloud2(height=16, width=100, point_step=6, row_step=600, fields=fields,
+                        is_bigendian=False, is_dense=False, data=data)
+    reduced = decimate(cloud, 80*6)
+    xs = [struct.unpack_from('<f', bytes(reduced.data), i*6)[0] for i in range(reduced.width)]
+    assert xs == [float(i) for i in range(0, 1600, 20)]   # all 80 returns, no padding
+    assert reduced.height == 1 and reduced.is_dense and reduced.row_step == len(reduced.data)
+
+
 def test_reader_keeps_latest_scan_without_reliable_network_backpressure():
     from rclpy.qos import ReliabilityPolicy
     from mhseals_nav.lidar_relay import _qos

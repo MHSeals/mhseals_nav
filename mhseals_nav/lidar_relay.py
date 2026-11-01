@@ -17,10 +17,38 @@ import sys
 from ament_index_python.packages import get_package_share_directory
 
 
+def finite(message):
+    """Drop the no-return points (non-finite x) an organized VLP16 cloud pads every column with.
+
+    Over open water ~99% of an organized scan is padding (11-01: 13 of 1390 decimated points
+    were returns), so the stride below would otherwise throw away real returns to carry NaNs.
+    A cloud without a float32 x field passes unchanged.
+    """
+    import numpy as np
+    try:
+        x = next(f for f in message.fields if f.name == 'x' and f.datatype == 7)  # 7: FLOAT32
+    except (TypeError, StopIteration):
+        return message
+    step, count = message.point_step, message.width * message.height
+    if step <= 0 or not count:
+        return message
+    rows = np.frombuffer(bytes(message.data), dtype=np.uint8, count=count * step).reshape(count, step)
+    values = rows[:, x.offset:x.offset + 4].copy().view('>f4' if message.is_bigendian else '<f4')[:, 0]
+    keep = np.isfinite(values)
+    if keep.all():
+        return message
+    data = rows[keep].tobytes()
+    return type(message)(
+        header=message.header, height=1, width=int(keep.sum()), fields=message.fields,
+        is_bigendian=message.is_bigendian, point_step=step, row_step=len(data), data=data,
+        is_dense=True)
+
+
 def decimate(message, max_bytes):
     # A VLP16 cloud is ~642 KiB, which the default UDP transport cannot carry
     # reliably. Keep whole points at an even stride so the fields, frame and
     # PointCloud2 contract stay unchanged for costmaps and RViz.
+    message = finite(message)
     if not max_bytes or len(message.data) <= max_bytes or message.point_step <= 0:
         return message
     step = message.point_step
