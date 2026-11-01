@@ -10,7 +10,7 @@
 /**:
   ros__parameters:
     heartbeat_topic: /operator/heartbeat
-    operator_hosts: [tranquility]      # host names the operator station publishes
+    operator_hosts: [tranquility, dingus]   # host names an operator station publishes (dingus: 11-01 temporary)
     command_topic: /cmd_vel            # Nav2 -> command_mux auto input
     request_topic: /command_mux/request
     cause: operator_link
