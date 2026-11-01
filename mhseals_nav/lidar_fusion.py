@@ -122,9 +122,12 @@ def water_mask(pb, cfg):
     Specular multipath off the water lands below the water plane at any range (under a real
     buoy, where it can win the near-face median). The plane tilts down by mirror_tilt_deg
     with range: TF is 2-D, so this covers wave pitch and roll.
+    With mirror_cut off only the near-field surface cut applies (the behaviour before it).
     """
     rho = np.hypot(pb[:, 0], pb[:, 1])
     surface = (rho < cfg['water_range_m']) & (pb[:, 2] < cfg['water_z_m'] + 0.05)
+    if not cfg['mirror_cut']:
+        return ~surface
     mirror = pb[:, 2] < cfg['water_z_m'] - cfg['mirror_margin_m'] - \
         rho * math.tan(cfg['mirror_tilt_deg'] * DEG)
     return ~(surface | mirror)
@@ -344,6 +347,13 @@ def overlap(cl, box):
     return iou_x(cl.u0, cl.u1, box.u0 - box.e_u, box.u1 + box.e_u)
 
 
+def v_overlap(cl, box, ctx):
+    """Rows of the cluster meet the widened box: touching (a one-row cluster) counts only
+    with ray_mode or single_point on, so with both off association is unchanged."""
+    d = min(cl.v1, box.v1 + box.e_v) - max(cl.v0, box.v0 - box.e_v)
+    return d >= 0 if ctx.cfg['ray_mode'] or ctx.cfg['single_point'] else d > 0
+
+
 STAGES = ('points', 'overlap', 'height', 'range', 'width')     # pair tests, in order
 
 
@@ -354,7 +364,7 @@ def pair_cost(cl, box, ctx):
     if cl.n < n_floor(cl, box, ctx):
         return None, 'points'
     iou = overlap(cl, box)
-    if iou < cfg['iou_min'] or min(cl.v1, box.v1 + box.e_v) - max(cl.v0, box.v0 - box.e_v) < 0:
+    if iou < cfg['iou_min'] or not v_overlap(cl, box, ctx):
         return None, 'overlap'
     if tall(cl, box, ctx):
         return None, 'height'
@@ -371,7 +381,7 @@ def part_of(cl, box, ctx):
     """Test a cluster as a merged box's part: overlap counted over the cluster only."""
     inside = min(cl.u1, box.u1 + box.e_u) - max(cl.u0, box.u0 - box.e_u)
     return inside >= 0.5 * cl.w and cl.n >= n_floor(cl, box, ctx) and not tall(cl, box, ctx) and \
-        min(cl.v1, box.v1 + box.e_v) - max(cl.v0, box.v0 - box.e_v) >= 0 and \
+        v_overlap(cl, box, ctx) and \
         abs(cl.rho + box.near - box.rho) < 3 * box.sigma_s + ctx.cfg['gate_pad_m']
 
 
@@ -387,6 +397,13 @@ class Context:
 
     def radius(self, class_id):
         return float(self.radii.get(class_id, self.radii['default']))
+
+    def ray_height(self, class_id):
+        """ray_height_m of the longest class-name suffix listed (None: no size prior, 0)."""
+        hs = self.cfg['ray_height_m']
+        key = max((s for s in hs if s != 'default' and class_id.endswith(s)), key=len,
+                  default='default')
+        return float(hs[key]) if hs[key] else None
 
     def near_face(self, class_id):
         """near_face_k of the longest class-name suffix listed, else its default."""
@@ -506,12 +523,37 @@ def associate(boxes, cls, ctx):
     return out
 
 
+def ray_size_ok(cl, box, ctx):
+    """The box's pixel width and height match its class's size prior at the cluster's range.
+
+    Without a range prior a box could take the range of any other object on its ray (a buoy
+    behind, a pole, something in front): at the wrong range the class's 2R and ray_height_m
+    project to a different box size. Width and height must each lie within ray_size_tol (a
+    ratio) of the expected size, plus one beam step. Any doubt fails: a box clipped at the
+    image edge (its size is not the object's) or a class without a height prior.
+    """
+    cfg, (fx, fy, _, _) = ctx.cfg, ctx.K
+    W, H = ctx.image
+    h = ctx.ray_height(box.ob.class_id)
+    if h is None or box.u0 <= 1 or box.v0 <= 1 or box.u1 >= W - 1 or box.v1 >= H - 1:
+        return False
+    rho_c = cl.rho + box.near
+    tol, da_px = cfg['ray_size_tol'], fx * cfg['delta_a_rad']
+
+    def fits(got, exp, slack):
+        return exp / tol - slack <= got <= exp * tol + slack
+    return fits(box.w, fx * 2 * box.radius / rho_c, da_px) and \
+        fits(box.v1 - box.v0, fy * h / rho_c, fy * cfg['delta_a_rad'])
+
+
 def ray_feasible(cl, box, ctx):
-    """Ray mode (no range prior): points, overlap and width at the cluster's own range."""
+    """Ray mode (no range prior): points, overlap, height (rows), the cluster's width and the
+    box's size at the cluster's own range."""
     cfg, fx = ctx.cfg, ctx.K[0]
     return cl.n >= n_floor(cl, box, ctx) and overlap(cl, box) >= cfg['iou_min'] and \
-        min(cl.v1, box.v1 + box.e_v) - max(cl.v0, box.v0 - box.e_v) >= 0 and \
-        cl.w_full <= 1.5 * fx * 2 * box.radius / cl.rho + fx * cfg['delta_a_rad']
+        v_overlap(cl, box, ctx) and not tall(cl, box, ctx) and \
+        cl.w_full <= 1.5 * fx * 2 * box.radius / cl.rho + fx * cfg['delta_a_rad'] and \
+        ray_size_ok(cl, box, ctx)
 
 
 def associate_ray(boxes, cls, stereo, ctx):

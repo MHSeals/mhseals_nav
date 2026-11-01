@@ -28,6 +28,7 @@
     water_range_m: 6.0            # near-field surface cut: z < water_z_m + 0.05 within it
     # Mirror cut at any range: specular water multipath lands below
     # water_z_m - mirror_margin_m - rho tan(mirror_tilt_deg) (tilt: wave pitch and roll).
+    mirror_cut: false             # off: only the near-field cut within water_range_m (as before)
     mirror_margin_m: 0.05
     mirror_tilt_deg: 3.0
     # Gate
@@ -61,9 +62,20 @@
     merge_w_frac: 1.6
     # Ray mode: a box with no finite stereo point (far, dark, low texture) takes its range from
     # the nearest feasible cluster in r_min_m..ray_max_range_m along its centre ray; a second
-    # feasible cluster, or one another box also finds feasible, passes it through.
-    ray_mode: true
+    # feasible cluster, or one another box also finds feasible, passes it through. The box's
+    # pixel width (2R) and height (ray_height_m) at the cluster's range must lie within
+    # ray_size_tol of the box, and the cluster no taller than the box; any doubt passes through.
+    # Off until boat bags show it is clean.
+    ray_mode: false
     ray_max_range_m: 40.0
+    ray_size_tol: 1.5             # ratio, box size over the class size at the cluster's range
+    # Visible height above water per class suffix (m). ASSUMED, not measured: refit from boat
+    # bags. 0 (no prior) passes the box through.
+    ray_height_m:
+      default: 0.0
+      buoy: 0.5
+      pole_buoy: 1.0
+      light_buoy: 0.0
     # Single-point far hits: n = 1 counts for a one-ring box past single_point_min_range_m
     # when it is the box's only candidate cluster (sigma_r adds rho delta_a / 2). Off until
     # boat bags show it is clean.

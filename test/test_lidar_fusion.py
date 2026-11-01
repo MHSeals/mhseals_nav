@@ -20,6 +20,9 @@ RINGS = np.radians(np.arange(-15, 16, 2))
 AZ = np.radians(np.arange(-60, 60, 0.2))
 
 
+RAY = {**CFG, 'ray_mode': True}
+
+
 def ctx(cfg=CFG, **kw):
     return lf.Context(cfg, TRACKER, K, IMAGE, np.eye(3), **kw)
 
@@ -230,7 +233,8 @@ def test_ray_mode_ranges_a_box_without_stereo_along_its_centre_ray():
     X, Z = 1.0, 12.0
     P = scan([(X, Z, 0.2, 0.4, 1.0)])
     ob = no_stereo(observation(X, Z))
-    (source, _, p, cov, _, bid), = lf.adjust([ob], P, ctx(), 0.0)[0]
+    assert lf.adjust([copy.deepcopy(ob)], P, ctx(), 0.0)[0][0][0] == 'pass'    # off by default
+    (source, _, p, cov, _, bid), = lf.adjust([ob], P, ctx(RAY), 0.0)[0]
     assert source == 'lidar_ray' and bid == '7'
     fx, fy, cx, cy = K
     W, H = IMAGE
@@ -248,7 +252,7 @@ def test_ray_mode_ranges_a_box_without_stereo_along_its_centre_ray():
 def test_ray_mode_passes_two_feasible_clusters_and_when_off():
     inline = scan([(0.0, 8.0, 0.2, 0.4, 1.0), (0.0, 9.0, 0.2, -0.3, 1.0)])
     why = []
-    rows, _ = lf.adjust([no_stereo(observation(0.0, 8.0))], inline, ctx(), 0.0, why=why)
+    rows, _ = lf.adjust([no_stereo(observation(0.0, 8.0))], inline, ctx(RAY), 0.0, why=why)
     assert rows[0][0] == 'pass' and why == ['ambiguous:second']
     one = scan([(1.0, 12.0, 0.2, 0.4, 1.0)])
     rows, _ = lf.adjust([no_stereo(observation(1.0, 12.0))], one,
@@ -258,14 +262,86 @@ def test_ray_mode_passes_two_feasible_clusters_and_when_off():
 
 def test_mirror_cut_drops_water_multipath_at_any_range_and_keeps_buoys():
     pb = np.array([[12.0, 0.0, -1.4], [12.0, 0.5, -0.3], [3.0, 0.0, -0.58], [3.0, 0.0, -0.5]])
-    assert lf.water_mask(pb, CFG).tolist() == [False, True, False, True]
+    on = {**CFG, 'mirror_cut': True}
+    assert lf.water_mask(pb, on).tolist() == [False, True, False, True]
+    # Off (default): only the near-field cut within water_range_m, as before the mirror cut.
+    assert lf.water_mask(pb, CFG).tolist() == [True, True, False, True]
+
+
+def test_mirror_cut_keeps_a_low_object_at_range():
+    """A low float at 20 m whose waterline reads a little below water_z_m (waves, pitch)."""
+    z = np.linspace(CFG['water_z_m'] - 0.15, CFG['water_z_m'] + 0.2, 8)
+    pb = np.column_stack([np.full(8, 20.0), np.zeros(8), z])
+    assert lf.water_mask(pb, {**CFG, 'mirror_cut': True}).all()
+    near = pb.copy()
+    near[:, 0] = 3.0           # inside water_range_m the surface cut takes its low rows
+    assert lf.water_mask(near, CFG).tolist() == (z >= CFG['water_z_m'] + 0.05).tolist()
+
+
+def ray_why(objs, ob, cfg=RAY):
+    why = []
+    rows, _ = lf.adjust([no_stereo(ob)], scan(objs), ctx(cfg), 0.0, why=why)
+    return rows[0][0], why[0]
+
+
+def test_ray_box_never_takes_the_range_of_an_object_behind():
+    """Lidar misses a buoy at 8 m (dark, between rings); a buoy behind is on its ray."""
+    assert ray_why([(0.0, 14.0, 0.2, 0.4, 1.0)], observation(0.0, 8.0))[0] == 'pass'
+    loose = {**RAY, 'ray_size_tol': 100.0}
+    assert ray_why([(0.0, 14.0, 0.2, 0.4, 1.0)], observation(0.0, 8.0), loose)[0] == 'lidar_ray'
+    # The same buoy at 14 m sized for 14 m ranges: the size check is what rejected it.
+    src, _ = ray_why([(0.0, 14.0, 0.2, 0.4, 1.0)], observation(0.0, 14.0))
+    assert src == 'lidar_ray'
+
+
+def test_ray_box_never_takes_the_range_of_an_object_in_front():
+    """A short object at 6 m (a deck, a marker top) inside the rows of a 12 m buoy's box."""
+    front = [(0.0, 6.0, 0.2, 0.3, 0.5)]
+    assert ray_why(front, observation(0.0, 12.0))[0] == 'pass'
+    loose = {**RAY, 'ray_size_tol': 100.0}     # the size check is what rejects it
+    assert ray_why(front, observation(0.0, 12.0), loose)[0] == 'lidar_ray'
+
+
+def test_ray_box_never_takes_the_range_of_a_taller_object():
+    """A pole just behind a ball no ring hits: its rows span more than the ball's box."""
+    ob = observation(0.0, 10.0)
+    P = scan([(0.0, 10.4, 0.2, -1.5, 1.0)])
+    assert lf.adjust([no_stereo(copy.deepcopy(ob))], P, ctx(RAY), 0.0)[0][0][0] == 'pass'
+    loose = {**RAY, 'ray_size_tol': 10.0}      # without the size check only tall() rejects it
+    assert lf.adjust([no_stereo(ob)], P, ctx(loose), 0.0)[0][0][0] == 'pass'
+
+
+def test_ray_box_without_a_size_prior_or_clipped_passes_through():
+    assert ray_why([(1.0, 12.0, 0.2, 0.4, 1.0)],
+                   observation(1.0, 12.0, cls='red_light_buoy'))[0] == 'pass'
+    ob = observation(1.0, 12.0)
+    ob.box2d = [0.0] + ob.box2d[1:]
+    assert ray_why([(1.0, 12.0, 0.2, 0.4, 1.0)], ob)[0] == 'pass'
+
+
+def test_one_cluster_under_two_ray_boxes_is_contested():
+    P = scan([(0.0, 12.0, 0.2, 0.4, 1.0)])
+    obs = [no_stereo(observation(0.0, 12.0, bid='1')),
+           no_stereo(observation(0.03, 12.0, bid='2'))]
+    why = []
+    rows, _ = lf.adjust(obs, P, ctx(RAY), 0.0, why=why)
+    assert [r[0] for r in rows] == ['pass', 'pass'] and why == ['ambiguous:contested'] * 2
+
+
+def test_ray_output_never_feeds_the_held_ratio_or_extrinsic_samples():
+    P = scan([(1.0, 12.0, 0.2, 0.4, 1.0)])
+    ob = no_stereo(observation(1.0, 12.0))
+    held = lf.HeldRatio(CFG['held_alpha'], CFG['held_s'], CFG['held_tau_s'])
+    rows, _ = lf.adjust([copy.deepcopy(ob)], P, ctx(RAY), 0.0, held=held)
+    assert rows[0][0] == 'lidar_ray' and held.ids == {}
+    assert lf.extrinsic_samples([ob], P, ctx(RAY)) == []
 
 
 def test_single_point_far_hit_ranges_only_when_on_and_alone():
     ob = observation(0.0, 25.0)
     one = np.array([[0.0, 0.7, 24.9]])
-    assert lf.adjust([no_stereo(copy.deepcopy(ob))], one, ctx(), 0.0)[0][0][0] == 'pass'
-    on = {**CFG, 'single_point': True}
+    assert lf.adjust([no_stereo(copy.deepcopy(ob))], one, ctx(RAY), 0.0)[0][0][0] == 'pass'
+    on = {**RAY, 'single_point': True}
     (source, _, p, cov, *_), = lf.adjust([no_stereo(copy.deepcopy(ob))], one, ctx(on), 0.0)[0]
     assert source == 'lidar_ray'
     assert math.hypot(p[0], p[2]) == pytest.approx(24.9 + 0.67 * 0.2, abs=0.01)
@@ -516,3 +592,10 @@ def test_assignment_is_the_brute_force_optimum(shape):
         else:
             best = min(sum(C[p[j], j] for j in range(n)) for p in permutations(range(shape[0]), n))
         assert sum(C[r, c] for r, c in pairs) == pytest.approx(best)
+
+
+def test_touching_rows_count_only_with_ray_mode_or_single_point():
+    cl, box = NS(v0=10.0, v1=10.0), NS(v0=11.0, v1=20.0, e_v=1.0)     # a one-row cluster
+    assert not lf.v_overlap(cl, box, ctx())
+    assert lf.v_overlap(cl, box, ctx(RAY))
+    assert lf.v_overlap(cl, box, ctx({**CFG, 'single_point': True}))
