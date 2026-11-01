@@ -714,6 +714,40 @@ def test_a_channel_short_of_its_second_gate_is_never_claimed_done():
     assert any(r.startswith('1 of 2 gates: none ahead') for r in decisions), decisions
 
 
+class ShortArrival(Course):
+    """Nav2's goal checker: a route is done ``short`` metres before its last pose.
+
+    Seed 1 in Unity (session 20261027_161837, run 001): the goal checker (0.4 m) passed
+    the 1.1 m gate exit with the task's pose 0.5 m past the line, short of the 0.6 m a
+    crossing needs; each resend of the same route then ended at once, three in a second.
+    """
+
+    def __init__(self, params, short, **kwargs):
+        super().__init__(params, **kwargs)
+        self.short = short
+
+    def drive(self):
+        goal = self.goal
+        if (goal is not None and not goal.done and len(goal.route) == 1
+                and math.dist(goal.route[0][:2], self.pose[:2]) <= self.short):
+            goal.done, goal.status = True, 'SUCCEEDED'
+            return
+        super().drive()
+
+
+@pytest.mark.parametrize('short', [0.4, 0.6])
+def test_a_gate_reached_within_the_goal_tolerance_is_driven_on_through(short):
+    """A route that ends short of a crossing is sent again further past, not the same."""
+    # Unity first saw gate 2 (20 m on) only after the give-up: here it is out of range too.
+    world = ShortArrival(dict(mission('mission_2026.yaml'), tasks=['nav_channel']), short,
+                         course=SEED_2026, range_m=15.0)
+    outcome, _ = world.run(300.0)
+    decisions = [d['reason'] for e, d in world.events if e == 'decision']
+    cleared = [d['position'] for e, d in world.events if e == 'gate_cleared']
+    assert outcome == 'SUCCESS' and len(cleared) == 2, decisions
+    assert not any(r.startswith('gate 1 short') and 'giving up' in r for r in decisions)
+
+
 ROTATED = ['nav_channel', 'speed_challenge', 'follow_path', 'docking', 'supply_drop',
            'return_home']
 

@@ -467,6 +467,9 @@ class GateRun(Driver):
     order, so a gate crossed the wrong way never counts; ``any`` takes either.
     ``corner_side`` (m) is when a turn between gates gets a mid-point, and
     ``exit_after`` (m) how far past each gate the route goes on (geometry.chain).
+    A route Nav2 calls done short of the crossing (its goal checker passes the exit
+    within tolerance) is sent again ``retry_past`` metres further on per retry: the same
+    route would end at once again.
     While ``gates`` still owes one after a gate is cleared, the search goes on up to
     ``next_search`` metres (the next gate may stand beyond camera range); a run that
     ends short of ``gates`` fails, never claims success.
@@ -477,7 +480,7 @@ class GateRun(Driver):
                  max_width=8.0, min_width=1.0, near=None, radius=None, lookahead=3,
                  replan=0.7, retries=2, exclude=(), toward=None, red_side='any',
                  first_radius=None, exclude_radius=None, spread=None, corner_side=None,
-                 exit_after=None, next_search=None):
+                 exit_after=1.1, next_search=None, retry_past=1.0):
         super().__init__(name, reads=((near,) if near else ()) + tuple(exclude),
                          writes=(key,))
         if red_side not in ('port', 'starboard', 'any'):
@@ -488,11 +491,11 @@ class GateRun(Driver):
         self.search, self.step, self.max_width, self.min_width = search, step, max_width, min_width
         self.near, self.radius, self.lookahead = near, radius, lookahead
         self.replan, self.retries, self.corner_side = replan, retries, corner_side
-        self.exit_after, self.next_search = exit_after, next_search
+        self.exit_after, self.next_search, self.retry_past = exit_after, next_search, retry_past
 
     def initialise(self):
         super().initialise()
-        self.cleared, self.planned, self.failures = [], [], 0
+        self.cleared, self.planned, self.failures, self.past = [], [], 0, 0.0
         self.searched, self.looks, self.last, self.approached = 0.0, None, None, set()
 
     def visible_gates(self):
@@ -558,6 +561,7 @@ class GateRun(Driver):
             if (gate not in self.cleared and gate[:2] in self.approached
                     and geometry.crossed(gate, pose, last)):
                 self.cleared.append(gate)
+                self.past = 0.0
                 self.board.set(self.key, list(self.cleared), overwrite=True)
                 self.report('gate_cleared', gate=len(self.cleared),
                             position=[round(v, 2) for v in gate[:2]])
@@ -570,7 +574,7 @@ class GateRun(Driver):
             if not self.planned:
                 self.decide('execute', f'{len(chain)} gate(s) ahead: through the middle')
             self.planned, self.looks, self.searched = chain, None, 0.0
-            route = geometry.chain(chain, self.corner_side, self.exit_after)
+            route = geometry.chain(chain, self.corner_side, self.exit_after + self.past)
             if geometry.lined_up(chain[0], pose):  # past the lead-in: never turn back to it
                 route = route[1:]
             self.drive(route, why=f'between gate {len(self.cleared) + 1} markers')
@@ -586,6 +590,13 @@ class GateRun(Driver):
                                        f'{self.failures}x: giving up')
                 return Status.FAILURE
             self.decide('retry', f'gate {len(self.cleared) + 1} {state.lower()}: retry')
+            if state == 'SHORT':  # done within the goal tolerance: on past the line, never back
+                self.past += self.retry_past
+                route = geometry.chain(self.planned, self.corner_side, self.exit_after + self.past)
+                if geometry.along(self.planned[0], pose) > -1.0:  # at its line or past it
+                    route = route[1:]
+                self.drive(route, why=f'on through gate {len(self.cleared) + 1}')
+                return Status.RUNNING
         self.planned = []  # re-send next tick, or the route ended past every gate
         if chain:
             return Status.RUNNING
