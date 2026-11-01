@@ -431,3 +431,43 @@ def test_merge_never_folds_buoys_seen_in_one_frame_or_1_5m_apart():
     # One of the pair drops out of the backend for a while: still not folded.
     run(f, lambda t: [ob('red_buoy', 3.0, 0.0)], 3.0, start=3.0)
     assert len(f.tracks) == 2 and f.merged == 0
+
+
+def test_a_merged_away_id_stays_co_seen_under_the_survivor():
+    """C was seen with B, B folds into A: C and A (now close) must not merge either."""
+    f = TrackFilter(CFG)
+    t = run(f, lambda t: [ob('red_buoy', 3.0, 0.0), ob('red_buoy', 3.0, 3.0),
+                          ob('red_buoy', 3.0, 6.0)], 2.0)
+    a, b, c = sorted(f.tracks, key=lambda tr: tr.id)
+    for tr in (a, b, c):
+        tr.co_seen.clear()
+    b.co_seen[c.id], c.co_seen[b.id] = t, t
+    b.x[:2] = a.x[:2] + 0.1
+    f._merge(t + 1.0)
+    assert f.merged == 1 and [tr.id for tr in f.tracks] == [a.id, c.id]
+    assert c.co_seen == {a.id: t}
+    c.x[:2] = a.x[:2] + 0.1
+    f._merge(t + 2.0)
+    assert f.merged == 1 and len(f.tracks) == 2
+
+
+def test_close_confirmed_boats_of_one_class_never_merge():
+    """Boats really pass close, so only the buoy group merges."""
+    f = TrackFilter(CFG)
+    t = run(f, lambda t: [ob('yellow_target_boat', 5.0, 0.0),
+                          ob('yellow_target_boat', 5.0, 4.0)], 2.0)
+    first, second = sorted(f.tracks, key=lambda tr: tr.id)
+    second.x[:2] = first.x[:2] + 0.1
+    second.co_seen.clear()
+    first.co_seen.clear()
+    f._merge(t + 60.0)
+    assert f.merged == 0 and len(f.tracks) == 2
+    # The same pair as buoys does fold, so the check above is not vacuous.
+    g = TrackFilter(CFG)
+    t = run(g, lambda t: [ob('red_buoy', 5.0, 0.0), ob('red_buoy', 5.0, 4.0)], 2.0)
+    first, second = sorted(g.tracks, key=lambda tr: tr.id)
+    second.x[:2] = first.x[:2] + 0.1
+    second.co_seen.clear()
+    first.co_seen.clear()
+    g._merge(t + 60.0)
+    assert g.merged == 1

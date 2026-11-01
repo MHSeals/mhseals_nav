@@ -360,13 +360,19 @@ class TrackFilter:
         for i, old in enumerate(tracks):
             for new in tracks[i + 1:]:
                 if id(old) in gone or id(new) in gone or old.class_id != new.class_id or \
-                        t - old.co_seen.get(new.id, -math.inf) <= cfg['co_seen_s'] or \
+                        t - max(old.co_seen.get(new.id, -math.inf),
+                                new.co_seen.get(old.id, -math.inf)) <= cfg['co_seen_s'] or \
                         math.hypot(*(old.x[:2] - new.x[:2])) >= cfg['radius_m']:
                     continue
                 hits, source = old.hits + new.hits, min(old.source, new.source)
                 co_seen = {k: max(v, new.co_seen.get(k, v)) for k, v in old.co_seen.items()}
                 co_seen.update((k, v) for k, v in new.co_seen.items() if k not in co_seen)
                 co_seen.pop(old.id, None)
+                co_seen.pop(new.id, None)
+                for other in self.all:      # the removed id is now the survivor's
+                    if new.id in other.co_seen:
+                        stamp = other.co_seen.pop(new.id)
+                        other.co_seen[old.id] = max(stamp, other.co_seen.get(old.id, stamp))
                 if new.last_seen > old.last_seen:
                     old.__dict__.update({k: v for k, v in vars(new).items()
                                          if k not in ('id', 'first_seen')})
