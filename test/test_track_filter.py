@@ -54,6 +54,7 @@ def test_a_detection_nearer_than_min_range_updates_a_track_but_seeds_none():
     run(f, lambda t: [ob('red_buoy', near, 0.3)], 2.0)
     assert f.all == []                                 # a false box beside the hull
     # The boat runs at 1 m/s toward a buoy at x 8 m until it is 1 m off the camera.
+
     def towards(t, frame_id):
         return np.eye(3), np.array([t - 2.0, 0.0, 0.0])
     run(f, lambda t: [ob('green_buoy', 8.0 - (t - 2.0), 0.5)], 7.0, start=2.0,
