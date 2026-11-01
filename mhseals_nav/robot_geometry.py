@@ -35,6 +35,14 @@ def description_path(robot='blastoise'):
     return description_dir() / robot / f'{robot}.xacro'
 
 
+def quat_matrix(x, y, z, w):
+    """Rotation matrix of a unit quaternion (a TF transform's rotation)."""
+    return np.array([
+        [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+        [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+        [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)]])
+
+
 def rpy_matrix(roll, pitch, yaw):
     """URDF fixed-axis roll, pitch, yaw: R = Rz(yaw) Ry(pitch) Rx(roll)."""
     cr, sr, cp, sp = math.cos(roll), math.sin(roll), math.cos(pitch), math.sin(pitch)

@@ -42,17 +42,10 @@ def test_every_configured_sensor_frame_hangs_off_base_link(use, frame):
     assert chain(frame)[-1] == 'base_link', use
 
 
-def test_sensor_axes_are_base_link_axes():
-    """Keep every sensor frame on REP-103 base_link axes (x forward, y left, z up).
-
-    MAVROS publishes the FCU IMU already in base_link, and the lidar deskew uses base_link's
-    twist for lidar_link.
+def test_fcu_sensor_axes_are_base_link_axes():
+    """Keep the FCU's GPS and IMU frames on REP-103 base_link axes (x forward, y left, z up):
+    MAVROS publishes the FCU IMU already in base_link. The lidar may be rotated (lidar_rpy):
+    lidar_relay.deskew and lidar_fusion take its mount from TF.
     """
-    for frame in ('lidar_link', 'gps_link', 'imu_link'):
+    for frame in ('gps_link', 'imu_link'):
         offset(frame)   # asserts every joint on the chain is unrotated
-
-
-def test_lidar_lever_arm_left_out_of_deskew_is_small():
-    x, y, _ = offset('lidar_link')
-    # lidar_relay.deskew ignores w x r: under 3 cm per 0.1 s scan at 1 rad/s.
-    assert (x * x + y * y) ** 0.5 * 1.0 * 0.1 < 0.03

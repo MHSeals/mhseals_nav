@@ -87,6 +87,35 @@ def test_deskew_puts_every_point_where_it_was_at_the_stamp():
     assert fixed < 1e-3
 
 
+def test_deskew_turns_a_tilted_offset_lidar_about_the_body():
+    """A lidar 0.3 m forward and tilted 5 deg in roll and pitch: deskew in base_link axes."""
+    import numpy as np
+    from sensor_msgs.msg import PointField
+    from mhseals_nav.lidar_relay import deskew
+    from mhseals_nav.robot_geometry import rpy_matrix
+    R, mount_t = rpy_matrix(np.radians(5), np.radians(-5), 0.), np.array([0.3, 0., 0.25])
+    w, v = 1.5, np.array([1.5, 0.3])
+    angles = np.linspace(-math.pi, math.pi, 72, endpoint=False)
+    world = np.stack([10 * np.cos(angles), 10 * np.sin(angles), np.full(72, 0.5)], axis=1)
+    times = np.linspace(-0.1, 0., 72)
+    rows, truth = [], (world - mount_t) @ R   # sensor frame at the stamp
+    for p, t in zip(world, times):
+        c, s = math.cos(-w * t), math.sin(-w * t)
+        d = p - np.array([v[0] * t, v[1] * t, 0.])
+        body = np.array([c * d[0] - s * d[1], s * d[0] + c * d[1], d[2]])
+        rows.append((*((body - mount_t) @ R), t))
+    fields = [PointField(name=n, offset=4 * i, datatype=7, count=1)
+              for i, n in enumerate(('x', 'y', 'z', 'time'))]
+    cloud = Cloud(header=object(), height=1, width=72, point_step=16, row_step=16 * 72,
+                  fields=fields, is_bigendian=False, is_dense=True,
+                  data=np.array(rows, dtype='<f4').tobytes())
+
+    def xyz(c):
+        return np.frombuffer(c.data, dtype='<f4').reshape(-1, 4)[:, :3]
+    assert np.abs(xyz(deskew(cloud, w, v, mount=(R, mount_t))) - truth).max() < 1e-3
+    assert np.abs(xyz(deskew(cloud, w, v)) - truth).max() > 0.05   # lidar taken as base_link
+
+
 def test_deskew_uses_only_a_fresh_twist():
     from mhseals_nav.lidar_relay import fresh_twist, TWIST_MAX_AGE
     twist = {'w': 0.3, 'v': (1., 0.), 'at': 100.}

@@ -60,35 +60,43 @@ def fresh_twist(twist, now):
     return None
 
 
-def deskew(message, yaw_rate, velocity):
+def deskew(message, yaw_rate, velocity, mount=None):
     """Move each point to where the sensor saw it at the header stamp.
 
     A VLP16 scan takes 0.1 s and the driver stamps it at its last packet, with each point's
     offset from the stamp in the float32 ``time`` field (-0.1..0 s). Turning at w, a point seen
     t earlier is off by w*t in azimuth: 0.3 m at 10 m range at autonomy's 0.3 rad/s, 1.5 m at
     the 1.5 rad/s of a manual spin. Constant body twist over the scan (yaw rate and planar
-    velocity, base_link axes, which lidar_link shares): p_stamp = R(w t) p + v t. The lidar's
-    lever arm adds w*0.29 m/s of sway, under 3 cm per scan at 1 rad/s, and is left out.
-    Clouds without x, y and time fields pass unchanged.
+    velocity in base_link axes): p_stamp = R(w t) p + v t, applied in base_link. ``mount`` is
+    the lidar's (R, t) in base_link from TF, so a tilted or offset lidar turns about the
+    body's axis and origin, not its own; None takes the lidar as base_link (no rotation, no
+    lever arm). Clouds without x, y and time fields (and z, for a rotated mount) pass unchanged.
     """
     import numpy as np
+    rotation, offset = (np.eye(3), np.zeros(3)) if mount is None else (
+        np.asarray(mount[0], float), np.asarray(mount[1], float))
+    names = ('x', 'y', 'z', 'time') if not np.allclose(rotation, np.eye(3)) else ('x', 'y', 'time')
     fields = {f.name: f for f in message.fields}
-    if not {'x', 'y', 'time'} <= set(fields) or any(
-            fields[name].datatype != 7 for name in ('x', 'y', 'time')):  # 7: FLOAT32
+    if not set(names) <= set(fields) or any(fields[name].datatype != 7 for name in names):  # 7: FLOAT32
         return message
     count = message.width * message.height
     order = '>' if message.is_bigendian else '<'
-    layout = np.dtype({'names': ['x', 'y', 'time'], 'formats': [order + 'f4'] * 3,
-                       'offsets': [fields[n].offset for n in ('x', 'y', 'time')],
+    layout = np.dtype({'names': list(names), 'formats': [order + 'f4'] * len(names),
+                       'offsets': [fields[n].offset for n in names],
                        'itemsize': message.point_step})
     data = bytearray(message.data)
     # A view over our own copy: assigning through it rewrites the payload.
     points = np.frombuffer(data, dtype=layout, count=count)
     t = points['time'].astype(np.float64)
-    x, y = points['x'].astype(np.float64), points['y'].astype(np.float64)
+    local = np.stack([points['x'], points['y'],
+                      points['z'] if 'z' in names else np.zeros(count)], axis=1).astype(np.float64)
+    body = local @ rotation.T + offset
     c, s = np.cos(yaw_rate * t), np.sin(yaw_rate * t)
-    points['x'] = c * x - s * y + velocity[0] * t
-    points['y'] = s * x + c * y + velocity[1] * t
+    body = np.stack([c * body[:, 0] - s * body[:, 1] + velocity[0] * t,
+                     s * body[:, 0] + c * body[:, 1] + velocity[1] * t, body[:, 2]], axis=1)
+    local = (body - offset) @ rotation
+    for i, name in enumerate(names[:-1]):
+        points[name] = local[:, i]
     return type(message)(
         header=message.header, height=message.height, width=message.width,
         fields=message.fields, is_bigendian=message.is_bigendian,
@@ -121,6 +129,23 @@ def receive(pipe, topic, max_bytes, profile):
     rclpy.spin(node)
 
 
+def lidar_mount(tf_buffer, mounts, frame, node):
+    """base_link <- frame as (R, t) from TF, cached once found; None (lidar = base_link) until then."""
+    if frame not in mounts:
+        import numpy as np
+        from rclpy.time import Time
+        from tf2_ros import TransformException
+        from mhseals_nav.robot_geometry import quat_matrix
+        try:
+            tf = tf_buffer.lookup_transform('base_link', frame, Time()).transform
+        except TransformException:
+            return None
+        r, t = tf.rotation, tf.translation
+        mounts[frame] = quat_matrix(r.x, r.y, r.z, r.w), np.array([t.x, t.y, t.z])
+        node.get_logger().info(f'deskew: {frame} mount in base_link from TF')
+    return mounts[frame]
+
+
 def publish(pipe, topic):
     os.environ.pop("FASTDDS_BUILTIN_TRANSPORTS", None)
     # Reduce on the boat before crossing the LAN. Viewers subscribe directly;
@@ -133,12 +158,17 @@ def publish(pipe, topic):
     from nav_msgs.msg import Odometry
     from rclpy.serialization import deserialize_message
     from sensor_msgs.msg import PointCloud2
+    import tf2_ros
 
     rclpy.init()
     node = rclpy.create_node("lidar_relay_publish")
     publisher = node.create_publisher(PointCloud2, topic, _qos())
     # The fused body twist (ekf_local, 100 Hz) for deskew; older than TWIST_MAX_AGE, none.
     twist = {}
+    # The lidar's static mount in base_link (robot_state_publisher), looked up once per frame.
+    tf_buffer = tf2_ros.Buffer()
+    tf2_ros.TransformListener(tf_buffer, node)
+    mounts = {}
     node.create_subscription(Odometry, '/odom/local', lambda m: twist.update(
         w=m.twist.twist.angular.z, v=(m.twist.twist.linear.x, m.twist.twist.linear.y),
         at=time.monotonic()), _qos(False))
@@ -154,7 +184,7 @@ def publish(pipe, topic):
         cloud = deserialize_message(payload, PointCloud2)
         motion = fresh_twist(twist, time.monotonic())
         if motion:
-            cloud = deskew(cloud, *motion)
+            cloud = deskew(cloud, *motion, mount=lidar_mount(tf_buffer, mounts, cloud.header.frame_id, node))
         publisher.publish(cloud)
 
 
