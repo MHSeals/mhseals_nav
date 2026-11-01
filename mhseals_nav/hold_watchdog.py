@@ -3,7 +3,15 @@
 Each watches one condition. While it is bad and autonomy commands flow (an auto command
 within command_window_s), the watchdog asks command_mux for a hold with its own cause and
 token, and asks again every repeat_s, so a release while the condition is still bad is held
-again. It never releases: the operator clears holds. Ages are receipt ages on the monotonic
+again. It never releases: the operator clears holds. An auto command counts whatever its
+value (a zero is station-keeping), except while the mux's own ~/state says an input that
+outranks auto has it (rc, manual or a hold): then the command reaches nothing, so it is not
+autonomy, and neither is a command received then once the mux has gone idle. Holds, the
+TUI's neutral zeros on a hold or a lapsed lease and keyboard drive no longer cascade into
+these holds (11-01: every mux hold brought link and fence holds 14-24 ms later). When the
+mux reports auto again (a release, manual timing out), a command in the window counts at
+once. A mux state older than mux_state_max_age_s, or none, counts every command, as before.
+Ages are receipt ages on the monotonic
 clock; only costmap_watchdog also checks header stamps, so there a skew between the boat and
 the Orin beyond max_stamp_age_s holds.
 
@@ -17,6 +25,8 @@ import secrets
 import time
 
 STATUS_S = 0.5    # s between ~/status beats; a TUI calls a watchdog dead after 2 s without one
+# command_mux ~/state inputs that outrank auto: while one has the mux, /cmd_vel reaches nothing.
+OUTRANK_AUTO = ('rc', 'manual', 'hold')
 
 
 def fresh(at, now, limit):
@@ -28,7 +38,10 @@ class HoldGate:
 
     def __init__(self, cfg):
         self.cfg = cfg
-        self.command_at = None
+        self.command_at = None   # the newest auto command
+        self.open_at = None      # the newest one received while no input outranked auto
+        self.mux_input = None
+        self.mux_at = None
         self.sent_at = None
 
     def reason(self, now):
@@ -40,9 +53,30 @@ class HoldGate:
 
     def command(self, now):
         self.command_at = now
+        if not self.outranked(now):
+            self.open_at = now
+
+    def mux(self, now, state):
+        """Note a command_mux ~/state (its JSON); one that can't be read is unknown."""
+        try:
+            self.mux_input = json.loads(state)['input']
+        except (ValueError, TypeError, KeyError):
+            self.mux_input = None
+        self.mux_at = now
+
+    def mux_known(self, now):
+        return self.mux_input is not None and fresh(
+            self.mux_at, now, self.cfg['mux_state_max_age_s'])
+
+    def outranked(self, now):
+        return self.mux_known(now) and self.mux_input in OUTRANK_AUTO
 
     def autonomy(self, now):
-        return fresh(self.command_at, now, self.cfg['command_window_s'])
+        if self.outranked(now):
+            return False
+        # Idle: the mux has let every command it had expire, so only one since counts.
+        at = self.open_at if self.mux_known(now) and self.mux_input == 'idle' else self.command_at
+        return fresh(at, now, self.cfg['command_window_s'])
 
     def tick(self, now):
         """Return True when a hold request should go out now."""
@@ -62,6 +96,7 @@ def node_class(name, filename, logic, subscribe):
     """
     from geometry_msgs.msg import Twist
     from rclpy.node import Node
+    from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy
     from std_msgs.msg import String
 
     from mhseals_nav.yaml_params import node_config
@@ -75,6 +110,10 @@ def node_class(name, filename, logic, subscribe):
             self.token = secrets.token_hex(8)
             self.request = self.create_publisher(String, cfg['request_topic'], 10)
             self.create_subscription(Twist, cfg['command_topic'], self.on_command, 10)
+            # Latched like the mux publishes it, so the state is known from the start.
+            self.create_subscription(String, cfg['mux_state_topic'], self.on_mux, QoSProfile(
+                depth=1, reliability=QoSReliabilityPolicy.RELIABLE,
+                durability=QoSDurabilityPolicy.TRANSIENT_LOCAL))
             subscribe(self)
             self.create_timer(1.0 / cfg['rate_hz'], self.tick)
             self.status = self.create_publisher(String, '~/status', 10)
@@ -88,6 +127,10 @@ def node_class(name, filename, logic, subscribe):
         def on_command(self, _):
             self.logic.command(time.monotonic())
             self.tick()
+
+        def on_mux(self, msg):
+            self.logic.mux(time.monotonic(), msg.data)
+            self.tick()   # back to auto with a command in the window: hold now
 
         def tick(self):
             now = time.monotonic()

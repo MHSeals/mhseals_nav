@@ -18,5 +18,7 @@
     # The boat and Orin clocks must stay well under 1 s apart (chrony).
     max_stamp_age_s: 2.0
     command_window_s: 0.5              # autonomy = an auto command within this window
+    mux_state_topic: /command_mux/state # its input says what auto reaches
+    mux_state_max_age_s: 2.5           # the mux republishes >= 1 Hz; older counts every command
     repeat_s: 1.0
     rate_hz: 10.0

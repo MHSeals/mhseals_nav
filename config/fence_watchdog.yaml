@@ -26,6 +26,8 @@
     outward_angle_deg: 60.0            # heading this close to the outward normal counts too
     max_age_s: 1.0                     # receipt age of the position and odometry
     command_window_s: 0.5              # autonomy = an auto command within this window
+    mux_state_topic: /command_mux/state # its input says what auto reaches
+    mux_state_max_age_s: 2.5           # the mux republishes >= 1 Hz; older counts every command
     fence_topic: /fence_watchdog/fence # latched JSON: this fence in its own frame (latlon or map), the margin
     fence_rate_hz: 1.0                 #   rules, for the TUI's goal gates (one source)
     repeat_s: 1.0

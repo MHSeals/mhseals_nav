@@ -43,6 +43,8 @@
     confirm_s: 1.5           # a chain this long (sim dock reveals: up to 1.0 s)
     recent_s: 0.5            # an approach counts this long (a timer apart from rate_hz)
     command_window_s: 0.5    # autonomy = an auto command within this window
+    mux_state_topic: /command_mux/state # its input says what auto reaches
+    mux_state_max_age_s: 2.5 # the mux republishes >= 1 Hz; older counts every command
     repeat_s: 1.0
     max_costmap_age_s: 1.0   # receipt age (5 Hz); stale is costmap_watchdog's hold
     max_tf_age_s: 1.0

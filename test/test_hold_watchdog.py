@@ -1,0 +1,176 @@
+"""What counts as autonomy for the hold watchdogs: an auto command the mux can forward.
+
+11-01 on the boat: every mux hold or authority change (a lapsed lease while the owner drove
+by keyboard) brought link_watchdog and fence_watchdog holds 14-24 ms later. The TUI's
+neutral zeros on /cmd_vel at the hold counted as autonomy while both conditions were bad.
+"""
+
+import json
+from pathlib import Path
+
+from mhseals_nav.fence_watchdog import FenceWatchdog
+from mhseals_nav.link_watchdog import LinkWatchdog
+import pytest
+import yaml
+
+
+def config(name):
+    return yaml.safe_load((Path(__file__).parents[1] / 'config' / name)
+                          .read_text())['/**']['ros__parameters']
+
+
+LINK = config('link_watchdog.yaml')
+FENCE = dict(config('fence_watchdog.yaml'), fence_frame='map',
+             fence_points=[0.0, 0.0, 100.0, 0.0, 100.0, 50.0, 0.0, 50.0])
+WINDOW = LINK['command_window_s']
+
+
+def link():
+    """No operator heartbeat (require_operator): the condition is bad from the start."""
+    return LinkWatchdog(LINK, own_host='blastoise-odroid')
+
+
+def fence():
+    """Odometry and position missing: the condition is bad from the start."""
+    return FenceWatchdog(FENCE)
+
+
+def mux(dog, now, source):
+    dog.mux(now, json.dumps({'input': source, 'holds': []}))
+
+
+def test_every_config_names_the_mux_state():
+    for name in ('approach_guard', 'costmap_watchdog', 'ekf_input_watchdog', 'fcu_watchdog',
+                 'fence_watchdog', 'link_watchdog'):
+        cfg = config(f'{name}.yaml')
+        assert cfg['mux_state_topic'] == '/command_mux/state'
+        assert cfg['mux_state_max_age_s'] > 1.0     # the mux republishes at least 1 Hz
+
+
+@pytest.mark.parametrize('make', [link, fence])
+@pytest.mark.parametrize('source', ['hold', 'manual', 'rc'])
+def test_a_command_the_mux_does_not_forward_is_not_autonomy(make, source):
+    dog = make()
+    assert dog.reason(0.0)
+    mux(dog, 0.0, source)
+    for k in range(3):                 # the TUI's neutral repeats on /cmd_vel
+        dog.command(0.01 + k * 0.001)
+        assert not dog.tick(0.01 + k * 0.001)
+    for t in (0.1, 0.3, WINDOW):
+        assert not dog.tick(t)
+
+
+@pytest.mark.parametrize('make', [link, fence])
+def test_lease_lapse_during_keyboard_drive_does_not_cascade(make):
+    """11:51:21: keyboard has the mux, the lease hold lands, zeros on /cmd_vel, then idle."""
+    dog = make()
+    mux(dog, 0.0, 'manual')
+    dog.command(0.010)                 # neutral zeros, ahead of the lease hold
+    assert not dog.tick(0.010)
+    mux(dog, 0.012, 'hold')
+    dog.command(0.014)
+    assert not dog.tick(0.014)
+    mux(dog, 0.2, 'idle')              # the hold cleared with U: nothing forwarded the zeros
+    assert not dog.tick(0.2)
+    mux(dog, 0.3, 'manual')            # keyboard again, and a second hold edge
+    dog.command(0.31)
+    mux(dog, 0.32, 'hold')
+    assert not any(dog.tick(t) for t in (0.31, 0.32, 0.4, 0.6, 2.0))
+
+
+@pytest.mark.parametrize('make', [link, fence])
+@pytest.mark.parametrize('surge', [0.0, 1e-6, 0.5])
+def test_autonomy_with_the_condition_bad_holds_at_once(make, surge):
+    """The value never matters: a tiny command and a station-keeping zero both drive."""
+    dog = make()
+    mux(dog, 0.0, 'idle')
+    dog.command(0.1)                   # the first auto command, before the mux says auto
+    assert dog.tick(0.1)
+    mux(dog, 0.12, 'auto')
+    dog.command(1.2)
+    assert dog.tick(1.2)               # held again after repeat_s
+
+
+@pytest.mark.parametrize('make', [link, fence])
+def test_mux_back_to_auto_counts_a_command_received_while_outranked(make):
+    """Released, or keyboard timed out, with auto still flowing: hold on the state, not later."""
+    dog = make()
+    mux(dog, 0.0, 'hold')
+    dog.command(0.1)
+    assert not dog.tick(0.1)
+    mux(dog, 0.2, 'auto')
+    assert dog.tick(0.2)
+
+
+@pytest.mark.parametrize('make', [link, fence])
+def test_no_or_stale_or_unreadable_mux_state_counts_every_command(make):
+    dog = make()
+    dog.command(0.0)
+    assert dog.tick(0.0)               # no mux state ever: as before
+    dog = make()
+    mux(dog, 0.0, 'hold')
+    late = dog.cfg['mux_state_max_age_s'] + 0.01
+    dog.command(late)
+    assert dog.tick(late)              # a mux that stopped reporting decides nothing
+    dog = make()
+    dog.mux(0.0, 'not json')
+    dog.command(0.1)
+    assert dog.tick(0.1)
+    dog = make()
+    mux(dog, 0.0, 'something new')
+    dog.command(0.1)
+    assert dog.tick(0.1)
+
+
+def test_keyboard_drive_with_the_link_bad_is_not_held():
+    """By design link_watchdog covers autonomy only: the operator at the keys is the link."""
+    dog = link()
+    mux(dog, 0.0, 'manual')
+    for k in range(100):
+        t = k * 0.05
+        if k % 20 == 0:
+            mux(dog, t, 'manual')      # the 1 Hz republish
+        assert not dog.tick(t)
+
+
+def test_node_ignores_zeros_under_a_mux_hold_and_holds_under_auto():
+    rclpy = pytest.importorskip('rclpy')
+    from geometry_msgs.msg import Twist
+    from rclpy.executors import SingleThreadedExecutor
+    from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy
+    from std_msgs.msg import String
+    from ros_domain import require_isolated_domain
+    from watchdog_cycle import spin
+    require_isolated_domain()
+    from mhseals_nav.link_watchdog import node_class
+    rclpy.init()
+    try:
+        dog = node_class()()
+        probe = rclpy.create_node('mux_probe')
+        got = []
+        probe.create_subscription(String, LINK['request_topic'],
+                                  lambda m: got.append(json.loads(m.data)), 10)
+        cmd = probe.create_publisher(Twist, LINK['command_topic'], 10)
+        state = probe.create_publisher(String, LINK['mux_state_topic'], QoSProfile(
+            depth=1, reliability=QoSReliabilityPolicy.RELIABLE,
+            durability=QoSDurabilityPolicy.TRANSIENT_LOCAL))
+        ex = SingleThreadedExecutor()
+        ex.add_node(dog)
+        ex.add_node(probe)
+
+        def feed(source):
+            def go():
+                state.publish(String(data=json.dumps({'input': source})))
+                cmd.publish(Twist())
+            return go
+
+        # The state first: a command ahead of any mux state counts (unknown), as it should.
+        state.publish(String(data=json.dumps({'input': 'hold'})))
+        spin(ex, lambda: None, 2.0, until=lambda: dog.logic.mux_input == 'hold')
+        assert dog.logic.mux_input == 'hold' and dog.logic.reason(0.0)
+        spin(ex, feed('hold'), 1.5)
+        assert got == []                     # zeros while the mux holds: no cascade
+        spin(ex, feed('auto'), 2.0, until=lambda: got)
+        assert got and got[0]['cause'] == 'operator_link'
+    finally:
+        rclpy.try_shutdown()
