@@ -348,8 +348,11 @@ def overlap(cl, box):
 
 
 def v_overlap(cl, box, ctx):
-    """Rows of the cluster meet the widened box: touching (a one-row cluster) counts only
-    with ray_mode or single_point on, so with both off association is unchanged."""
+    """Check that the cluster's rows meet the widened box.
+
+    Touching (a one-row cluster) counts only with ray_mode or single_point on, so with both
+    off association is unchanged.
+    """
     d = min(cl.v1, box.v1 + box.e_v) - max(cl.v0, box.v0 - box.e_v)
     return d >= 0 if ctx.cfg['ray_mode'] or ctx.cfg['single_point'] else d > 0
 
@@ -524,7 +527,7 @@ def associate(boxes, cls, ctx):
 
 
 def ray_size_ok(cl, box, ctx):
-    """The box's pixel width and height match its class's size prior at the cluster's range.
+    """Check the box's pixel size against its class's size prior at the cluster's range.
 
     Without a range prior a box could take the range of any other object on its ray (a buoy
     behind, a pole, something in front): at the wrong range the class's 2R and ray_height_m
@@ -547,8 +550,11 @@ def ray_size_ok(cl, box, ctx):
 
 
 def ray_feasible(cl, box, ctx):
-    """Ray mode (no range prior): points, overlap, height (rows), the cluster's width and the
-    box's size at the cluster's own range."""
+    """Test a pair in ray mode (no range prior).
+
+    Checks points, overlap, height (rows), the cluster's width and the box's size at the
+    cluster's own range.
+    """
     cfg, fx = ctx.cfg, ctx.K[0]
     return cl.n >= n_floor(cl, box, ctx) and overlap(cl, box) >= cfg['iou_min'] and \
         v_overlap(cl, box, ctx) and not tall(cl, box, ctx) and \
