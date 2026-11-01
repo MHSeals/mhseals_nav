@@ -877,6 +877,17 @@ class ExtrinsicEstimate:
         self.level, self.message, self.applied = self.ERROR, message, np.zeros(3)
 
 
+def sample_extrinsic(est, obs, P_raw, ctx, t, yaw_rate, rows):
+    """Feed one fused frame's isolated boxes to ``est``; returns the samples it took."""
+    lidar = {i for s, i, *_ in rows if s in ('lidar', 'split')}
+    taken = []
+    for b, c in extrinsic_samples(obs, P_raw, ctx):
+        if c is not None and est.add(t, b.ob.backend_id, b, c, ctx, yaw_rate):
+            taken.append(est.last)
+        est.observe_isolated(t, c is not None, b.index in lidar)
+    return taken
+
+
 # ---------------------------------------------------------------------- node
 try:
     from rclpy.node import Node
@@ -1177,11 +1188,7 @@ class LidarFusion(Node):
         return True, P, P_raw, yaw_rate, e_mc
 
     def sample_extrinsic(self, obs, P_raw, ctx, t, yaw_rate, rows):
-        lidar = {i for s, i, *_ in rows if s in ('lidar', 'split')}
-        for b, c in extrinsic_samples(obs, P_raw, ctx):
-            if c is not None and self.extrinsic.add(t, b.ob.backend_id, b, c, ctx, yaw_rate):
-                self.ex_log.append(self.extrinsic.last)
-            self.extrinsic.observe_isolated(t, c is not None, b.index in lidar)
+        self.ex_log += sample_extrinsic(self.extrinsic, obs, P_raw, ctx, t, yaw_rate, rows)
         if self.extrinsic.level == ExtrinsicEstimate.ERROR and self.extrinsic.message:
             self.get_logger().error(self.extrinsic.message, throttle_duration_sec=10.0)
 

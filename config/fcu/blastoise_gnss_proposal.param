@@ -25,20 +25,21 @@ GPS1_RATE_MS,100
 # Measurement lag the EKF compensates. 0 = the driver's default, which for a DroneCAN GPS is the
 # generic 200 ms (GPS_Backend.h); the serial u-blox driver uses 120 ms for an F9 (AP_GPS_UBLOX.cpp).
 GPS1_DELAY_MS,120
-# Antenna lever arm in FRD metres from the CoM: gps_link in description/blastoise/blastoise.xacro
-# (x 0.051, y -0.127, z 0.234 up) with y and z negated. Heights are not measured yet: tape z.
-GPS1_POS_X,0.051
-GPS1_POS_Y,0.127
-GPS1_POS_Z,-0.234
-# The IMU offset makes the CoM the body origin, so GPS1_POS_* above are from the CoM: imu_link
-# (x -0.051, y -0.127, z 0) with y negated; the Cube's three IMUs share the board.
-INS_POS1_X,-0.051
-INS_POS1_Y,0.127
-INS_POS1_Z,0
-INS_POS2_X,-0.051
-INS_POS2_Y,0.127
-INS_POS2_Z,0
-INS_POS3_X,-0.051
-INS_POS3_Y,0.127
-INS_POS3_Z,0
+# Lever arms in FRD metres from base_link (the FCU's body origin): gps_link and imu_link of
+# description/blastoise/blastoise.xacro with y and z negated (test_fcu_lever_arms pins them).
+# Owner's tape of 2026-11-01 (+-13 mm); the antenna-forward / Cube-aft reading of the x words.
+GPS1_POS_X,0.070
+GPS1_POS_Y,0.121
+GPS1_POS_Z,-0.095
+# The IMU offset makes base_link the body origin, so GPS1_POS_* above are from base_link too;
+# the Cube's three IMUs share the board.
+INS_POS1_X,-0.057
+INS_POS1_Y,0.102
+INS_POS1_Z,-0.095
+INS_POS2_X,-0.057
+INS_POS2_Y,0.102
+INS_POS2_Z,-0.095
+INS_POS3_X,-0.057
+INS_POS3_Y,0.102
+INS_POS3_Z,-0.095
 # Unchanged on purpose: GPS_INJECT_TO 127 (corrections reach the Here4), GPS1_TYPE 9, GPS_AUTO_CONFIG 1.

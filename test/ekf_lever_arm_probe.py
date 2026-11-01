@@ -9,7 +9,12 @@ odometry adapter labels them: gps_link for both (before odom-100hz the fix said 
 It prints the spread of /odom/global and /odom/local positions over the spin and, with both
 in gps_link, fails above 5 cm.
 On 2026-10-25: both gps_link 1.0 cm global, 0.0 local; fix base_link 15 cm global.
+Arrangements: PROBE_TRUE and PROBE_URDF are JSON maps of blastoise.xacro mount properties
+(e.g. '{"gps_x": -0.45, "gps_y": 0.3}') for where the antenna really is and what the URDF given
+to robot_state_publisher says. Matched, the spread stays under 5 cm; a stale URDF spreads by
+the lever-arm error, which the probe then requires.
 """
+import json
 import math
 import os
 from pathlib import Path
@@ -17,8 +22,10 @@ import subprocess
 import sys
 import tempfile
 import time
+import xml.etree.ElementTree as ET
 
 from ament_index_python.packages import get_package_prefix
+from mhseals_nav.robot_geometry import expand, RobotGeometry
 from nav_msgs.msg import Odometry
 import rclpy
 from sensor_msgs.msg import Imu, NavSatFix
@@ -33,14 +40,12 @@ config = ROOT / 'config'
 W, STILL, SPIN = 1.0, 8.0, 20.0           # rad/s, s still (navsat datum), s spinning
 LAT0, LON0, EARTH = 27.3747, -82.4518, 6378137.0
 
-urdf = subprocess.run(['xacro', str(ROOT / 'description/blastoise/blastoise.xacro')],
-                      check=True, capture_output=True, text=True).stdout
-antenna = None
-for line in urdf.split('<joint')[1:]:
-    if 'name="gps_link_joint"' in line:
-        xyz = line.split('xyz="')[1].split('"')[0].split()
-        antenna = (float(xyz[0]), float(xyz[1]))
-assert antenna, 'gps_link_joint not in the URDF'
+TRUE = json.loads(os.environ.get('PROBE_TRUE', '{}'))
+GIVEN = json.loads(os.environ.get('PROBE_URDF', '{}'))
+xacro_file = ROOT / 'description/blastoise/blastoise.xacro'
+urdf = ET.tostring(expand(xacro_file.read_text(), GIVEN), encoding='unicode')
+antenna = tuple(RobotGeometry.load(xacro_file, TRUE).pose('gps_link')[1][:2])
+stale = math.dist(antenna, RobotGeometry.load(xacro_file, GIVEN).pose('gps_link')[1][:2])
 
 processes, logs = [], []
 rclpy.init()
@@ -133,7 +138,11 @@ try:
               f'{W:g} rad/s spin {spreads[key] * 100:.1f} cm '
               f'(antenna lever arm {math.hypot(*antenna) * 100:.1f} cm)', flush=True)
     if GPS_FRAME == TWIST_FRAME == 'gps_link':
-        assert spreads['global'] < .05, spreads
+        if stale < .05:
+            assert spreads['global'] < .05, spreads
+        else:   # the lever-arm signature: base_link circles by the URDF's error
+            print(f'stale URDF: lever-arm error {stale * 100:.1f} cm', flush=True)
+            assert spreads['global'] > .5 * stale, spreads
 finally:
     for process in processes:
         process.terminate()

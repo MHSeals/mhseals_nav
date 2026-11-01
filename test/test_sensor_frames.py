@@ -5,45 +5,27 @@ and the lidar consumers look them up. A frame the config names but the URDF lack
 runtime (dropped measurements), so this pins the names to the config that uses them.
 """
 from pathlib import Path
-import xml.etree.ElementTree as ET
 
+from mhseals_nav.robot_geometry import RobotGeometry
+import numpy as np
 import pytest
 import yaml
 
 ROOT = Path(__file__).parents[1]
-URDF = ET.parse(ROOT / 'description/blastoise/blastoise.xacro').getroot()
-
-
-def parents():
-    """Map each child link to (parent link, xyz, rpy) for the literal fixed joints."""
-    result = {}
-    for joint in URDF.findall('joint'):
-        child = joint.find('child').get('link')
-        assert child not in result, f'{child} has two parents'
-        origin = joint.find('origin')
-        xyz = tuple(float(v) for v in origin.get('xyz', '0 0 0').split())
-        rpy = tuple(float(v) for v in origin.get('rpy', '0 0 0').split())
-        result[child] = (joint.find('parent').get('link'), xyz, rpy)
-    return result
+GEOMETRY = RobotGeometry.load(ROOT / 'description/blastoise/blastoise.xacro')
 
 
 def chain(frame):
     """Links from frame up to base_link."""
-    up, links = parents(), [frame]
-    while links[-1] != 'base_link':
-        assert links[-1] in up, f'{links[-1]} does not reach base_link'
-        links.append(up[links[-1]][0])
-    return links
+    return GEOMETRY.chain(frame)
 
 
 def offset(frame):
-    """base_link -> frame translation, valid while every joint on the chain is unrotated."""
-    up, total = parents(), [0., 0., 0.]
+    """base_link -> frame translation, asserting every joint on the chain is unrotated."""
     for link in chain(frame)[:-1]:
-        _, xyz, rpy = up[link]
-        assert rpy == (0., 0., 0.), f'{link} is rotated; sum translations no longer'
-        total = [a + b for a, b in zip(total, xyz)]
-    return tuple(total)
+        assert np.allclose(GEOMETRY.joints[link][2], np.eye(3)), \
+            f'{link} is rotated; the sensor axes are no longer base_link axes'
+    return tuple(GEOMETRY.pose(frame)[1])
 
 
 def sensor_frames():

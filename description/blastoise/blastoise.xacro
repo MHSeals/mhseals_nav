@@ -4,6 +4,46 @@
   <xacro:include filename="$(find mhseals_nav)/description/blastoise/t200_thruster.xacro"/>
   <xacro:property name="mesh_root" value="package://mhseals_nav/description/blastoise/meshes"/>
 
+  <!-- ================= SENSOR MOUNTS =================
+       The one place the sensor poses live; every joint below and every consumer (TF, the sims)
+       reads them from here. Taped by the owner on 2026-11-01 (about +-13 mm) from the mount
+       datum: the centre of the electrical box's bottom face, which is level with the flat hull
+       tops and the rail's foot. In the CAD that plane is z -0.0126 in base_link (hull and
+       cross-bar tops), and the box centre is within 2 mm of base_link in x and y.
+       xyz in m from the datum (REP-103: x forward, y to port, z up); rpy in rad, 0 until the
+       pre-run calibration estimates the 0-5 degree tilts of the box, the rail and the lidar. -->
+  <xacro:property name="datum_z" value="-0.0126"/>
+  <!-- Sensor rail: its foot on the datum plane, under the lidar. Tilting it tilts lidar and camera. -->
+  <xacro:property name="rail_x" value="0.2921"/>
+  <xacro:property name="rail_y" value="0.0"/>
+  <xacro:property name="rail_rpy" value="0 0 0"/>
+  <!-- VLP-16 centre (lidar_link, its optical centre within 2 mm) -->
+  <xacro:property name="lidar_x" value="0.2921"/>
+  <xacro:property name="lidar_y" value="0.0"/>
+  <xacro:property name="lidar_z" value="0.2477"/>
+  <xacro:property name="lidar_rpy" value="0 0 0"/>
+  <!-- ZED 2i: the centre of its body as taped, and the body's depth and height (175 x 30 x 43 mm).
+       front_camera_link is the ZED wrapper's camera_link (its mount point), under which the
+       wrapper hangs the lens frames at (-0.01, +-0.06, height/2); it is placed so that the
+       lens frame lands half a body depth ahead of the body centre. -->
+  <xacro:property name="camera_x" value="0.4001"/>
+  <xacro:property name="camera_y" value="0.0"/>
+  <xacro:property name="camera_z" value="0.1397"/>
+  <xacro:property name="camera_rpy" value="0 0 0"/>
+  <xacro:property name="zed_depth" value="0.0431"/>
+  <xacro:property name="zed_height" value="0.0303"/>
+  <xacro:property name="zed_lens_x" value="-0.01"/>
+  <!-- Electrical box: its tilt carries the Cube and the Here4 -->
+  <xacro:property name="box_rpy" value="0 0 0"/>
+  <!-- Here4 antenna and CubeOrange+ (its IMUs). The owner's x words were ambiguous: this reads
+       the antenna 2.75 in forward and the Cube 2.25 in aft, as the 10-25 tape had them. -->
+  <xacro:property name="gps_x" value="0.0699"/>
+  <xacro:property name="gps_y" value="-0.1207"/>
+  <xacro:property name="gps_z" value="0.1080"/>
+  <xacro:property name="imu_x" value="-0.0572"/>
+  <xacro:property name="imu_y" value="-0.1016"/>
+  <xacro:property name="imu_z" value="0.1080"/>
+
   <!-- base_link is REP-103: x forward, y to port, z up. The meshes and the hull links are
        in the CAD's axes (x to starboard, y forward), so they are yawed -90 degrees here;
        sensor frames stay aligned with base_link. -->
@@ -138,13 +178,14 @@
   <joint name="sensor_mount_joint" type="fixed">
     <parent link="base_link"/>
     <child link="sensor_mount_link"/>
-    <origin xyz="0.27711 0 -0.01260" rpy="0 0 0"/>
+    <origin xyz="${rail_x} ${rail_y} ${datum_z}" rpy="${rail_rpy}"/>
   </joint>
 
   <!-- ================= SENSORS ================= -->
   <link name="front_camera_link">
     <visual>
-      <origin xyz="0 -0.00056 0" rpy="1.57080 0 -1.57080"/>
+      <origin xyz="${-zed_depth / 2 + zed_lens_x + 0.0016} -0.00056 ${zed_height / 2}"
+              rpy="1.57080 0 -1.57080"/>
       <geometry><mesh filename="${mesh_root}/front_camera.stl"/></geometry>
       <material name="Material.005"/>
     </visual>
@@ -153,7 +194,8 @@
   <joint name="front_camera_joint" type="fixed">
     <parent link="sensor_mount_link"/>
     <child link="front_camera_link"/>
-    <origin xyz="0.04990 0 0.13779" rpy="0 0 0"/>
+    <origin xyz="${camera_x + zed_depth / 2 - zed_lens_x - rail_x} ${camera_y - rail_y} ${camera_z - zed_height / 2}"
+            rpy="${camera_rpy}"/>
   </joint>
 
   <link name="lidar_link">
@@ -167,23 +209,30 @@
   <joint name="lidar_joint" type="fixed">
     <parent link="sensor_mount_link"/>
     <child link="lidar_link"/>
-    <origin xyz="0.01270 0 0.29035" rpy="0 0 0"/>
+    <origin xyz="${lidar_x - rail_x} ${lidar_y - rail_y} ${lidar_z}" rpy="${lidar_rpy}"/>
   </joint>
 
-  <!-- Here4 antenna and CubeOrange+, taped from the CoM on 2026-10-25 (heights not measured).
-       The FCU's GPS1_POS_* and INS_POS1..3_* are these in FRD: x as is, y negated. -->
+  <!-- The electrical box's bottom-face centre, the mount datum. The FCU's GPS1_POS_* and
+       INS_POS1..3_* are gps_link and imu_link in base_link, in FRD: x as is, y and z negated. -->
+  <link name="box_link"/>
+  <joint name="box_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="box_link"/>
+    <origin xyz="0 0 ${datum_z}" rpy="${box_rpy}"/>
+  </joint>
+
   <link name="gps_link"/>
   <joint name="gps_link_joint" type="fixed">
-    <parent link="base_link"/>
+    <parent link="box_link"/>
     <child link="gps_link"/>
-    <origin xyz="0.051 -0.127 0.23439"/>
+    <origin xyz="${gps_x} ${gps_y} ${gps_z}"/>
   </joint>
 
   <link name="imu_link"/>
   <joint name="imu_link_joint" type="fixed">
-    <parent link="base_link"/>
+    <parent link="box_link"/>
     <child link="imu_link"/>
-    <origin xyz="-0.051 -0.127 0"/>
+    <origin xyz="${imu_x} ${imu_y} ${imu_z}"/>
   </joint>
 
   <!-- ================= THRUSTERS ================= -->
