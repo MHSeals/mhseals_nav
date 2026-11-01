@@ -43,7 +43,8 @@ def test_every_configured_sensor_frame_hangs_off_base_link(use, frame):
 
 
 def test_fcu_sensor_axes_are_base_link_axes():
-    """Keep the FCU's GPS and IMU frames on REP-103 base_link axes (x forward, y left, z up):
+    """Keep the FCU's GPS and IMU frames on REP-103 base_link axes (x forward, y left, z up).
+
     MAVROS publishes the FCU IMU already in base_link. The lidar may be rotated (lidar_rpy):
     lidar_relay.deskew and lidar_fusion take its mount from TF.
     """

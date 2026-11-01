@@ -77,7 +77,8 @@ def deskew(message, yaw_rate, velocity, mount=None):
         np.asarray(mount[0], float), np.asarray(mount[1], float))
     names = ('x', 'y', 'z', 'time') if not np.allclose(rotation, np.eye(3)) else ('x', 'y', 'time')
     fields = {f.name: f for f in message.fields}
-    if not set(names) <= set(fields) or any(fields[name].datatype != 7 for name in names):  # 7: FLOAT32
+    if not set(names) <= set(fields) or any(
+            fields[name].datatype != 7 for name in names):  # 7: FLOAT32
         return message
     count = message.width * message.height
     order = '>' if message.is_bigendian else '<'
@@ -130,7 +131,7 @@ def receive(pipe, topic, max_bytes, profile):
 
 
 def lidar_mount(tf_buffer, mounts, frame, node):
-    """base_link <- frame as (R, t) from TF, cached once found; None (lidar = base_link) until then."""
+    """base_link <- frame as (R, t) from TF, cached once found; None (as base_link) until then."""
     if frame not in mounts:
         import numpy as np
         from rclpy.time import Time
@@ -184,7 +185,8 @@ def publish(pipe, topic):
         cloud = deserialize_message(payload, PointCloud2)
         motion = fresh_twist(twist, time.monotonic())
         if motion:
-            cloud = deskew(cloud, *motion, mount=lidar_mount(tf_buffer, mounts, cloud.header.frame_id, node))
+            mount = lidar_mount(tf_buffer, mounts, cloud.header.frame_id, node)
+            cloud = deskew(cloud, *motion, mount=mount)
         publisher.publish(cloud)
 
 

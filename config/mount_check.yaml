@@ -1,0 +1,20 @@
+# mount_check: pre-run sensor mount checks from a short dock bag (mhseals_nav/mount_check.py).
+# Lengths in base_link metres, angles in degrees.
+mount_check:
+  topics:
+    points: /points
+    imu: /imu/raw
+    image: /front/zed_node/rgb/color/rect/image
+    camera_info: /front/zed_node/rgb/color/rect/camera_info
+  buoy_radius_m: 0.125          # taped buoy: returns are its near face
+  buoy_gate_m: 1.0              # returns within this of the taped centre
+  range_tol_m: 0.15
+  bearing_tol_deg: 1.0          # 1 deg is 10 cm at 6 m
+  water_range_m: [2.0, 8.0]     # planar range of the water returns fitted
+  water_band_z_m: [-1.5, -0.1]  # wide: 5 deg of tilt moves water 0.7 m at 8 m
+  plane_tol_m: 0.05
+  plane_min_points: 60
+  plane_min_spread_m: 0.5       # inlier spread on the narrower horizontal axis
+  tilt_warn_deg: 0.5
+  tilt_error_deg: 1.5
+  horizon_min_inliers: 0.6      # share of image columns on the horizon line
