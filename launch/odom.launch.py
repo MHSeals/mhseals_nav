@@ -48,6 +48,10 @@ def create_mavros_node(context):
         package='mavros',
         executable='mavros_node',
         output='screen',
+        # An FCU reboot drops the USB device and MAVROS exits; mavros_setup re-requests rates
+        # when the respawned node reports a connection.
+        respawn=True,
+        respawn_delay=2.0,
         parameters=[
             LaunchConfiguration('mavros_params_file'),
             {

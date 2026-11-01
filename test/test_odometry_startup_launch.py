@@ -167,3 +167,11 @@ def test_integer_spelled_frequency_projects_as_double(tmp_path, alias):
     adapter = next(x for x in calls if x.get('name') == 'mavros_odom_adapter')
     assert type(adapter['parameters'][0]['velocity_stddev']) is float
     assert adapter['parameters'][0]['velocity_stddev'] == (2. if alias else 1.)
+
+
+def test_mavros_node_respawns_after_an_fcu_reboot():
+    calls = []
+    launch = factories('odom.launch.py', lambda: None, calls)
+    launch['create_mavros_node'](context())
+    mavros = next(x for x in calls if x.get('executable') == 'mavros_node')
+    assert mavros['respawn'] is True and mavros['respawn_delay'] == 2.0
