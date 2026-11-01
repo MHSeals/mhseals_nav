@@ -126,6 +126,15 @@ class RobotGeometry:
         path = Path(path) if path else description_path()
         return cls(expand(path.read_text(), properties), base)
 
+    @classmethod
+    def from_transforms(cls, transforms, base='base_link'):
+        """Build the tree of static TF transforms [(parent, child, R, t)], e.g. /tf_static."""
+        geometry = cls.__new__(cls)
+        geometry.base = base
+        geometry.joints = {child: (parent, 'fixed', np.asarray(R, float), np.asarray(t, float))
+                           for parent, child, R, t in transforms}
+        return geometry
+
     def chain(self, frame):
         links = [frame]
         while links[-1] != self.base:

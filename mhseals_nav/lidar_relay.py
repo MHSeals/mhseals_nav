@@ -130,21 +130,28 @@ def receive(pipe, topic, max_bytes, profile):
     rclpy.spin(node)
 
 
-def lidar_mount(tf_buffer, mounts, frame, node):
-    """base_link <- frame as (R, t) from TF, cached once found; None (as base_link) until then."""
+def lidar_mount(static, mounts, frame):
+    """Return base_link <- frame (R, t) from /tf_static, cached; None (as base_link) until found.
+
+    ``static`` maps child frame -> (parent, R, t).
+    """
     if frame not in mounts:
-        import numpy as np
-        from rclpy.time import Time
-        from tf2_ros import TransformException
-        from mhseals_nav.robot_geometry import quat_matrix
+        from mhseals_nav.robot_geometry import RobotGeometry
         try:
-            tf = tf_buffer.lookup_transform('base_link', frame, Time()).transform
-        except TransformException:
+            mounts[frame] = RobotGeometry.from_transforms(
+                (parent, child, R, t) for child, (parent, R, t) in static.items()).pose(frame)
+        except KeyError:
             return None
-        r, t = tf.rotation, tf.translation
-        mounts[frame] = quat_matrix(r.x, r.y, r.z, r.w), np.array([t.x, t.y, t.z])
-        node.get_logger().info(f'deskew: {frame} mount in base_link from TF')
     return mounts[frame]
+
+
+def add_static(static, message):
+    """Fold a /tf_static message into ``static`` (child frame -> (parent, R, t))."""
+    from mhseals_nav.robot_geometry import quat_matrix
+    for tf in message.transforms:
+        r, t = tf.transform.rotation, tf.transform.translation
+        static[tf.child_frame_id] = (tf.header.frame_id, quat_matrix(r.x, r.y, r.z, r.w),
+                                     (t.x, t.y, t.z))
 
 
 def publish(pipe, topic):
@@ -158,18 +165,21 @@ def publish(pipe, topic):
     import rclpy
     from nav_msgs.msg import Odometry
     from rclpy.serialization import deserialize_message
+    from rclpy.qos import DurabilityPolicy, QoSProfile
     from sensor_msgs.msg import PointCloud2
-    import tf2_ros
+    from tf2_msgs.msg import TFMessage
 
     rclpy.init()
     node = rclpy.create_node("lidar_relay_publish")
     publisher = node.create_publisher(PointCloud2, topic, _qos())
     # The fused body twist (ekf_local, 100 Hz) for deskew; older than TWIST_MAX_AGE, none.
     twist = {}
-    # The lidar's static mount in base_link (robot_state_publisher), looked up once per frame.
-    tf_buffer = tf2_ros.Buffer()
-    tf2_ros.TransformListener(tf_buffer, node)
-    mounts = {}
+    # The lidar's static mount in base_link (robot_state_publisher), from /tf_static only (no
+    # /tf listener); the subscription ends once the mount is found.
+    static, mounts = {}, {}
+    tf_static = node.create_subscription(
+        TFMessage, '/tf_static', lambda m: add_static(static, m),
+        QoSProfile(depth=100, durability=DurabilityPolicy.TRANSIENT_LOCAL))
     node.create_subscription(Odometry, '/odom/local', lambda m: twist.update(
         w=m.twist.twist.angular.z, v=(m.twist.twist.linear.x, m.twist.twist.linear.y),
         at=time.monotonic()), _qos(False))
@@ -185,7 +195,12 @@ def publish(pipe, topic):
         cloud = deserialize_message(payload, PointCloud2)
         motion = fresh_twist(twist, time.monotonic())
         if motion:
-            mount = lidar_mount(tf_buffer, mounts, cloud.header.frame_id, node)
+            mount = lidar_mount(static, mounts, cloud.header.frame_id)
+            if mount is not None and tf_static is not None:
+                node.destroy_subscription(tf_static)
+                tf_static = None
+                node.get_logger().info(
+                    f'deskew: {cloud.header.frame_id} mount in base_link from /tf_static')
             cloud = deskew(cloud, *motion, mount=mount)
         publisher.publish(cloud)
 

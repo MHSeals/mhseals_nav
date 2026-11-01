@@ -124,6 +124,29 @@ def test_deskew_uses_only_a_fresh_twist():
     assert fresh_twist(twist, 100.01 + TWIST_MAX_AGE) is None  # ekf_local stalled: as scanned
 
 
+def test_lidar_mount_composes_tf_static_chain():
+    """The deskew mount comes from /tf_static alone: rail on base_link, lidar on the rail."""
+    import numpy as np
+    from geometry_msgs.msg import TransformStamped
+    from mhseals_nav.lidar_relay import add_static, lidar_mount
+    from tf2_msgs.msg import TFMessage
+
+    def tf(parent, child, xyz, qz=0.0):
+        t = TransformStamped()
+        t.header.frame_id, t.child_frame_id = parent, child
+        t.transform.translation.x, t.transform.translation.y, t.transform.translation.z = xyz
+        t.transform.rotation.z, t.transform.rotation.w = qz, math.sqrt(1 - qz * qz)
+        return t
+    static, mounts = {}, {}
+    add_static(static, TFMessage(transforms=[
+        tf('sensor_mount_link', 'lidar_link', (0., 0., 0.26))]))
+    assert lidar_mount(static, mounts, 'lidar_link') is None    # rail not yet published
+    add_static(static, TFMessage(transforms=[
+        tf('base_link', 'sensor_mount_link', (0.29, 0., -0.01), math.sin(math.pi / 4))]))
+    R, t = lidar_mount(static, mounts, 'lidar_link')
+    assert np.allclose(t, (0.29, 0., 0.25)) and np.allclose(R @ (1., 0., 0.), (0., 1., 0.))
+
+
 def test_deskew_leaves_clouds_without_point_times_alone():
     from mhseals_nav.lidar_relay import deskew
     from sensor_msgs.msg import PointField
