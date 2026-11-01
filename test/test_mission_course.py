@@ -748,6 +748,44 @@ def test_a_gate_reached_within_the_goal_tolerance_is_driven_on_through(short):
     assert not any(r.startswith('gate 1 short') and 'giving up' in r for r in decisions)
 
 
+class Aborting(ShortArrival):
+    """Arrivals short of each crossing, and routes aborted 2 s in.
+
+    The first route of each ``why`` in ``abort`` is aborted (sooner reads as a refusal
+    and is sent again).
+    """
+
+    def __init__(self, params, short, abort, **kwargs):
+        super().__init__(params, short, **kwargs)
+        self.abort, self.aborted = list(abort), []
+
+    def drive(self):
+        goal = self.goal
+        if goal is not None and not goal.done:
+            goal.ticks = getattr(goal, 'ticks', 0) + 1
+            why = next((w for w in self.abort if goal.why.startswith(w)), None)
+            if why is not None and goal.ticks > 2.0 / self.dt:
+                self.abort.remove(why)
+                self.aborted.append(why)
+                goal.done, goal.status = True, 'ABORTED'
+                return
+        super().drive()
+
+
+def test_each_gate_has_its_own_retries():
+    """Gate 1 aborted twice and gate 2 short still clear the channel.
+
+    Three retries in the run, yet no gate past its own two.
+    """
+    world = Aborting(dict(mission('mission_2026.yaml'), tasks=['nav_channel']), 0.6,
+                     ('between gate 1', 'between gate 1'), course=SEED_2026, range_m=15.0)
+    outcome, _ = world.run(300.0)
+    decisions = [d['reason'] for e, d in world.events if e == 'decision']
+    retries = [r for r in decisions if r.endswith(': retry')]
+    assert len(world.aborted) == 2 and len(retries) == 3, decisions
+    assert outcome == 'SUCCESS', decisions
+
+
 ROTATED = ['nav_channel', 'speed_challenge', 'follow_path', 'docking', 'supply_drop',
            'return_home']
 

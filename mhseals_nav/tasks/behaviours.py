@@ -561,7 +561,7 @@ class GateRun(Driver):
             if (gate not in self.cleared and gate[:2] in self.approached
                     and geometry.crossed(gate, pose, last)):
                 self.cleared.append(gate)
-                self.past = 0.0
+                self.past, self.failures = 0.0, 0  # each gate gets its own retries
                 self.board.set(self.key, list(self.cleared), overwrite=True)
                 self.report('gate_cleared', gate=len(self.cleared),
                             position=[round(v, 2) for v in gate[:2]])
@@ -575,7 +575,7 @@ class GateRun(Driver):
                 self.decide('execute', f'{len(chain)} gate(s) ahead: through the middle')
             self.planned, self.looks, self.searched = chain, None, 0.0
             route = geometry.chain(chain, self.corner_side, self.exit_after + self.past)
-            if geometry.lined_up(chain[0], pose):  # past the lead-in: never turn back to it
+            if self.past_lead_in(chain[0], pose):
                 route = route[1:]
             self.drive(route, why=f'between gate {len(self.cleared) + 1} markers')
         state = self.driving()
@@ -593,7 +593,7 @@ class GateRun(Driver):
             if state == 'SHORT':  # done within the goal tolerance: on past the line, never back
                 self.past += self.retry_past
                 route = geometry.chain(self.planned, self.corner_side, self.exit_after + self.past)
-                if geometry.along(self.planned[0], pose) > -1.0:  # at its line or past it
+                if self.past_lead_in(self.planned[0], pose):
                     route = route[1:]
                 self.drive(route, why=f'on through gate {len(self.cleared) + 1}')
                 return Status.RUNNING
@@ -601,6 +601,17 @@ class GateRun(Driver):
         if chain:
             return Status.RUNNING
         return self.explore(pose)
+
+    def past_lead_in(self, gate, pose):
+        """Tell whether the boat is past ``gate``'s lead-in, near the middle: lined up or beyond.
+
+        The route then skips the lead-in, so it never turns back behind the boat. Off to
+        the side, or beyond a line it never came at from the near side, it keeps the lead-in.
+        """
+        if geometry.lined_up(gate, pose):
+            return True
+        across = -(pose[0] - gate[0]) * math.sin(gate[2]) + (pose[1] - gate[1]) * math.cos(gate[2])
+        return gate[:2] in self.approached and geometry.along(gate, pose) > 0 and abs(across) <= 1.0
 
     def explore(self, pose):
         """No gate ahead: look along the least-seen bearings near the course, then drive on.

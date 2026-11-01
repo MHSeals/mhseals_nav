@@ -33,7 +33,8 @@ def gate_options(params):
     """Return GateRun's YAML: the first gate's reach, its look (Scan's spread), corners."""
     spread = search.load_config(params.get('search'))['scan_spread_deg']
     return {'first_radius': params['first_gate_radius'], 'spread': math.radians(spread),
-            'corner_side': params['corner_side'], 'exit_after': params['gate_exit']}
+            'corner_side': params['corner_side'], 'exit_after': params['gate_exit'],
+            'retry_past': params['gate_retry_past']}
 
 
 def approached(task, build):
