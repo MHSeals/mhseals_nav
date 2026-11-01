@@ -154,9 +154,11 @@ def test_approach_seen_under_rc_still_holds_on_return_to_auto():
     g = Guard(dict(config('approach_guard.yaml'), enforce=True))
     mux(g, 0.0, 'rc')
     g.approach_at, g.gap = 0.0, 0.5     # an approach confirmed while the operator drives
-    for k in range(10):
+    g.command(0.0)
+    assert g.tick(0.0)                  # at confirmation, as before
+    for k in range(1, 10):
         g.command(k * 0.1)
-        assert not g.tick(k * 0.1)
+        assert not g.tick(k * 0.1)      # repeat_s throttles
     mux(g, 1.0, 'auto')                 # switch back to GUIDED: auto forwards
     g.command(1.0)
     assert g.tick(1.0), 'an approach 1 s earlier under rc leaves no hold on return'
@@ -166,6 +168,42 @@ def test_approach_seen_under_rc_still_holds_on_return_to_auto():
     mux(g, 3.0, 'auto')
     g.command(3.0)
     assert not g.tick(3.0)              # owed once: sent, and no new approach since
+
+
+@pytest.mark.parametrize('source', ['rc', 'manual'])
+def test_no_hold_while_rc_or_manual_drives_without_an_approach(source):
+    g = Guard(dict(config('approach_guard.yaml'), enforce=True))
+    mux(g, 0.0, source)
+    for k in range(20):
+        g.command(k * 0.1)
+        assert not g.tick(k * 0.1)
+    mux(g, 2.0, 'auto')
+    g.command(2.0)
+    assert not g.tick(2.0) and not g.owed
+
+
+def test_approach_confirmed_under_manual_holds_at_once():
+    g = Guard(dict(config('approach_guard.yaml'), enforce=True))
+    mux(g, 0.0, 'manual')
+    g.command(0.0)
+    assert not g.tick(0.0)
+    g.approach_at, g.gap = 0.3, 0.5
+    g.command(0.3)
+    assert g.tick(0.3)
+
+
+def test_approach_under_a_mux_hold_is_owed_and_never_expires():
+    g = Guard(dict(config('approach_guard.yaml'), enforce=True))
+    mux(g, 0.0, 'hold')
+    g.approach_at, g.gap = 0.0, 0.5
+    g.command(0.0)
+    assert not g.tick(0.0) and g.owed   # nothing reaches the boat under the hold
+    for t in (1.0, 2.0):                # the 1 Hz republish while still held
+        mux(g, t, 'hold')
+        assert not g.tick(t)
+    mux(g, 60.0, 'auto')                # released a minute later, Nav2 still publishing
+    g.command(60.0)
+    assert g.tick(60.0)
 
 
 def test_node_counts_every_command_with_two_mux_state_publishers():

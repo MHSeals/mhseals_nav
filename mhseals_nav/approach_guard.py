@@ -173,14 +173,18 @@ class Guard(HoldGate):
         self.chains = []
 
     def due(self, now):
-        """Owe a hold for an approach seen while rc or manual outranked flowing auto.
+        """Hold at a confirmed approach under rc or manual too, and owe one for the return.
 
-        The approach is gone after recent_s; the hold it used to leave in the mux then
-        stopped auto on the return, so the owed one goes out on the return to auto.
+        Under rc or manual the hold goes out at confirmation, as before the mux filter.
+        The approach is gone after recent_s, so one seen under rc, manual or a mux hold is
+        also owed (it never expires) and goes out on the return to auto.
         """
-        if self.reason(now) and self.outranked(now) and self.commanding(now):
+        why = self.reason(now)
+        if why and self.outranked(now) and self.commanding(now):
             self.owed = True
-        return bool(self.reason(now) or self.owed) and self.autonomy(now)
+        if why and self.mux_input in ('rc', 'manual') and self.commanding(now):
+            return True
+        return bool(why or self.owed) and self.autonomy(now)
 
     def tick(self, now):
         """Return True when a hold request should go out now; never unless enforcing."""

@@ -14,8 +14,9 @@ once; the mux forwards auto (ramped in from zero over its ramp) for the round tr
 hold lands, its state and then the request on DDS, longer for a watchdog on the Orin. A mux
 state older than mux_state_max_age_s, none, an unreadable one, or one while /command_mux/state
 has other than one publisher (a bag replay, a stray sim mux) counts every command, as before.
-A watchdog whose condition is transient (approach_guard) keeps a hold owed from a bad
-condition under rc or manual for the return to auto (``owed``), as its sticky hold did.
+approach_guard is not filtered under rc or manual: it requests its hold at confirmation, as
+before. Its condition is transient, so one seen under rc, manual or a mux hold also leaves a
+hold owed (``owed``) that never expires and goes out on the return to auto.
 Ages are receipt ages on the monotonic
 clock; only costmap_watchdog also checks header stamps, so there a skew between the boat and
 the Orin beyond max_stamp_age_s holds.
