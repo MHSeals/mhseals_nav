@@ -45,7 +45,8 @@ def adapter_main(monkeypatch, declarations, events):
     main = next(x for x in ast.parse(source.read_text()).body
                 if isinstance(x, ast.FunctionDef) and x.name == 'main')
     namespace = {'__package__': 'mhseals_nav', 'LiveParams': lambda *args: {},
-                 'positive': object(), 'Adapter': lambda *args: object()}
+                 'positive': object(), 'at_least': lambda minimum: object(),
+                 'Adapter': lambda *args: object()}
     exec(compile(ast.Module(body=[main], type_ignores=[]), str(source), 'exec'), namespace)
     return namespace['main']
 

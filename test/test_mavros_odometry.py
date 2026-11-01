@@ -77,8 +77,35 @@ def test_gps_without_a_usable_measurement_is_a_wide_zero_prior(raw):
     assert gps_velocity(raw, .05, 1., .3) == ((0., 0., 0.), 1.)
 
 
+NOFIX = ((0., 0., 0.), 1.)
+
+
+def test_quality_gate_is_off_by_default_and_a_moving_boat_with_a_good_fix_is_unaffected():
+    moving = sample(9000, vel=300, vel_acc=2000)  # 3 m/s, receiver says +-2 m/s
+    assert gps_velocity(moving, .05, 1., .3)[1] == pytest.approx(2.)  # default: fused as before
+    good = sample(9000, vel=300, vel_acc=100, fix_type=5)
+    gated = gps_velocity(good, .05, 1., .3, min_fix_type=5, max_acc=.5)
+    assert gated == gps_velocity(good, .05, 1., .3)
+    assert gated[0][0] == pytest.approx(3.)
+
+
+@pytest.mark.parametrize('raw,kwargs', [
+    (sample(9000, vel=300, vel_acc=600), {'max_acc': .5}),
+    (sample(9000, vel=300, fix_type=3), {'min_fix_type': 5}),
+])
+def test_poor_fix_with_the_gate_on_behaves_exactly_like_no_fix(raw, kwargs):
+    # The boat is moving at 3 m/s, yet the EKF is told it is stopped: the documented risk.
+    assert gps_velocity(raw, .05, 1., .3, **kwargs) == NOFIX
+    assert gps_velocity(sample(0, fix_type=2), .05, 1., .3) == NOFIX
+    assert gps_velocity(raw, .05, 1., .3)[0][0] != 0.
+
+
+def test_unknown_accuracy_is_not_a_poor_fix():
+    assert gps_velocity(sample(0, vel_acc=0), .05, 1., .3, max_acc=.5)[1] == .3
+
+
 LIVE = dict(velocity_stddev=.3, gps_velocity_max_age=1.5, gps_velocity_min_stddev=.05,
-            velocity_stddev_nofix=1.)
+            velocity_stddev_nofix=1., gps_velocity_min_fix_type=3, gps_velocity_max_acc=0.)
 
 
 def raw_sample(sec, nanosec=0, **kwargs):
@@ -141,3 +168,14 @@ def test_raw_fix_is_relabelled_to_the_antenna_frame():
     from mhseals_nav.mavros_odometry import antenna_fix
     fix = antenna_fix(S(header=S(frame_id='base_link', stamp=5), latitude=1.), 'gps_link')
     assert fix.header.frame_id == 'gps_link' and fix.latitude == 1.
+
+
+def test_adapter_with_the_gate_on_fuses_a_poor_fix_as_the_no_fix_prior():
+    gated = Adapter({**LIVE, 'gps_velocity_max_acc': .5}, 'gps', 'gps_link')
+    plain = Adapter(LIVE, 'gps', 'gps_link')
+    for adapter in (gated, plain):
+        adapter.receive_gps(raw_sample(10, vel=300, vel_acc=900), 10.)
+    out, kept = (a.receive(message(0., (5., 5.)), 10.05) for a in (gated, plain))
+    assert out.twist.twist.linear.x == 0. and out.twist.covariance[0] == pytest.approx(1.)
+    assert kept.twist.twist.linear.x == pytest.approx(3.)  # gate off: fused as measured
+    assert kept.twist.covariance[0] == pytest.approx(.9 ** 2)

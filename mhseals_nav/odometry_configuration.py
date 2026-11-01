@@ -10,7 +10,8 @@ from .startup_rules import Rule
 
 ALIASES = ('robot_state_publish_frequency', 'mavros_velocity_source',
            'mavros_velocity_stddev', 'mavros_velocity_max_age',
-           'mavros_velocity_min_stddev', 'mavros_velocity_no_fix_stddev', 'ekf_delay')
+           'mavros_velocity_min_stddev', 'mavros_velocity_no_fix_stddev',
+           'mavros_velocity_min_fix_type', 'mavros_velocity_max_acc', 'ekf_delay')
 LAYER_ARGUMENTS = ('odometry_deployment_file', 'odometry_startup_file')
 KEYS = frozenset(ALIASES[:-1]) | {'ekf_delay_standalone', 'ekf_delay_included'}
 ADAPTER_PARAMETERS = {
@@ -19,7 +20,10 @@ ADAPTER_PARAMETERS = {
     'gps_velocity_max_age': 'mavros_velocity_max_age',
     'gps_velocity_min_stddev': 'mavros_velocity_min_stddev',
     'velocity_stddev_nofix': 'mavros_velocity_no_fix_stddev',
+    'gps_velocity_min_fix_type': 'mavros_velocity_min_fix_type',
+    'gps_velocity_max_acc': 'mavros_velocity_max_acc',
 }
+INCLUSIVE = frozenset({'mavros_velocity_min_fix_type', 'mavros_velocity_max_acc'})
 
 
 @dataclass(frozen=True)
@@ -42,7 +46,8 @@ def field_rule(key):
     if key not in KEYS:
         raise ValueError('unknown odometry startup field: ' + key)
     return (Rule('string', choices=('gps', 'fcu')) if key == 'mavros_velocity_source' else
-            Rule('number', minimum=0, exclusive=not key.startswith('ekf_delay_')))
+            Rule('number', minimum=0,
+                 exclusive=not (key.startswith('ekf_delay_') or key in INCLUSIVE)))
 
 
 def validate(values):

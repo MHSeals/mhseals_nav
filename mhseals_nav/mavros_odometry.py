@@ -14,7 +14,7 @@ uses the FCU attitude, so the compass must be right.
 from copy import deepcopy
 import math
 
-from mhseals_nav.utils.live_params import LiveParams, positive
+from mhseals_nav.utils.live_params import at_least, LiveParams, positive
 
 
 def body_odometry(message, velocity_stddev):
@@ -56,14 +56,19 @@ def body_odometry(message, velocity_stddev):
     return result
 
 
-def gps_velocity(raw, min_stddev, nofix_stddev, unknown_stddev):
+def gps_velocity(raw, min_stddev, nofix_stddev, unknown_stddev, min_fix_type=3, max_acc=0.):
     """ENU velocity and sigma from a GPSRAW sample (vel cm/s, cog cdeg, vel_acc mm/s).
 
     Without a usable fix there is no measurement: a zero velocity with a wide
     sigma is a weak slow-boat prior rather than fake precision. A vel_acc of 0
     means the receiver gave no accuracy, so it falls back to unknown_stddev.
+
+    The optional quality gate makes a poor fix the same no-fix case: fix_type below
+    min_fix_type, or a known vel_acc above max_acc (m/s, 0 = off). A moving boat then
+    reads as stopped, so both default to the plain no-fix rule.
     """
-    if raw.fix_type < 3 or 65535 in (raw.vel, raw.cog):
+    poor = max_acc > 0 and raw.vel_acc / 1000 > max_acc
+    if raw.fix_type < max(3, min_fix_type) or poor or 65535 in (raw.vel, raw.cog):
         return (0., 0., 0.), nofix_stddev
     speed, course = raw.vel / 100, math.radians(raw.cog / 100)
     return ((speed * math.sin(course), speed * math.cos(course), 0.),
@@ -121,7 +126,9 @@ class Adapter:
         stamp = raw.header.stamp
         velocity, sigma = gps_velocity(raw, self.live['gps_velocity_min_stddev'],
                                        self.live['velocity_stddev_nofix'],
-                                       self.live['velocity_stddev'])
+                                       self.live['velocity_stddev'],
+                                       self.live['gps_velocity_min_fix_type'],
+                                       self.live['gps_velocity_max_acc'])
         # Arrival time gates freshness since the header may carry FCU time; the
         # header is only the output stamp when it agrees with arrival.
         age = now - (stamp.sec + stamp.nanosec * 1e-9)
@@ -164,14 +171,18 @@ def main(args=None):
     node.declare_parameter('gps_velocity_max_age', defaults['gps_velocity_max_age'])
     node.declare_parameter('gps_velocity_min_stddev', defaults['gps_velocity_min_stddev'])
     node.declare_parameter('velocity_stddev_nofix', defaults['velocity_stddev_nofix'])
+    node.declare_parameter('gps_velocity_min_fix_type', defaults['gps_velocity_min_fix_type'])
+    node.declare_parameter('gps_velocity_max_acc', defaults['gps_velocity_max_acc'])
     # The twist is the GPS antenna's: robot_localization removes the lever arm.
     gps_frame = node.declare_parameter('gps_frame', 'gps_link').value
     if source not in ('fcu', 'gps'):
         raise ValueError('velocity_source must be fcu or gps')
     # Tuning applies live; the source and frame decide subscriptions, so they do not.
-    live = LiveParams(node, {name: positive for name in (
+    rules = {name: positive for name in (
         'velocity_stddev', 'gps_velocity_max_age', 'gps_velocity_min_stddev',
-        'velocity_stddev_nofix')})
+        'velocity_stddev_nofix')}
+    rules.update(gps_velocity_min_fix_type=at_least(0), gps_velocity_max_acc=at_least(0))
+    live = LiveParams(node, rules)
     publisher = node.create_publisher(Odometry, '/odom/mavros', 10)
     adapter = Adapter(live, source, gps_frame)
 

@@ -58,3 +58,13 @@ def test_installed_share_lookup_from_unrelated_directory(tmp_path, monkeypatch):
     monkeypatch.setitem(sys.modules, 'ament_index_python.packages', package)
     monkeypatch.chdir(tmp_path)
     assert resolve_odometry().inputs[0]['path'] == str(share / 'config/odometry_startup.yaml')
+
+
+def test_gps_gate_is_off_by_default_and_accepts_zero():
+    base = resolve_odometry(BASE).adapter_parameters
+    assert (base['gps_velocity_min_fix_type'], base['gps_velocity_max_acc']) == (3, 0)
+    on = resolve_odometry(BASE, aliases={'mavros_velocity_min_fix_type': '5',
+                                         'mavros_velocity_max_acc': '0.5'}).adapter_parameters
+    assert (on['gps_velocity_min_fix_type'], on['gps_velocity_max_acc']) == (5, .5)
+    with pytest.raises(ValueError):
+        resolve_odometry(BASE, aliases={'mavros_velocity_max_acc': '-1'})

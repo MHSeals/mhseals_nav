@@ -4,5 +4,13 @@ mavros_velocity_stddev: 0.3
 mavros_velocity_max_age: 1.5
 mavros_velocity_min_stddev: 0.05
 mavros_velocity_no_fix_stddev: 1.0
+# GPS-quality gate, OFF by default (these values change nothing). A sample that fails it is handled exactly
+# like no fix: zero velocity at mavros_velocity_no_fix_stddev. WARNING: that means a MOVING boat is treated
+# as stopped while the gate trips, so only enable it for static or slow indoor/degraded-fix work, never
+# for a mission where GPS velocity is the only velocity source (ekf_local has no other).
+# Minimum GPS fix_type (3 = 3D, off; 5 = RTK float, 6 = RTK fixed). Values below 3 act as 3.
+mavros_velocity_min_fix_type: 3
+# Receiver vel_acc above this (m/s) counts as a poor fix. 0 = off; 0.5 is the suggested value.
+mavros_velocity_max_acc: 0.0
 ekf_delay_standalone: 0.0
 ekf_delay_included: 6.0
