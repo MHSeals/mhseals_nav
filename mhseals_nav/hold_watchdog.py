@@ -86,7 +86,7 @@ class HoldGate:
         return self.mux_known(now) and self.mux_input in OUTRANK_AUTO
 
     def commanding(self, now):
-        """An auto command within the window, whatever the mux does with it."""
+        """Return whether an auto command arrived within the window, whatever the mux does."""
         return fresh(self.command_at, now, self.cfg['command_window_s'])
 
     def autonomy(self, now):
