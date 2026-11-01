@@ -19,7 +19,12 @@
     gate_chi2_v: 13.3
     group_match: false
     # exclusion_chi2: a leftover inside this looser gate of a track starts no candidate.
-    candidate: {hits: 3, time: 0.5, timeout: 1.0, exclusion_chi2: 30.0}
+    # min_range_m: an observation nearer the camera (planar) than this updates a track but
+    # starts none. 11-01 at the dock, the detections under 2 m were false (red_buoy boxes
+    # 3 cm wide, pole buoys and a blue buoy, scores up to 0.9), each confirmed within 0.2 s
+    # and the course map saved them; a real buoy is seen from afar first, so its track
+    # already exists when the boat passes it.
+    candidate: {hits: 3, time: 0.5, timeout: 1.0, exclusion_chi2: 30.0, min_range_m: 2.0}
     # merge: a confirmed same-class pair closer than radius_m, never updated in the same
     # frame within co_seen_s, is one object tracked twice and keeps the older id. Duplicates
     # of a static buoy (2026-10-31) sat 0.01-0.56 m apart, median 0.06-0.22. Gate buoys are

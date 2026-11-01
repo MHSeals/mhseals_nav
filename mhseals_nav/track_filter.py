@@ -337,8 +337,11 @@ class TrackFilter:
         for i, k, d2 in d2s:
             if k not in matched_tracks:
                 nearest[i] = min(nearest[i], d2)
+        cand = self.cfg['candidate']
         for i, (ob, z, Rz, vel) in enumerate(rows):
-            if i not in matched_obs and nearest[i] >= self.cfg['candidate']['exclusion_chi2']:
+            # Nearer than min_range_m an observation may update a track but never seeds one.
+            if i not in matched_obs and nearest[i] >= cand['exclusion_chi2'] and \
+                    math.hypot(ob.position.x, ob.position.y) >= cand['min_range_m']:
                 self._start(ob, obs.backend, z, Rz, vel, t)
         self._miss_in_fov(R, p, frame, live, matched_tracks, t)
         self._merge(t)

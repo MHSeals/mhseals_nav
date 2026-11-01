@@ -48,6 +48,20 @@ def test_candidate_confirms_after_hits_and_dies_unconfirmed():
     assert len(f.tracks) == 1 and f.tracks[0].motion == MOTION_STATIC
 
 
+def test_a_detection_nearer_than_min_range_updates_a_track_but_seeds_none():
+    f = TrackFilter(CFG)
+    near = CFG['candidate']['min_range_m'] * 0.6
+    run(f, lambda t: [ob('red_buoy', near, 0.3)], 2.0)
+    assert f.all == []                                 # a false box beside the hull
+    # The boat runs at 1 m/s toward a buoy at x 8 m until it is 1 m off the camera.
+    def towards(t, frame_id):
+        return np.eye(3), np.array([t - 2.0, 0.0, 0.0])
+    run(f, lambda t: [ob('green_buoy', 8.0 - (t - 2.0), 0.5)], 7.0, start=2.0,
+        pose_at=towards)
+    (track,) = f.tracks                                # seen from afar, followed in close
+    assert track.x[0] == pytest.approx(8.0, abs=0.2) and track.hits >= 7 * RATE - 1
+
+
 def test_id_pass_beats_a_nearer_track_without_the_id():
     f = TrackFilter(CFG)
     run(f, lambda t: [ob('red_buoy', 5.0, 0.0, 'a'), ob('red_buoy', 5.0, 1.2, 'b')], 1.0)
@@ -391,6 +405,7 @@ def test_a_10cm_odom_step_does_not_track_a_static_buoy_twice(layer):
     merge folds the duplicate the step started back into the older id.
     """
     cfg = copy.deepcopy(CFG)
+    cfg['candidate']['min_range_m'] = 0.0      # the bench buoy sat 1.2 m off the camera
     if layer == 'merge':
         cfg['meas']['pose_sigma_m'] = 0.0
     else:
