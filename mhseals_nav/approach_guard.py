@@ -172,6 +172,16 @@ class Guard(HoldGate):
         self.since = None
         self.chains = []
 
+    def due(self, now):
+        """Owe a hold for an approach seen while rc or manual outranked flowing auto.
+
+        The approach is gone after recent_s; the hold it used to leave in the mux then
+        stopped auto on the return, so the owed one goes out on the return to auto.
+        """
+        if self.reason(now) and self.outranked(now) and self.commanding(now):
+            self.owed = True
+        return bool(self.reason(now) or self.owed) and self.autonomy(now)
+
     def tick(self, now):
         """Return True when a hold request should go out now; never unless enforcing."""
         return super().tick(now) and self.cfg['enforce']

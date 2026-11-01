@@ -10,7 +10,12 @@ autonomy, and neither is a command received then once the mux has gone idle. Hol
 TUI's neutral zeros on a hold or a lapsed lease and keyboard drive no longer cascade into
 these holds (11-01: every mux hold brought link and fence holds 14-24 ms later). When the
 mux reports auto again (a release, manual timing out), a command in the window counts at
-once. A mux state older than mux_state_max_age_s, or none, counts every command, as before.
+once; the mux forwards auto (ramped in from zero over its ramp) for the round trip until the
+hold lands, its state and then the request on DDS, longer for a watchdog on the Orin. A mux
+state older than mux_state_max_age_s, none, an unreadable one, or one while /command_mux/state
+has other than one publisher (a bag replay, a stray sim mux) counts every command, as before.
+A watchdog whose condition is transient (approach_guard) keeps a hold owed from a bad
+condition under rc or manual for the return to auto (``owed``), as its sticky hold did.
 Ages are receipt ages on the monotonic
 clock; only costmap_watchdog also checks header stamps, so there a skew between the boat and
 the Orin beyond max_stamp_age_s holds.
@@ -27,6 +32,7 @@ import time
 STATUS_S = 0.5    # s between ~/status beats; a TUI calls a watchdog dead after 2 s without one
 # command_mux ~/state inputs that outrank auto: while one has the mux, /cmd_vel reaches nothing.
 OUTRANK_AUTO = ('rc', 'manual', 'hold')
+MUX_KEYS = ('mux_state_topic', 'mux_state_max_age_s')   # required in every watchdog's YAML
 
 
 def fresh(at, now, limit):
@@ -43,6 +49,7 @@ class HoldGate:
         self.mux_input = None
         self.mux_at = None
         self.sent_at = None
+        self.owed = False        # a hold due under rc/manual, still to send (transient causes)
 
     def reason(self, now):
         raise NotImplementedError
@@ -59,17 +66,27 @@ class HoldGate:
     def mux(self, now, state):
         """Note a command_mux ~/state (its JSON); one that can't be read is unknown."""
         try:
-            self.mux_input = json.loads(state)['input']
+            source = json.loads(state)['input']
         except (ValueError, TypeError, KeyError):
-            self.mux_input = None
+            source = None
+        self.mux_input = source if isinstance(source, str) else None
         self.mux_at = now
 
+    def mux_unknown(self):
+        """Forget the mux state (its topic has other than one publisher)."""
+        self.mux_input = None
+
     def mux_known(self, now):
-        return self.mux_input is not None and fresh(
-            self.mux_at, now, self.cfg['mux_state_max_age_s'])
+        limit = self.cfg.get('mux_state_max_age_s')   # the node refuses to start without it
+        return self.mux_input is not None and limit is not None and fresh(
+            self.mux_at, now, limit)
 
     def outranked(self, now):
         return self.mux_known(now) and self.mux_input in OUTRANK_AUTO
+
+    def commanding(self, now):
+        """An auto command within the window, whatever the mux does with it."""
+        return fresh(self.command_at, now, self.cfg['command_window_s'])
 
     def autonomy(self, now):
         if self.outranked(now):
@@ -78,13 +95,18 @@ class HoldGate:
         at = self.open_at if self.mux_known(now) and self.mux_input == 'idle' else self.command_at
         return fresh(at, now, self.cfg['command_window_s'])
 
+    def due(self, now):
+        """Whether a hold is due; a transient cause also owes one seen while outranked."""
+        return bool(self.reason(now)) and self.autonomy(now)
+
     def tick(self, now):
         """Return True when a hold request should go out now."""
-        if not (self.reason(now) and self.autonomy(now)):
+        if not self.due(now):
             return False
         if self.sent_at is not None and now - self.sent_at < self.cfg['repeat_s']:
             return False
         self.sent_at = now
+        self.owed = False
         return True
 
 
@@ -106,6 +128,9 @@ def node_class(name, filename, logic, subscribe):
             super().__init__(name, automatically_declare_parameters_from_overrides=True,
                              **kwargs)
             self.cfg = cfg = node_config(self, filename)
+            missing = [key for key in MUX_KEYS if cfg.get(key) is None]
+            if missing:
+                raise ValueError(f"{filename}: missing {', '.join(missing)}")
             self.logic = logic(cfg)
             self.token = secrets.token_hex(8)
             self.request = self.create_publisher(String, cfg['request_topic'], 10)
@@ -124,7 +149,13 @@ def node_class(name, filename, logic, subscribe):
             why = self.logic.reason(time.monotonic())
             self.status.publish(String(data=json.dumps({'ok': not why, 'reason': why})))
 
+        def check_mux(self):
+            """One mux or none: two publishers (a replay, a stray mux) could mask a hold."""
+            if self.count_publishers(self.cfg['mux_state_topic']) != 1:
+                self.logic.mux_unknown()
+
         def on_command(self, _):
+            self.check_mux()
             self.logic.command(time.monotonic())
             self.tick()
 
@@ -133,6 +164,7 @@ def node_class(name, filename, logic, subscribe):
             self.tick()   # back to auto with a command in the window: hold now
 
         def tick(self):
+            self.check_mux()
             now = time.monotonic()
             why = self.logic.reason(now)
             if why != self.was:   # one call site per severity, as rclpy requires
@@ -143,7 +175,8 @@ def node_class(name, filename, logic, subscribe):
                 self.was = why
             if self.logic.tick(now):
                 self.get_logger().error(
-                    f"autonomy while {why}: requesting hold {self.cfg['cause']}",
+                    f"autonomy while {why or 'a hold owed from under rc or manual'}: "
+                    f"requesting hold {self.cfg['cause']}",
                     throttle_duration_sec=5.0)
                 self.request.publish(String(data=json.dumps({
                     'op': 'hold', 'cause': self.cfg['cause'], 'by': name,

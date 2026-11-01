@@ -8,6 +8,7 @@ neutral zeros on /cmd_vel at the hold counted as autonomy while both conditions 
 import json
 from pathlib import Path
 
+from mhseals_nav.approach_guard import Guard
 from mhseals_nav.fence_watchdog import FenceWatchdog
 from mhseals_nav.link_watchdog import LinkWatchdog
 import pytest
@@ -25,9 +26,9 @@ FENCE = dict(config('fence_watchdog.yaml'), fence_frame='map',
 WINDOW = LINK['command_window_s']
 
 
-def link():
+def link(cfg=LINK):
     """No operator heartbeat (require_operator): the condition is bad from the start."""
-    return LinkWatchdog(LINK, own_host='blastoise-odroid')
+    return LinkWatchdog(cfg, own_host='blastoise-odroid')
 
 
 def fence():
@@ -133,6 +134,81 @@ def test_keyboard_drive_with_the_link_bad_is_not_held():
         assert not dog.tick(t)
 
 
+# From the adversarial review of 327ba22 (deny side).
+
+
+def test_missing_max_age_key_fails_closed():
+    cfg = {k: v for k, v in LINK.items() if k != 'mux_state_max_age_s'}
+    dog = link(cfg)
+    mux(dog, 0.0, 'hold')
+    dog.command(0.01)
+    try:
+        held = dog.tick(0.01)
+    except KeyError:
+        pytest.fail('missing mux_state_max_age_s raises KeyError in a callback (node dies)')
+    assert held
+
+
+def test_approach_seen_under_rc_still_holds_on_return_to_auto():
+    """Before 327ba22 an approach under rc/manual with Nav2 still publishing left a hold."""
+    g = Guard(dict(config('approach_guard.yaml'), enforce=True))
+    mux(g, 0.0, 'rc')
+    g.approach_at, g.gap = 0.0, 0.5     # an approach confirmed while the operator drives
+    for k in range(10):
+        g.command(k * 0.1)
+        assert not g.tick(k * 0.1)
+    mux(g, 1.0, 'auto')                 # switch back to GUIDED: auto forwards
+    g.command(1.0)
+    assert g.tick(1.0), 'an approach 1 s earlier under rc leaves no hold on return'
+    assert not g.owed
+    mux(g, 1.1, 'rc')
+    g.command(1.1)
+    mux(g, 3.0, 'auto')
+    g.command(3.0)
+    assert not g.tick(3.0)              # owed once: sent, and no new approach since
+
+
+def test_node_counts_every_command_with_two_mux_state_publishers():
+    """A bag replay or a stray sim mux beside the real one could otherwise mask a hold."""
+    rclpy = pytest.importorskip('rclpy')
+    from geometry_msgs.msg import Twist
+    from rclpy.executors import SingleThreadedExecutor
+    from rclpy.parameter import Parameter
+    from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy
+    from std_msgs.msg import String
+    from ros_domain import require_isolated_domain
+    from watchdog_cycle import spin
+    require_isolated_domain()
+    from mhseals_nav.link_watchdog import node_class
+    rclpy.init()
+    try:
+        # Its own topic: these publishers must not linger in discovery for the next test.
+        topic = '/two_mux_probe/state'
+        dog = node_class()(parameter_overrides=[Parameter('mux_state_topic', value=topic)])
+        probe = rclpy.create_node('mux_probe')
+        got = []
+        probe.create_subscription(String, LINK['request_topic'],
+                                  lambda m: got.append(json.loads(m.data)), 10)
+        cmd = probe.create_publisher(Twist, LINK['command_topic'], 10)
+        latched = QoSProfile(depth=1, reliability=QoSReliabilityPolicy.RELIABLE,
+                             durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
+        states = [probe.create_publisher(String, topic, latched)
+                  for _ in range(2)]
+        ex = SingleThreadedExecutor()
+        ex.add_node(dog)
+        ex.add_node(probe)
+
+        def feed():
+            for state in states:
+                state.publish(String(data=json.dumps({'input': 'hold'})))
+            cmd.publish(Twist())
+
+        spin(ex, feed, 3.0, until=lambda: got)
+        assert got and got[0]['cause'] == 'operator_link'
+    finally:
+        rclpy.try_shutdown()
+
+
 def test_node_ignores_zeros_under_a_mux_hold_and_holds_under_auto():
     rclpy = pytest.importorskip('rclpy')
     from geometry_msgs.msg import Twist
@@ -165,8 +241,10 @@ def test_node_ignores_zeros_under_a_mux_hold_and_holds_under_auto():
             return go
 
         # The state first: a command ahead of any mux state counts (unknown), as it should.
-        state.publish(String(data=json.dumps({'input': 'hold'})))
-        spin(ex, lambda: None, 2.0, until=lambda: dog.logic.mux_input == 'hold')
+        # One mux state publisher on the graph (an earlier test's may linger in discovery).
+        spin(ex, lambda: state.publish(String(data=json.dumps({'input': 'hold'}))), 5.0,
+             until=lambda: dog.count_publishers(
+            LINK['mux_state_topic']) == 1 and dog.logic.mux_input == 'hold')
         assert dog.logic.mux_input == 'hold' and dog.logic.reason(0.0)
         spin(ex, feed('hold'), 1.5)
         assert got == []                     # zeros while the mux holds: no cascade
