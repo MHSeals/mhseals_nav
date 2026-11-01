@@ -40,13 +40,15 @@ SCHEMA = {
              'fit_tolerance': (POS, 0.5), 'min_points': (INT, 3, 10000),
              'range_tolerance': (POS, 2.0), 'bearing_tolerance': (POS, 0.5)},
     'water': {'range': (PAIR, 0.0, 100.0), 'band': (PAIR, -10.0, 10.0),
-              'waterline': (PAIR, -5.0, 5.0), 'max_tilt': (POS, 0.5),
+              'waterline': (NUM, -5.0, 5.0, 'nullable'), 'waterline_band': (POS, 1.0),
+              'waterline_range': (PAIR, -5.0, 5.0), 'max_tilt': (POS, 0.5),
               'plane_tolerance': (POS, 1.0), 'min_points': (INT, 3, 100000),
               'min_spread': (POS, 10.0), 'candidates': (INT, 1, 10), 'sectors': (INT, 4, 72),
               'min_sectors': (INT, 1, 72), 'sector_min_points': (INT, 1, 10000)},
     'horizon': {'min_inliers': (POS, 1.0), 'edge_min': (POS, 255.0),
                 'texture_rows': (INT, 1, 100), 'texture_max': (POS, 255.0),
-                'shore_elevation': (NUM, -0.2, 0.2)},
+                'shore_elevation': (NUM, -0.2, 0.2), 'mirror_span': (POS, 0.5),
+                'mirror_correlation': (PAIR, -1.0, 1.0)},
     'verdict': {'tilt_warn': (POS, 0.5), 'tilt_error': (POS, 0.5), 'spread_warn': (POS, 0.5)},
 }
 
@@ -76,6 +78,8 @@ def _validate(data, schema, path):
         elif spec[0] == POS:
             if not _number(value) or not 0 < value <= spec[1]:
                 raise ValueError(f'{name} must be a number in (0, {spec[1]}]')
+        elif value is None and spec[3:] == ('nullable',):
+            continue
         elif not _number(value) or not spec[1] <= value <= spec[2]:
             raise ValueError(f'{name} must be a number in {spec[1]}..{spec[2]}')
 
@@ -223,9 +227,13 @@ def water_tilt(points_base, cfg):
     """One scan -> (roll, pitch of the water seen in base_link rad, water z m) or None.
 
     Up to ``candidates`` level-ish planes are peeled off, densest first. A plane is water when
-    its height at the boat is within the waterline, its inliers spread in both horizontal axes
-    and lie all around the boat; the lowest such plane wins (a deck floats above the water).
+    its height at the boat is within the waterline (the taped one +- waterline_band, else the
+    hull's waterline_range), its inliers spread in both horizontal axes and lie all around the
+    boat; the lowest such plane wins (a deck floats above the water).
     """
+    taped = cfg['waterline']
+    wlo, whi = (cfg['waterline_range'] if taped is None
+                else (taped - cfg['waterline_band'], taped + cfg['waterline_band']))
     r = np.linalg.norm(points_base[:, :2], axis=1)
     lo, hi = cfg['range']
     zlo, zhi = cfg['band']
@@ -241,7 +249,7 @@ def water_tilt(points_base, cfg):
         plane, rest = rest[inliers], rest[~inliers]
         height = -d / n[2]
         spread = np.sqrt(np.linalg.eigvalsh(np.cov(plane[:, :2].T)))
-        if (cfg['waterline'][0] <= height <= cfg['waterline'][1]
+        if (wlo <= height <= whi
                 and spread.min() >= cfg['min_spread'] and around_the_boat(plane, cfg)):
             water.append((height, *normal_roll_pitch(n)))
     if not water:
@@ -255,10 +263,17 @@ def horizon(gray, fx, fy, cx, cy, cfg, seed=0):
 
     Per column, the lowest strong vertical edge with water-like (smooth) rows under it: the
     water's far edge, not the treeline or sky above it. A RANSAC line through those; too few
-    columns on one line (choppy or reflecting water, clutter) is ambiguous. The edge's known
-    elevation (shore_elevation) is taken off the pitch.
+    columns on one line (choppy water, clutter) is ambiguous.
+
+    Glassy water mirrors the treeline, and the bottom of the reflection is such an edge too, a
+    treeline height below the water edge. So the highest strong edge within mirror_span above
+    it is found too: when the band between them is symmetric about their per-column midline
+    (its flipped correlation, best within 2 px of it, at or above mirror_correlation's high
+    end), that axis is the water edge; between the two ends the pairing is ambiguous. The
+    edge's known elevation (shore_elevation) is taken off the pitch.
     """
-    g = np.abs(np.diff(gray.astype(np.float64), axis=0))
+    image = gray.astype(np.float64)
+    g = np.abs(np.diff(image, axis=0))
     k = cfg['texture_rows']
     usable = g.shape[0] - k
     if usable < 1:
@@ -266,12 +281,41 @@ def horizon(gray, fx, fy, cx, cy, cfg, seed=0):
     total = np.vstack([np.zeros((1, g.shape[1])), np.cumsum(g, axis=0)])
     below = (total[k + 1:] - total[1:-k]) / k     # mean step over the k rows under each edge
     edge = (g[:usable] > cfg['edge_min']) & (below < cfg['texture_max'])
-    seen = edge.any(axis=0)
-    if seen.sum() < 2:
-        return None
-    rows = (usable - 1 - np.argmax(edge[::-1], axis=0) + 0.5)[seen]
-    cols = np.arange(g.shape[1], dtype=np.float64)[seen]
+    cols = np.arange(g.shape[1], dtype=np.float64)
     rng = np.random.default_rng(seed)
+    low_seen = edge.any(axis=0)
+    low_rows = usable - 1 - np.argmax(edge[::-1], axis=0) + 0.5
+    line = _ransac_line(cols, low_rows, low_seen, cfg['min_inliers'], rng)
+    if line is None:
+        return None
+    # The highest strong edge per column between mirror_span and 4 px above the low line; the
+    # per-column midpoints cancel the opposite curvature of the two (constant elevation) edges.
+    rows = np.arange(g.shape[0])[:, None] + 0.5
+    fitted = line[1] + line[0] * cols
+    window = ((g > cfg['edge_min']) & (rows < fitted - 4)
+              & (rows > fitted - cfg['mirror_span'] * fy))
+    high_rows = np.argmax(window, axis=0) + 0.5
+    mid = _ransac_line(cols, (low_rows + high_rows) / 2, low_seen & window.any(axis=0),
+                       cfg['min_inliers'], rng)
+    if mid is not None:
+        weak, strong = cfg['mirror_correlation']
+        half = np.median((low_rows - high_rows)[low_seen & window.any(axis=0)]) / 2
+        symmetry, shift = max((_mirror_correlation(image, (mid[0], mid[1] + shift), half), shift)
+                              for shift in np.arange(-2.0, 2.5, 0.5))
+        if symmetry >= strong:
+            line = (mid[0], mid[1] + shift)
+        elif symmetry > weak:
+            return None
+    slope, row0 = line
+    v = row0 + slope * cx
+    return math.atan2(cy - v, fy) - cfg['shore_elevation'], math.atan(-slope * fy / fx)
+
+
+def _ransac_line(cols, rows, seen, min_inliers, rng):
+    """(slope, row0) of the RANSAC line through rows[seen], or None under min_inliers of all."""
+    total, cols, rows = len(cols), cols[seen], rows[seen]
+    if len(rows) < 2:
+        return None
     best = np.zeros(len(rows), bool)
     for _ in range(200):
         i, j = rng.choice(len(rows), 2, replace=False)
@@ -279,11 +323,30 @@ def horizon(gray, fx, fy, cx, cy, cfg, seed=0):
         inliers = np.abs(rows - (rows[i] + slope * (cols - cols[i]))) < 2.0
         if inliers.sum() > best.sum():
             best = inliers
-    if best.sum() < cfg['min_inliers'] * g.shape[1]:
+    if best.sum() < min_inliers * total:
         return None
-    slope, row0 = np.polyfit(cols[best], rows[best], 1)
-    v = row0 + slope * cx
-    return math.atan2(cy - v, fy) - cfg['shore_elevation'], math.atan(-slope * fy / fx)
+    return tuple(np.polyfit(cols[best], rows[best], 1))
+
+
+def _mirror_correlation(image, mid, half):
+    """Correlation of the rows above the midline (slope, row0) with their mirror below it."""
+    h, w = image.shape
+    cols = np.arange(w)
+    axis = mid[1] + mid[0] * cols + 0.5    # pixel i spans i .. i + 1 (centres at i + 0.5)
+    above, mirrored = [], []
+    # Clear of the edges for a 2 px shift, and of the rows next to the axis (a smooth image
+    # matches itself there).
+    for d in np.arange(3.5, half - 3.0):
+        top, bottom = np.floor(axis - d).astype(int), np.floor(axis + d).astype(int)
+        ok = (top >= 0) & (bottom < h)
+        above.append(image[top[ok], cols[ok]])
+        mirrored.append(image[bottom[ok], cols[ok]])
+    if not above:
+        return 0.0
+    above, mirrored = np.concatenate(above), np.concatenate(mirrored)
+    if above.std() == 0 or mirrored.std() == 0:
+        return 0.0
+    return float(np.corrcoef(above, mirrored)[0, 1])
 
 
 def hull_attitude(q):

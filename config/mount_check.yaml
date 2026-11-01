@@ -19,9 +19,12 @@ mount_check:
   water:
     range: [2.0, 8.0]             # planar range of the returns fitted
     band: [-1.0, 0.5]             # z of the returns tried: 5 deg of tilt moves water 0.7 m at 8 m
-    # Water height at the boat (the plane's intercept) the hull allows: between the hull bottoms
-    # (about -0.25 in the URDF) and the hull tops (datum, -0.013), with a margin.
-    waterline: [-0.35, 0.0]
+    # Water height at the boat (the plane's intercept): tape it once at the dock (water to the
+    # datum, the hull tops at -0.0126) and set waterline; null falls back to waterline_range,
+    # between the hull bottoms (about -0.25 in the URDF) and just under the hull tops.
+    waterline: null
+    waterline_band: 0.05
+    waterline_range: [-0.35, -0.05]
     max_tilt: 0.15                # planes further from level are walls, not water
     plane_tolerance: 0.05
     min_points: 60
@@ -38,6 +41,11 @@ mount_check:
     # Elevation of the water edge above level: -camera height / shore distance (0.4 m at 150 m
     # is -0.0027); 0 for open water.
     shore_elevation: 0.0
+    # Glassy water mirrors the treeline: two parallel edges at most mirror_span apart whose band
+    # is symmetric (flipped correlation >= the high end) put the water edge at their midline;
+    # between the ends is ambiguous.
+    mirror_span: 0.25
+    mirror_correlation: [0.15, 0.5]
   verdict:
     tilt_warn: 0.0087             # 0.5 deg
     tilt_error: 0.026             # 1.5 deg

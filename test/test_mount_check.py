@@ -61,6 +61,12 @@ def test_water_on_one_side_only_is_unobservable():
 
 def test_a_plane_off_the_waterline_is_not_water():
     assert water_tilt(water(z=-0.8), CFG['water']) is None
+    assert water_tilt(water(z=-0.02), CFG['water']) is None    # at the hull tops
+
+
+def test_a_taped_waterline_narrows_the_band():
+    assert water_tilt(water(z=-0.2), dict(CFG['water'], waterline=-0.18)) is not None
+    assert water_tilt(water(z=-0.2), dict(CFG['water'], waterline=-0.1)) is None
 
 
 def test_a_narrow_strip_of_water_is_unobservable_not_level():
@@ -74,11 +80,14 @@ def test_normal_roll_pitch_sign_matches_urdf_rpy():
         assert normal_roll_pitch(up_seen) == pytest.approx((roll * DEG, pitch * DEG), abs=1e-9)
 
 
-def render(pitch, roll, w=640, h=360, f=500., shore=0.0, treeline=None, chop=0.0, seed=0):
+def render(pitch, roll, w=640, h=360, f=500., shore=0.0, treeline=None, chop=0.0, mirror=0.0,
+           seed=0):
     """Render a grey image from a camera (camera_link axes) pitched and rolled (rad).
 
     Water below the shore edge (elevation ``shore`` rad), optionally a textured treeline
     ``treeline`` rad above it, sky above that. ``chop`` is the water's texture (grey levels).
+    ``mirror`` > 0 reflects the treeline in the water, darkened, mixed with that share of the
+    reflection (1 glassy; the rest noise).
     """
     rng = np.random.default_rng(seed)
     R = rpy_matrix(roll, pitch, 0.)
@@ -87,9 +96,19 @@ def render(pitch, roll, w=640, h=360, f=500., shore=0.0, treeline=None, chop=0.0
     ray = np.stack([np.full_like(u, f), -(u - w / 2), -(v - h / 2)], axis=-1) @ R.T
     elevation = np.arcsin(ray[..., 2] / np.linalg.norm(ray, axis=-1))
     image = np.where(elevation > shore, 220., 110. + rng.normal(0, 1.0 + chop, (h, w)))
+
+    texture = rng.uniform(10, 70, (w // 4 + 1, 400))
+
+    def trees(e):   # treeline texture in 4 px x 0.006 rad blocks, so it can be mirrored
+        return texture[(u // 4).astype(int), np.clip(np.round(e / 0.006).astype(int), -200, 199)]
     if treeline:
-        trees = (elevation > shore) & (elevation < shore + treeline)
-        image[trees] = rng.uniform(10, 70, trees.sum())
+        band = (elevation > shore) & (elevation < shore + treeline)
+        image[band] = trees(elevation)[band]
+        reflection = (elevation <= shore) & (elevation > shore - treeline)
+        if mirror:
+            mixed = (mirror * trees(2 * shore - elevation)
+                     + (1 - mirror) * rng.uniform(10, 70, (h, w)))
+            image[reflection] = 0.8 * mixed[reflection]
     return image, f, w / 2, h / 2
 
 
@@ -116,6 +135,29 @@ def test_a_known_shore_elevation_is_taken_off_the_pitch():
     assert horizon(gray, f, f, cx, cy, known)[0] == pytest.approx(DEG, abs=0.15 * DEG)
     unknown = horizon(gray, f, f, cx, cy, CFG['horizon'])[0]
     assert unknown == pytest.approx(-0.2 * DEG, abs=0.15 * DEG)
+
+
+@pytest.mark.parametrize('roll', [0, 3])
+def test_a_mirrored_treeline_reads_the_water_edge_between(roll):
+    """Glassy water: the reflection's bottom sits 2.3 deg under the water edge; level reads 0."""
+    gray, f, cx, cy = render(0., roll * DEG, treeline=2.3 * DEG, mirror=1.0)
+    est_pitch, est_roll = horizon(gray, f, f, cx, cy, CFG['horizon'])
+    assert est_pitch == pytest.approx(0., abs=0.15 * DEG)
+    assert est_roll == pytest.approx(roll * DEG, abs=0.15 * DEG)
+
+
+def test_a_camera_pitched_over_a_mirror_never_reads_ok():
+    """2 deg nose-down over a mirrored treeline: the mount error is seen, not cancelled."""
+    gray, f, cx, cy = render(2 * DEG, 0., treeline=2.3 * DEG, mirror=1.0)
+    estimate = horizon(gray, f, f, cx, cy, CFG['horizon'])
+    assert estimate is not None
+    assert verdict([(estimate[1], estimate[0])], CFG['verdict'])[2] != OK
+    assert estimate[0] == pytest.approx(2 * DEG, abs=0.15 * DEG)
+
+
+def test_a_half_mirrored_treeline_is_unobservable():
+    gray, f, cx, cy = render(0., 0., treeline=2.3 * DEG, mirror=0.3)
+    assert horizon(gray, f, f, cx, cy, CFG['horizon']) is None
 
 
 def test_a_treeline_over_choppy_water_is_unobservable():
@@ -185,7 +227,8 @@ def test_config_is_strict(tmp_path):
             (lambda c: c['verdict'].update(tilt_warn='0.01'), 'tilt_warn'),
             (lambda c: c['water'].update(min_points=60.0), 'min_points'),
             (lambda c: c['buoy'].update(radius=-0.1), 'radius'),
-            (lambda c: c['water'].update(range=[8.0, 2.0]), 'range')]:
+            (lambda c: c['water'].update(range=[8.0, 2.0]), 'range'),
+            (lambda c: c['water'].update(waterline='-0.2'), 'waterline')]:
         bad = yaml.safe_load(yaml.safe_dump(data))
         change(bad['mount_check'])
         path = tmp_path / 'bad.yaml'
