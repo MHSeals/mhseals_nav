@@ -46,6 +46,7 @@ class TrackState:
     anchor_t: float = 0.0
     seen_xy: np.ndarray = None     # position and covariance after the last measurement
     seen_P: np.ndarray = None
+    co_seen: dict = field(default_factory=dict)   # other id -> last frame both were updated
 
     def __post_init__(self):
         if self.seen_xy is None:
@@ -104,6 +105,7 @@ class TrackFilter:
         self.yaw_rates = deque()    # (t, r, |r|, |dr/dt|) over meas.lag_window_s
         self.lag_speed = 0.0        # sigma_lag * max |dr/dt|: per metre of range, this frame
         self.yaw_rate_from = {'central': 0, 'backward': 0, 'none': 0}
+        self.merged = 0
         self._groups = {}
 
     @property
@@ -187,6 +189,9 @@ class TrackFilter:
         if meas.get('depth_term', True):
             u = offset / rho
             Rz = Rz + (meas['depth_k'] * rho ** 2) ** 2 * np.outer(u, u)
+        # The tracking frame itself jitters by more than the ZED's millimetre covariance: a
+        # 10 cm odom step out of gate started a second track on the same buoy (2026-10-31).
+        Rz = Rz + np.eye(2) * meas['pose_sigma_m'] ** 2
         # Heading noise and stamp lag sweep a static object across the bearing.
         n = np.array([-offset[1], offset[0]]) / rho
         tangential = (rho * math.radians(meas['heading_sigma_deg'])) ** 2 + \
@@ -320,6 +325,9 @@ class TrackFilter:
             if live[k].confirmed:
                 self.assoc[how] += 1
         updated = {id(live[k]) for k in matched_tracks}
+        both = [live[k] for k in matched_tracks]
+        for track in both:
+            track.co_seen.update((other.id, t) for other in both if other is not track)
         for track, xy in held:
             if id(track) not in updated:
                 track.x[:2] = xy            # P keeps its predicted growth
@@ -333,8 +341,40 @@ class TrackFilter:
             if i not in matched_obs and nearest[i] >= self.cfg['candidate']['exclusion_chi2']:
                 self._start(ob, obs.backend, z, Rz, vel, t)
         self._miss_in_fov(R, p, frame, live, matched_tracks, t)
+        self._merge(t)
         self.expire(max(now, t))
         return True
+
+    def _merge(self, t):
+        """Fold a confirmed same-class duplicate into the older id.
+
+        One object tracked twice (a localization step past the gate started the second)
+        sits well inside ``radius_m`` and is never seen twice in one frame; two real
+        objects that close are, so a pair the backend saw together within ``co_seen_s``
+        stays apart. The fresher track's state wins: it follows the current odom.
+        """
+        cfg = self.cfg['merge']
+        tracks = sorted((tr for tr in self.all if tr.confirmed and tr.group in cfg['groups']),
+                        key=lambda tr: tr.id)
+        gone = set()
+        for i, old in enumerate(tracks):
+            for new in tracks[i + 1:]:
+                if id(old) in gone or id(new) in gone or old.class_id != new.class_id or \
+                        t - old.co_seen.get(new.id, -math.inf) <= cfg['co_seen_s'] or \
+                        math.hypot(*(old.x[:2] - new.x[:2])) >= cfg['radius_m']:
+                    continue
+                hits, source = old.hits + new.hits, min(old.source, new.source)
+                co_seen = {k: max(v, new.co_seen.get(k, v)) for k, v in old.co_seen.items()}
+                co_seen.update((k, v) for k, v in new.co_seen.items() if k not in co_seen)
+                co_seen.pop(old.id, None)
+                if new.last_seen > old.last_seen:
+                    old.__dict__.update({k: v for k, v in vars(new).items()
+                                         if k not in ('id', 'first_seen')})
+                old.hits, old.source, old.co_seen = hits, source, co_seen
+                gone.add(id(new))
+                self.merged += 1
+        if gone:
+            self.all = [tr for tr in self.all if id(tr) not in gone]
 
     def _update(self, track, ob, backend, z, Rz, gate, t, c, yaw_rate):
         d2, H, nu, S, _ = gate

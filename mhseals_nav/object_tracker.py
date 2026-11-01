@@ -288,6 +288,7 @@ class ObjectTracker(Node):
         values['grid_age_s'] = 'inf' if self.grid_at is None else f'{now - self.grid_at:.2f}'
         assoc = self.filter.assoc
         values['id_assoc_share'] = f"{assoc['id'] / max(assoc['id'] + assoc['gate'], 1):.2f}"
+        values['merged'] = self.filter.merged
         values.update({f'yaw_rate_{k}': v for k, v in self.filter.yaw_rate_from.items()})
         host = gethostname()
         result = self.heading.result(now)

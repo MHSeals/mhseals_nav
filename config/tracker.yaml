@@ -20,6 +20,13 @@
     group_match: false
     # exclusion_chi2: a leftover inside this looser gate of a track starts no candidate.
     candidate: {hits: 3, time: 0.5, timeout: 1.0, exclusion_chi2: 30.0}
+    # merge: a confirmed same-class pair closer than radius_m, never updated in the same
+    # frame within co_seen_s, is one object tracked twice and keeps the older id. Duplicates
+    # of a static buoy (2026-10-31) sat 0.01-0.56 m apart, median 0.06-0.22. Gate buoys are
+    # 1.5 m apart at the least: 0.5 m leaves each estimate 0.5 m of error toward the other
+    # before a false merge, and buoys in view together are seen in the same frame anyway.
+    # Buoys only: target boats really do pass close.
+    merge: {groups: [buoy], radius_m: 0.5, co_seen_s: 5.0}
     meas:
       min_sigma_m: 0.10
       range_frac: 0.03
@@ -29,6 +36,11 @@
       depth_k: 0.01
       # false when the input is lidar_fusion's _fused stream, whose covariance carries it.
       depth_term: true
+      # Localization jitter of the tracking frame, added to every measurement: without GPS
+      # the EKF odom stepped 5-10 cm (largest 0.104 m) between frames on a static boat
+      # (2026-10-31), while the ZED reports millimetres. 0.05 puts a 0.15 m step inside
+      # gate_chi2; the 10-31 bags associate every frame from 0.03 up, 0.02 misses some.
+      pose_sigma_m: 0.05
       # Tangential term: static buoys stay static through the §8 envelope (bias 5 deg plus
       # extrinsic 3 deg, lag plus stamp offset 0.2 s) in the metamorphic suite.
       heading_sigma_deg: 3.0

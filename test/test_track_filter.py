@@ -362,3 +362,72 @@ def test_yaw_rate_falls_back_to_a_backward_difference_when_tf_ends_at_the_stamp(
         else:
             assert rates and all(r == pytest.approx(expect) for r in rates)
             assert f.yaw_rate_from['backward'] == 20
+
+
+def zed_buoy(x, y):
+    """Report a buoy as the ZED does close in: millimetre covariance (2026-10-31 bags)."""
+    o = ob('green_buoy', x, y, backend_id='2', score=0.4)
+    o.position_covariance = [4.3e-5, 0, 0, 0, 1.1e-5, 0, 0, 0, 1.1e-5]
+    return o
+
+
+def odom_steps(steps, lateral=0.0):
+    """Odom that steps along x by (time, metres) while the boat sits still (no GPS, 10-31)."""
+    def pose_at(t, frame_id):
+        return np.eye(3), np.array([sum(d for at, d in steps if t >= at), lateral, 0.0])
+    return pose_at
+
+
+# 10-31 calib1031_0440, the 0.4 s before id 4 started: odom stepped 0.082, 0.086 and
+# 0.104 m, each before the track had taken up the last.
+BAG_STEPS = ((5.0, 0.08), (5.17, 0.09), (5.4, 0.10))
+
+
+@pytest.mark.parametrize('layer', ['pose_sigma', 'merge'])
+def test_a_10cm_odom_step_does_not_track_a_static_buoy_twice(layer):
+    """10-31: a 10 cm odom step at 1.2 m started id 4 beside id 1 for 9-18 s.
+
+    Each layer alone keeps one id: the localization term keeps the step in gate, and the
+    merge folds the duplicate the step started back into the older id.
+    """
+    cfg = copy.deepcopy(CFG)
+    if layer == 'merge':
+        cfg['meas']['pose_sigma_m'] = 0.0
+    else:
+        cfg['merge']['groups'] = []
+    f = TrackFilter(cfg)
+    pose_at = odom_steps(BAG_STEPS)
+    t = run(f, lambda t: [zed_buoy(1.2, 0.0)], 5.0, pose_at=pose_at, noise=0.002)
+    (track,) = f.tracks
+    most = 1
+    for _ in range(10):
+        t = run(f, lambda t: [zed_buoy(1.2, 0.0)], 1.0, start=t, pose_at=pose_at,
+                noise=0.002)
+        most = max(most, len(f.tracks))
+    assert [tr.id for tr in f.tracks] == [track.id] and most == 1
+    assert track.x[0] == pytest.approx(1.47, abs=0.03)       # follows the stepped odom
+    assert (f.merged > 0) == (layer == 'merge')
+
+
+@pytest.mark.parametrize('rng', [3.0, 10.0, 20.0])
+def test_gate_buoys_1_5m_apart_stay_two_tracks_through_odom_steps(rng):
+    """The narrowest gate (1.5 m) seen together, odom jumping 10 cm: never merged."""
+    f = TrackFilter(CFG)
+    pose_at = odom_steps([(2.0 + k, (-1) ** k * 0.10) for k in range(6)], lateral=0.05)
+    run(f, lambda t: [zed_buoy(rng, -0.75), zed_buoy(rng, 0.75)], 8.0, pose_at=pose_at,
+        noise=0.02)
+    assert len(f.tracks) == 2 and f.merged == 0
+    assert sorted(round(tr.x[1] / 0.75) for tr in f.tracks) == [-1, 1]
+
+
+def test_merge_never_folds_buoys_seen_in_one_frame_or_1_5m_apart():
+    """Seen alternately 1.5 m apart (outside radius_m), or together 0.4 m apart: both kept."""
+    f = TrackFilter(CFG)
+    run(f, lambda t: [zed_buoy(3.0, 0.0) if int(t * 2) % 2 else zed_buoy(3.0, 1.5)], 6.0)
+    assert len(f.tracks) == 2 and f.merged == 0
+    f = TrackFilter(CFG)
+    run(f, lambda t: [ob('red_buoy', 3.0, 0.0), ob('red_buoy', 3.0, 0.4)], 3.0)
+    assert len(f.tracks) == 2 and f.merged == 0
+    # One of the pair drops out of the backend for a while: still not folded.
+    run(f, lambda t: [ob('red_buoy', 3.0, 0.0)], 3.0, start=3.0)
+    assert len(f.tracks) == 2 and f.merged == 0
