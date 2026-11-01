@@ -23,7 +23,8 @@ ADAPTER_PARAMETERS = {
     'gps_velocity_min_fix_type': 'mavros_velocity_min_fix_type',
     'gps_velocity_max_acc': 'mavros_velocity_max_acc',
 }
-INCLUSIVE = frozenset({'mavros_velocity_min_fix_type', 'mavros_velocity_max_acc'})
+FIX_TYPE = 'mavros_velocity_min_fix_type'  # a receiver fix_type: an integer 0-6
+INCLUSIVE = frozenset({FIX_TYPE, 'mavros_velocity_max_acc'})
 
 
 @dataclass(frozen=True)
@@ -45,6 +46,8 @@ def field_rule(key):
     """Return the owned schema rule."""
     if key not in KEYS:
         raise ValueError('unknown odometry startup field: ' + key)
+    if key == FIX_TYPE:
+        return Rule('integer', minimum=0, maximum=6)
     return (Rule('string', choices=('gps', 'fcu')) if key == 'mavros_velocity_source' else
             Rule('number', minimum=0,
                  exclusive=not (key.startswith('ekf_delay_') or key in INCLUSIVE)))
@@ -87,12 +90,13 @@ def resolve_odometry(package_file=None, deployment_file='', operator_file='',
         if raw == '' or raw is None:
             continue
         target = 'ekf_delay_' + context if key == 'ekf_delay' else key
+        convert = int if key == FIX_TYPE else float
         value = raw if key == 'mavros_velocity_source' else (
-            float(raw) if isinstance(raw, str) else raw)
+            convert(raw) if isinstance(raw, str) else raw)
         validate({target: value})
         values[target] = value
     validate(values)
-    values = {key: value if key == 'mavros_velocity_source' else float(value)
+    values = {key: value if key in ('mavros_velocity_source', FIX_TYPE) else float(value)
               for key, value in values.items()}
     return OdometryConfiguration(MappingProxyType(values), tuple(inputs), context)
 

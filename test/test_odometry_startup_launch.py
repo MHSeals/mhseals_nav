@@ -67,6 +67,8 @@ def context():
     ('mavros_velocity_max_age', 2.3, 'gps_velocity_max_age'),
     ('mavros_velocity_min_stddev', .2, 'gps_velocity_min_stddev'),
     ('mavros_velocity_no_fix_stddev', 3., 'velocity_stddev_nofix'),
+    ('mavros_velocity_min_fix_type', 5, 'gps_velocity_min_fix_type'),
+    ('mavros_velocity_max_acc', .5, 'gps_velocity_max_acc'),
 ])
 def test_actual_adapter_factory_uses_each_yaml_field(tmp_path, key, value, target):
     selected = tmp_path / 'operator.yaml'

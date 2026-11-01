@@ -66,5 +66,8 @@ def test_gps_gate_is_off_by_default_and_accepts_zero():
     on = resolve_odometry(BASE, aliases={'mavros_velocity_min_fix_type': '5',
                                          'mavros_velocity_max_acc': '0.5'}).adapter_parameters
     assert (on['gps_velocity_min_fix_type'], on['gps_velocity_max_acc']) == (5, .5)
-    with pytest.raises(ValueError):
-        resolve_odometry(BASE, aliases={'mavros_velocity_max_acc': '-1'})
+    assert type(on['gps_velocity_min_fix_type']) is int
+    for bad in ({'mavros_velocity_max_acc': '-1'}, {'mavros_velocity_min_fix_type': '5.5'},
+                {'mavros_velocity_min_fix_type': '7'}):
+        with pytest.raises(ValueError):
+            resolve_odometry(BASE, aliases=bad)
