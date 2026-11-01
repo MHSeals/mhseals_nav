@@ -59,6 +59,16 @@
     accept_cost: 1.0
     ambiguity_cost: 0.15
     merge_w_frac: 1.6
+    # Ray mode: a box with no finite stereo point (far, dark, low texture) takes its range from
+    # the nearest feasible cluster in r_min_m..ray_max_range_m along its centre ray; a second
+    # feasible cluster, or one another box also finds feasible, passes it through.
+    ray_mode: true
+    ray_max_range_m: 40.0
+    # Single-point far hits: n = 1 counts for a one-ring box past single_point_min_range_m
+    # when it is the box's only candidate cluster (sigma_r adds rho delta_a / 2). Off until
+    # boat bags show it is clean.
+    single_point: false
+    single_point_min_range_m: 15.0
     # Covariance
     sigma_w_m: 0.03
     # Per-object bias after the near_face_k fit: sim lidar RMS (bias + white) 0.02-0.03 m by

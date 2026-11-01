@@ -20,8 +20,8 @@ RINGS = np.radians(np.arange(-15, 16, 2))
 AZ = np.radians(np.arange(-60, 60, 0.2))
 
 
-def ctx(**kw):
-    return lf.Context(CFG, TRACKER, K, IMAGE, np.eye(3), **kw)
+def ctx(cfg=CFG, **kw):
+    return lf.Context(cfg, TRACKER, K, IMAGE, np.eye(3), **kw)
 
 
 def scan(objects, rings=RINGS, az=AZ):
@@ -208,7 +208,8 @@ def test_box_less_observation_keeps_the_stereo_model_and_nan_passes():
     ob.has_box2d = False
     bad = observation(1.0, 6.0)
     bad.position.x = math.nan
-    rows, _ = lf.adjust([ob, bad], scan([(1.0, 6.0, 0.2, 0.4, 1.0)]), ctx(), 0.0)
+    rows, _ = lf.adjust([ob, bad], scan([(1.0, 6.0, 0.2, 0.4, 1.0)]),
+                        ctx({**CFG, 'ray_mode': False}), 0.0)
     assert [r[0] for r in rows] == ['stereo', 'pass']
     cov = np.array(rows[0][3]).reshape(3, 3)
     rho = math.hypot(ob.position.x, ob.position.z)
@@ -220,9 +221,59 @@ def test_box_less_observation_keeps_the_stereo_model_and_nan_passes():
     assert rows[1][2] is None
 
 
+def no_stereo(ob):
+    ob.position.x = ob.position.y = ob.position.z = math.nan
+    return ob
+
+
+def test_ray_mode_ranges_a_box_without_stereo_along_its_centre_ray():
+    X, Z = 1.0, 12.0
+    P = scan([(X, Z, 0.2, 0.4, 1.0)])
+    ob = no_stereo(observation(X, Z))
+    (source, _, p, cov, _, bid), = lf.adjust([ob], P, ctx(), 0.0)[0]
+    assert source == 'lidar_ray' and bid == '7'
+    fx, fy, cx, cy = K
+    W, H = IMAGE
+    b = ob.box2d
+    d = np.array([((b[0] + b[2]) / 2 * W - cx) / fx, ((b[1] + b[3]) / 2 * H - cy) / fy, 1.0])
+    assert np.allclose(p / np.linalg.norm(p), d / np.linalg.norm(d))
+    assert math.hypot(p[0], p[2]) == pytest.approx(ob.rho, abs=0.1)
+    u = np.array([p[0], 0.0, p[2]]) / math.hypot(p[0], p[2])
+    s_r2 = lf.lidar_sigma_r2(CFG, 0.2, CFG['default_hz'])
+    cov = np.reshape(cov, (3, 3))
+    assert u @ cov @ u == pytest.approx(s_r2, rel=1e-6)
+    assert lf.UP @ cov @ lf.UP == pytest.approx(CFG['sigma_z_m'] ** 2, rel=1e-6)
+
+
+def test_ray_mode_passes_two_feasible_clusters_and_when_off():
+    inline = scan([(0.0, 8.0, 0.2, 0.4, 1.0), (0.0, 9.0, 0.2, -0.3, 1.0)])
+    why = []
+    rows, _ = lf.adjust([no_stereo(observation(0.0, 8.0))], inline, ctx(), 0.0, why=why)
+    assert rows[0][0] == 'pass' and why == ['ambiguous:second']
+    one = scan([(1.0, 12.0, 0.2, 0.4, 1.0)])
+    rows, _ = lf.adjust([no_stereo(observation(1.0, 12.0))], one,
+                        ctx({**CFG, 'ray_mode': False}), 0.0)
+    assert rows[0][0] == 'pass' and rows[0][2] is None
+
+
 def test_mirror_cut_drops_water_multipath_at_any_range_and_keeps_buoys():
     pb = np.array([[12.0, 0.0, -1.4], [12.0, 0.5, -0.3], [3.0, 0.0, -0.58], [3.0, 0.0, -0.5]])
     assert lf.water_mask(pb, CFG).tolist() == [False, True, False, True]
+
+
+def test_single_point_far_hit_ranges_only_when_on_and_alone():
+    ob = observation(0.0, 25.0)
+    one = np.array([[0.0, 0.7, 24.9]])
+    assert lf.adjust([no_stereo(copy.deepcopy(ob))], one, ctx(), 0.0)[0][0][0] == 'pass'
+    on = {**CFG, 'single_point': True}
+    (source, _, p, cov, *_), = lf.adjust([no_stereo(copy.deepcopy(ob))], one, ctx(on), 0.0)[0]
+    assert source == 'lidar_ray'
+    assert math.hypot(p[0], p[2]) == pytest.approx(24.9 + 0.67 * 0.2, abs=0.01)
+    foot = (24.9 * CFG['delta_a_rad'] / 2) ** 2
+    assert np.reshape(cov, (3, 3))[2, 2] == pytest.approx(
+        lf.lidar_sigma_r2(CFG, 0.2, CFG['default_hz']) + foot, rel=1e-3)
+    two = np.array([[0.0, 0.7, 24.9], [0.0, 0.7, 30.0]])
+    assert lf.adjust([no_stereo(copy.deepcopy(ob))], two, ctx(on), 0.0)[0][0][0] == 'pass'
 
 
 def test_spray_and_sparse_points_never_range_a_box():

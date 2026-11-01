@@ -21,7 +21,7 @@ import numpy as np
 DEG = math.pi / 180
 UP = np.array([0.0, -1.0, 0.0])                  # optical axes
 BODY_TO_OPTICAL = np.array([[0.0, -1.0, 0.0], [0.0, 0.0, -1.0], [1.0, 0.0, 0.0]])
-SOURCES = ('lidar', 'split', 'held', 'stereo', 'pass')
+SOURCES = ('lidar', 'split', 'lidar_ray', 'held', 'stereo', 'pass')
 
 
 # ------------------------------------------------------------------ geometry
@@ -224,6 +224,9 @@ class Box:
         cov = ctx.A @ np.array(ob.position_covariance, float).reshape(3, 3) @ ctx.A.T
         self.has_cov = bool(np.any(cov))
         self.boxed = bool(ob.has_box2d) and self.ok and ctx.has_K
+        # Ray mode: a box without a stereo range takes it from lidar along its centre ray.
+        self.ray = bool(ob.has_box2d) and not self.ok and ctx.has_K and ctx.cfg['ray_mode']
+        self.alone = False          # the box's only candidate cluster (adjust, single_point)
         if self.ok:
             m = ctx.meas
             u = np.array([self.s[0], 0.0, self.s[2]]) / self.rho
@@ -233,14 +236,19 @@ class Box:
             self.tan2 = float(n @ cov @ n) if self.has_cov else floor
             self.sz = math.sqrt(float(UP @ cov @ UP)) if self.has_cov else ctx.cfg['sigma_z_m']
             self.sigma_s = math.sqrt(self.s_st2 + (m['depth_k'] * self.rho ** 2) ** 2)
-        if self.boxed:
+            gate = 3 * self.sigma_s + self.radius + 0.3
+            self.lo, self.hi = self.rho - gate, self.rho + gate
+        elif self.ray:
+            self.sz, self.lo, self.hi = ctx.cfg['sigma_z_m'], ctx.cfg['r_min_m'], \
+                ctx.cfg['ray_max_range_m']
+        if self.boxed or self.ray:
             b = ob.box2d
             self.u0, self.v0, self.u1, self.v1 = b[0] * W, b[1] * H, b[2] * W, b[3] * H
             self.w = self.u1 - self.u0
             x = ((self.u0 + self.u1) / 2 - cx) / fx
             self.e_u = fx * (1 + x * x) * math.tan(ctx.cfg['delta_h_deg'] * DEG + ctx.e_mc)
             self.e_v = fy * math.tan(ctx.cfg['margin_v_deg'] * DEG)
-            self.w_exp = fx * 2 * self.radius / self.rho
+            self.w_exp = fx * 2 * self.radius / self.rho if self.ok else math.nan
 
 
 def iou_x(a0, a1, b0, b1):
@@ -316,13 +324,24 @@ def n_floor(cl, box, ctx):
     """max(2, 0.3 n_exp): rings over the box's visible height times beams across its width.
 
     The width is 2R, or less for a box clipped at the image edge (most 2-5 m misses in sim).
+    With single_point, 1 for a far one-ring box's only candidate cluster.
     """
     cfg, fx, fy = ctx.cfg, ctx.K[0], ctx.K[1]
     ring = math.tan(cfg['ring_spacing_deg'] * DEG)
     h_vis = (box.v1 - box.v0) * cl.rho / fy
     rings = max(1, math.floor(h_vis / (cl.rho * ring)))
+    if cfg['single_point'] and rings == 1 and box.alone and \
+            cl.rho > cfg['single_point_min_range_m']:
+        return 1.0
     n_exp = rings * min(2 * box.radius, box.w * cl.rho / fx) / (cl.rho * cfg['delta_a_rad'])
     return max(2.0, cfg['n_frac'] * n_exp)
+
+
+def overlap(cl, box):
+    """IoU_x with the widened box; a single point (one beam wide) counts as inside it."""
+    if cl.n == 1:
+        return float(box.u0 - box.e_u <= cl.uc <= box.u1 + box.e_u)
+    return iou_x(cl.u0, cl.u1, box.u0 - box.e_u, box.u1 + box.e_u)
 
 
 STAGES = ('points', 'overlap', 'height', 'range', 'width')     # pair tests, in order
@@ -334,8 +353,8 @@ def pair_cost(cl, box, ctx):
     da_px = fx * cfg['delta_a_rad']
     if cl.n < n_floor(cl, box, ctx):
         return None, 'points'
-    iou = iou_x(cl.u0, cl.u1, box.u0 - box.e_u, box.u1 + box.e_u)
-    if iou < cfg['iou_min'] or min(cl.v1, box.v1 + box.e_v) - max(cl.v0, box.v0 - box.e_v) <= 0:
+    iou = overlap(cl, box)
+    if iou < cfg['iou_min'] or min(cl.v1, box.v1 + box.e_v) - max(cl.v0, box.v0 - box.e_v) < 0:
         return None, 'overlap'
     if tall(cl, box, ctx):
         return None, 'height'
@@ -352,7 +371,7 @@ def part_of(cl, box, ctx):
     """Test a cluster as a merged box's part: overlap counted over the cluster only."""
     inside = min(cl.u1, box.u1 + box.e_u) - max(cl.u0, box.u0 - box.e_u)
     return inside >= 0.5 * cl.w and cl.n >= n_floor(cl, box, ctx) and not tall(cl, box, ctx) and \
-        min(cl.v1, box.v1 + box.e_v) - max(cl.v0, box.v0 - box.e_v) > 0 and \
+        min(cl.v1, box.v1 + box.e_v) - max(cl.v0, box.v0 - box.e_v) >= 0 and \
         abs(cl.rho + box.near - box.rho) < 3 * box.sigma_s + ctx.cfg['gate_pad_m']
 
 
@@ -377,12 +396,17 @@ class Context:
         return float(ks[key])
 
 
+def window(b, u, v, rho):
+    """Mask of points in the box's widened window and range gate (lo, hi)."""
+    return (u >= b.u0 - b.e_u) & (u <= b.u1 + b.e_u) & (v >= b.v0 - b.e_v) & \
+        (v <= b.v1 + b.e_v) & (rho > b.lo) & (rho < b.hi)
+
+
 def candidates(boxes, P, u, v, rho):
     """Mask of in-image points that fall in some box's widened window and range gate."""
     keep = np.zeros(len(P), bool)
     for b in boxes:
-        keep |= (u >= b.u0 - b.e_u) & (u <= b.u1 + b.e_u) & (v >= b.v0 - b.e_v) & \
-            (v <= b.v1 + b.e_v) & (np.abs(rho - b.rho) < 3 * b.sigma_s + b.radius + 0.3)
+        keep |= window(b, u, v, rho)
     return keep
 
 
@@ -482,10 +506,43 @@ def associate(boxes, cls, ctx):
     return out
 
 
-def lidar_sigma_r2(cfg, radius, f_obs):
-    """sigma_w^2 + n_b sigma_b^2 with n_b = f_obs T_b (bias-aware, design §2 Covariance)."""
+def ray_feasible(cl, box, ctx):
+    """Ray mode (no range prior): points, overlap and width at the cluster's own range."""
+    cfg, fx = ctx.cfg, ctx.K[0]
+    return cl.n >= n_floor(cl, box, ctx) and overlap(cl, box) >= cfg['iou_min'] and \
+        min(cl.v1, box.v1 + box.e_v) - max(cl.v0, box.v0 - box.e_v) >= 0 and \
+        cl.w_full <= 1.5 * fx * 2 * box.radius / cl.rho + fx * cfg['delta_a_rad']
+
+
+def associate_ray(boxes, cls, stereo, ctx):
+    """Per ray box: ('lidar_ray', [c]) for its only feasible cluster, else as associate.
+
+    Without a range prior, ambiguity resolves conservatively: a second feasible cluster, or
+    the cluster feasible for another box (ray or stereo), passes the box through.
+    """
+    F = np.array([[ray_feasible(c, b, ctx) for c in cls] for b in boxes], bool).reshape(
+        len(boxes), len(cls))
+    out = []
+    for i in range(len(boxes)):
+        js = np.nonzero(F[i])[0]
+        if len(js) != 1:
+            out.append(('ambiguous:second', []) if len(js) else ('none:empty', []))
+        elif F[:, js[0]].sum() > 1 or any(pair_cost(cls[js[0]], o, ctx)[0] is not None
+                                          for o in stereo):
+            out.append(('ambiguous:contested', []))
+        else:
+            out.append(('lidar_ray', [int(js[0])]))
+    return out
+
+
+def lidar_sigma_r2(cfg, radius, f_obs, cl=None):
+    """sigma_w^2 + n_b sigma_b^2 with n_b = f_obs T_b (bias-aware, design §2 Covariance).
+
+    A single-point cluster adds its beam footprint (rho delta_a / 2)^2.
+    """
     sb2 = (cfg['bias_radius_frac'] * radius) ** 2 + cfg['sigma_t_ext_m'] ** 2
-    return cfg['sigma_w_m'] ** 2 + f_obs * cfg['bias_time_s'] * sb2
+    foot = (cl.rho * cfg['delta_a_rad'] / 2) ** 2 if cl is not None and cl.n == 1 else 0.0
+    return cfg['sigma_w_m'] ** 2 + f_obs * cfg['bias_time_s'] * sb2 + foot
 
 
 def adjust(obs, P, ctx, t, rates=None, held=None, use_lidar=True, why=None):
@@ -495,26 +552,38 @@ def adjust(obs, P, ctx, t, rates=None, held=None, use_lidar=True, why=None):
     Output keeps the input order; a split's extra entries follow their source observation.
     ``rates`` (RateEma) and ``held`` (HeldRatio) carry state across frames when given.
     """
-    cfg, (fx, _, cx, _) = ctx.cfg, ctx.K
+    cfg, (fx, fy, cx, cy) = ctx.cfg, ctx.K
     W, H = ctx.image
     rates = rates or RateEma(cfg['rate_alpha'], cfg['default_hz'])
     held = held or HeldRatio(cfg['held_alpha'], cfg['held_s'], cfg['held_tau_s'])
     boxes = [Box(i, ob, ctx) for i, ob in enumerate(obs)]
     usable = [b for b in boxes if b.boxed]
+    rayed = [b for b in boxes if b.ray]
     decisions = {}
-    cls = []
-    if use_lidar and usable and len(P):
+    cls, ray_cls = [], []
+    if use_lidar and (usable or rayed) and len(P):
         u, v = project(P, K=ctx.K)
         rho = np.hypot(P[:, 0], P[:, 2])
-        keep = candidates(usable, P, u, v, rho)
-        idx = np.nonzero(keep)[0]
         az = np.arctan2(P[:, 0], P[:, 2])
         order = np.argsort(rho)
         by_rho = (order, rho[order])
-        for part in clusters(rho[idx], az[idx], cfg):
-            cls.append(Cluster(idx[part], rho, u, v, fx, cfg['delta_a_rad']))
-            extent(cls[-1], u, v, rho, az, cfg, ctx.K, by_rho)
+
+        def grouped(bs):
+            idx = np.nonzero(candidates(bs, P, u, v, rho))[0]
+            found = []
+            for part in clusters(rho[idx], az[idx], cfg):
+                found.append(Cluster(idx[part], rho, u, v, fx, cfg['delta_a_rad']))
+                extent(found[-1], u, v, rho, az, cfg, ctx.K, by_rho)
+            if cfg['single_point']:
+                for b in bs:
+                    inside = window(b, u, v, rho)
+                    b.alone = sum(bool(inside[c.idx].any()) for c in found) == 1
+            return found
+        # Ray boxes cluster apart, so their wider range gate never merges stereo clusters.
+        cls, ray_cls = grouped(usable), grouped(rayed)
         for b, d in zip(usable, associate(usable, cls, ctx)):
+            decisions[b.index] = d
+        for b, d in zip(rayed, associate_ray(rayed, ray_cls, usable, ctx)):
             decisions[b.index] = d
     out = []
     Ainv = ctx.A.T
@@ -531,20 +600,25 @@ def adjust(obs, P, ctx, t, rates=None, held=None, use_lidar=True, why=None):
                     box2d, b.ob.backend_id if key is None else key))
 
     for b in boxes:
-        if not b.ok:
+        kind, js = decisions.get(b.index, ('none', []))
+        if not b.ok and kind != 'lidar_ray':
             out.append(('pass', b.index, None, None, None, b.ob.backend_id))
             continue
         key = b.ob.backend_id
         f_obs = rates.update(key, t)
-        if not b.boxed:
+        if not b.boxed and not b.ray:
             emit('stereo', b, b.s, b.sigma_s ** 2, 0.0, tan2=b.tan2)
             continue
         beta = (cfg['box_beta_frac'] * b.w + 1.0) / fx
-        kind, js = decisions.get(b.index, ('none', []))
-        if kind == 'lidar':
+        if kind == 'lidar_ray':     # never a held ratio or an extrinsic sample
+            c = ray_cls[js[0]]
+            d = np.array([((b.u0 + b.u1) / 2 - cx) / fx, ((b.v0 + b.v1) / 2 - cy) / fy, 1.0])
+            emit('lidar_ray', b, d * (c.rho + b.near) / math.hypot(d[0], 1.0),
+                 lidar_sigma_r2(cfg, b.radius, f_obs, c), beta)
+        elif kind == 'lidar':
             c = cls[js[0]]
             rho_obj = c.rho + b.near
-            s_r2 = lidar_sigma_r2(cfg, b.radius, f_obs)
+            s_r2 = lidar_sigma_r2(cfg, b.radius, f_obs, c)
             if key:
                 held.lidar(key, t, rho_obj / b.rho, s_r2)
             emit('lidar', b, b.s * (rho_obj / b.rho), s_r2, beta)
@@ -567,7 +641,7 @@ def adjust(obs, P, ctx, t, rates=None, held=None, use_lidar=True, why=None):
                 beta2 = ((cfg['box_beta_frac'] * c.w + 1.0) / fx) ** 2 + \
                     cfg['delta_a_rad'] ** 2 / 12 + ctx.se_yaw ** 2 + cfg['split_beta_rad'] ** 2
                 box2d = [max(0.0, c.u0 / W), b.v0 / H, min(1.0, c.u1 / W), b.v1 / H]
-                emit('split', b, p, lidar_sigma_r2(cfg, b.radius, f_obs), math.sqrt(beta2),
+                emit('split', b, p, lidar_sigma_r2(cfg, b.radius, f_obs, c), math.sqrt(beta2),
                      box2d, *((key, None, p - b.s) if k == nearest else ('',)))
         else:
             h = held.held(key, t, b.rho, ctx.meas['depth_k'])
@@ -576,8 +650,9 @@ def adjust(obs, P, ctx, t, rates=None, held=None, use_lidar=True, why=None):
             else:
                 emit('stereo', b, b.s, b.sigma_s ** 2, beta)
     if why is not None:         # per output row: the association decision, for diagnosis
-        why.extend(s if s in ('pass', 'lidar', 'split') else
-                   decisions.get(i, ('gated' if boxes[i].boxed else 'nobox',))[0]
+        why.extend(s if s in ('lidar', 'split', 'lidar_ray') else
+                   decisions.get(i, ('pass' if s == 'pass' else
+                                     'gated' if boxes[i].boxed else 'nobox',))[0]
                    for s, i, *_ in out)
     return out, cls
 
