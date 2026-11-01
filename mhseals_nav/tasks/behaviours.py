@@ -610,8 +610,10 @@ class GateRun(Driver):
         """
         if geometry.lined_up(gate, pose):
             return True
-        across = -(pose[0] - gate[0]) * math.sin(gate[2]) + (pose[1] - gate[1]) * math.cos(gate[2])
-        return gate[:2] in self.approached and geometry.along(gate, pose) > 0 and abs(across) <= 1.0
+        across = (-(pose[0] - gate[0]) * math.sin(gate[2])
+                  + (pose[1] - gate[1]) * math.cos(gate[2]))
+        return (gate[:2] in self.approached and geometry.along(gate, pose) > 0
+                and abs(across) <= 1.0)
 
     def explore(self, pose):
         """No gate ahead: look along the least-seen bearings near the course, then drive on.
