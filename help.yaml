@@ -6,10 +6,24 @@ commands:
     run: colcon build --packages-up-to mhseals_nav mhseals_hardware mhseals_testing
     summary: Build the boat packages; the shell reloads itself afterwards.
 
+  - name: device.launch
+    run: ros2 launch mhseals_nav device.launch.py
+    summary: How any computer starts its share of the stack - the parts of its profile in config/devices/.
+    notes: >-
+      Start it in the container (docker exec roboboat_dev bash -c '...') so ASTRO_DDS_ADDRESS pins DDS; the
+      TUI does this on demand. Layers: $ROS_WS/config/devices/<device>.yaml, then ~/.config/mhseals/devices/.
+    params:
+      - {name: device, required: true, choices: [odroid, jetson, operator, sim], description: Device profile in config/devices/.}
+      - {name: only, description: 'Comma-separated parts to start, e.g. camera,objects; empty starts all.'}
+      - {name: overrides, description: 'Session layer: JSON in the device profile schema.'}
+    examples:
+      - ros2 launch mhseals_nav device.launch.py device:=sim
+      - docker exec roboboat_dev bash -c 'ros2 launch mhseals_nav device.launch.py device:=jetson'
+
   - name: robot.launch
     run: ros2 launch mhseals_nav robot.launch.py
-    summary: The whole boat stack - MAVROS, EKFs, sensors, objects and Nav2.
-    notes: 'ODROID: sim:=false sensors_ignore:=camera,lidar. Every option: ros2 launch mhseals_nav robot.launch.py --show-args'
+    summary: Sensors, localization, objects and Nav2 on one machine (simulation); sim:=false starts no sensors or perception.
+    notes: 'On the boat each computer runs device.launch instead. Every option: ros2 launch mhseals_nav robot.launch.py --show-args'
     params:
       - {name: sim, type: bool, default: true, description: Use simulation time.}
       - {name: fcu_url, description: 'FCU connection URL, e.g. serial:///dev/ttyACM0:57600; empty inherits the endpoint YAML.'}
@@ -18,9 +32,10 @@ commands:
       - {name: enable_slam, type: bool, default: false, description: Optional RTAB-Map lidar-cloud mapping.}
       - {name: fcu, type: bool, default: true, description: Start MAVROS; false when the simulator publishes the FCU topics.}
       - {name: camera_name, default: front, description: ZED camera namespace.}
+      - {name: command_mux, type: bool, default: false, description: 'A command_mux arbitrates /cmd_vel; adds the costmap watchdog and approach guard.'}
     examples:
       - ros2 launch mhseals_nav robot.launch.py sim:=true
-      - ros2 launch mhseals_nav robot.launch.py sim:=false sensors_ignore:=camera,lidar fcu_url:=serial:///dev/ttyACM0:57600
+      - ros2 launch mhseals_nav robot.launch.py sim:=true fcu:=false
 
   - name: sensors.launch
     run: ros2 launch mhseals_nav sensors.launch.py
@@ -28,11 +43,11 @@ commands:
     params:
       - {name: sim, type: bool, default: true, description: Run in simulation mode.}
       - {name: sensors_ignore, description: 'Comma-separated sensors to ignore, e.g. lidar.'}
-      - {name: velodyne_ip, description: Device IP override; empty inherits YAML.}
+      - {name: velodyne_ip, description: 'Device IP override; empty inherits YAML, then LIDAR_IP.'}
 
   - name: camera.launch
     run: ros2 launch mhseals_nav camera.launch.py
-    summary: ZED camera with object detection and a lazy preview; the only launch the camera host runs.
+    summary: ZED camera with object detection and a lazy preview (the jetson device profile's camera part).
     notes: Start it in the container so ASTRO_DDS_ADDRESS pins its DDS profile.
     params:
       - {name: camera_name, default: front, description: 'ZED namespace; topics are /<camera_name>/zed_node/*.'}
@@ -40,17 +55,39 @@ commands:
       - {name: slam, type: bool, default: false, description: Also relay raw RGB and depth for RTAB-Map.}
       - {name: preview_hz, type: float, description: Preview throttle rate; empty inherits YAML.}
 
-  - name: task.launch
-    run: ros2 launch mhseals_nav task.launch.py
-    summary: Run one task tree from config/tasks/.
+  - name: odom.launch
+    run: ros2 launch mhseals_nav odom.launch.py
+    summary: MAVROS and its relays, robot TF and the EKFs (ekf.launch).
     params:
-      - {name: task, required: true, choices: [nav_channel, follow_path, speed_challenge, docking, return_home,
-                                                mission, mission_crane, circle_test, pair_test],
-         description: Task tree name in config/tasks/.}
+      - {name: sim, type: bool, default: true, description: Use simulation time.}
+      - {name: fcu, type: bool, default: true, description: Start MAVROS; false when the simulator publishes the FCU topics.}
+      - {name: fcu_url, description: 'FCU connection URL; empty inherits the endpoint YAML.'}
+      - {name: start_ekf, type: bool, default: true, description: Start the EKFs; false leaves them to ekf.launch.}
+
+  - name: ekf.launch
+    run: ros2 launch mhseals_nav ekf.launch.py
+    summary: The local and global EKFs and Navsat alone; ~/.config/mhseals/ekf.yaml overrides per node.
+    params:
+      - {name: sim, type: bool, default: true, description: Use simulation time.}
+      - {name: ekf_overlay_file, type: path, description: Overlay YAML; empty inherits ~/.config/mhseals/ekf.yaml.}
+
+  - name: objects.launch
+    run: ros2 launch mhseals_nav objects.launch.py
+    summary: One camera backend, the object tracker and the perception costmap.
+    params:
+      - {name: backend, default: sim, choices: [sim, zed], description: Camera backend.}
+      - {name: sim, type: bool, default: true, description: Use simulation time.}
+
+  - name: watchdogs.launch
+    run: ros2 launch mhseals_nav watchdogs.launch.py
+    summary: The hold-only link, fence, FCU and EKF-input watchdogs (the odroid profile starts them).
+    notes: Each asks command_mux to hold while autonomy commands flow and never releases; settings in config/<name>.yaml.
+    params:
       - {name: sim, type: bool, default: false, description: Use simulation time.}
-      - {name: params_file, type: path, description: 'Task YAML; default config/tasks/<task>.yaml.'}
-    examples:
-      - ros2 launch mhseals_nav task.launch.py task:=nav_channel
+      - {name: require_operator, type: bool, description: link_watchdog holds before the first heartbeat; empty keeps YAML.}
+      - {name: fence_frame, choices: [latlon, map], description: Fence vertex frame; empty keeps YAML.}
+      - {name: fence_points, description: 'Flat [a, b, ...] vertex list; replaces fence_file.'}
+      - {name: fcu_watchdog, type: bool, default: true, description: Hold on a stale or disconnected MAVROS.}
 
   - name: navigation.launch
     run: ros2 launch mhseals_nav navigation.launch.py
@@ -58,12 +95,39 @@ commands:
     params:
       - {name: sim, type: bool, default: true, description: Use simulation time.}
       - {name: use_lidar, type: bool, default: true, description: Lidar costmap layer.}
+      - {name: command_mux, type: bool, default: false, description: 'A command_mux arbitrates /cmd_vel; adds the costmap watchdog.'}
 
   - name: slam.launch
     run: ros2 launch mhseals_nav slam.launch.py
     summary: RTAB-Map mapping from the lidar cloud and camera.
     params:
       - {name: sim, type: bool, default: true, description: Use simulation time.}
+
+  - name: task.launch
+    run: ros2 launch mhseals_nav task.launch.py
+    summary: Run one task tree (mhseals_nav/tasks/trees) with its config/tasks/ YAML.
+    notes: Exits 0 success, 1 failure, 2 timeout, 3 human override, 4 refused (human has control).
+    params:
+      - {name: task, required: true, choices: [nav_channel, follow_path, docking, speed_challenge, return_home,
+                                                supply_drop, harbor_alert, pair_test, circle_test, mission],
+         description: Task tree name.}
+      - {name: sim, type: bool, default: false, description: Use simulation time.}
+      - {name: params_file, type: path, description: 'Task YAML; default config/tasks/<task>.yaml.'}
+    examples:
+      - ros2 launch mhseals_nav task.launch.py task:=nav_channel
+      - ros2 launch mhseals_nav task.launch.py task:=mission params_file:=config/tasks/mission_crane.yaml sim:=true
+
+  - name: run_task
+    run: ros2 run mhseals_nav run_task
+    summary: task.launch's runner directly, with a mission profile overlay.
+    params:
+      - {name: --task, required: true, choices: [nav_channel, follow_path, docking, speed_challenge, return_home,
+                                                  supply_drop, harbor_alert, pair_test, circle_test, mission],
+         description: Task tree name.}
+      - {name: --params, type: path, description: 'Task YAML; default config/tasks/<task>.yaml.'}
+      - {name: --profile, choices: [qualifying, finals], description: "Mission overlay config/tasks/profiles/<name>.yaml; default the mission YAML's."}
+    examples:
+      - ros2 run mhseals_nav run_task --task mission --params config/tasks/mission_crane.yaml --ros-args -p use_sim_time:=true
 
   - name: monitor
     run: ros2 topic hz /odom/local
