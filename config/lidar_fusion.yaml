@@ -25,7 +25,11 @@
     tf_wait_s: 0.15
     image_margin_px: 10.0
     water_z_m: -0.6               # water plane in base_link (z up); measured on the mast
-    water_range_m: 6.0
+    water_range_m: 6.0            # near-field surface cut: z < water_z_m + 0.05 within it
+    # Mirror cut at any range: specular water multipath lands below
+    # water_z_m - mirror_margin_m - rho tan(mirror_tilt_deg) (tilt: wave pitch and roll).
+    mirror_margin_m: 0.05
+    mirror_tilt_deg: 3.0
     # Gate
     tf_max_gap_s: 0.06
     attitude_min_hz: 20.0

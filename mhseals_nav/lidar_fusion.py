@@ -116,6 +116,20 @@ def choose_scan(scans, t_c, max_dt):
     return best if best is not None and abs(best['t_med'] - t_c) <= max_dt else None
 
 
+def water_mask(pb, cfg):
+    """Base-frame points to keep: off the near-field surface and above the mirror plane.
+
+    Specular multipath off the water lands below the water plane at any range (under a real
+    buoy, where it can win the near-face median). The plane tilts down by mirror_tilt_deg
+    with range: TF is 2-D, so this covers wave pitch and roll.
+    """
+    rho = np.hypot(pb[:, 0], pb[:, 1])
+    surface = (rho < cfg['water_range_m']) & (pb[:, 2] < cfg['water_z_m'] + 0.05)
+    mirror = pb[:, 2] < cfg['water_z_m'] - cfg['mirror_margin_m'] - \
+        rho * math.tan(cfg['mirror_tilt_deg'] * DEG)
+    return ~(surface | mirror)
+
+
 def tf_gap(stamps, lo, hi):
     """Largest spacing of the TF samples that bracket [lo, hi]; inf when they do not."""
     s = np.asarray(stamps, float)
@@ -1027,8 +1041,7 @@ class LidarFusion(Node):
             return none
         knots = delta_knots(poses, c)
         pb = compensate(scan['p'], t_i, knot_t, knots)
-        near = np.hypot(pb[:, 0], pb[:, 1]) < cfg['water_range_m']
-        pb = pb[~(near & (pb[:, 2] < cfg['water_z_m'] + 0.05))]
+        pb = pb[water_mask(pb, cfg)]
         R_bo, t_bo = self.camera
         P_raw = (pb - t_bo) @ R_bo           # optical = R_bo^T (p - t)
         P_raw = P_raw[P_raw[:, 2] > 0.1]

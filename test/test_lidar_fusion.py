@@ -220,6 +220,11 @@ def test_box_less_observation_keeps_the_stereo_model_and_nan_passes():
     assert rows[1][2] is None
 
 
+def test_mirror_cut_drops_water_multipath_at_any_range_and_keeps_buoys():
+    pb = np.array([[12.0, 0.0, -1.4], [12.0, 0.5, -0.3], [3.0, 0.0, -0.58], [3.0, 0.0, -0.5]])
+    assert lf.water_mask(pb, CFG).tolist() == [False, True, False, True]
+
+
 def test_spray_and_sparse_points_never_range_a_box():
     rng = np.random.default_rng(3)
     spray = np.column_stack([rng.uniform(-1, 1, 6), rng.uniform(-0.2, 0.8, 6),
