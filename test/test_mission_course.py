@@ -786,6 +786,43 @@ def test_each_gate_has_its_own_retries():
     assert outcome == 'SUCCESS', decisions
 
 
+class AbortedAtTheLine(Course):
+    """Nav2 aborts the gate 2 route once, with the boat past the line but short of a crossing.
+
+    Unity seed 7 (11-01): the controller gave up 0.3 m past gate 2's line (the crossing
+    needs 0.6 m); the re-plan found no gate ahead, and the search ran out the 180 s.
+    Past 0.25 m the gate's middle is behind the boat along gate 1's heading too.
+    """
+
+    def __init__(self, params, **kwargs):
+        super().__init__(params, **kwargs)
+        (_, rx, ry), (_, gx, gy) = SEED_2026[2], SEED_2026[3]
+        self.gate2 = ((rx + gx) / 2, (ry + gy) / 2, math.atan2(gy - ry, gx - rx) + math.pi / 2)
+        self.aborted = False
+
+    def drive(self):
+        super().drive()
+        goal, gate = self.goal, self.gate2
+        dx, dy = self.pose[0] - gate[0], self.pose[1] - gate[1]
+        along = dx * math.cos(gate[2]) + dy * math.sin(gate[2])
+        across = -dx * math.sin(gate[2]) + dy * math.cos(gate[2])
+        if (not self.aborted and goal is not None and not goal.done
+                and abs(across) < 1.0 and 0.25 < along < 0.6):
+            self.aborted, goal.done, goal.status = True, True, 'ABORTED'
+
+
+def test_a_gate_aborted_at_its_line_is_driven_on_through():
+    """A route aborted just past a gate's line keeps that gate: no search for one ahead."""
+    world = AbortedAtTheLine(dict(mission('mission_2026.yaml'), tasks=['nav_channel']),
+                             dt=0.25, course=SEED_2026)
+    outcome, _ = world.run(300.0)
+    decisions = [d['reason'] for e, d in world.events if e == 'decision']
+    goals = [goal.why for goal in world.goals]
+    assert world.aborted and outcome == 'SUCCESS', decisions
+    assert 'on through gate 2' in goals and 'no gate ahead: looking around' not in decisions[
+        decisions.index('gate 2 aborted: retry'):], decisions
+
+
 ROTATED = ['nav_channel', 'speed_challenge', 'follow_path', 'docking', 'supply_drop',
            'return_home']
 

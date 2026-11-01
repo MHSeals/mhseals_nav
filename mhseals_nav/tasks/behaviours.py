@@ -468,8 +468,8 @@ class GateRun(Driver):
     ``corner_side`` (m) is when a turn between gates gets a mid-point, and
     ``exit_after`` (m) how far past each gate the route goes on (geometry.chain).
     A route Nav2 calls done short of the crossing (its goal checker passes the exit
-    within tolerance) is sent again ``retry_past`` metres further on per retry: the same
-    route would end at once again.
+    within tolerance), or gives up on past the gate's lead-in, is sent again
+    ``retry_past`` metres further on per retry: the same route would end at once again.
     While ``gates`` still owes one after a gate is cleared, the search goes on up to
     ``next_search`` metres (the next gate may stand beyond camera range); a run that
     ends short of ``gates`` fails, never claims success.
@@ -590,7 +590,9 @@ class GateRun(Driver):
                                        f'{self.failures}x: giving up')
                 return Status.FAILURE
             self.decide('retry', f'gate {len(self.cleared) + 1} {state.lower()}: retry')
-            if state == 'SHORT':  # done within the goal tolerance: on past the line, never back
+            # Done within the goal tolerance, or given up on past the lead-in: on past the
+            # line, never back (a re-plan would lose a gate whose middle is behind the boat).
+            if state == 'SHORT' or self.past_lead_in(self.planned[0], pose):
                 self.past += self.retry_past
                 route = geometry.chain(self.planned, self.corner_side, self.exit_after + self.past)
                 if self.past_lead_in(self.planned[0], pose):
