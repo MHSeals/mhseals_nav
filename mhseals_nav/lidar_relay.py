@@ -32,8 +32,10 @@ def finite(message):
     step, count = message.point_step, message.width * message.height
     if step <= 0 or not count:
         return message
-    rows = np.frombuffer(bytes(message.data), dtype=np.uint8, count=count * step).reshape(count, step)
-    values = rows[:, x.offset:x.offset + 4].copy().view('>f4' if message.is_bigendian else '<f4')[:, 0]
+    rows = np.frombuffer(bytes(message.data), dtype=np.uint8,
+                         count=count * step).reshape(count, step)
+    order = '>f4' if message.is_bigendian else '<f4'
+    values = rows[:, x.offset:x.offset + 4].copy().view(order)[:, 0]
     keep = np.isfinite(values)
     if keep.all():
         return message
