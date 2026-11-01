@@ -18,7 +18,7 @@ XACRO = '{http://www.ros.org/wiki/xacro}'
 
 
 def description_dir():
-    """The installed package's share/mhseals_nav/description, else the source tree's.
+    """Return the installed package's share/mhseals_nav/description, else the source tree's.
 
     A plain install puts this module in site-packages, so ``__file__`` finds the description
     only for a symlink install or a source checkout (the tests).
@@ -143,7 +143,7 @@ class RobotGeometry:
 
 
 def fcu_lever_arms(geometry=None):
-    """ArduPilot lever arms (FRD metres from base_link, to the mm) from the URDF."""
+    """Return ArduPilot lever arms (FRD metres from base_link, to the mm) from the URDF."""
     geometry = geometry or RobotGeometry.load()
     out = {}
     for prefixes, frame in [(['GPS1_POS'], 'gps_link'),
