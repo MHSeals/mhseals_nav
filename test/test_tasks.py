@@ -1302,3 +1302,20 @@ def test_the_supply_drop_tries_nothing_while_no_actuator_is_fitted():
     world = World('supply_drop', dict(params('supply_drop'), capabilities={}))
     world.state['objects'] = [('yellow_target_boat', 3.0, 0.0)]
     assert world.run() == 'FAILURE' and world.goals == []
+
+
+def test_a_gate_search_with_no_unexplored_bearing_ends_instead_of_raising():
+    from mhseals_nav.tasks.behaviours import GateRun
+
+    class Seen:  # every bearing near the course already looked at
+        def bearing_gaps(self, *args):
+            return None
+
+    world = World('nav_channel', params('nav_channel'))
+    world.use(GateRun('channel', 'channel', 'red_pole_buoy', 'green_pole_buoy', gates=2,
+                      search=10.0, step=5.0, first_radius=10.0))
+    world.board.coverage = Seen()
+    # Looks and legs both count against the search distance: once it is spent with a
+    # coverage look still owed, the run ends (it raised AttributeError on int.pop).
+    assert world.run() == 'FAILURE'
+    assert [goal.route[-1][:2] for goal in world.goals] == [pytest.approx((5, 0))]

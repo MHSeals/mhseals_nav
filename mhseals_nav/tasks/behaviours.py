@@ -640,7 +640,7 @@ class GateRun(Driver):
                 self.drive([(*geometry.forward((*pose[:2], bearing), self.step)[:2], bearing)],
                            why=f'look toward unexplored bearing {math.degrees(bearing):.0f}°')
                 return Status.RUNNING
-        elif self.looks:
+        elif coverage is None and self.looks:  # with coverage, looks is a count, spent above
             self.drive(self.looks.pop(0), why='sweep the camera for the next gate')
             return Status.RUNNING
         if self.searched < reach:
