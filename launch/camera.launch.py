@@ -98,6 +98,9 @@ def camera_startup(context):
                 [share, 'config', 'custom_object_detection.yaml']),
             'ros_params_override_path': PathJoinSubstitution(
                 [share, 'config', 'zed_boat.yaml']),
+            # The model ships in this package's share, wherever it is installed.
+            'param_overrides': ['object_detection.custom_onnx_file:=',
+                                PathJoinSubstitution([share, 'config', 'epoch60.onnx'])],
         }.items())
     return [GroupAction([*environment, wrapper, *relay_nodes(context, settings)])]
 

@@ -88,6 +88,10 @@ def test_wrapper_include_loads_our_files_and_publishes_no_pose_tf():
     assert passed['ros_params_override_path'].endswith('/config/zed_boat.yaml')
     assert passed['custom_object_detection_config_path'].endswith(
         '/config/custom_object_detection.yaml')
+    # The model from this package's share, never a home path.
+    assert passed['param_overrides'] == (
+        'object_detection.custom_onnx_file:=' + passed['ros_params_override_path'].replace(
+            'zed_boat.yaml', 'epoch60.onnx'))
 
 
 def test_wrapper_include_passes_only_arguments_the_wrapper_declares():
@@ -207,7 +211,7 @@ def test_custom_detection_runs_epoch60_with_wrapper_class_keys():
     sample = {k.split('.', 2)[2] for k in known if k.startswith('object_detection.class_000.')}
     detection = ros_params(ROOT / 'config/custom_object_detection.yaml')['object_detection']
     assert detection['detection_model'] == 'CUSTOM_YOLOLIKE_BOX_OBJECTS'
-    assert Path(detection['custom_onnx_file']).name == 'epoch60.onnx'
+    assert 'custom_onnx_file' not in detection        # the launch passes the share's model
     assert (ROOT / 'config/epoch60.onnx').is_file()
     classes = {k: v for k, v in detection.items() if k.startswith('class_')}
     assert len(classes) == detection['custom_class_count']

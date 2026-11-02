@@ -4,7 +4,7 @@
       od_enabled: true
       detection_model: CUSTOM_YOLOLIKE_BOX_OBJECTS
       custom_onnx_input_size: 640
-      custom_onnx_file: '/home/roboboat/roboboat_ws/src/mhseals_nav/config/epoch60.onnx'
+      # custom_onnx_file: config/epoch60.onnx in this package's share, set by camera.launch.py
       custom_class_count: 13
 
       class_000:
