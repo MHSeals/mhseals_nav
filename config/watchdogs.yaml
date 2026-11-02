@@ -1,0 +1,155 @@
+# The hold-only safety watchdogs (mhseals_nav/hold_watchdog.py). While its condition is bad and
+# autonomy commands flow (an auto command within command_window, a station-keeping zero too), a
+# watchdog asks command_mux for a hold with its cause, again every repeat; the operator clears
+# holds (U). With release_after set it also releases its own hold once clear that long with the
+# FCU disarmed. Each node reads defaults, then its section, then its tune: entries; launch
+# arguments and ROS parameters go on top. Units are SI with radians (schema.yaml).
+tune:
+  link_watchdog:
+    max_age: 3.0                # receipt age of the newest operator heartbeat (~2 Hz)
+    # Also before the first heartbeat (on the water a never-reached operator looks absent).
+    # Sim and bench set it false (config/devices/sim.yaml through watchdogs.launch.py).
+    require_operator: true
+  fence_watchdog:
+    # Outside under autonomy, alert holds; return pauses the procedure and task runners
+    # (pause_topic), then after return_lead sends Nav2 one goal return_inset inside the
+    # nearest edge at return_speed (Nav2's speed limit), sent again up to return_tries times
+    # while Nav2 refuses it. However the return ends (back inside, not within return_timeout,
+    # the mux leaving auto, the goal ending) it holds and stays paused until the operator (U)
+    # or an agent (boat_agent release) releases the hold. Live: ros2 param set on_exit.
+    on_exit: alert
+    margin: 5.0                 # covers the coast after a neutral-thrust hold
+    return_inset: 10.0
+    return_speed: 0.5
+    return_timeout: 15.0
+  costmap_watchdog:
+    max_age: 1.0                # receipt age; the TUI costmap_age check fails at 1.0
+  approach_guard:
+    enforce: false              # false: log approaches, request no hold (sim enforces)
+    trigger: 4.0                # hull gap watched; S-overtake holds at about 2.7 m
+
+defaults:
+  command_topic: /cmd_vel               # Nav2 -> command_mux auto input
+  request_topic: /command_mux/request
+  command_window: 0.5
+  mux_state_topic: /command_mux/state   # its input says what auto reaches
+  mux_state_max_age: 2.5                # the mux republishes >= 1 Hz; older counts every command
+  repeat: 1.0
+  rate: 10.0
+  fcu_state_topic: /mavros/state        # release_after: the FCU must say disarmed
+  fcu_state_max_age: 3.0                # older armed state counts as armed
+
+# A lost operator link must not leave autonomy driving (FS_GCS_ENABLE=0). Only beats naming
+# one of operator_hosts count, never one naming B itself (a TUI on B over SSH is no operator).
+link_watchdog:
+  cause: operator_link
+  heartbeat_topic: /operator/heartbeat
+  operator_hosts: [station]             # host names; station = the one named in station_file
+  station_file: ~/.config/mhseals/station.yaml  # hw.sh station take; absent: any host counts
+  release_after: 3.0
+
+# Autonomy stays inside the day's course area (FCU FENCE_ENABLE=0, and the FCU does not drive
+# the thrusters): outside, or within margin of an edge moving outward faster than outward_speed
+# or facing within outward_angle of the outward normal, it holds; so do no valid fence and a
+# position or odometry older than max_age. fence_file is the day's course area (plain YAML; it
+# overrides fence_frame and fence_points), e.g. fence_frame: latlon and fence_points: [lat1,
+# lon1, ...] (>= 3 pairs; map: [x, y] m, whose origin is wherever the boat started). The TUI
+# saves course: {corners: [...], on_exit: alert|return} there; that on_exit wins at startup.
+fence_watchdog:
+  cause: geofence
+  fence_file: ~/.config/mhseals/fence.yaml
+  fence_frame: latlon
+  fence_points: []                      # a launch may pass them (sim: a map-frame box)
+  course: {corners: null}               # live: ros2 param set course.corners [lat1, lon1, ...]
+  odom_topic: /odom/global              # EKF (map): heading and velocity; position for map fences
+  gps_topic: /gps/filtered              # navsat_transform's lat/lon of /odom/global
+  outward_speed: 0.1
+  outward_angle: 1.0472                 # 60 degrees
+  max_age: 1.0
+  fence_topic: /fence_watchdog/fence    # latched JSON: the fence and its margin rules, for the
+  fence_rate: 1.0                       #   TUI's goal gates (one source)
+  # std_srvs/Trigger: move a map fence to the stopped boat (the start of the test placed it);
+  # a lat/lon course area stays fixed. Called by the characterization start.
+  anchor_service: /fence/anchor
+  anchor_max_speed: 0.5
+  marker_topic: /fence/marker           # latched LINE_STRIP for rviz
+  marker_frame: map                     # odom_topic's frame: marker, return goals
+  marker_width: 0.3
+  marker_color: [1.0, 0.6, 0.0, 1.0]    # r g b a
+  marker_outside_color: [1.0, 0.0, 0.0, 1.0]
+  return_lead: 0.5
+  return_tries: 3
+  return_action: navigate_to_pose
+  speed_limit_topic: /speed_limit
+  pause_topic: /autonomy/pause          # latched JSON {paused, cause, by, why}
+  status_topic: /fence/status           # JSON {inside, distance_to_edge, frame, on_exit, corners,
+  status_rate: 2.0                      #   returning, paused}, and on every change
+  release_after: 3.0
+
+# Autonomy must not drive on EKF dead reckoning after MAVROS dies or the FCU reboots (ekf_local
+# predicts on with fresh stamps). Raw MAVROS topics, not the relays: ekf_input_watchdog holds on
+# dead relays. connected turns false only after MAVROS's 10 s timeout; the IMU and GPS ages
+# catch a silent FCU first.
+fcu_watchdog:
+  cause: fcu_link
+  state_topic: /mavros/state            # on every FCU heartbeat, ~1 Hz
+  imu_topic: /mavros/imu/data           # ~50 Hz (mavros_setup message_rates)
+  gps_topic: /mavros/global_position/raw/fix   # ~5 Hz, with or without a fix
+  max_state_age: 3.0
+  max_imu_age: 1.0                      # the ODROID stalls past 0.5 s under load
+  max_gps_age: 1.5
+
+# Autonomy must not drive on EKF prediction when the inputs the EKFs fuse stop: the /imu/raw and
+# /gps/fix relays and the /odom/mavros adapter (in the simulator, the simulator's).
+ekf_input_watchdog:
+  cause: ekf_inputs
+  imu_topic: /imu/raw                   # ~25 Hz, field gaps to 0.26 s
+  gps_topic: /gps/fix                   # ~5 Hz (GPS_RAW_INT)
+  odom_topic: /odom/mavros              # ~20 Hz; ~5 Hz with velocity_source gps
+  max_imu_age: 1.0
+  max_gps_age: 2.0                      # receiver gaps reach 1.1 s, plus the relay and stalls
+  max_odom_age: 2.0
+
+# Nav2 must never drive on a stale or missing /perception/costmap, nor on stale tracks (with
+# the tracker dead the StaticLayer keeps the last track grid while the costmap stays fresh).
+costmap_watchdog:
+  cause: costmap_stale
+  costmap_topic: /perception/costmap
+  updates_topic: /perception/costmap_updates
+  tracks_topic: /perception/tracks      # 10 Hz
+  max_tracks_age: 1.0
+  # Header age, either sign: the boat and Orin clocks must stay well under 1 s apart (chrony).
+  max_stamp_age: 2.0
+
+# Holds while an obstacle closes in on the hull from any side (S-overtake: MPPI scores only the
+# path ahead). An approach is a lethal cell within trigger of the hull more than move from every
+# known lethal cell (first seen min_age ago or more, seen again within memory), in the
+# costmap's frame. New cells must chain (each within max_speed of the last, through up to miss
+# of dropouts), so spray and wake do not; slower than move / min_age is never new. Dense flicker
+# masks an approach (fails open). Keep the boat log-only (enforce false) until water bags with
+# /perception/costmap replay with no false approach.
+approach_guard:
+  cause: approach
+  costmap_topic: /perception/costmap
+  updates_topic: /perception/costmap_updates
+  report_topic: /approach_guard/approach   # JSON {gap_m, at, enforce}, <= 1 / repeat
+  base_frame: base_link
+  half_length: 0.5315                   # the hull, as nav2_params' footprint without padding
+  half_width: 0.4475
+  lethal: 100                           # OccupancyGrid value of a lethal cell
+  move: 0.6                             # 4 cells of the 0.15 m costmap: edge flicker stays under
+  min_age: 1.0                          # so a hull moving at >= 0.6 m/s is seen
+  memory: 30.0                          # sim: buoys near the hull drop out for 7-19 s
+  warmup: 5.0                           # after a start or a stale spell, learn the static first
+  max_speed: 2.0
+  cluster: 0.25                         # new cells this close (a cell and its diagonal) are one
+  min_cluster: 6                        # cells: spray is specks, a 1 x 0.5 m hull about 28
+  miss: 0.4                             # 2 snapshots at 5 Hz
+  max_chains: 20                        # followed at once, oldest first
+  min_hits: 0.6                         # share of a chain's snapshots that must extend it
+  crop: 6.0                             # around the base: past trigger + move + the hull
+  confirm: 1.5                          # a chain this long (sim dock reveals: up to 1.0 s)
+  recent: 0.5                           # an approach counts this long
+  max_costmap_age: 1.0                  # stale is costmap_watchdog's hold
+  max_tf_age: 1.0
+  rate: 5.0
