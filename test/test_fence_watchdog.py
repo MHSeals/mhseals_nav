@@ -6,7 +6,8 @@ import math
 from pathlib import Path
 import time
 
-from mhseals_nav.fence_watchdog import FenceWatchdog, load_fence, outline, polygon, project
+from mhseals_nav.fence_watchdog import (FenceWatchdog, load_fence, outline, polygon, problem,
+                                        project)
 import pytest
 import yaml
 
@@ -221,20 +222,12 @@ def test_anchor_refuses_while_moving_or_without_odometry():
     assert dog.anchor(0.5)[0]
 
 
-def test_anchor_centres_a_lat_lon_fence_on_the_boat():
+def test_anchor_keeps_a_lat_lon_course_area_fixed():
     dog = FenceWatchdog(dict(CFG, fence_frame='latlon', fence_points=LATLON))
-    boat = (42.1, -71.2)
-    at(dog, 0.0, *boat)
-    assert dog.reason(0.0) == 'outside the fence'
-    assert dog.anchor(0.0)[0]
-    points = dog.cfg['fence_points']
-    assert sum(points[::2]) / 4 == pytest.approx(boat[0])
-    assert sum(points[1::2]) / 4 == pytest.approx(boat[1])
-    assert [b - a for a, b in zip(points, points[2:])] == pytest.approx(
-        [b - a for a, b in zip(LATLON, LATLON[2:])])          # same shape
-    assert dog.state(0.0)['frame'] == 'latlon' and dog.state(0.0)['points'] == points
-    at(dog, 0.5, *boat)
-    assert dog.reason(0.5) == ''
+    assert dog.anchor(0.0) == (True, 'course area fixed')      # no position needed
+    at(dog, 0.0, 42.1, -71.2)
+    assert dog.anchor(0.0) == (True, 'course area fixed')
+    assert dog.cfg['fence_points'] == LATLON and dog.reason(0.0) == 'outside the fence'
 
 
 def test_outline_of_a_map_fence_is_its_closed_points():

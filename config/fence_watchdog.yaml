@@ -31,15 +31,30 @@
     mux_state_max_age_s: 2.5           # the mux republishes >= 1 Hz; older counts every command
     fence_topic: /fence_watchdog/fence # latched JSON: this fence in its own frame (latlon or map), the margin
     fence_rate_hz: 1.0                 #   rules, for the TUI's goal gates (one source)
-    # std_srvs/Trigger: move the fence to the boat (fresh position or refused), same shape and
-    # frame. A map fence keeps the boat where the map origin was (the start of the test); a
-    # lat/lon one is centred on it (vertex mean). Called by the characterization start.
+    # std_srvs/Trigger: move a map fence to the boat (fresh position or refused), same shape,
+    # keeping the boat where the map origin was (the start of the test). A lat/lon course area
+    # stays fixed (success, "course area fixed"). Called by the characterization start.
     anchor_service: /fence/anchor
     anchor_max_speed_mps: 0.5          # refused faster than this, or without fresh odometry
     marker_topic: /fence/marker        # latched visualization_msgs/Marker LINE_STRIP for rviz
-    marker_frame: map                  # odom_topic's frame; a lat/lon fence is placed via the boat
+    marker_frame: map                  # odom_topic's frame: marker, return goals
     marker_width: 0.3                  # m
     marker_color: [1.0, 0.6, 0.0, 1.0] # r g b a
+    marker_outside_color: [1.0, 0.0, 0.0, 1.0]  # while the boat is outside
+    # Live parameters (ros2 param set): course.corners [lat1, lon1, ...] replaces the fence with
+    # that lat/lon course area (>= 3 corners, a simple polygon, or refused); on_exit as below.
+    # Outside under autonomy, alert holds; return sends navigate_to_pose one goal return_inset m
+    # inside the nearest edge at return_speed (m/s, Nav2's speed limit), and holds as alert does
+    # when not back inside within return_timeout (s), the mux leaves auto or the goal ends.
+    on_exit: alert
+    return_inset: 10.0
+    return_speed: 0.5
+    return_timeout: 60.0
+    return_action: navigate_to_pose
+    speed_limit_topic: /speed_limit
+    # JSON {inside, distance_to_edge, frame, on_exit, corners, returning}
+    status_topic: /fence/status
+    status_rate: 2.0                   # Hz, and on every change
     repeat_s: 1.0
     release_after: 3.0                 # s clear, FCU disarmed: release its own hold
     fcu_state_topic: /mavros/state
