@@ -93,8 +93,8 @@ class LinkWatchdog(HoldGate):
     def reason(self, now):
         if self.beat_at is None:
             return 'no operator heartbeat yet' if self.cfg['require_operator'] else ''
-        if not fresh(self.beat_at, now, self.cfg['max_age_s']):
-            return f"operator heartbeat older than {self.cfg['max_age_s']} s"
+        if not fresh(self.beat_at, now, self.cfg['max_age']):
+            return f"operator heartbeat older than {self.cfg['max_age']} s"
         return ''
 
 
@@ -129,7 +129,7 @@ def node_class():
         node.create_subscription(String, node.cfg['heartbeat_topic'], on_beat,
                                  qos_profile_sensor_data)
 
-    return watchdog_class('link_watchdog', 'link_watchdog.yaml', LinkWatchdog, subscribe)
+    return watchdog_class('link_watchdog', LinkWatchdog, subscribe)
 
 
 def main(args=None):

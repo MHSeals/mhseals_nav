@@ -1,15 +1,13 @@
 """FCU-link watchdog: MAVROS state, IMU and raw GPS must be fresh and connected."""
 
 import json
-from pathlib import Path
 import time
 
 from mhseals_nav.fcu_watchdog import FcuWatchdog
+from mhseals_nav.yaml_params import watchdog_config
 import pytest
-import yaml
 
-CFG = yaml.safe_load((Path(__file__).parents[1] / 'config/fcu_watchdog.yaml')
-                     .read_text())['/**']['ros__parameters']
+CFG = watchdog_config('fcu_watchdog')
 
 
 def healthy(dog, now):
@@ -44,8 +42,8 @@ def test_disconnected_holds():
 
 
 @pytest.mark.parametrize('silent, limit, name', [
-    ('imu', 'max_imu_age_s', 'IMU'), ('gps', 'max_gps_age_s', 'GPS'),
-    ('state', 'max_state_age_s', 'state')])
+    ('imu', 'max_imu_age', 'IMU'), ('gps', 'max_gps_age', 'GPS'),
+    ('state', 'max_state_age', 'state')])
 def test_each_silent_input_holds_past_its_limit(silent, limit, name):
     dog = FcuWatchdog(CFG)
     healthy(dog, 0.0)

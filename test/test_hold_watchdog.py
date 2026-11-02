@@ -6,24 +6,22 @@ neutral zeros on /cmd_vel at the hold counted as autonomy while both conditions 
 """
 
 import json
-from pathlib import Path
 
 from mhseals_nav.approach_guard import Guard
 from mhseals_nav.fence_watchdog import FenceWatchdog
 from mhseals_nav.link_watchdog import LinkWatchdog
+from mhseals_nav.yaml_params import watchdog_config
 import pytest
-import yaml
 
 
 def config(name):
-    return yaml.safe_load((Path(__file__).parents[1] / 'config' / name)
-                          .read_text())['/**']['ros__parameters']
+    return watchdog_config(name)
 
 
-LINK = config('link_watchdog.yaml')
-FENCE = dict(config('fence_watchdog.yaml'), fence_frame='map',
+LINK = config('link_watchdog')
+FENCE = dict(config('fence_watchdog'), fence_frame='map',
              fence_points=[0.0, 0.0, 100.0, 0.0, 100.0, 50.0, 0.0, 50.0])
-WINDOW = LINK['command_window_s']
+WINDOW = LINK['command_window']
 
 
 def link(cfg=LINK):
@@ -43,9 +41,9 @@ def mux(dog, now, source):
 def test_every_config_names_the_mux_state():
     for name in ('approach_guard', 'costmap_watchdog', 'ekf_input_watchdog', 'fcu_watchdog',
                  'fence_watchdog', 'link_watchdog'):
-        cfg = config(f'{name}.yaml')
+        cfg = config(name)
         assert cfg['mux_state_topic'] == '/command_mux/state'
-        assert cfg['mux_state_max_age_s'] > 1.0     # the mux republishes at least 1 Hz
+        assert cfg['mux_state_max_age'] > 1.0     # the mux republishes at least 1 Hz
 
 
 @pytest.mark.parametrize('make', [link, fence])
@@ -89,7 +87,7 @@ def test_autonomy_with_the_condition_bad_holds_at_once(make, surge):
     assert dog.tick(0.1)
     mux(dog, 0.12, 'auto')
     dog.command(1.2)
-    assert dog.tick(1.2)               # held again after repeat_s
+    assert dog.tick(1.2)               # held again after repeat
 
 
 @pytest.mark.parametrize('make', [link, fence])
@@ -110,7 +108,7 @@ def test_no_or_stale_or_unreadable_mux_state_counts_every_command(make):
     assert dog.tick(0.0)               # no mux state ever: as before
     dog = make()
     mux(dog, 0.0, 'hold')
-    late = dog.cfg['mux_state_max_age_s'] + 0.01
+    late = dog.cfg['mux_state_max_age'] + 0.01
     dog.command(late)
     assert dog.tick(late)              # a mux that stopped reporting decides nothing
     dog = make()
@@ -138,27 +136,27 @@ def test_keyboard_drive_with_the_link_bad_is_not_held():
 
 
 def test_missing_max_age_key_fails_closed():
-    cfg = {k: v for k, v in LINK.items() if k != 'mux_state_max_age_s'}
+    cfg = {k: v for k, v in LINK.items() if k != 'mux_state_max_age'}
     dog = link(cfg)
     mux(dog, 0.0, 'hold')
     dog.command(0.01)
     try:
         held = dog.tick(0.01)
     except KeyError:
-        pytest.fail('missing mux_state_max_age_s raises KeyError in a callback (node dies)')
+        pytest.fail('missing mux_state_max_age raises KeyError in a callback (node dies)')
     assert held
 
 
 def test_approach_seen_under_rc_still_holds_on_return_to_auto():
     """Before 327ba22 an approach under rc/manual with Nav2 still publishing left a hold."""
-    g = Guard(dict(config('approach_guard.yaml'), enforce=True))
+    g = Guard(dict(config('approach_guard'), enforce=True))
     mux(g, 0.0, 'rc')
     g.approach_at, g.gap = 0.0, 0.5     # an approach confirmed while the operator drives
     g.command(0.0)
     assert g.tick(0.0)                  # at confirmation, as before
     for k in range(1, 10):
         g.command(k * 0.1)
-        assert not g.tick(k * 0.1)      # repeat_s throttles
+        assert not g.tick(k * 0.1)      # repeat throttles
     mux(g, 1.0, 'auto')                 # switch back to GUIDED: auto forwards
     g.command(1.0)
     assert g.tick(1.0), 'an approach 1 s earlier under rc leaves no hold on return'
@@ -172,7 +170,7 @@ def test_approach_seen_under_rc_still_holds_on_return_to_auto():
 
 @pytest.mark.parametrize('source', ['rc', 'manual'])
 def test_no_hold_while_rc_or_manual_drives_without_an_approach(source):
-    g = Guard(dict(config('approach_guard.yaml'), enforce=True))
+    g = Guard(dict(config('approach_guard'), enforce=True))
     mux(g, 0.0, source)
     for k in range(20):
         g.command(k * 0.1)
@@ -183,7 +181,7 @@ def test_no_hold_while_rc_or_manual_drives_without_an_approach(source):
 
 
 def test_approach_confirmed_under_manual_holds_at_once():
-    g = Guard(dict(config('approach_guard.yaml'), enforce=True))
+    g = Guard(dict(config('approach_guard'), enforce=True))
     mux(g, 0.0, 'manual')
     g.command(0.0)
     assert not g.tick(0.0)
@@ -193,7 +191,7 @@ def test_approach_confirmed_under_manual_holds_at_once():
 
 
 def test_approach_under_a_mux_hold_is_owed_and_never_expires():
-    g = Guard(dict(config('approach_guard.yaml'), enforce=True))
+    g = Guard(dict(config('approach_guard'), enforce=True))
     mux(g, 0.0, 'hold')
     g.approach_at, g.gap = 0.0, 0.5
     g.command(0.0)
@@ -290,3 +288,4 @@ def test_node_ignores_zeros_under_a_mux_hold_and_holds_under_auto():
         assert got and got[0]['cause'] == 'operator_link'
     finally:
         rclpy.try_shutdown()
+

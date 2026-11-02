@@ -233,11 +233,11 @@ class FenceWatchdog(HoldGate):
             return False, 'no valid fence configured'
         if self.frame == 'latlon':
             return True, 'course area fixed'
-        if not fresh(self.p_at, now, self.cfg['max_age_s']):
-            return False, 'no boat position (missing or older than max_age_s)'
-        if not fresh(self.motion_at, now, self.cfg['max_age_s']):
-            return False, 'no odometry (missing or older than max_age_s)'
-        if math.hypot(*self.v) > self.cfg['anchor_max_speed_mps']:
+        if not fresh(self.p_at, now, self.cfg['max_age']):
+            return False, 'no boat position (missing or older than max_age)'
+        if not fresh(self.motion_at, now, self.cfg['max_age']):
+            return False, 'no odometry (missing or older than max_age)'
+        if math.hypot(*self.v) > self.cfg['anchor_max_speed']:
             return False, f'boat moving ({math.hypot(*self.v):.1f} m/s)'
         points = moved(self.cfg['fence_points'], self.ref, self.raw)
         self.cfg = dict(self.cfg, fence_points=points)
@@ -247,7 +247,7 @@ class FenceWatchdog(HoldGate):
 
     def outline(self, now):
         """The marker's closed outline in map (see ``outline``), None while not placeable."""
-        limit = self.cfg['max_age_s']
+        limit = self.cfg['max_age']
         live = fresh(self.p_at, now, limit) and fresh(self.map_at, now, limit)
         return outline(self.frame, self.cfg['fence_points'],
                        self.raw if live else None, self.map_p if live else None)
@@ -264,13 +264,13 @@ class FenceWatchdog(HoldGate):
         ``project`` from the first vertex, as here) or map ([x, y, ...]); ``points`` is the
         configured flat list when ``valid``, else None with ``error`` saying why. ``reason`` is
         the hold reason now ('' while all is well); ``stamp_ns`` the node's clock. A reader
-        treats a message older than three periods (3 / fence_rate_hz) as no fence.
+        treats a message older than three periods (3 / fence_rate) as no fence.
         """
         cfg, valid = self.cfg, self.poly is not None
         return {'valid': valid, 'frame': self.frame,
                 'points': [float(v) for v in cfg['fence_points']] if valid else None,
-                'margin_m': cfg['margin_m'], 'outward_angle_deg': cfg['outward_angle_deg'],
-                'outward_speed_mps': cfg['outward_speed_mps'], 'reason': self.reason(now),
+                'margin_m': cfg['margin'], 'outward_angle_deg': math.degrees(cfg['outward_angle']),
+                'outward_speed_mps': cfg['outward_speed'], 'reason': self.reason(now),
                 'error': '' if valid else 'no valid fence configured', 'stamp_ns': stamp_ns}
 
     def reason(self, now):
@@ -282,23 +282,23 @@ class FenceWatchdog(HoldGate):
         cfg = self.cfg
         if self.poly is None:
             return 'no valid fence configured'
-        if not fresh(self.p_at, now, cfg['max_age_s']):
+        if not fresh(self.p_at, now, cfg['max_age']):
             return 'position missing or stale'
-        if not fresh(self.motion_at, now, cfg['max_age_s']):
+        if not fresh(self.motion_at, now, cfg['max_age']):
             return 'odometry missing or stale'
         if not inside(self.p, self.poly):
             return OUTSIDE
         # Every edge within the margin counts, so a corner is covered from both sides.
-        cos_limit = math.cos(math.radians(cfg['outward_angle_deg']))
+        cos_limit = math.cos(cfg['outward_angle'])
         for c in closest(self.p, self.poly):
             dx, dy = c[0] - self.p[0], c[1] - self.p[1]
             d = math.hypot(dx, dy)
-            if d >= cfg['margin_m']:
+            if d >= cfg['margin']:
                 continue
             if d < 1e-6:
                 return 'on the fence'
             nx, ny = dx / d, dy / d
-            if self.v[0] * nx + self.v[1] * ny > cfg['outward_speed_mps'] or \
+            if self.v[0] * nx + self.v[1] * ny > cfg['outward_speed'] or \
                     math.cos(self.yaw) * nx + math.sin(self.yaw) * ny > cos_limit:
                 self.edge_m = d    # kept out of the reason, which is compared every tick
                 return NEAR_EDGE
@@ -312,7 +312,7 @@ class FenceWatchdog(HoldGate):
         edge, either side) are None without a fence or a fresh position; ``corners`` is the
         flat list in ``frame`` (latlon: lat, lon; map: x, y), None without a valid fence."""
         valid = self.poly is not None
-        live = valid and fresh(self.p_at, now, self.cfg['max_age_s'])
+        live = valid and fresh(self.p_at, now, self.cfg['max_age'])
         edge = min(math.dist(c, self.p) for c in closest(self.p, self.poly)) if live else None
         return {'inside': inside(self.p, self.poly) if live else None,
                 'distance_to_edge': round(edge, 2) if live else None, 'frame': self.frame,
@@ -369,7 +369,7 @@ class FenceWatchdog(HoldGate):
             return
         sending = self.returning['send_at']
         if sending is not None and now >= sending:
-            self.returning.update(send_at=None, tries=self.returning['tries'] + 1)
+            self.returning.update(send_at=None, sent=now, tries=self.returning['tries'] + 1)
             self.orders.append(('go', self.returning['goal']))
         if self.cfg['on_exit'] != 'return':
             self.stop('on_exit is alert', failed=False)
@@ -393,11 +393,15 @@ class FenceWatchdog(HoldGate):
 
     def return_result(self, now, outcome):
         """The return goal ended (``outcome``: succeeded, aborted, rejected, ...): parked,
-        and still outside holds as alert does. A goal rejected while the runners' goals wind
-        down is sent again after return_lead, return_tries sends in all."""
+        and still outside holds as alert does. A goal refused while the runners' goals wind
+        down (rejected, or ended otherwise than succeeded within return_lead of its send: a
+        runner goal sent just before the pause replaced it) is sent again after return_lead,
+        return_tries sends in all."""
         if self.returning is None:
             return
-        if outcome.startswith('rejected') and self.returning['tries'] < self.cfg['return_tries']:
+        refused = outcome.startswith('rejected') or (
+            outcome != 'succeeded' and now - self.returning.get('sent', now) < self.cfg['return_lead'])
+        if refused and self.returning['tries'] < self.cfg['return_tries']:
             self.returning['send_at'] = now + self.cfg['return_lead']
             return
         self.returning = None
@@ -412,7 +416,7 @@ class FenceWatchdog(HoldGate):
     def return_goal(self, now):
         """(x, y, yaw) in marker_frame: return_inset inside the nearest edge point, facing
         it from the boat; None when there is no such point or no fresh map pose."""
-        if self.frame == 'latlon' and not fresh(self.map_at, now, self.cfg['max_age_s']):
+        if self.frame == 'latlon' and not fresh(self.map_at, now, self.cfg['max_age']):
             return None
         p, poly, inset = self.p, self.poly, self.cfg['return_inset']
         c = min(closest(p, poly), key=lambda q: math.dist(q, p))
@@ -530,7 +534,7 @@ def node_class():
             except Exception as error:      # noqa: BLE001 - logged, the hold timer goes on
                 node.get_logger().error(f'fence status failed: {error}',
                                         throttle_duration_sec=10.0)
-        node.create_timer(1.0 / cfg['rate_hz'], report)
+        node.create_timer(1.0 / cfg['rate'], report)
 
         # on_exit: return. One goal at a time; results of a goal given up are ignored.
         to_pose = ActionClient(node, NavigateToPose, cfg['return_action'])
@@ -639,7 +643,7 @@ def node_class():
             except Exception as error:      # noqa: BLE001 - logged, the hold timer goes on
                 node.get_logger().error(f'fence publish failed: {error}',
                                         throttle_duration_sec=10.0)
-        node.create_timer(1.0 / cfg['fence_rate_hz'], publish_fence)
+        node.create_timer(1.0 / cfg['fence_rate'], publish_fence)
 
         def on_anchor(_, response):
             response.success, response.message = dog.anchor(time.monotonic())
@@ -674,7 +678,7 @@ def node_class():
         # Whatever the frame: a course area set live (course.corners) needs the fix at once.
         node.create_subscription(NavSatFix, cfg['gps_topic'], on_fix, qos_profile_sensor_data)
 
-    return watchdog_class('fence_watchdog', 'fence_watchdog.yaml', logic, subscribe)
+    return watchdog_class('fence_watchdog', logic, subscribe)
 
 
 def main(args=None):

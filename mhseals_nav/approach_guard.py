@@ -7,19 +7,19 @@ from a gate buoy just passed: both sit 0.6 to 1 m off the quarter. Motion can: t
 is in a world frame (odom), where a buoy's lethal cells stay put however the boat moves and
 a moving hull's leading edge keeps marking cells that were free a moment ago.
 
-So: lethal cells within ``trigger_m`` of the hull rectangle that lie more than ``move_m``
-from every known lethal cell (first lethal ``min_age_s`` ago or more in more than one
-snapshot, last within ``memory_s``) are new, if they lie in a connected cluster of
-``min_cluster`` cells (``cluster_m`` links): a hull is one, spray and wake are specks.
+So: lethal cells within ``trigger`` of the hull rectangle that lie more than ``move``
+from every known lethal cell (first lethal ``min_age`` ago or more in more than one
+snapshot, last within ``memory``) are new, if they lie in a connected cluster of
+``min_cluster`` cells (``cluster`` links): a hull is one, spray and wake are specks.
 New cells are an approach once they form a chain
-for ``confirm_s`` (``follow``): each step within ``max_speed`` of the last, so scattered
-clutter (spray, wake) cannot chain, and up to ``miss_s`` without a new cell (lidar
+for ``confirm`` (``follow``): each step within ``max_speed`` of the last, so scattered
+clutter (spray, wake) cannot chain, and up to ``miss`` without a new cell (lidar
 dropouts) keeps a chain. Then, while autonomy
 commands flow (a station-keeping zero counts), it asks command_mux for a hold like the
 other hold-only watchdogs (hold_watchdog), and like them never releases: a hold ends the
 task (run_task), and the operator resumes. With ``enforce`` false it only logs.
 
-Only motion faster than about move_m / min_age_s in the odom frame is new: a boat closing
+Only motion faster than about move / min_age in the odom frame is new: a boat closing
 slower than that is never held for. Overtaken, the boat stops rather than keeping course
 and speed as a stand-on vessel would: the threats here are robotic or unmanned and the
 boat is slow, and stopping keeps it from turning across what only its lidar sees without
@@ -82,7 +82,7 @@ class Guard(HoldGate):
 
     def __init__(self, cfg):
         super().__init__(cfg)
-        self.half = (cfg['half_length_m'], cfg['half_width_m'])
+        self.half = (cfg['half_length'], cfg['half_width'])
         self.cells = {}               # cell key -> [first seen, last seen] world (x, y)
         self.since = None             # observing without a gap since
         self.chains = []              # [start, last, x, y, gap, hits, seen]: new cells moving on
@@ -94,14 +94,14 @@ class Guard(HoldGate):
         """Feed one costmap snapshot (world lethal points near the boat) and the hull pose."""
         cfg = self.cfg
         self.since = now if self.since is None else self.since
-        # Known: lethal at least min_age_s ago, in more than one snapshot, and seen again
-        # within memory_s. A buoy the lidar loses near the hull and finds again (seconds
+        # Known: lethal at least min_age ago, in more than one snapshot, and seen again
+        # within memory. A buoy the lidar loses near the hull and finds again (seconds
         # apart) is still known; a speck of spray seen once is not, so it cannot mask
         # the front of a hull passing over that spot later.
-        for key in [k for k, (_, last, _) in self.cells.items() if now - last > cfg['memory_s']]:
+        for key in [k for k, (_, last, _) in self.cells.items() if now - last > cfg['memory']]:
             del self.cells[key]
         known = numpy.array([xy for first, last, xy in self.cells.values()
-                             if now - first >= cfg['min_age_s'] and last > first]
+                             if now - first >= cfg['min_age'] and last > first]
                             ).reshape(-1, 2)
         for x, y in points:
             key = (round(x * 100), round(y * 100))
@@ -110,22 +110,22 @@ class Guard(HoldGate):
             else:
                 self.cells[key] = [now, now, (x, y)]
         fresh, fresh_gaps = numpy.zeros((0, 2)), numpy.zeros(0)
-        if now - self.since >= cfg['warmup_s'] and len(points):
+        if now - self.since >= cfg['warmup'] and len(points):
             gaps = hull_gap(points, pose, self.half)
-            close = gaps <= cfg['trigger_m']
+            close = gaps <= cfg['trigger']
             near = points[close]
-            # Only cells that can be within move_m of a near one (a dock has thousands).
+            # Only cells that can be within move of a near one (a dock has thousands).
             known = known[hull_gap(known, pose, self.half) <=
-                          cfg['trigger_m'] + cfg['move_m'] + 0.01]
+                          cfg['trigger'] + cfg['move'] + 0.01]
             if len(near):
                 new = numpy.ones(len(near), bool)
                 if len(known):
                     new = numpy.hypot(near[:, None, 0] - known[None, :, 0],
                                       near[:, None, 1] - known[None, :, 1]
-                                      ).min(axis=1) > cfg['move_m']
+                                      ).min(axis=1) > cfg['move']
                 if new.any():
                     fresh, fresh_gaps = near[new], gaps[close][new]
-                    solid = clusters(fresh, cfg['cluster_m'], cfg['min_cluster'])
+                    solid = clusters(fresh, cfg['cluster'], cfg['min_cluster'])
                     fresh, fresh_gaps = fresh[solid], fresh_gaps[solid]
         self.follow(now, fresh, fresh_gaps)
 
@@ -134,32 +134,32 @@ class Guard(HoldGate):
 
         A chain is [start, last time, x, y, gap, hits, snapshots]: it moves to the centroid
         of the new cells within ``max_speed`` times the time since its last extension (plus
-        ``move_m``), so a speck beside a hull's many cells barely moves it. One that finds
-        none survives ``miss_s``, so lidar dropouts keep it. It confirms after
-        ``confirm_s`` when extended in ``min_hits`` of the snapshots it saw.
+        ``move``), so a speck beside a hull's many cells barely moves it. One that finds
+        none survives ``miss``, so lidar dropouts keep it. It confirms after
+        ``confirm`` when extended in ``min_hits`` of the snapshots it saw.
         """
         cfg, used, kept = self.cfg, numpy.zeros(len(fresh), bool), []
         for chain in self.chains:
             start, t, x, y, _, hits, seen = chain
             if len(fresh):
                 d = numpy.hypot(fresh[:, 0] - x, fresh[:, 1] - y)
-                reach = d <= cfg['max_speed'] * (now - t) + cfg['move_m']
+                reach = d <= cfg['max_speed'] * (now - t) + cfg['move']
                 if reach.any():
                     used |= reach
                     cx, cy = fresh[reach].mean(axis=0)
                     kept.append([start, now, cx, cy, float(gaps[reach].min()), hits + 1,
                                  seen + 1])
                     continue
-            if now - t < cfg['miss_s'] + 0.5 / cfg['rate_hz']:   # timer jitter
+            if now - t < cfg['miss'] + 0.5 / cfg['rate']:   # timer jitter
                 kept.append(chain[:6] + [seen + 1])
         for i in numpy.argsort(gaps):
             if not used[i]:
                 kept.append([now, now, fresh[i][0], fresh[i][1], float(gaps[i]), 1, 1])
                 used |= numpy.hypot(fresh[:, 0] - fresh[i][0],
-                                    fresh[:, 1] - fresh[i][1]) <= cfg['move_m']
+                                    fresh[:, 1] - fresh[i][1]) <= cfg['move']
         # The oldest chains first; clutter starts many short ones, keep a bounded few.
         self.chains = sorted(kept, key=lambda c: c[0])[:cfg['max_chains']]
-        live = [c for c in self.chains if c[1] == now and now - c[0] >= cfg['confirm_s']
+        live = [c for c in self.chains if c[1] == now and now - c[0] >= cfg['confirm']
                 and c[5] >= cfg['min_hits'] * c[6]]
         if live:
             start, _, x, y, gap, _, _ = min(live, key=lambda c: c[4])
@@ -176,7 +176,7 @@ class Guard(HoldGate):
         """Hold at a confirmed approach under rc or manual too, and owe one for the return.
 
         Under rc or manual the hold goes out at confirmation, as before the mux filter.
-        The approach is gone after recent_s, so one seen under rc, manual or a mux hold is
+        The approach is gone after recent, so one seen under rc, manual or a mux hold is
         also owed (it never expires) and goes out on the return to auto.
         """
         why = self.reason(now)
@@ -192,7 +192,7 @@ class Guard(HoldGate):
 
     def reason(self, now):
         recent = self.approach_at is not None and \
-            now - self.approach_at <= self.cfg['recent_s']
+            now - self.approach_at <= self.cfg['recent']
         return 'an obstacle is closing in on the hull' if recent else ''
 
     def describe(self, why):
@@ -224,14 +224,14 @@ def node_class():
                                  lambda m: grid.update(m, time.monotonic()), 10)
 
         def pose():
-            if grid.cells is None or time.monotonic() - grid.received > cfg['max_costmap_age_s']:
+            if grid.cells is None or time.monotonic() - grid.received > cfg['max_costmap_age']:
                 return None
             try:
                 tf = node.tf.lookup_transform(grid.frame, cfg['base_frame'], Time())
             except TransformException:
                 return None
             stamp = Time.from_msg(tf.header.stamp, clock_type=node.get_clock().clock_type)
-            if (node.get_clock().now() - stamp).nanoseconds * 1e-9 > cfg['max_tf_age_s']:
+            if (node.get_clock().now() - stamp).nanoseconds * 1e-9 > cfg['max_tf_age']:
                 return None
             t, q = tf.transform.translation, tf.transform.rotation
             return t.x, t.y, math.atan2(2.0 * (q.w * q.z + q.x * q.y),
@@ -243,12 +243,12 @@ def node_class():
                 guard.blind()   # stale inputs are costmap_watchdog's to hold on
                 return
             guard.observe(time.monotonic(), lethal_points(
-                grid.cells, grid.resolution, grid.origin, at[:2], cfg['crop_m'],
+                grid.cells, grid.resolution, grid.origin, at[:2], cfg['crop'],
                 cfg['lethal']), at)
 
-        node.create_timer(1.0 / cfg['rate_hz'], observe)
+        node.create_timer(1.0 / cfg['rate'], observe)
 
-        # What it holds, or with enforce false would hold, on: every repeat_s at most.
+        # What it holds, or with enforce false would hold, on: every repeat at most.
         report = node.create_publisher(String, cfg['report_topic'], 10)
 
         def publish_report():
@@ -256,9 +256,9 @@ def node_class():
                 report.publish(String(data=json.dumps({
                     'gap_m': round(guard.gap, 2), 'at': guard.at, 'enforce': cfg['enforce']})))
 
-        node.create_timer(cfg['repeat_s'], publish_report)
+        node.create_timer(cfg['repeat'], publish_report)
 
-    return watchdog_class('approach_guard', 'approach_guard.yaml', Guard, subscribe)
+    return watchdog_class('approach_guard', Guard, subscribe)
 
 
 def main(args=None):

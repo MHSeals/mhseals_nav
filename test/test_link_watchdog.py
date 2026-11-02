@@ -2,15 +2,13 @@
 
 import json
 import os
-from pathlib import Path
 import socket
 
 from mhseals_nav.link_watchdog import LinkWatchdog
+from mhseals_nav.yaml_params import watchdog_config
 import pytest
-import yaml
 
-BOAT_CFG = yaml.safe_load((Path(__file__).parents[1] / 'config/link_watchdog.yaml')
-                          .read_text())['/**']['ros__parameters']
+BOAT_CFG = watchdog_config('link_watchdog')
 OPERATOR = 'opstation'
 # Literal hosts here; the station token has its own tests below (never the real home file).
 CFG = dict(BOAT_CFG, operator_hosts=[OPERATOR])
@@ -119,7 +117,7 @@ def test_only_operator_hosts_count_and_never_the_boat_itself():
 
 def test_stale_heartbeat_holds_and_repeats_while_autonomy_flows():
     dog = watchdog()
-    limit = CFG['max_age_s']
+    limit = CFG['max_age']
     dog.heartbeat(0.0, OPERATOR)
     dog.command(limit)
     assert not dog.tick(limit)              # exactly at the limit is still fresh
@@ -127,9 +125,9 @@ def test_stale_heartbeat_holds_and_repeats_while_autonomy_flows():
     dog.command(late)
     assert dog.tick(late)
     dog.command(late + 0.1)
-    assert not dog.tick(late + 0.1)         # repeat_s throttles
-    dog.command(late + CFG['repeat_s'])
-    assert dog.tick(late + CFG['repeat_s'])  # a release while still stale is held again
+    assert not dog.tick(late + 0.1)         # repeat throttles
+    dog.command(late + CFG['repeat'])
+    assert dog.tick(late + CFG['repeat'])  # a release while still stale is held again
 
 
 def test_stale_heartbeat_without_autonomy_requests_nothing():
@@ -161,7 +159,7 @@ def test_node_holds_without_the_operator_and_survives_flips():
     from mhseals_nav.link_watchdog import node_class
     rclpy.init()
     try:
-        dog = node_class()(parameter_overrides=[Parameter('max_age_s', value=0.5),
+        dog = node_class()(parameter_overrides=[Parameter('max_age', value=0.5),
                                                 Parameter('operator_hosts', value=[OPERATOR])])
         probe = rclpy.create_node('link_probe')
         got = []

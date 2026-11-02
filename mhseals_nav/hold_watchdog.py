@@ -1,8 +1,8 @@
 """The shape shared by the hold-only safety watchdogs (costmap, link, fence, FCU, EKF inputs).
 
 Each watches one condition. While it is bad and autonomy commands flow (an auto command
-within command_window_s), the watchdog asks command_mux for a hold with its own cause and
-token, and asks again every repeat_s, so a release while the condition is still bad is held
+within command_window), the watchdog asks command_mux for a hold with its own cause and
+token, and asks again every repeat, so a release while the condition is still bad is held
 again. The operator clears holds (U clears them all); with release_after set, a watchdog
 also releases its own hold (its token, nobody else's) once its condition has been clear that
 long and the FCU reports disarmed on fcu_state_topic. Armed, or FCU state unknown or older
@@ -15,14 +15,14 @@ these holds (11-01: every mux hold brought link and fence holds 14-24 ms later).
 mux reports auto again (a release, manual timing out), a command in the window counts at
 once; the mux forwards auto (ramped in from zero over its ramp) for the round trip until the
 hold lands, its state and then the request on DDS, longer for a watchdog on the Orin. A mux
-state older than mux_state_max_age_s, none, an unreadable one, or one while /command_mux/state
+state older than mux_state_max_age, none, an unreadable one, or one while /command_mux/state
 has other than one publisher (a bag replay, a stray sim mux) counts every command, as before.
 approach_guard is not filtered under rc or manual: it requests its hold at confirmation, as
 before. Its condition is transient, so one seen under rc, manual or a mux hold also leaves a
 hold owed (``owed``) that never expires and goes out on the return to auto.
 Ages are receipt ages on the monotonic
 clock; only costmap_watchdog also checks header stamps, so there a skew between the boat and
-the Orin beyond max_stamp_age_s holds.
+the Orin beyond max_stamp_age holds.
 
 Each also publishes ``~/status`` (JSON ``{"ok", "reason"}``) every STATUS_S: its liveness for an
 operator TUI, which refuses and holds arming within about 2 s of the beats stopping, long before
@@ -36,7 +36,7 @@ import time
 STATUS_S = 0.5    # s between ~/status beats; a TUI calls a watchdog dead after 2 s without one
 # command_mux ~/state inputs that outrank auto: while one has the mux, /cmd_vel reaches nothing.
 OUTRANK_AUTO = ('rc', 'manual', 'hold')
-MUX_KEYS = ('mux_state_topic', 'mux_state_max_age_s')   # required in every watchdog's YAML
+MUX_KEYS = ('mux_state_topic', 'mux_state_max_age')   # required in every watchdog's YAML
 
 
 def fresh(at, now, limit):
@@ -117,7 +117,7 @@ class HoldGate:
         self.mux_input = None
 
     def mux_known(self, now):
-        limit = self.cfg.get('mux_state_max_age_s')   # the node refuses to start without it
+        limit = self.cfg.get('mux_state_max_age')   # the node refuses to start without it
         return self.mux_input is not None and limit is not None and fresh(
             self.mux_at, now, limit)
 
@@ -126,14 +126,14 @@ class HoldGate:
 
     def commanding(self, now):
         """Return whether an auto command arrived within the window, whatever the mux does."""
-        return fresh(self.command_at, now, self.cfg['command_window_s'])
+        return fresh(self.command_at, now, self.cfg['command_window'])
 
     def autonomy(self, now):
         if self.outranked(now):
             return False
         # Idle: the mux has let every command it had expire, so only one since counts.
         at = self.open_at if self.mux_known(now) and self.mux_input == 'idle' else self.command_at
-        return fresh(at, now, self.cfg['command_window_s'])
+        return fresh(at, now, self.cfg['command_window'])
 
     def due(self, now):
         """Whether a hold is due; a transient cause also owes one seen while outranked."""
@@ -143,7 +143,7 @@ class HoldGate:
         """Return True when a hold request should go out now."""
         if not self.due(now):
             return False
-        if self.sent_at is not None and now - self.sent_at < self.cfg['repeat_s']:
+        if self.sent_at is not None and now - self.sent_at < self.cfg['repeat']:
             return False
         self.sent_at = now
         self.owed = False
@@ -151,8 +151,10 @@ class HoldGate:
         return True
 
 
-def node_class(name, filename, logic, subscribe):
+def node_class(name, logic, subscribe):
     """Build a watchdog node: ``logic(cfg)`` decides, ``subscribe(node)`` feeds ``node.logic``.
+
+    ``cfg`` is the node's section of config/watchdogs.yaml with its parameters on top.
 
     Built lazily so the decision logic imports without rclpy. Keyword arguments of the
     returned class go to rclpy's Node (tests pass parameter_overrides).
@@ -162,16 +164,16 @@ def node_class(name, filename, logic, subscribe):
     from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy
     from std_msgs.msg import String
 
-    from mhseals_nav.yaml_params import node_config
+    from mhseals_nav.yaml_params import node_watchdog_config
 
     class HoldWatchdog(Node):
         def __init__(self, **kwargs):
             super().__init__(name, automatically_declare_parameters_from_overrides=True,
                              **kwargs)
-            self.cfg = cfg = node_config(self, filename)
+            self.cfg = cfg = node_watchdog_config(self, name)
             missing = [key for key in MUX_KEYS if cfg.get(key) is None]
             if missing:
-                raise ValueError(f"{filename}: missing {', '.join(missing)}")
+                raise ValueError(f"watchdogs.yaml {name}: missing {', '.join(missing)}")
             self.logic = logic(cfg)
             self.token = secrets.token_hex(8)
             self.request = self.create_publisher(String, cfg['request_topic'], 10)
@@ -187,7 +189,7 @@ def node_class(name, filename, logic, subscribe):
                     State, cfg['fcu_state_topic'],
                     lambda m: self.logic.fcu(time.monotonic(), m.armed), qos_profile_sensor_data)
             subscribe(self)
-            self.create_timer(1.0 / cfg['rate_hz'], self.tick)
+            self.create_timer(1.0 / cfg['rate'], self.tick)
             self.status = self.create_publisher(String, '~/status', 10)
             self.create_timer(STATUS_S, self.beat)
             self.was = None

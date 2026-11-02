@@ -23,7 +23,7 @@ class EkfInputWatchdog(HoldGate):
         """Topics of the inputs that are missing or older than their limit."""
         cfg = self.cfg
         return [cfg[f'{name}_topic'] for name in INPUTS
-                if not fresh(self.at[name], now, cfg[f'max_{name}_age_s'])]
+                if not fresh(self.at[name], now, cfg[f'max_{name}_age'])]
 
     def reason(self, now):
         stale = self.stale_inputs(now)
@@ -43,7 +43,7 @@ def node_class():
                 lambda _, name=name: node.logic.receive(name, time.monotonic()),
                 qos_profile_sensor_data)
 
-    return watchdog_class('ekf_input_watchdog', 'ekf_input_watchdog.yaml', EkfInputWatchdog,
+    return watchdog_class('ekf_input_watchdog', EkfInputWatchdog,
                           subscribe)
 
 

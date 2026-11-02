@@ -1,15 +1,13 @@
 """EKF-input watchdog: /imu/raw, /gps/fix and /odom/mavros must be fresh (sim fault F6)."""
 
 import json
-from pathlib import Path
 import time
 
 from mhseals_nav.ekf_input_watchdog import EkfInputWatchdog, INPUTS
+from mhseals_nav.yaml_params import watchdog_config
 import pytest
-import yaml
 
-CFG = yaml.safe_load((Path(__file__).parents[1] / 'config/ekf_input_watchdog.yaml')
-                     .read_text())['/**']['ros__parameters']
+CFG = watchdog_config('ekf_input_watchdog')
 
 
 def feed(dog, now, skip=None):
@@ -37,7 +35,7 @@ def test_never_seen_inputs_hold_only_under_autonomy():
 @pytest.mark.parametrize('silent', INPUTS)
 def test_each_input_stale_then_fresh(silent):
     """Fresh up to its limit, held just past it, and no request once it is fresh again."""
-    limit = CFG[f'max_{silent}_age_s']
+    limit = CFG[f'max_{silent}_age']
     dog = EkfInputWatchdog(CFG)
     feed(dog, 0.0)
     feed(dog, limit, skip=silent)
@@ -47,8 +45,8 @@ def test_each_input_stale_then_fresh(silent):
     assert dog.tick(stale)                                      # stale: hold
     assert dog.stale_inputs(stale) == [CFG[f'{silent}_topic']]
     feed(dog, stale + 0.5, skip=silent)
-    assert not dog.tick(stale + 0.5)                            # repeat_s throttles
-    again = stale + CFG['repeat_s'] + 0.01
+    assert not dog.tick(stale + 0.5)                            # repeat throttles
+    again = stale + CFG['repeat'] + 0.01
     feed(dog, again, skip=silent)
     assert dog.tick(again)                                      # re-held while still stale
     back = again + 0.1
@@ -59,7 +57,7 @@ def test_each_input_stale_then_fresh(silent):
 def test_no_autonomy_no_hold():
     dog = EkfInputWatchdog(CFG)
     feed(dog, 0.0)
-    assert not dog.tick(CFG['command_window_s'] + 5.0)          # stale, but nothing drives
+    assert not dog.tick(CFG['command_window'] + 5.0)          # stale, but nothing drives
 
 
 def test_node_holds_when_relays_die_while_mavros_lives():

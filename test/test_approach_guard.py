@@ -1,18 +1,16 @@
 """approach_guard: a hull closing in holds, static buoys and docks passed close never do."""
 import json
-from pathlib import Path
 import time
 
 from mhseals_nav.approach_guard import Guard, hull_gap, lethal_points
+from mhseals_nav.yaml_params import watchdog_config
 import numpy
 import pytest
-import yaml
 
-CFG = yaml.safe_load((Path(__file__).parents[1] / 'config/approach_guard.yaml')
-                     .read_text())['/**']['ros__parameters']
+CFG = watchdog_config('approach_guard')
 ENFORCE = {**CFG, 'enforce': True}   # as navigation.launch.py runs it in sim
 RES = 0.15
-DT = 1.0 / CFG['rate_hz']
+DT = 1.0 / CFG['rate']
 
 
 def cells(*boxes):
@@ -94,8 +92,8 @@ def test_overtaker_holds_well_before_contact():
     t = sent[0]
     gap = hull_gap(cells(*overtaker(t)), (0.4 * t, 0.0, 0.0), (0.5315, 0.4475)).min()
     assert gap > 1.5
-    # Never released: it repeats every repeat_s while the approach lasts.
-    assert all(b - a >= CFG['repeat_s'] - 1e-6 for a, b in zip(sent, sent[1:]))
+    # Never released: it repeats every repeat while the approach lasts.
+    assert all(b - a >= CFG['repeat'] - 1e-6 for a, b in zip(sent, sent[1:]))
 
 
 def test_log_only_reports_the_approach_and_never_holds():
@@ -112,7 +110,7 @@ def test_scattered_clutter_never_chains_into_a_hold():
             # anywhere within 4.5 m of the boat, each new and none of them moving on.
             if t < 5.0:
                 return []
-            k = int(round(t * CFG['rate_hz']))
+            k = int(round(t * CFG['rate']))
             return [(0.4 * t + x, y, 0.05, 0.05) for x, y in spots[3 * k:3 * k + 3]
                     if abs(y) > 0.6 or abs(x) > 0.7]
         return world
@@ -130,7 +128,7 @@ def specks(rng, count):
     def world(t):
         if t < 5.0:
             return []
-        k = int(round(t * CFG['rate_hz']))
+        k = int(round(t * CFG['rate']))
         return [(0.4 * t + x, y, 0.05, 0.05) for x, y in spots[count * k:count * (k + 1)]
                 if abs(y) > 0.6 or abs(x) > 0.7]
     return world
@@ -162,9 +160,9 @@ def test_a_chain_survives_miss_s_without_a_new_cell_and_no_longer():
     guard = Guard(ENFORCE)
     guard.chains = [[8.0, 9.0, 0.0, 0.0, 1.0, 5, 5]]
     none = numpy.zeros((0, 2)), numpy.zeros(0)
-    guard.follow(9.0 + CFG['miss_s'], *none)
+    guard.follow(9.0 + CFG['miss'], *none)
     assert guard.chains
-    guard.follow(9.0 + CFG['miss_s'] + 0.5 / CFG['rate_hz'], *none)
+    guard.follow(9.0 + CFG['miss'] + 0.5 / CFG['rate'], *none)
     assert guard.chains == []
 
 
@@ -251,4 +249,4 @@ def test_node_log_only_reports_what_it_would_hold_on_and_never_holds():
     holds, reports, _ = spin_node(False)
     assert holds == []
     assert reports and reports[0]['enforce'] is False
-    assert len(reports) <= 2.5 / CFG['repeat_s'] + 1   # lean: at most one per repeat_s
+    assert len(reports) <= 2.5 / CFG['repeat'] + 1   # lean: at most one per repeat

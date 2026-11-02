@@ -8,11 +8,11 @@ import time
 
 from mhseals_nav.fence_watchdog import (FenceWatchdog, load_fence, outline, polygon, problem,
                                         project)
+from mhseals_nav.yaml_params import watchdog_config
 import pytest
 import yaml
 
-CFG = yaml.safe_load((Path(__file__).parents[1] / 'config/fence_watchdog.yaml')
-                     .read_text())['/**']['ros__parameters']
+CFG = watchdog_config('fence_watchdog')
 BOX = [0.0, 0.0, 100.0, 0.0, 100.0, 50.0, 0.0, 50.0]      # map metres, x east, y north
 MAP = dict(CFG, fence_frame='map', fence_points=BOX)
 
@@ -42,7 +42,7 @@ def test_outside_holds_only_under_autonomy():
 
 def test_near_the_edge_holds_only_heading_outward():
     dog = FenceWatchdog(MAP)
-    edge = 100.0 - CFG['margin_m'] / 2      # inside the margin of the east edge
+    edge = 100.0 - CFG['margin'] / 2      # inside the margin of the east edge
     assert at(dog, 0.0, edge, 25.0, 0.0, 0.0)                    # facing east, still
     dog = FenceWatchdog(MAP)
     assert not at(dog, 0.0, edge, 25.0, math.pi, 0.5)            # facing and moving west
@@ -64,12 +64,12 @@ def test_near_edge_reason_does_not_change_with_the_distance():
 
 def test_outward_angle_and_margin_bounds():
     dog = FenceWatchdog(MAP)
-    inside = math.radians(CFG['outward_angle_deg']) - 0.05
-    edge = 100.0 - CFG['margin_m'] + 0.1
+    inside = CFG['outward_angle'] - 0.05
+    edge = 100.0 - CFG['margin'] + 0.1
     assert at(dog, 0.0, edge, 25.0, inside, 0.0)
     dog = FenceWatchdog(MAP)
     assert not at(dog, 0.0, edge, 25.0, inside + 0.1, 0.0)
-    assert not at(dog, 2.0, 100.0 - CFG['margin_m'] - 0.1, 25.0, 0.0, 1.0)
+    assert not at(dog, 2.0, 100.0 - CFG['margin'] - 0.1, 25.0, 0.0, 1.0)
 
 
 def test_near_a_corner_both_edges_count():
@@ -98,7 +98,7 @@ def test_stale_position_or_odometry_holds():
     assert dog.reason(0.0) == 'position missing or stale' and dog.tick(0.0)
     dog = FenceWatchdog(MAP)
     assert not at(dog, 0.0, 50.0, 25.0)
-    late = CFG['max_age_s'] + 0.01
+    late = CFG['max_age'] + 0.01
     dog.position(late, 50.0, 25.0)
     dog.command(late)
     assert dog.reason(late) == 'odometry missing or stale' and dog.tick(late)
@@ -155,7 +155,7 @@ def test_state_of_a_map_fence_is_its_points():
     assert set(state) == STATE_KEYS
     assert state['valid'] and state['frame'] == 'map'
     assert state['points'] == BOX and state['stamp_ns'] == 7 and not state['error']
-    assert state['margin_m'] == CFG['margin_m']
+    assert state['margin_m'] == CFG['margin']
     assert state['reason'] == 'position missing or stale'
     at(dog, 0.0, 99.0, 25.0)
     assert dog.state(0.0)['reason'] == 'within the margin heading outward'
@@ -183,7 +183,7 @@ LATLON = [42.0, -71.0, 42.0, -70.999, 42.001, -70.999, 42.001, -71.0]
 
 def test_anchor_moves_a_map_fence_as_the_start_placed_it():
     dog = FenceWatchdog(MAP)
-    assert dog.anchor(0.0) == (False, 'no boat position (missing or older than max_age_s)')
+    assert dog.anchor(0.0) == (False, 'no boat position (missing or older than max_age)')
     at(dog, 0.0, 10.0, 20.0)
     ok, message = dog.anchor(0.0)
     assert ok and 'fence anchored at 10, 20 (map)' == message
@@ -203,7 +203,7 @@ def test_anchor_moves_a_map_fence_as_the_start_placed_it():
 def test_anchor_refuses_without_a_fresh_position_or_a_fence():
     dog = FenceWatchdog(MAP)
     at(dog, 0.0, 10.0, 20.0)
-    ok, why = dog.anchor(CFG['max_age_s'] + 0.01)
+    ok, why = dog.anchor(CFG['max_age'] + 0.01)
     assert not ok and 'no boat position' in why and dog.cfg['fence_points'] == BOX
     dog = FenceWatchdog(dict(MAP, fence_points=[]))
     at(dog, 0.0, 10.0, 20.0)
@@ -215,10 +215,10 @@ def test_anchor_refuses_while_moving_or_without_odometry():
     dog.position(0.0, 10.0, 20.0)
     ok, why = dog.anchor(0.0)
     assert not ok and 'no odometry' in why and dog.cfg['fence_points'] == BOX
-    at(dog, 0.0, 10.0, 20.0, 1.0, CFG['anchor_max_speed_mps'] + 0.1)
+    at(dog, 0.0, 10.0, 20.0, 1.0, CFG['anchor_max_speed'] + 0.1)
     ok, why = dog.anchor(0.0)
     assert not ok and 'moving' in why and dog.cfg['fence_points'] == BOX
-    at(dog, 0.5, 10.0, 20.0, 1.0, CFG['anchor_max_speed_mps'] / 2)
+    at(dog, 0.5, 10.0, 20.0, 1.0, CFG['anchor_max_speed'] / 2)
     assert dog.anchor(0.5)[0]
 
 
@@ -252,7 +252,7 @@ def test_outline_of_a_lat_lon_fence_is_placed_through_the_boat():
     assert dog.outline(0.0) is None                         # no map pose yet
     dog.map_position(0.0, 5.0, -3.0)
     assert dog.outline(0.0) == line
-    assert dog.outline(CFG['max_age_s'] + 0.01) is None     # stale
+    assert dog.outline(CFG['max_age'] + 0.01) is None     # stale
 
 
 def test_back_inside_holds_no_more():
@@ -388,9 +388,9 @@ def test_back_inside_the_return_holds_and_stays_paused_until_released():
     assert paused['paused'] and paused['why'].startswith('back inside the fence')
     assert 'release the geofence hold' in dog.reason(6.0)
     assert dog.tick(6.0)                             # holds whatever the commands
-    assert not dog.tick(6.0 + CFG['repeat_s'] / 2)
+    assert not dog.tick(6.0 + CFG['repeat'] / 2)
     mux(dog, 6.5, 'geofence', source='hold')         # the mux holds: it stops asking
-    assert not dog.tick(6.5 + CFG['repeat_s'])
+    assert not dog.tick(6.5 + CFG['repeat'])
     dog.fcu(10.0, False)                             # disarmed and clear: still its hold
     for k in range(10):
         at(dog, 10.0 + k, 95.0, 25.0)
@@ -423,6 +423,14 @@ def test_return_refused_while_the_runners_wind_down_is_sent_again():
         dog.return_result(k * 2.0, 'rejected')
         leave(dog, k * 2.0 + LEAD)
     assert [o for o, _ in dog.orders] == ['cancel', 'failed']
+
+
+def test_return_goal_replaced_at_once_by_a_late_runner_goal_is_sent_again():
+    dog = left()                                     # sent at LEAD
+    dog.return_result(LEAD + 0.1, 'aborted or replaced')
+    assert dog.orders == [] and dog.returning is not None
+    leave(dog, 2 * LEAD + 0.1)
+    assert [o for o, _ in dog.orders] == ['go']
 
 
 def test_return_not_back_inside_in_time_holds_until_inside():

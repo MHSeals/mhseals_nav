@@ -1,7 +1,7 @@
 """The boat's hold-only safety watchdogs: operator link, geofence, FCU link and EKF inputs.
 
-Each asks command_mux to hold while autonomy commands flow and never releases. Their settings
-are config/<name>.yaml; an argument given here overrides one, and an empty one keeps the YAML.
+Each asks command_mux to hold while autonomy commands flow. Their settings are their sections of
+config/watchdogs.yaml; an argument given here overrides one, and an empty one keeps the YAML.
 A fence_points given here (the simulator's map-frame box) also skips fence_file, so an
 operator's ~/.config/mhseals/fence.yaml cannot replace it.
 """

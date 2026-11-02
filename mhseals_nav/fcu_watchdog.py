@@ -28,13 +28,13 @@ class FcuWatchdog(HoldGate):
 
     def reason(self, now):
         cfg = self.cfg
-        if not fresh(self.state_at, now, cfg['max_state_age_s']):
+        if not fresh(self.state_at, now, cfg['max_state_age']):
             return 'MAVROS state missing or stale'
         if not self.connected:
             return 'MAVROS reports the FCU disconnected'
         stale = [name for name, at, limit in (
-            ('IMU', self.imu_at, cfg['max_imu_age_s']),
-            ('GPS', self.gps_at, cfg['max_gps_age_s'])) if not fresh(at, now, limit)]
+            ('IMU', self.imu_at, cfg['max_imu_age']),
+            ('GPS', self.gps_at, cfg['max_gps_age'])) if not fresh(at, now, limit)]
         return f"MAVROS {', '.join(stale)} missing or stale" if stale else ''
 
 
@@ -56,7 +56,7 @@ def node_class():
             NavSatFix, cfg['gps_topic'], lambda _: logic.gps(time.monotonic()),
             qos_profile_sensor_data)
 
-    return watchdog_class('fcu_watchdog', 'fcu_watchdog.yaml', FcuWatchdog, subscribe)
+    return watchdog_class('fcu_watchdog', FcuWatchdog, subscribe)
 
 
 def main(args=None):

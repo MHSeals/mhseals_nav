@@ -11,12 +11,15 @@ import math
 import threading
 import time
 
+from mhseals_nav.yaml_params import watchdog_config
 import pytest
-import yaml
-from pathlib import Path
 
-CFG = yaml.safe_load((Path(__file__).parents[1] / 'config/fence_watchdog.yaml')
-                     .read_text())['/**']['ros__parameters']
+# Its own topics: a latched message of another test's node in this process never reaches it.
+OWN = {key: f'/fence_sim{topic}' if topic.startswith('/') else f'fence_sim/{topic}'
+       for key, topic in watchdog_config('fence_watchdog').items()
+       if key in ('command_topic', 'request_topic', 'mux_state_topic', 'odom_topic',
+                  'pause_topic', 'return_action')}
+CFG = watchdog_config('fence_watchdog', OWN)
 BOX = [0.0, 0.0, 100.0, 0.0, 100.0, 50.0, 0.0, 50.0]
 STATION = (106.0, 25.0)          # the procedure's point, outside the east edge
 SPEED, RATE = 2.0, 20.0
@@ -40,12 +43,13 @@ def test_node_fence_return_pauses_station_keeping_then_holds_until_released():
     latched = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL,
                          reliability=ReliabilityPolicy.RELIABLE)
     rclpy.init()
-    ex = MultiThreadedExecutor(num_threads=4)
+    ex = MultiThreadedExecutor(num_threads=8)   # each running goal holds one
     active = {'handle': None, 'on': True}
     try:
         dog = node_class()(parameter_overrides=[
             Parameter('fence_file', value=''), Parameter('fence_frame', value='map'),
-            Parameter('fence_points', value=BOX), Parameter('on_exit', value='return')])
+            Parameter('fence_points', value=BOX), Parameter('on_exit', value='return'),
+            *(Parameter(key, value=topic) for key, topic in OWN.items())])
         world = rclpy.create_node('fence_sim_world')
         group = ReentrantCallbackGroup()
         lock = threading.Lock()
@@ -114,15 +118,16 @@ def test_node_fence_return_pauses_station_keeping_then_holds_until_released():
 
         # The procedure: station keeping at STATION; paused while /autonomy/pause asks.
         client = ActionClient(world, NavigateToPose, CFG['return_action'], callback_group=group)
-        proc = {'goal': None, 'paused': False, 'handle': None}
+        proc = {'goal': None, 'paused': False, 'handle': None, 'lock': threading.Lock()}
 
-        def on_pause(msg):
+        def on_pause(msg):      # one tick of the runner: the pause, then its on_pause
             body = json.loads(msg.data)
-            log['pauses'].append(body)
-            proc['paused'] = body['paused']
-            if body['paused'] and proc['handle'] is not None:
-                proc['handle'].cancel_goal_async()
-                proc['handle'] = None
+            with proc['lock']:
+                log['pauses'].append(dict(body, at=time.monotonic()))
+                proc['paused'] = body['paused']
+                if body['paused'] and proc['handle'] is not None:
+                    proc['handle'].cancel_goal_async()
+                    proc['handle'] = None
         world.create_subscription(String, CFG['pause_topic'], on_pause, latched,
                                   callback_group=group)
 
@@ -134,9 +139,19 @@ def test_node_fence_return_pauses_station_keeping_then_holds_until_released():
             log['procedure_goals'].append(time.monotonic())
             future = client.send_goal_async(NavigateToPose.Goal(pose=pose))
             proc['goal'] = future
-            future.add_done_callback(lambda f: proc.update(handle=f.result()))
+            future.add_done_callback(accepted)
+
+        def accepted(future):
+            with proc['lock']:
+                proc['handle'] = future.result()
+                if proc['paused']:  # sent before the pause: the runner's on_pause cancels it
+                    proc['handle'].cancel_goal_async()
 
         def keep_station():
+            with proc['lock']:
+                tick()
+
+        def tick():
             if proc['paused'] or mux['holds'] or not client.server_is_ready():
                 return
             handle = proc['handle']
@@ -159,12 +174,12 @@ def test_node_fence_return_pauses_station_keeping_then_holds_until_released():
 
         # The return: paused, back inside, held by the fence, still paused.
         assert wait(lambda: any(p['paused'] for p in log['pauses']), 5.0)
-        returned_at = time.monotonic()
+        returned_at = next(p['at'] for p in log['pauses'] if p['paused'])
         assert wait(lambda: 'geofence' in mux['holds'] and boat['x'] < 100.0, 15.0), boat
         assert log['pauses'][-1]['paused'], log['pauses']
         assert 'release the geofence hold' in log['pauses'][-1]['why']
         fights = [t for t in log['procedure_goals'] if t > returned_at]
-        assert fights == [], 'the procedure re-sent its goal during the return'
+        assert fights == [], json.dumps(log)
         held_x = boat['x']
         time.sleep(1.0)
         assert boat['x'] == held_x and log['procedure_goals'][-1] < returned_at

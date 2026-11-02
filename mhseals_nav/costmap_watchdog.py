@@ -20,7 +20,7 @@ class Watchdog(HoldGate):
 
     def stamp_ok(self, stamp_age):
         # Both ways: a stamp from the future (Orin clock ahead) must not pass as fresh.
-        return abs(stamp_age) <= self.cfg['max_stamp_age_s']
+        return abs(stamp_age) <= self.cfg['max_stamp_age']
 
     def costmap(self, now, stamp_age):
         if self.stamp_ok(stamp_age):
@@ -34,8 +34,8 @@ class Watchdog(HoldGate):
         """Names of the inputs that are missing or older than their limit."""
         cfg = self.cfg
         return [name for name, at, limit in (
-            ('costmap', self.fresh_at, cfg['max_age_s']),
-            ('tracks', self.tracks_at, cfg['max_tracks_age_s']))
+            ('costmap', self.fresh_at, cfg['max_age']),
+            ('tracks', self.tracks_at, cfg['max_tracks_age']))
             if not fresh(at, now, limit)]
 
     def reason(self, now):
@@ -71,7 +71,7 @@ def node_class():
             lambda msg: logic.tracks(time.monotonic(), age(msg)),
             QoSProfile(depth=1, reliability=QoSReliabilityPolicy.BEST_EFFORT))
 
-    return watchdog_class('costmap_watchdog', 'costmap_watchdog.yaml', Watchdog, subscribe)
+    return watchdog_class('costmap_watchdog', Watchdog, subscribe)
 
 
 def main(args=None):

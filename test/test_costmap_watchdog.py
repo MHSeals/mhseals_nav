@@ -1,16 +1,14 @@
 """Stale-perception watchdog: hold-only, only while autonomy commands flow."""
 
 import json
-from pathlib import Path
 import time
 
 import pytest
-import yaml
+from mhseals_nav.yaml_params import watchdog_config
 
 from mhseals_nav.costmap_watchdog import Watchdog
 
-CFG = yaml.safe_load((Path(__file__).parents[1] / 'config/costmap_watchdog.yaml')
-                     .read_text())['/**']['ros__parameters']
+CFG = watchdog_config('costmap_watchdog')
 
 
 def test_missing_costmap_holds_only_under_autonomy():
@@ -18,7 +16,7 @@ def test_missing_costmap_holds_only_under_autonomy():
     assert not dog.tick(0.0)               # no costmap, no autonomy: nothing to stop
     dog.command(0.1)
     assert dog.tick(0.1)                   # never had a costmap
-    assert not dog.tick(0.2)               # repeat_s throttles
+    assert not dog.tick(0.2)               # repeat throttles
     dog.command(1.2)
     assert dog.tick(1.2)                   # re-held so a release while stale cannot resume
 
@@ -31,14 +29,14 @@ def test_fresh_costmap_requests_nothing_and_staleness_holds():
         dog.tracks(now, 0.05)
         dog.command(now)
         assert not dog.tick(now)
-    dog.tracks(3.8 + CFG['max_age_s'] + 0.01, 0.05)
-    dog.command(3.8 + CFG['max_age_s'] + 0.01)
-    assert dog.tick(3.8 + CFG['max_age_s'] + 0.01)
+    dog.tracks(3.8 + CFG['max_age'] + 0.01, 0.05)
+    dog.command(3.8 + CFG['max_age'] + 0.01)
+    assert dog.tick(3.8 + CFG['max_age'] + 0.01)
 
 
 def test_old_stamp_is_not_fresh():
     dog = Watchdog(CFG)
-    dog.costmap(0.0, CFG['max_stamp_age_s'] + 1.0)   # a latched map replayed late
+    dog.costmap(0.0, CFG['max_stamp_age'] + 1.0)   # a latched map replayed late
     dog.command(0.0)
     assert dog.tick(0.0)
 
@@ -64,8 +62,8 @@ def test_dead_tracker_holds_while_the_costmap_stays_fresh():
         dog.command(now)
         assert not dog.tick(now)
     # The costmap keeps coming; the tracks stopped at 0.9.
-    for now, hold in ((0.85 + CFG['max_tracks_age_s'], False),
-                      (0.95 + CFG['max_tracks_age_s'], True)):
+    for now, hold in ((0.85 + CFG['max_tracks_age'], False),
+                      (0.95 + CFG['max_tracks_age'], True)):
         dog.costmap(now, 0.05)
         dog.command(now)
         assert dog.tick(now) == hold
@@ -75,7 +73,7 @@ def test_dead_tracker_holds_while_the_costmap_stays_fresh():
 def test_old_tracks_stamp_is_not_fresh():
     dog = Watchdog(CFG)
     dog.costmap(0.0, 0.0)
-    dog.tracks(0.0, CFG['max_stamp_age_s'] + 1.0)
+    dog.tracks(0.0, CFG['max_stamp_age'] + 1.0)
     dog.command(0.0)
     assert dog.tick(0.0)
 
@@ -169,7 +167,7 @@ def test_node_survives_stale_fresh_flips_and_holds():
 def test_stamp_skewed_either_way_beyond_the_limit_holds(skew):
     """A costmap stamped in the future (Orin clock ahead) is no fresher than an old one."""
     dog = Watchdog(CFG)
-    age = skew * (CFG['max_stamp_age_s'] + 0.5)
+    age = skew * (CFG['max_stamp_age'] + 0.5)
     dog.costmap(0.0, age)
     dog.tracks(0.0, age)
     dog.command(0.0)
@@ -180,7 +178,7 @@ def test_stamp_skewed_either_way_beyond_the_limit_holds(skew):
 @pytest.mark.parametrize('skew', [-1, 1])
 def test_stamp_skewed_either_way_within_the_limit_is_fresh(skew):
     dog = Watchdog(CFG)
-    age = skew * (CFG['max_stamp_age_s'] - 0.5)
+    age = skew * (CFG['max_stamp_age'] - 0.5)
     dog.costmap(0.0, age)
     dog.tracks(0.0, age)
     dog.command(0.0)

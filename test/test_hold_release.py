@@ -5,19 +5,17 @@ had already cleared. Armed, or with the FCU state unknown, the hold stays for th
 """
 
 import json
-from pathlib import Path
 
 from mhseals_nav.link_watchdog import LinkWatchdog
+from mhseals_nav.yaml_params import watchdog_config
 import pytest
-import yaml
 
 
 def config(name):
-    return yaml.safe_load((Path(__file__).parents[1] / 'config' / name)
-                          .read_text())['/**']['ros__parameters']
+    return watchdog_config(name)
 
 
-LINK = dict(config('link_watchdog.yaml'), operator_hosts=['opstation'])
+LINK = dict(config('link_watchdog'), operator_hosts=['opstation'])
 AFTER = LINK['release_after']
 
 
@@ -43,7 +41,7 @@ def beat(dog, until, armed=False):
 
 
 def test_link_and_fence_configs_release_their_own_holds():
-    for name in ('link_watchdog.yaml', 'fence_watchdog.yaml'):
+    for name in ('link_watchdog', 'fence_watchdog'):
         cfg = config(name)
         assert cfg['release_after'] > 0 and cfg['fcu_state_topic'] == '/mavros/state'
         assert cfg['fcu_state_max_age'] > 1.0
@@ -72,7 +70,7 @@ def test_the_condition_going_bad_again_restarts_the_clear_time():
     dog = held()
     dog.fcu(1.0, False)
     assert not dog.release(1.0)
-    stale = 1.0 + LINK['max_age_s'] + 0.1  # heartbeat gone again
+    stale = 1.0 + LINK['max_age'] + 0.1  # heartbeat gone again
     dog.fcu(stale, False)
     assert not dog.release(stale)
     dog.heartbeat(stale + 0.1, 'opstation')
