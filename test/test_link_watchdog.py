@@ -1,6 +1,7 @@
 """Operator-link watchdog: hold-only, armed by the first heartbeat or by require_operator."""
 
 import json
+import os
 from pathlib import Path
 import socket
 
@@ -8,17 +9,70 @@ from mhseals_nav.link_watchdog import LinkWatchdog
 import pytest
 import yaml
 
-CFG = yaml.safe_load((Path(__file__).parents[1] / 'config/link_watchdog.yaml')
-                     .read_text())['/**']['ros__parameters']
-OPERATOR = CFG['operator_hosts'][0]
+BOAT_CFG = yaml.safe_load((Path(__file__).parents[1] / 'config/link_watchdog.yaml')
+                          .read_text())['/**']['ros__parameters']
+OPERATOR = 'opstation'
+# Literal hosts here; the station token has its own tests below (never the real home file).
+CFG = dict(BOAT_CFG, operator_hosts=[OPERATOR])
 
 
 def watchdog(**over):
     return LinkWatchdog(dict(CFG, **over), own_host='blastoise')
 
 
-def test_boat_config_requires_an_operator():
-    assert CFG['require_operator'] and OPERATOR == 'tranquility'
+def test_boat_config_requires_an_operator_and_follows_the_station():
+    assert BOAT_CFG['require_operator'] and BOAT_CFG['operator_hosts'] == ['station']
+    assert BOAT_CFG['station_file'] == '~/.config/mhseals/station.yaml'
+
+
+def station_dog(tmp_path, hosts=('station',)):
+    logs = []
+    dog = LinkWatchdog(dict(CFG, operator_hosts=list(hosts),
+                            station_file=str(tmp_path / 'station.yaml')),
+                       own_host='blastoise', log=lambda msg, bad: logs.append((bad, msg)))
+    return dog, tmp_path / 'station.yaml', logs
+
+
+def take(path, operator, mtime):
+    path.write_text(f'operator: {operator}\nsince: 2026-11-01T20:00:00\n')
+    os.utime(path, ns=(mtime, mtime))     # an mtime change, however fast the writes
+
+
+def test_no_station_file_accepts_any_host_but_the_boat_and_warns_once(tmp_path):
+    dog, _, logs = station_dog(tmp_path)
+    assert dog.heartbeat(0.0, 'laptop-a') and dog.heartbeat(0.5, 'laptop-b')
+    assert not dog.heartbeat(1.0, 'Blastoise.local') and not dog.heartbeat(1.0, '')
+    assert [bad for bad, _ in logs] == [True] and 'no station file' in logs[0][1]
+
+
+def test_the_station_file_names_the_operator_and_is_re_read_on_change(tmp_path):
+    dog, path, logs = station_dog(tmp_path)
+    take(path, 'Laptop-A.local', 1)
+    assert dog.heartbeat(0.0, 'laptop-a') and not dog.heartbeat(0.0, 'laptop-b')
+    take(path, 'laptop-b', 2)              # another computer took the station
+    assert dog.heartbeat(1.0, 'laptop-b') and not dog.heartbeat(1.0, 'laptop-a')
+    assert [msg for bad, msg in logs if not bad] == ['operator station: laptop-a',
+                                                     'operator station: laptop-b']
+    path.unlink()
+    assert dog.heartbeat(2.0, 'laptop-a')
+    assert logs[-1][0] and 'no station file' in logs[-1][1]
+
+
+@pytest.mark.parametrize('text', ['operator:\n', '[a, b]\n', 'operator: [\n', 'since: x\n'])
+def test_a_station_file_without_an_operator_accepts_any_host(tmp_path, text):
+    dog, path, logs = station_dog(tmp_path)
+    path.write_text(text)
+    assert dog.heartbeat(0.0, 'laptop-a') and not dog.heartbeat(0.0, 'blastoise')
+    assert len(logs) == 1 and logs[0][0]
+
+
+def test_literal_hosts_count_beside_the_station(tmp_path):
+    dog, path, _ = station_dog(tmp_path, hosts=('station', 'Backup-Laptop'))
+    take(path, 'laptop-a', 1)
+    assert dog.heartbeat(0.0, 'backup-laptop') and dog.heartbeat(0.0, 'laptop-a')
+    assert not dog.heartbeat(0.0, 'laptop-b')
+    take(path, 'blastoise', 2)             # a station naming the boat never counts the boat
+    assert not dog.heartbeat(1.0, 'blastoise') and dog.heartbeat(1.0, 'backup-laptop')
 
 
 def test_no_operator_ever_seen_never_holds_unless_required():
@@ -36,13 +90,13 @@ def test_require_operator_holds_before_the_first_heartbeat():
 
 
 def test_only_operator_hosts_count_and_never_the_boat_itself():
-    dog = watchdog(operator_hosts=['tranquility', 'blastoise'])
-    for host in ('blastoise', 'Blastoise.local', 'squirtle', '', 'tranquility-x'):
+    dog = watchdog(operator_hosts=[OPERATOR, 'blastoise'])
+    for host in ('blastoise', 'Blastoise.local', 'squirtle', '', OPERATOR + '-x'):
         assert not dog.heartbeat(0.0, host)
     assert dog.beat_at is None
     dog.command(0.0)
     assert dog.tick(0.0)                   # a TUI on the boat does not arm or satisfy it
-    assert dog.heartbeat(0.1, 'Tranquility.local')
+    assert dog.heartbeat(0.1, 'OpStation.local')
     assert not dog.reason(0.1)
     dog.heartbeat(5.0, 'blastoise')        # the boat's own beats do not keep it fresh
     assert dog.reason(5.0)
@@ -92,7 +146,8 @@ def test_node_holds_without_the_operator_and_survives_flips():
     from mhseals_nav.link_watchdog import node_class
     rclpy.init()
     try:
-        dog = node_class()(parameter_overrides=[Parameter('max_age_s', value=0.5)])
+        dog = node_class()(parameter_overrides=[Parameter('max_age_s', value=0.5),
+                                                Parameter('operator_hosts', value=[OPERATOR])])
         probe = rclpy.create_node('link_probe')
         got = []
         probe.create_subscription(String, CFG['request_topic'],

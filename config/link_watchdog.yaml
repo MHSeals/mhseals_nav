@@ -1,5 +1,5 @@
 # link_watchdog (B): a lost operator link must not leave autonomy driving (FS_GCS_ENABLE=0).
-# The operator host (tranquility) publishes its host name on heartbeat_topic at ~2 Hz. While
+# The operator station publishes its host name on heartbeat_topic at ~2 Hz. While
 # autonomy commands flow and the newest heartbeat is older than max_age_s, it requests a
 # command_mux hold; it never releases (the operator clears it with U once the link is back).
 # Only beats naming one of operator_hosts count, never one naming B itself (a TUI on B over
@@ -10,7 +10,8 @@
 /**:
   ros__parameters:
     heartbeat_topic: /operator/heartbeat
-    operator_hosts: [tranquility, dingus]   # host names an operator station publishes (dingus: 11-01 temporary)
+    operator_hosts: [station]          # host names; station = the one named in station_file
+    station_file: ~/.config/mhseals/station.yaml  # hw.sh station take; absent: any host counts
     command_topic: /cmd_vel            # Nav2 -> command_mux auto input
     request_topic: /command_mux/request
     cause: operator_link
