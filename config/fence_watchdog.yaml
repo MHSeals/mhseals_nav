@@ -35,6 +35,7 @@
     # frame. A map fence keeps the boat where the map origin was (the start of the test); a
     # lat/lon one is centred on it (vertex mean). Called by the characterization start.
     anchor_service: /fence/anchor
+    anchor_max_speed_mps: 0.5          # refused faster than this, or without fresh odometry
     marker_topic: /fence/marker        # latched visualization_msgs/Marker LINE_STRIP for rviz
     marker_frame: map                  # odom_topic's frame; a lat/lon fence is placed via the boat
     marker_width: 0.3                  # m

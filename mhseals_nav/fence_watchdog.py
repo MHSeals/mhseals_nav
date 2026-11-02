@@ -10,7 +10,7 @@ It also publishes the fence it enforces on fence_topic (latched JSON, see ``stat
 polygon in its own frame and the margin rules, so the TUI's goal gates check goals against this
 one source (a lat/lon fence in lat/lon, through navsat's toLL, never a translated copy).
 
-anchor_service (std_srvs/Trigger) re-anchors the fence at the boat any time (see ``anchor``);
+anchor_service (std_srvs/Trigger) re-anchors the fence at the stopped boat (see ``anchor``);
 fence_topic then carries the moved points. marker_topic draws the fence for rviz, latched, in
 marker_frame.
 """
@@ -131,6 +131,10 @@ class FenceWatchdog(HoldGate):
             return False, 'no valid fence configured'
         if not fresh(self.p_at, now, self.cfg['max_age_s']):
             return False, 'no boat position (missing or older than max_age_s)'
+        if not fresh(self.motion_at, now, self.cfg['max_age_s']):
+            return False, 'no odometry (missing or older than max_age_s)'
+        if math.hypot(*self.v) > self.cfg['anchor_max_speed_mps']:
+            return False, f'boat moving ({math.hypot(*self.v):.1f} m/s)'
         points = moved(self.cfg['fence_points'], self.ref, self.raw)
         self.cfg = dict(self.cfg, fence_points=points)
         self.poly, self.ref = polygon(self.frame, points), self.raw

@@ -209,6 +209,18 @@ def test_anchor_refuses_without_a_fresh_position_or_a_fence():
     assert dog.anchor(0.0) == (False, 'no valid fence configured')
 
 
+def test_anchor_refuses_while_moving_or_without_odometry():
+    dog = FenceWatchdog(MAP)
+    dog.position(0.0, 10.0, 20.0)
+    ok, why = dog.anchor(0.0)
+    assert not ok and 'no odometry' in why and dog.cfg['fence_points'] == BOX
+    at(dog, 0.0, 10.0, 20.0, 1.0, CFG['anchor_max_speed_mps'] + 0.1)
+    ok, why = dog.anchor(0.0)
+    assert not ok and 'moving' in why and dog.cfg['fence_points'] == BOX
+    at(dog, 0.5, 10.0, 20.0, 1.0, CFG['anchor_max_speed_mps'] / 2)
+    assert dog.anchor(0.5)[0]
+
+
 def test_anchor_centres_a_lat_lon_fence_on_the_boat():
     dog = FenceWatchdog(dict(CFG, fence_frame='latlon', fence_points=LATLON))
     boat = (42.1, -71.2)
