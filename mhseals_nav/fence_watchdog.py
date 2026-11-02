@@ -17,10 +17,13 @@ marker_frame, marker_outside_color while the boat is outside.
 The course area is live: the ``course.corners`` parameter ([lat1, lon1, lat2, lon2, ...], at
 least 3 corners, a simple polygon) replaces the fence atomically or is refused with the reason,
 and reads back what is enforced. ``on_exit`` (alert | return) is live too: alert holds outside;
-return, under autonomy, sends Nav2 one slow goal (return_speed) to the nearest interior point
-(return_inset in), and holds as alert does once it is not back inside within return_timeout,
-the operator (or any hold) takes the mux, or the goal ends elsewhere. status_topic carries
-``status`` at status_rate and on every change.
+return, under autonomy, first asks the procedure and task runners to pause (pause_topic, latched
+JSON, see ``pause``) so none fights it, then after return_lead sends Nav2 one slow goal
+(return_speed) to the nearest interior point (return_inset in). However the return ends, back
+inside, not back within return_timeout, the operator (or any hold) taking the mux, or the goal
+ending elsewhere, it holds the mux and stays paused until the operator or an agent releases the
+geofence hold; still outside, it holds as alert does. status_topic carries ``status`` at
+status_rate and on every change.
 """
 
 from array import array
@@ -168,8 +171,9 @@ class FenceWatchdog(HoldGate):
         self.map_p, self.map_at = None, None
         self.yaw, self.v, self.motion_at = 0.0, (0.0, 0.0), None
         self.edge_m = None
-        self.returning = None    # {'at', 'goal'} while a return goal is out
+        self.returning = None    # {'at', 'goal', 'send_at', 'tries'} while a return is on
         self.return_failed = False   # until back inside: hold as alert does
+        self.parked = None       # {'why', 'seen'} after a return, until its hold is released
         self.orders = []         # for the node: (go, (x, y, yaw)), (cancel, why), (failed, why)
 
     def position(self, now, a, b):
@@ -270,6 +274,11 @@ class FenceWatchdog(HoldGate):
                 'error': '' if valid else 'no valid fence configured', 'stamp_ns': stamp_ns}
 
     def reason(self, now):
+        """The hold reason: where the boat is, else why a finished return still holds."""
+        return self.where(now) or (self.parked['why'] if self.parked else '')
+
+    def where(self, now):
+        """Why the boat's place breaks the fence ('' while all is well)."""
         cfg = self.cfg
         if self.poly is None:
             return 'no valid fence configured'
@@ -309,30 +318,59 @@ class FenceWatchdog(HoldGate):
                 'distance_to_edge': round(edge, 2) if live else None, 'frame': self.frame,
                 'on_exit': self.cfg['on_exit'],
                 'corners': [float(v) for v in self.cfg['fence_points']] if valid else None,
-                'returning': self.returning is not None}
+                'returning': self.returning is not None, 'paused': self.pause()['paused']}
+
+    def pause(self):
+        """What pause_topic carries: paused from the start of a return until its hold is
+        released, so the procedure and task runners yield to it and resume only then."""
+        why = 'returning inside the fence' if self.returning else \
+            self.parked['why'] if self.parked else ''
+        return {'paused': bool(why), 'cause': self.cfg['cause'], 'by': 'fence_watchdog',
+                'why': why}
+
+    def mux(self, now, state):
+        """As HoldGate's; a parked return ends once the mux showed its hold and dropped it."""
+        super().mux(now, state)
+        if self.parked is not None and self.mux_causes is not None:
+            if self.cfg['cause'] in self.mux_causes:
+                self.parked['seen'] = True
+            elif self.parked['seen']:
+                self.parked = None
+
+    def park(self, why):
+        if self.parked is None:
+            self.parked = {'why': f'{why}: release the {self.cfg["cause"]} hold to resume',
+                           'seen': False}
 
     def due(self, now):
-        """A hold, except outside while a return goal is out (on_exit: return)."""
+        """A hold, except outside while a return is on (on_exit: return). A parked return
+        asks for its hold whatever the commands until the mux shows it."""
         self.step(now)
-        if self.returning is not None and self.reason(now) == OUTSIDE:
+        if self.returning is not None and self.where(now) == OUTSIDE:
             return False
+        if self.parked is not None:
+            return not self.parked['seen']
         return super().due(now)
 
     def step(self, now):
         """Advance the return (on_exit: return), leaving the node its orders."""
-        why = self.reason(now)
+        why = self.where(now)
         if why in INSIDE:
             self.return_failed = False
         if self.returning is None:
-            if why == OUTSIDE and self.cfg['on_exit'] == 'return' and \
-                    not self.return_failed and self.autonomy(now):
+            if why == OUTSIDE and self.cfg['on_exit'] == 'return' and self.parked is None \
+                    and not self.return_failed and self.autonomy(now):
                 goal = self.return_goal(now)
                 if goal is None:
                     self.fail('no interior point to return to (or no map pose)')
-                else:
-                    self.returning = {'at': now, 'goal': goal}
-                    self.orders.append(('go', goal))
+                else:       # the pause goes out now, the goal once the runners yielded
+                    self.returning = {'at': now, 'goal': goal, 'tries': 0,
+                                      'send_at': now + self.cfg['return_lead']}
             return
+        sending = self.returning['send_at']
+        if sending is not None and now >= sending:
+            self.returning.update(send_at=None, tries=self.returning['tries'] + 1)
+            self.orders.append(('go', self.returning['goal']))
         if self.cfg['on_exit'] != 'return':
             self.stop('on_exit is alert', failed=False)
         elif why not in INSIDE and why != OUTSIDE:
@@ -351,16 +389,25 @@ class FenceWatchdog(HoldGate):
     def fail(self, why):
         self.return_failed = True
         self.orders.append(('failed', why))
+        self.park(f'fence return failed ({why})')
 
     def return_result(self, now, outcome):
-        """The return goal ended (``outcome``: succeeded, aborted, rejected, ...); still
-        outside then holds."""
+        """The return goal ended (``outcome``: succeeded, aborted, rejected, ...): parked,
+        and still outside holds as alert does. A goal rejected while the runners' goals wind
+        down is sent again after return_lead, return_tries sends in all."""
         if self.returning is None:
+            return
+        if outcome.startswith('rejected') and self.returning['tries'] < self.cfg['return_tries']:
+            self.returning['send_at'] = now + self.cfg['return_lead']
             return
         self.returning = None
         self.orders.append(('cancel', f'goal {outcome}'))   # nothing to cancel; lifts the cap
-        if self.reason(now) == OUTSIDE:
-            self.fail(f'the return goal ended outside ({outcome})')
+        why = self.where(now)
+        if why in INSIDE:
+            self.park(f'back inside the fence (return goal {outcome})')
+        else:
+            place = 'outside' if why == OUTSIDE else f'with {why}'
+            self.fail(f'the return goal ended {place} ({outcome})')
 
     def return_goal(self, now):
         """(x, y, yaw) in marker_frame: return_inset inside the nearest edge point, facing
@@ -446,7 +493,8 @@ def node_class():
         fence = node.create_publisher(String, cfg['fence_topic'], latched)
         marker = node.create_publisher(Marker, cfg['marker_topic'], latched)
         status = node.create_publisher(String, cfg['status_topic'], 10)
-        drawn, said = [], {'key': None, 'at': None}
+        pause = node.create_publisher(String, cfg['pause_topic'], latched)
+        drawn, said = [], {'key': None, 'at': None, 'pause': None}
 
         def publish_marker(now):
             line, outside = dog.outline(now), dog.status(now)['inside'] is False
@@ -473,6 +521,11 @@ def node_class():
                     if key['inside'] != (said['key'] or {}).get('inside'):
                         publish_marker(now)
                     said.update(key=key, at=now)
+                asked = dog.pause()
+                if asked != said['pause']:       # latched: the runners read it on change
+                    pause.publish(String(data=json.dumps(asked)))
+                    node.get_logger().warning(f"pause: {asked['why'] or 'lifted'}")
+                    said['pause'] = asked
                 drain()
             except Exception as error:      # noqa: BLE001 - logged, the hold timer goes on
                 node.get_logger().error(f'fence status failed: {error}',

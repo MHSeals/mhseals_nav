@@ -328,7 +328,8 @@ def test_on_exit_is_alert_or_return():
 def test_status_says_inside_and_the_distance_to_the_edge():
     dog = FenceWatchdog(MAP)
     assert dog.status(0.0) == {'inside': None, 'distance_to_edge': None, 'frame': 'map',
-                               'on_exit': 'alert', 'corners': BOX, 'returning': False}
+                               'on_exit': 'alert', 'corners': BOX, 'returning': False,
+                               'paused': False}
     at(dog, 0.0, 90.0, 25.0)
     assert (dog.status(0.0)['inside'], dog.status(0.0)['distance_to_edge']) == (True, 10.0)
     at(dog, 0.5, 103.0, 25.0)
@@ -339,6 +340,7 @@ def test_status_says_inside_and_the_distance_to_the_edge():
 
 
 RETURN = dict(MAP, on_exit='return')
+LEAD = CFG['return_lead']
 
 
 def leave(dog, now):
@@ -347,26 +349,80 @@ def leave(dog, now):
 
 
 def left(on_exit='return'):
+    """Outside with the return goal out (past return_lead)."""
     dog = FenceWatchdog(dict(RETURN, on_exit=on_exit))
     leave(dog, 0.0)
+    leave(dog, LEAD)
     dog.orders.clear()
     return dog
 
 
-def test_return_sends_one_slow_goal_inside_instead_of_a_hold():
+def mux(dog, now, *causes, source='auto'):
+    dog.mux(now, json.dumps({'input': source, 'holds': [{'cause': c} for c in causes]}))
+
+
+def test_return_pauses_the_runners_then_sends_one_slow_goal_inside():
     dog = FenceWatchdog(RETURN)
     assert not leave(dog, 0.0)
+    assert dog.orders == [] and dog.pause() == {
+        'paused': True, 'cause': 'geofence', 'by': 'fence_watchdog',
+        'why': 'returning inside the fence'}
+    assert not leave(dog, LEAD)                     # the runners had return_lead to yield
     (order, goal), = dog.orders
     assert order == 'go' and goal == pytest.approx((100.0 - CFG['return_inset'], 25.0, math.pi))
-    assert dog.status(0.0)['returning']
+    assert dog.status(LEAD)['returning'] and dog.status(LEAD)['paused']
     dog.orders.clear()
     for k in range(1, 10):                          # outside a while: no hold, no second goal
-        assert not leave(dog, k * 1.0)
+        assert not leave(dog, LEAD + k * 1.0)
     assert dog.orders == []
-    assert not at(dog, 10.0, 95.0, 25.0, math.pi, 0.5)       # back in, heading in
+    assert not at(dog, 11.0, 95.0, 25.0, math.pi, 0.5)       # back in, heading in
     assert dog.returning is not None                         # on to the interior point
-    dog.return_result(12.0, 'succeeded')
+
+
+def test_back_inside_the_return_holds_and_stays_paused_until_released():
+    dog = left()
+    at(dog, 5.0, 95.0, 25.0, math.pi, 0.5)
+    dog.return_result(6.0, 'succeeded')
     assert dog.orders == [('cancel', 'goal succeeded')] and dog.returning is None
+    paused = dog.pause()
+    assert paused['paused'] and paused['why'].startswith('back inside the fence')
+    assert 'release the geofence hold' in dog.reason(6.0)
+    assert dog.tick(6.0)                             # holds whatever the commands
+    assert not dog.tick(6.0 + CFG['repeat_s'] / 2)
+    mux(dog, 6.5, 'geofence', source='hold')         # the mux holds: it stops asking
+    assert not dog.tick(6.5 + CFG['repeat_s'])
+    dog.fcu(10.0, False)                             # disarmed and clear: still its hold
+    for k in range(10):
+        at(dog, 10.0 + k, 95.0, 25.0)
+    assert dog.pause()['paused']
+    mux(dog, 21.0)                                   # U or boat_agent release: resume
+    assert not at(dog, 21.0, 95.0, 25.0)
+    assert not dog.pause()['paused'] and dog.reason(21.0) == ''
+
+
+def test_station_keeping_after_the_return_never_starts_a_new_return():
+    dog = left()
+    dog.return_result(1.0, 'succeeded')              # ended outside: failed, alert holds
+    assert dog.parked and leave(dog, 1.0)
+    dog.orders.clear()
+    mux(dog, 1.5, 'geofence', source='hold')
+    for k in range(5):                               # parked: no new return goal
+        leave(dog, 2.0 + k)
+    assert dog.orders == []
+
+
+def test_return_refused_while_the_runners_wind_down_is_sent_again():
+    dog = left()
+    dog.return_result(1.0, 'rejected')
+    assert dog.orders == [] and dog.returning is not None
+    leave(dog, 1.0 + LEAD)
+    assert [o for o, _ in dog.orders] == ['go']
+    for k in range(2, CFG['return_tries'] + 1):
+        dog.orders.clear()
+        leave(dog, k * 2.0)
+        dog.return_result(k * 2.0, 'rejected')
+        leave(dog, k * 2.0 + LEAD)
+    assert [o for o, _ in dog.orders] == ['cancel', 'failed']
 
 
 def test_return_not_back_inside_in_time_holds_until_inside():
@@ -375,19 +431,20 @@ def test_return_not_back_inside_in_time_holds_until_inside():
     assert leave(dog, CFG['return_timeout'] + 0.1)
     assert [o for o, _ in dog.orders] == ['cancel', 'failed']
     dog.orders.clear()
+    mux(dog, CFG['return_timeout'] + 1.0, 'geofence', source='hold')
+    mux(dog, CFG['return_timeout'] + 1.5)                        # released, still outside
     assert leave(dog, CFG['return_timeout'] + 2.0)               # the hold repeats as alert
     assert dog.orders == [] and dog.returning is None
     at(dog, 70.0, 50.0, 25.0)                                    # inside: return armed again
-    assert not leave(dog, 71.0) and dog.orders[0][0] == 'go'
+    assert not leave(dog, 71.0) and not leave(dog, 71.0 + LEAD)
+    assert dog.orders[0][0] == 'go'
 
 
-def test_return_gives_way_to_the_operator_then_holds_as_alert():
+def test_return_gives_way_to_the_operator_then_holds():
     dog = left()
-    dog.mux(1.0, json.dumps({'input': 'manual', 'holds': []}))
-    assert not leave(dog, 1.0)                       # under manual nothing holds
+    mux(dog, 1.0, source='manual')
+    assert leave(dog, 1.0)                           # the hold waits in the mux for auto
     assert [o for o, _ in dog.orders] == ['cancel', 'failed']
-    dog.mux(2.0, json.dumps({'input': 'auto', 'holds': []}))
-    assert leave(dog, 2.0)                           # autonomy again, still outside
 
 
 def test_return_goal_aborted_or_replaced_holds():
@@ -402,6 +459,7 @@ def test_return_stops_on_alert_or_stale_position():
     dog = left()
     dog.set_on_exit('alert')
     assert leave(dog, 1.0) and dog.orders == [('cancel', 'on_exit is alert')]
+    assert not dog.pause()['paused']                 # alert's hold pauses through the mux
     dog = left()
     dog.command(2.0)
     assert dog.tick(2.0) and [o for o, _ in dog.orders] == ['cancel', 'failed']
@@ -413,6 +471,8 @@ def test_return_goal_of_a_lat_lon_course_area_is_in_map():
     dog = FenceWatchdog(cfg)
     dog.map_position(0.0, 7.0, -2.0)
     assert not at(dog, 0.0, lat, lon)
+    dog.map_position(LEAD, 7.0, -2.0)
+    assert not at(dog, LEAD, lat, lon)
     (order, (x, y, yaw)), = dog.orders
     east = project((lat, lon), lat, -70.999)[0] - CFG['return_inset']
     assert (x, y, yaw) == pytest.approx((7.0 + east, -2.0, math.pi), abs=0.01)
@@ -648,7 +708,7 @@ def test_node_return_sends_a_capped_goal_then_holds_when_it_ends_outside():
             Parameter('fence_file', value=''), Parameter('fence_frame', value='map'),
             Parameter('fence_points', value=BOX), Parameter('on_exit', value='return')])
         probe = rclpy.create_node('fence_return_probe')
-        goals, limits, holds = [], [], []
+        goals, limits, holds, pauses = [], [], [], []
 
         def execute(handle):            # Nav2 stand-in: done at once, the boat still outside
             goals.append(handle.request.pose)
@@ -659,13 +719,16 @@ def test_node_return_sends_a_capped_goal_then_holds_when_it_ends_outside():
                                   lambda m: limits.append(m.speed_limit), 10)
         probe.create_subscription(String, CFG['request_topic'],
                                   lambda m: holds.append(json.loads(m.data)), 10)
+        probe.create_subscription(String, CFG['pause_topic'],
+                                  lambda m: pauses.append(json.loads(m.data)), 10)
         cmd = probe.create_publisher(Twist, CFG['command_topic'], 10)
         odom = probe.create_publisher(Odometry, CFG['odom_topic'], 10)
         ex = SingleThreadedExecutor()
         ex.add_node(dog)
         ex.add_node(probe)
         end = time.monotonic() + 3.0
-        while time.monotonic() < end and not (goals and holds and 0.0 in limits):
+        while time.monotonic() < end and not (goals and holds and 0.0 in limits
+                                                and len(pauses) > 1):
             msg = Odometry()
             msg.pose.pose.position.x, msg.pose.pose.position.y = 104.0, 25.0
             msg.pose.pose.orientation.w = 1.0
@@ -677,5 +740,7 @@ def test_node_return_sends_a_capped_goal_then_holds_when_it_ends_outside():
         assert goals[0].header.frame_id == CFG['marker_frame']
         assert limits[0] == CFG['return_speed'] and 0.0 in limits     # capped, then lifted
         assert holds and holds[0]['op'] == 'hold' and holds[0]['cause'] == 'geofence'
+        assert pauses[0]['paused'] and pauses[0]['why'] == 'returning inside the fence'
+        assert pauses[-1]['paused'] and 'release the geofence hold' in pauses[-1]['why']
     finally:
         rclpy.try_shutdown()

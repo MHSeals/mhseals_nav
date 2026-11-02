@@ -12,7 +12,9 @@ Interface the test suite scores and the TUI shows (all reliable, transient local
                     4 refused: a human had control when it was started
 
 A human override (rc, keyboard, hold) ends the task at once, cancelling its Nav2 goals; it
-never resumes by itself. Started while a human has control, the task refuses to start.
+never resumes by itself. Started while a human has control, the task refuses to start. A pause
+request (runner.yaml pause_topic: the fence returning the boat inside) ends or refuses it the
+same way, with the requester's reason, so it never fights the request.
 """
 
 import argparse
@@ -70,6 +72,16 @@ def claim_suspended(record):
         return json.loads(record).get('owner') in HUMAN_OWNERS
     except (ValueError, AttributeError, TypeError):
         return False
+
+
+def pause_reason(record):
+    """Why a pause request (JSON {paused, cause, why}) pauses autonomy, '' when it does not."""
+    try:
+        body = json.loads(record)
+        return f"{body.get('cause') or 'pause'}: {body.get('why') or 'paused'}" \
+            if body.get('paused') is True else ''
+    except (ValueError, AttributeError, TypeError):
+        return ''
 
 
 EXIT_CODES = {'SUCCESS': 0, 'FAILURE': 1, 'TIMEOUT': 2, 'PREEMPTED': 3, 'REFUSED': 4}
@@ -321,6 +333,7 @@ class TaskRunner(Node):
         # A human override (rc, keyboard, hold) ends the task the moment it arrives.
         self.suspended = False
         self.create_subscription(String, AUTHORITY_TOPIC, self._authority, latched)
+        self.create_subscription(String, self.config['pause_topic'], self._pause, latched)
         self.create_timer(1.0 / float(params.get('tick_hz', 10.0)), self.tick)
 
     def _publish_event(self, payload):
@@ -391,6 +404,14 @@ class TaskRunner(Node):
             self.preempt()
         elif self.suspended and self.host.outcome is None:
             self.refuse()
+
+    def _pause(self, message):
+        why = pause_reason(message.data)
+        if why and self.host.outcome is None:
+            if self.host.started is not None:
+                self.preempt(why)
+            else:
+                self.host.refuse(why)
 
     def refuse(self):
         self.host.refuse()

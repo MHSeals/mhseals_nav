@@ -45,8 +45,10 @@ lidar.endpoint.ip: {type: str, units: "1", tier: restart, doc: "Device IPv4 addr
 lidar.endpoint.port: {type: int, units: "1", range: [1, 65535], tier: restart, doc: "Device UDP port."}
 
 fence_watchdog.course.corners: {type: list, units: deg, tier: live, doc: "Course area [lat1, lon1, ...]: at least 3 corners of a simple polygon; replaces the fence whole or is refused with the reason."}
-fence_watchdog.on_exit: {type: str, units: enum, tier: live, doc: "Outside under autonomy: alert holds; return sends one slow Nav2 goal back inside, then holds as alert does."}
+fence_watchdog.on_exit: {type: str, units: enum, tier: live, doc: "Outside under autonomy: alert holds; return pauses the runners, sends one slow Nav2 goal back inside, then holds until the operator or an agent releases it."}
 fence_watchdog.return_inset: {type: float, units: m, tier: restart, doc: "How far inside the nearest edge the return goal lies."}
 fence_watchdog.return_speed: {type: float, units: m/s, tier: restart, doc: "Nav2 speed limit while returning; lifted when the return ends."}
 fence_watchdog.return_timeout: {type: float, units: s, tier: restart, doc: "Time to get back inside before the return holds as alert does."}
+fence_watchdog.return_lead: {type: float, units: s, tier: restart, doc: "Wait between the pause request and the return goal, for the runners to cancel their goals."}
+fence_watchdog.return_tries: {type: int, units: count, tier: restart, doc: "Return goal sends while Nav2 refuses it before the return fails."}
 fence_watchdog.status_rate: {type: float, units: Hz, tier: restart, doc: "Rate of the /fence/status JSON; it also publishes on every change."}

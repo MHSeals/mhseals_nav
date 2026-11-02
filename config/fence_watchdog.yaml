@@ -45,16 +45,22 @@
     marker_outside_color: [1.0, 0.0, 0.0, 1.0]  # while the boat is outside
     # Live parameters (ros2 param set): course.corners [lat1, lon1, ...] replaces the fence with
     # that lat/lon course area (>= 3 corners, a simple polygon, or refused); on_exit as below.
-    # Outside under autonomy, alert holds; return sends navigate_to_pose one goal return_inset m
-    # inside the nearest edge at return_speed (m/s, Nav2's speed limit), and holds as alert does
-    # when not back inside within return_timeout (s), the mux leaves auto or the goal ends.
+    # Outside under autonomy, alert holds; return pauses the procedure and task runners
+    # (pause_topic), then after return_lead (s) sends navigate_to_pose one goal return_inset m
+    # inside the nearest edge at return_speed (m/s, Nav2's speed limit), sent again up to
+    # return_tries times while Nav2 refuses it. However the return ends (back inside, not
+    # within return_timeout (s), the mux leaving auto, the goal ending) it holds and stays
+    # paused until the operator (U) or an agent (boat_agent release) releases the hold.
     on_exit: alert
     return_inset: 10.0
     return_speed: 0.5
     return_timeout: 15.0
+    return_lead: 0.5
+    return_tries: 3
     return_action: navigate_to_pose
+    pause_topic: /autonomy/pause       # latched JSON {paused, cause, by, why}
     speed_limit_topic: /speed_limit
-    # JSON {inside, distance_to_edge, frame, on_exit, corners, returning}
+    # JSON {inside, distance_to_edge, frame, on_exit, corners, returning, paused}
     status_topic: /fence/status
     status_rate: 2.0                   # Hz, and on every change
     repeat_s: 1.0

@@ -203,6 +203,45 @@ def test_human_override_ends_the_task_at_once_and_never_resumes(monkeypatch):
         rclpy.try_shutdown()
 
 
+def pause(paused=True):
+    return json.dumps({'paused': paused, 'cause': 'geofence', 'by': 'fence_watchdog',
+                       'why': 'returning inside the fence' if paused else ''})
+
+
+def test_a_pause_request_ends_the_task_with_its_reason_and_never_resumes(monkeypatch):
+    """The fence's return pauses autonomy: the task cancels its goal instead of fighting."""
+    from mhseals_nav.tasks.interface import pause_reason
+    assert pause_reason(pause()) == 'geofence: returning inside the fence'
+    for quiet in (pause(False), '', 'not json', 'null', '{"paused": "yes"}'):
+        assert pause_reason(quiet) == ''
+    rclpy.init()
+    runner = None
+    goals, cancels, events = [], [], []
+    try:
+        runner = TaskRunner('circle_test', dict(CIRCLE))
+        runner.host.objects = [('yellow_buoy', 9.0, 0.0)]
+        monkeypatch.setattr(runner.host.navigator, 'ready', lambda: True)
+        monkeypatch.setattr(runner.host.navigator, 'send', lambda *a, **k: goals.append(a) or
+                            SimpleNamespace(done=False, cancel=lambda: cancels.append(1)))
+        monkeypatch.setattr(runner, 'pose', lambda: (1.0, 0.0, 0.5))
+        monkeypatch.setattr(runner.host, 'sink', capture(events))
+        runner._pause(SimpleNamespace(data=pause(False)))
+        runner.tick()
+        assert len(goals) == 1 and runner.host.outcome is None
+        runner._pause(SimpleNamespace(data=pause()))
+        assert cancels and runner.host.outcome == 'PREEMPTED'
+        assert 'geofence: returning inside the fence: stopped, no resume' in [
+            d.get('reason') for e, d in events if e == 'decision']
+        runner._pause(SimpleNamespace(data=pause(False)))
+        for _ in range(3):
+            runner.tick()
+        assert len(goals) == 1
+    finally:
+        if runner is not None:
+            runner.destroy_node()
+        rclpy.try_shutdown()
+
+
 @pytest.mark.parametrize('owner', ['rc', 'keyboard', 'hold'])
 def test_a_task_started_while_a_human_has_control_refuses_and_never_starts(
         monkeypatch, owner):
