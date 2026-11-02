@@ -6,8 +6,9 @@ from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 from launch.conditions import IfCondition, UnlessCondition
 
-import xacro
 import os
+
+from mhseals_nav.robot_geometry import description_xml
 
 from mhseals_nav.endpoint_configuration import (
     boolean as endpoint_boolean,
@@ -20,8 +21,8 @@ def load_urdf(context):
     _, ext = os.path.splitext(urdf_path.lower())
 
     if ext == '.xacro':
-        doc = xacro.process_file(urdf_path)
-        robot_description = doc.toxml() # type: ignore
+        # The vessel profile's lidar mount, when it gives one, wins over the xacro's.
+        robot_description = description_xml(urdf_path)
     elif ext == '.urdf':
         with open(urdf_path, 'r') as infp:
             robot_description = infp.read()

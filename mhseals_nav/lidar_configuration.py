@@ -1,10 +1,11 @@
 """Resolve startup-only lidar layers and paired driver/transform projections.
 
 Vessel facts come from the vessel profile (``profile_lidar``): the address, the model and the rpm
-the sensor is set to. config/lidar.yaml's ``driver:`` holds the rest; deployment and selected
-layers (``driver:`` overrides) and the velodyne_ip/velodyne_port aliases go on top. The model and
-rpm are the profile's alone: a layer that still sets them is used only without a profile, with a
-warning.
+the sensor is set to, and the mount when the profile gives one (``profile_mount``, laid over the
+description's lidar_* properties by robot_geometry; without it the description's mount stands).
+config/lidar.yaml's ``driver:`` holds the rest; deployment and selected layers (``driver:``
+overrides) and the velodyne_ip/velodyne_port aliases go on top. The model and rpm are the
+profile's alone: a layer that still sets them is used only without a profile, with a warning.
 """
 from collections.abc import Mapping
 from hashlib import sha256
@@ -159,16 +160,16 @@ def _calibration(reference, source, share):
     return {'path': str(path), 'sha256': sha256(raw).hexdigest()}
 
 
-def profile_lidar(network_env=None):
-    """The vessel profile's lidar facts as dotted keys ({} without a vessel profile).
+def profile_facts(network_env=None):
+    """The vessel profile's merged ``lidar:`` facts and its network env ({}, None without one).
 
     The vessel's directory holds its network env (``boat_network.path()``). From the profile it
     ``extends`` down to the vessel, each profile's lidar.yaml and then its profile.yaml ``lidar:``
-    lay over the facts so far. ``$NAME`` values are read from the network env.
+    lay over the facts so far.
     """
     env = Path(network_env) if network_env else boat_network.path()
     if env is None or not env.is_file():
-        return {}
+        return {}, None
     chain, here = [], env.parent
     while here is not None and len(chain) < 8 and here not in [d for d, _ in chain]:
         profile = _mapping(here / 'profile.yaml')
@@ -178,11 +179,48 @@ def profile_lidar(network_env=None):
     for directory, profile in chain:
         facts.update(_mapping(directory / 'lidar.yaml'))
         facts.update(profile.get('lidar') or {})
+    return facts, env
+
+
+def profile_lidar(network_env=None):
+    """The vessel profile's lidar facts as dotted keys ({} without a vessel profile).
+
+    The address, the model and the rpm (``profile_facts``); ``$NAME`` values are read from the
+    network env.
+    """
+    facts, env = profile_facts(network_env)
+    if env is None:
+        return {}
     address = string.Template(str(facts.get('address') or '')).safe_substitute(
         boat_network.values(env))
     found = {'lidar.endpoint.ip': address if address and '$' not in address else None,
              'lidar.model': facts.get('model'), 'lidar.rpm': facts.get('rpm')}
     return {key: value for key, value in found.items() if value is not None}
+
+
+def profile_mount(network_env=None):
+    """The vessel profile's lidar mount as xacro property overrides ({} when it gives none).
+
+    ``lidar: {mount: {xyz: [x, y, z], rpy: [roll, pitch, yaw]}}``, either part alone, in the
+    frame of the description's lidar_x/lidar_y/lidar_z/lidar_rpy properties (m and rad;
+    blastoise.xacro: x, y from the datum, z above the sensor rail's foot). The description is
+    the geometry source; where the profile gives a mount, the profile wins (robot_geometry).
+    """
+    mount = profile_facts(network_env)[0].get('mount')
+    if mount is None:
+        return {}
+    if not isinstance(mount, dict) or not mount or not set(mount) <= {'xyz', 'rpy'}:
+        raise ValueError('vessel profile lidar mount must be a mapping of xyz and/or rpy')
+    for name, value in mount.items():
+        if (not isinstance(value, list) or len(value) != 3 or
+                any(type(v) not in (int, float) or not math.isfinite(v) for v in value)):
+            raise ValueError(f'vessel profile lidar mount {name} must be three finite numbers')
+    properties = {}
+    if 'xyz' in mount:
+        properties.update(zip(('lidar_x', 'lidar_y', 'lidar_z'), map(float, mount['xyz'])))
+    if 'rpy' in mount:
+        properties['lidar_rpy'] = ' '.join(str(float(v)) for v in mount['rpy'])
+    return properties
 
 
 def _mapping(path):

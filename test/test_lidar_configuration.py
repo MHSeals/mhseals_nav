@@ -165,3 +165,24 @@ def test_vessel_facts_are_the_profiles_and_a_layer_only_fills_in(share, tmp_path
     with pytest.raises(ValueError, match="no lidar rpm: the vessel profile's"):
         resolve_lidar(share=share, profile={'lidar.endpoint.ip': '10.0.0.1',
                                             'lidar.model': 'VLP16'})
+
+
+def test_the_profiles_mount_overrides_the_descriptions_lidar_properties(boat_network_env):
+    """lidar: mount: in the vessel profile is the lidar mount; without one, the xacro's stands."""
+    from mhseals_nav.lidar_configuration import profile_mount
+    from mhseals_nav.robot_geometry import RobotGeometry
+    assert profile_mount() == {}
+    base = RobotGeometry.load()
+    profile = boat_network_env.parent / 'profile.yaml'
+    profile.write_text('extends: fleet\nlidar: {model: VLP16, rpm: 600, '
+                       'mount: {xyz: [0.3, 0.01, 0.25], rpy: [0, 0.02, 0]}}\n')
+    assert profile_mount() == {'lidar_x': 0.3, 'lidar_y': 0.01, 'lidar_z': 0.25,
+                               'lidar_rpy': '0.0 0.02 0.0'}
+    moved = RobotGeometry.load()
+    assert moved.pose('lidar_link')[1][0] == pytest.approx(
+        base.pose('lidar_link')[1][0] + 0.3 - 0.2921)
+    assert RobotGeometry.load(properties={'lidar_x': 0.2921}).pose('lidar_link')[1][0] == \
+        pytest.approx(base.pose('lidar_link')[1][0])            # explicit properties win
+    profile.write_text('extends: fleet\nlidar: {model: VLP16, rpm: 600, mount: {xyz: [1, 2]}}\n')
+    with pytest.raises(ValueError, match='three finite numbers'):
+        profile_mount()

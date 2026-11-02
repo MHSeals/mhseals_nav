@@ -1,8 +1,10 @@
 """Sensor frames from the robot description, without ROS: base_link <- frame as (R, t).
 
-The URDF (description/<robot>/<robot>.xacro) is the one source of the sensor mounts; TF
-reads it through robot_state_publisher, and anything that runs without TF (the ROS-free
-tests, the sims' adapters) reads it here. Real xacro expands the file when it is installed;
+The URDF (description/<robot>/<robot>.xacro) is the source of the sensor mounts, but for a lidar
+mount the vessel profile gives (``lidar_configuration.profile_mount``), which wins over the
+description's lidar_* properties (``vessel_properties``). TF reads it through
+robot_state_publisher (odom.launch.py expands it with ``description_xml``), and anything that
+runs without TF (the ROS-free tests, the sims' adapters) reads it here. Real xacro expands the file when it is installed;
 otherwise a minimal expander handles what the descriptions use for their joints: top-level
 ``xacro:property`` values and ``${expr}`` arithmetic over them.
 """
@@ -59,6 +61,27 @@ def matrix_quaternion(R):
     y = math.copysign(math.sqrt(max(0.0, 1 - R[0, 0] + R[1, 1] - R[2, 2])) / 2, R[0, 2] - R[2, 0])
     z = math.copysign(math.sqrt(max(0.0, 1 - R[0, 0] - R[1, 1] + R[2, 2])) / 2, R[1, 0] - R[0, 1])
     return x, y, z, w
+
+
+def vessel_properties(text):
+    """The vessel profile's overrides of this description's properties ({} without any).
+
+    A description without the lidar_* properties (another robot's) keeps its own mount.
+    """
+    from .lidar_configuration import profile_mount
+    found = profile_mount()
+    return {name: value for name, value in found.items()
+            if re.search(rf'<xacro:property name="{re.escape(name)}" value=', text)}
+
+
+def description_xml(path, properties=None):
+    """The URDF XML of a .xacro description with the vessel's overrides, then ``properties``."""
+    import xacro
+    text = Path(path).read_text()
+    overrides = {**vessel_properties(text), **(properties or {})}
+    if not overrides:
+        return xacro.process_file(str(path)).toxml()
+    return ET.tostring(expand(text, overrides), encoding='unicode')
 
 
 def expand(text, properties=None):
@@ -123,8 +146,9 @@ class RobotGeometry:
 
     @classmethod
     def load(cls, path=None, properties=None, base='base_link'):
-        path = Path(path) if path else description_path()
-        return cls(expand(path.read_text(), properties), base)
+        """Base <- frame tree of ``path``: the vessel's overrides, then ``properties``."""
+        text = (Path(path) if path else description_path()).read_text()
+        return cls(expand(text, {**vessel_properties(text), **(properties or {})}), base)
 
     @classmethod
     def from_transforms(cls, transforms, base='base_link'):

@@ -1,7 +1,9 @@
 # The lidar, a Velodyne VLP16. Vessel facts are the vessel profile's (hw.sh profile; the profile
 # whose directory holds $ASTRO_NETWORK_ENV): the address, the model and the rpm the sensor is set
-# to. driver: is the rest of the driver pair (sensors.launch.py); lidar_deployment_file and
-# lidar_params_file lay driver: overrides over it, then velodyne_ip and velodyne_port.
+# to, and the mount when the profile gives one (lidar: mount: {xyz, rpy}, over the description's
+# lidar_* properties; without it description/<robot>/<robot>.xacro's mount stands). driver: is
+# the rest of the driver pair (sensors.launch.py); lidar_deployment_file and lidar_params_file
+# lay driver: overrides over it, then velodyne_ip and velodyne_port.
 tune:
   # Sim only (sensors.launch.py sim:=true): smear crane_ml's instantaneous /points over a VLP16
   # sweep with the ground-truth motion (lidar_smear.py), so scans of a turning boat misalign as
