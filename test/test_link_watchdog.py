@@ -124,14 +124,14 @@ def test_stale_heartbeat_without_autonomy_requests_nothing():
     assert not dog.tick(10.0)
 
 
-def test_heartbeat_back_never_releases():
+def test_heartbeat_back_holds_no_more_and_releases_nothing_at_once():
     dog = watchdog()
     dog.heartbeat(0.0, OPERATOR)
     dog.command(5.0)
     assert dog.tick(5.0)
     dog.heartbeat(5.5, OPERATOR)
     dog.command(5.5)
-    assert not dog.tick(5.5) and not dog.reason(5.5)
+    assert not dog.tick(5.5) and not dog.reason(5.5) and not dog.release(5.5)
 
 
 def test_node_holds_without_the_operator_and_survives_flips():

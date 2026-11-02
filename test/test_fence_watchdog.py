@@ -177,7 +177,7 @@ def test_state_of_a_lat_lon_fence_is_its_raw_lat_lon_whatever_the_position():
         dog.position(0.0, 42.0005, -70.9995)
 
 
-def test_back_inside_never_releases():
+def test_back_inside_holds_no_more():
     dog = FenceWatchdog(MAP)
     assert at(dog, 0.0, 120.0, 25.0)
     assert not at(dog, 0.5, 50.0, 25.0)
