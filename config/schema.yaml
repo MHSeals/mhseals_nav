@@ -2,7 +2,8 @@
 #   type, units (docs/config-conventions.md R2), tier, doc, and range [lo, hi] only where a
 #   validator enforces exactly that range.
 # Nav2 keys are <server>.<plugin>.<key>; MAVROS keys are mavros_setup.<key>; fence keys are
-# fence_watchdog.<key> (its section of watchdogs.yaml, tune: applied); lidar keys are the dotted keys of lidar.yaml.
+# fence_watchdog.<key> (its section of watchdogs.yaml, tune: applied); lidar keys are lidar.<dotted keys of lidar.yaml>
+# (the model and rpm are the vessel profile's).
 
 controller_server.controller_frequency: {type: float, units: Hz, tier: reconfigure, doc: "Controller loop rate; model_dt derives from it."}
 controller_server.FollowPath.vx_max: {type: float, units: m/s, tier: live, doc: "Forward speed limit."}
@@ -38,11 +39,10 @@ mavros_setup.rc_grace: {type: float, units: s, tier: restart, doc: "Startup grac
 mavros_setup.rc_timer: {type: float, units: s, tier: restart, doc: "RC diagnostic check period."}
 mavros_setup.fcu_sysid: {type: int, units: "1", range: [1, 255], tier: restart, doc: "MAVLink system ID whose observations are accepted."}
 
-lidar.model: {type: str, units: enum, tier: restart, doc: "Velodyne model; only VLP16 is supported."}
-lidar.frame: {type: str, units: frame, tier: restart, doc: "Lidar TF frame; the full robot requires lidar_link."}
-lidar.rpm: {type: float, units: "1", tier: restart, doc: "Driver rotation speed in revolutions per minute."}
-lidar.endpoint.ip: {type: str, units: "1", tier: restart, doc: "Device IPv4 address."}
-lidar.endpoint.port: {type: int, units: "1", range: [1, 65535], tier: restart, doc: "Device UDP port."}
+lidar.tune.smear: {type: bool, units: bool, tier: restart, doc: "Sim only: smear the simulator's instantaneous scan over a VLP16 sweep, as a turning boat sees it."}
+lidar.driver.frame: {type: str, units: frame, tier: restart, doc: "Lidar TF frame; the full robot requires lidar_link."}
+lidar.driver.endpoint.ip: {type: str, units: "1", tier: restart, doc: "Device IPv4 address; the vessel profile's unless a layer or velodyne_ip sets it."}
+lidar.driver.endpoint.port: {type: int, units: "1", range: [1, 65535], tier: restart, doc: "Device UDP port."}
 
 fence_watchdog.course.corners: {type: list, units: deg, tier: live, doc: "Course area [lat1, lon1, ...]: at least 3 corners of a simple polygon; replaces the fence whole or is refused with the reason."}
 fence_watchdog.margin: {type: float, units: m, tier: restart, doc: "Edge band where heading or moving outward already holds; covers the coast after a hold."}

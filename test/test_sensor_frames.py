@@ -30,7 +30,7 @@ def offset(frame):
 
 def sensor_frames():
     """Each frame name the stack's config gives a sensor, with where it comes from."""
-    lidar = yaml.safe_load((ROOT / 'config/lidar.yaml').read_text())['lidar']['frame']
+    lidar = yaml.safe_load((ROOT / 'config/lidar.yaml').read_text())['driver']['frame']
     adapter = (ROOT / 'mhseals_nav/mavros_odometry.py').read_text()
     assert "declare_parameter('gps_frame', 'gps_link')" in adapter
     return {'lidar.yaml lidar.frame': lidar, 'odometry adapter gps_frame': 'gps_link',

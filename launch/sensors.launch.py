@@ -4,7 +4,6 @@ from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
-from mhseals_nav import boat_network
 from mhseals_nav.endpoint_configuration import (
     from_launch as endpoint_from_launch, LAYER_ARGUMENTS as ENDPOINT_LAYERS, UNSET_GCS)
 from mhseals_nav.lidar_configuration import resolve_lidar
@@ -24,15 +23,15 @@ def launch_boolean(value):
 
 
 def lidar_smear_enabled():
-    """Read the sim lidar smear switch from config/lidar_smear.yaml (default off)."""
+    """Read the sim lidar smear switch, config/lidar.yaml tune.smear (default off)."""
     # Imported here: tests exec this file's functions without its module-level imports.
     import os
 
     from ament_index_python.packages import get_package_share_directory
     import yaml
-    path = os.path.join(get_package_share_directory('mhseals_nav'), 'config', 'lidar_smear.yaml')
+    path = os.path.join(get_package_share_directory('mhseals_nav'), 'config', 'lidar.yaml')
     with open(path) as f:
-        return bool(yaml.safe_load(f)['enabled'])
+        return bool(yaml.safe_load(f)['tune']['smear'])
 
 
 def nearby_node(sim):
@@ -61,10 +60,9 @@ def sensor_nodes(context):
     aliases = {name: LaunchConfiguration(name).perform(context)
                for name in ('velodyne_ip', 'velodyne_port')}
     required_frame = LaunchConfiguration('lidar_required_frame').perform(context)
-    # The address lives in boat-network.env (LIDAR_IP); lidar YAML layers and velodyne_ip
-    # override it.
-    lidar = resolve_lidar(selected, deployment, aliases, required_frame=required_frame,
-                          fallback_ip=boat_network.value('LIDAR_IP'))
+    # The address, model and rpm are the vessel profile's; lidar YAML layers and velodyne_ip
+    # override the address.
+    lidar = resolve_lidar(selected, deployment, aliases, required_frame=required_frame)
     # Validate the complete pair before constructing either physical node.
     velodyne_driver_node = Node(
         package='velodyne_driver',
@@ -98,7 +96,7 @@ def generate_launch_description():
         ('lidar_params_file', '', 'Optional selected lidar YAML over package/deployment defaults'),
         ('lidar_deployment_file', '', 'Optional deployment lidar YAML layer'),
         ('lidar_required_frame', '', 'Internal full-robot fixed frame contract'),
-        ('velodyne_ip', '', 'Explicit device IP override; empty inherits YAML, then LIDAR_IP'),
+        ('velodyne_ip', '', 'Explicit device IP override; empty inherits YAML, then the profile'),
         ('velodyne_port', '', 'Explicit UDP port override; empty inherits YAML'),
         ('ros_ip', '', 'IP address of the Unity ROS TCP Endpoint'),
         ('ros_port', '', 'Port of the Unity ROS TCP Endpoint'),

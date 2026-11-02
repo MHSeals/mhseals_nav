@@ -43,7 +43,7 @@ commands:
     params:
       - {name: sim, type: bool, default: true, description: Run in simulation mode.}
       - {name: sensors_ignore, description: 'Comma-separated sensors to ignore, e.g. lidar.'}
-      - {name: velodyne_ip, description: 'Device IP override; empty inherits YAML, then LIDAR_IP.'}
+      - {name: velodyne_ip, description: 'Device IP override; empty inherits YAML, then the vessel profile.'}
 
   - name: camera.launch
     run: ros2 launch mhseals_nav camera.launch.py

@@ -17,9 +17,19 @@ def pytest_configure(config):
 
 @pytest.fixture(autouse=True)
 def boat_network_env(tmp_path_factory, monkeypatch):
-    """Point boat_network at a boat-network.env with the lidar's address, never the real one."""
+    """Point boat_network at a vessel profile with the lidar's address, never the real one.
+
+    The profile is a fleet (its lidar.yaml: the address from the env) and a vessel extending it
+    (profile.yaml lidar: model and rpm), beside the vessel's network env.
+    """
     from mhseals_nav import boat_network
-    env = tmp_path_factory.mktemp('boat-network') / 'boat-network.env'
+    root = tmp_path_factory.mktemp('profiles')
+    (root / 'fleet').mkdir()
+    (root / 'fleet/lidar.yaml').write_text('driver: lidar/vlp16\naddress: $LIDAR_IP\nrpm:\n')
+    (root / 'vessel').mkdir()
+    (root / 'vessel/profile.yaml').write_text(
+        'extends: fleet\nlidar: {model: VLP16, rpm: 600}\n')
+    env = root / 'vessel/network.env'
     env.write_text(f'LIDAR_IP={LIDAR_IP}\n')
     monkeypatch.setattr(boat_network, 'path', lambda: env)
     return env
@@ -32,7 +42,8 @@ def propagating_module_loggers():
     The launch_testing plugin imports launch, whose LaunchLogger has propagate=False
     and its own handlers, so records never reach the root logger caplog listens on.
     """
-    loggers = [logging.getLogger('mhseals_nav.navigation_config')]
+    loggers = [logging.getLogger('mhseals_nav.navigation_config'),
+               logging.getLogger('mhseals_nav.lidar_configuration')]
     saved = [logger.propagate for logger in loggers]
     for logger in loggers:
         logger.propagate = True

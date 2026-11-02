@@ -1,12 +1,27 @@
-"""Resolve startup-only lidar layers and paired driver/transform projections."""
+"""Resolve startup-only lidar layers and paired driver/transform projections.
+
+Vessel facts come from the vessel profile (``profile_lidar``): the address, the model and the rpm
+the sensor is set to. config/lidar.yaml's ``driver:`` holds the rest; deployment and selected
+layers (``driver:`` overrides) and the velodyne_ip/velodyne_port aliases go on top. The model and
+rpm are the profile's alone: a layer that still sets them is used only without a profile, with a
+warning.
+"""
 from collections.abc import Mapping
 from hashlib import sha256
 from ipaddress import IPv4Address
+import logging
 import math
 from pathlib import Path
+import string
 
+import yaml
 
+from . import boat_network
 from .navigation_config import load_strict
+
+log = logging.getLogger(__name__)
+SECTIONS = {'tune', 'driver', 'costmap', 'fusion'}      # config/lidar.yaml
+VESSEL = ('lidar.model', 'lidar.rpm')                   # the profile's alone
 
 KEYS = ('lidar.model', 'lidar.frame', 'lidar.rpm', 'lidar.calibration',
         'lidar.endpoint.ip', 'lidar.endpoint.port')
@@ -86,12 +101,20 @@ def validate_calibration(raw, path='<calibration>'):
 
 
 def parse_lidar(raw, path='<lidar>'):
-    """Load one strict layer into validated dotted keys; unknown keys are refused."""
+    """Load one strict layer's ``driver:`` into validated dotted keys; unknown keys are refused.
+
+    A layer is lidar.yaml or an overlay of it; an old overlay's single ``lidar:`` mapping is read
+    as ``driver:`` for one release, with a warning.
+    """
     data = load_strict(raw, path)
-    if not isinstance(data, dict) or set(data) != {'lidar'} or not isinstance(data['lidar'], dict):
-        raise ValueError('expected a single lidar mapping')
+    if isinstance(data, dict) and set(data) == {'lidar'}:
+        log.warning('%s: the lidar: root is deprecated, write driver: (as config/lidar.yaml)', path)
+        data = {'driver': data['lidar']}
+    if not isinstance(data, dict) or not set(data) <= SECTIONS or not isinstance(
+            data.get('driver', {}), dict):
+        raise ValueError(f'expected a mapping of {", ".join(sorted(SECTIONS))} with a driver mapping')
     values = {}
-    for key, value in data['lidar'].items():
+    for key, value in data.get('driver', {}).items():
         if key == 'endpoint' and isinstance(value, dict):
             values.update({'lidar.endpoint.' + name: item for name, item in value.items()})
         else:
@@ -136,20 +159,60 @@ def _calibration(reference, source, share):
     return {'path': str(path), 'sha256': sha256(raw).hexdigest()}
 
 
-def resolve_lidar(selected='', deployment='', overrides=None, *, share=package_share,
-                  required_frame='', fallback_ip=''):
-    """Compile fallback_ip < defaults < deployment < operator file < explicit endpoint aliases.
+def profile_lidar(network_env=None):
+    """The vessel profile's lidar facts as dotted keys ({} without a vessel profile).
 
-    The package YAML has no address: ``fallback_ip`` is LIDAR_IP from boat-network.env.
+    The vessel's directory holds its network env (``boat_network.path()``). From the profile it
+    ``extends`` down to the vessel, each profile's lidar.yaml and then its profile.yaml ``lidar:``
+    lay over the facts so far. ``$NAME`` values are read from the network env.
     """
+    env = Path(network_env) if network_env else boat_network.path()
+    if env is None or not env.is_file():
+        return {}
+    chain, here = [], env.parent
+    while here is not None and len(chain) < 8 and here not in [d for d, _ in chain]:
+        profile = _mapping(here / 'profile.yaml')
+        chain.insert(0, (here, profile))
+        here = here.parent / profile['extends'] if profile.get('extends') else None
+    facts = {}
+    for directory, profile in chain:
+        facts.update(_mapping(directory / 'lidar.yaml'))
+        facts.update(profile.get('lidar') or {})
+    address = string.Template(str(facts.get('address') or '')).safe_substitute(
+        boat_network.values(env))
+    found = {'lidar.endpoint.ip': address if address and '$' not in address else None,
+             'lidar.model': facts.get('model'), 'lidar.rpm': facts.get('rpm')}
+    return {key: value for key, value in found.items() if value is not None}
+
+
+def _mapping(path):
+    """A profile file's mapping, {} when it is missing or not one."""
+    try:
+        data = yaml.safe_load(path.read_text())
+    except (OSError, yaml.YAMLError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def resolve_lidar(selected='', deployment='', overrides=None, *, share=package_share,
+                  required_frame='', profile=None):
+    """Compile profile < defaults < deployment < operator file < explicit endpoint aliases.
+
+    ``profile`` is the vessel's lidar facts (``profile_lidar()`` when None); the package YAML
+    has no address, model or rpm. The model and rpm stay the profile's whatever a layer says.
+    """
+    profile = profile_lidar() if profile is None else dict(profile)
+    validate_present(profile)
     paths = [Path(share('mhseals_nav')) / 'config/lidar.yaml']
     paths += [path for path in (deployment, selected) if path != '']
-    values, origins, sources = {}, {}, []
-    if fallback_ip:
-        values['lidar.endpoint.ip'] = fallback_ip
-        origins['lidar.endpoint.ip'] = 'boat-network.env LIDAR_IP'
+    values, origins, sources = dict(profile), dict.fromkeys(profile, 'vessel profile'), []
     for path in paths:
         layer, identity = _layer(path)
+        for key in set(layer) & set(VESSEL):
+            log.warning('%s: %s comes from the vessel profile; %s', identity['path'], key,
+                        'ignored' if key in profile else 'used, as there is no profile value')
+            if key in profile:
+                del layer[key]
         values.update(layer)
         origins.update(dict.fromkeys(layer, identity['path']))
         sources.append(identity)
@@ -169,6 +232,10 @@ def resolve_lidar(selected='', deployment='', overrides=None, *, share=package_s
         raise ValueError('no lidar address: set LIDAR_IP in the vessel network env '
                          '($ASTRO_NETWORK_ENV, legacy $ROS_WS/config/boat-network.env) '
                          'or pass velodyne_ip:=')
+    missing = [key.split('.')[-1] for key in VESSEL if key not in values]
+    if missing:
+        raise ValueError(f"no lidar {', '.join(missing)}: the vessel profile's lidar.yaml "
+                         '(hw.sh profile; its directory holds $ASTRO_NETWORK_ENV) sets them')
     validate_values(values)
     if required_frame and values['lidar.frame'] != required_frame:
         raise ValueError('full robot lidar frame must match fixed URDF lidar_link contract')

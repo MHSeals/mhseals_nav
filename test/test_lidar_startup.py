@@ -56,7 +56,7 @@ def test_robot_selected_layer_and_direct_equivalent(share, tmp_path, explicit):
     assert robot == direct
     driver, transform = [node['parameters'][0] for node in robot[:2]]
     assert driver['device_ip'] == (explicit or '10.0.1.8')
-    assert driver['port'] == 9999 and driver['rpm'] == 450.
+    assert driver['port'] == 9999 and driver['rpm'] == 600.     # rpm: the profile's
     assert driver['model'] == transform['model'] == 'VLP16'
     assert driver['frame_id'] == transform['frame_id'] == 'lidar_link'
     assert 'calibration' not in driver and 'rpm' not in transform
@@ -69,7 +69,7 @@ def test_invalid_selection_before_any_node(share, tmp_path, selection):
     """Reject bad requested bytes before either half of the pair is constructed."""
     path = tmp_path / selection
     if selection != 'missing':
-        path.write_text('lidar: []' if selection == 'invalid' else 'lidar: {rpm: 1, rpm: 2}')
+        path.write_text('driver: []' if selection == 'invalid' else 'driver: {rpm: 1, rpm: 2}')
     namespace = sensor_factory(share)
     namespace['Node'] = lambda **kwargs: pytest.fail('constructed physical Node before validation')
     with pytest.raises((OSError, ValueError)):
@@ -96,7 +96,9 @@ def test_unused_lidar_selection_does_not_resolve(share, sim, ignored):
     namespace = factory(lambda *args, **kwargs: pytest.fail('resolved unused physical lidar'))
     values = dict(context(), sim=sim, sensors_ignore=ignored, lidar_params_file='/missing')
     nodes = namespace['sensor_nodes'](values)
-    assert [n['package'] for n in nodes] == (['ros_tcp_endpoint'] if sim == 'true' else [])
+    # sim: the endpoint and nearby (/perception/nearby beside the simulated lidar)
+    assert [n.get('executable') for n in nodes] == (
+        ['default_server_endpoint', 'nearby'] if sim == 'true' else [])
 
 
 def test_actual_standalone_argument_defaults_are_unset():

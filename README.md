@@ -87,7 +87,7 @@ The JetPack 5 / Foxy camera host lives on the `legacy/jp5-foxy` branch.
 #### LiDAR relay and markers
 
 - `sensors.launch.py` also starts `lidar_relay`, which downsamples the cloud and republishes `/points` with one reliable writer for Nav2 and RViz. Stop older viewer relays to avoid duplicates.
-- In sim, `enabled: true` in `config/lidar_smear.yaml` smears crane's instantaneous scans over a 0.1 s VLP16 sweep with the true motion (`lidar_smear`), so the relay's deskew can be checked.
+- In sim, `tune.smear: true` in `config/lidar.yaml` smears crane's instantaneous scans over a 0.1 s VLP16 sweep with the true motion (`lidar_smear`), so the relay's deskew can be checked.
 - Use RViz's `MarkerArray` display for `/detections/markers`; it shows outlines and confidence in `map`.
 
 ### Mapping and rates
@@ -102,7 +102,7 @@ The JetPack 5 / Foxy camera host lives on the `legacy/jp5-foxy` branch.
 | `SYS_STATUS`, `EKF_STATUS_REPORT` | 2 Hz | `config/mavros_setup.yaml` |
 | Local EKF | 30 Hz | `config/ekf_local.yaml` |
 | Global EKF | 20 Hz | `config/ekf_global.yaml` |
-| VLP16 scans | 10 Hz (600 RPM) | `config/lidar.yaml` |
+| VLP16 scans | 10 Hz (600 RPM) | the vessel profile (`lidar.rpm`) |
 | Local costmap | 10 Hz | `config/nav2_params.yaml` |
 | Global costmap | 2 Hz (published 1 Hz) | `config/nav2_params.yaml` |
 | Planner | 1 Hz | `config/nav2_params.yaml` |

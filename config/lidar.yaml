@@ -1,10 +1,17 @@
-# Canonical startup defaults. Deployment and explicit selection layer over these.
-lidar:
-  model: VLP16
+# The lidar, a Velodyne VLP16. Vessel facts are the vessel profile's (hw.sh profile; the profile
+# whose directory holds $ASTRO_NETWORK_ENV): the address, the model and the rpm the sensor is set
+# to. driver: is the rest of the driver pair (sensors.launch.py); lidar_deployment_file and
+# lidar_params_file lay driver: overrides over it, then velodyne_ip and velodyne_port.
+tune:
+  # Sim only (sensors.launch.py sim:=true): smear crane_ml's instantaneous /points over a VLP16
+  # sweep with the ground-truth motion (lidar_smear.py), so scans of a turning boat misalign as
+  # on the water and lidar_relay's deskew can be judged.
+  smear: false
+
+driver:
   frame: lidar_link
-  rpm: 600.0
   calibration:
     package: velodyne_pointcloud
     path: params/VLP16db.yaml
-  endpoint:   # ip: LIDAR_IP from the vessel's network env (ASTRO_NETWORK_ENV) (a layer or velodyne_ip may set it)
+  endpoint:
     port: 2368

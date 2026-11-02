@@ -16,7 +16,7 @@ R2_UNITS = {'s', 'Hz', 'm', 'm/s', 'rad', 'rad/s', 'm/s^2', 'count', 'bool', 'en
 PENDING_R2 = {'rad/s^2', 'ID:Hz', 'deg', 'm/s, m/s, rad/s', 'm/s^2, m/s^2, rad/s^2'}
 # Settable in a layer, but defaulted outside the package YAML (boat-network.env LIDAR_IP,
 # fence_file for the course area).
-NO_PACKAGE_DEFAULT = {'lidar.endpoint.ip', 'fence_watchdog.course.corners'}
+NO_PACKAGE_DEFAULT = {'lidar.driver.endpoint.ip', 'fence_watchdog.course.corners'}
 TYPES = {'float': (int, float), 'int': (int,), 'bool': (bool,), 'str': (str,),
          'list': (list,)}
 
@@ -30,6 +30,8 @@ def lookup(key):
         node = yaml.safe_load((ROOT / 'config' / (FILES[head] + '.yaml')).read_text())
     if head in ('controller_server', 'velocity_smoother', 'mavros_setup'):
         parts = [head, 'ros__parameters', *parts[1:]]
+    elif head == 'lidar':
+        parts = parts[1:]
     for part in parts:
         node = node[part]
     if node is None:

@@ -24,25 +24,25 @@ def share(tmp_path):
 def overlay(tmp_path, data):
     """Write a selected layer retaining explicit nulls and types."""
     path = tmp_path / 'selected.yaml'
-    path.write_text(yaml.safe_dump({'lidar': data}))
+    path.write_text(yaml.safe_dump({'driver': data}))
     return str(path)
 
 
 def test_defaults_deployment_selection_and_explicit_aliases(share, tmp_path):
     """Resolve the single authoritative endpoint plus an explicit deployment overlay."""
-    standalone = resolve_lidar(share=share, fallback_ip='192.168.0.201')
+    standalone = resolve_lidar(share=share)
     deployment = overlay(tmp_path, {'endpoint': {'ip': '192.168.7.9'}})
-    robot = resolve_lidar(deployment=deployment, share=share, fallback_ip='192.168.0.201')
+    robot = resolve_lidar(deployment=deployment, share=share)
     assert standalone['driver']['device_ip'] == '192.168.0.201'
-    assert standalone['origins']['lidar.endpoint.ip'] == 'boat-network.env LIDAR_IP'
-    assert robot['driver']['device_ip'] == '192.168.7.9'     # a YAML layer beats LIDAR_IP
+    assert standalone['origins']['lidar.endpoint.ip'] == 'vessel profile'
+    assert robot['driver']['device_ip'] == '192.168.7.9'     # a YAML layer beats the profile
     assert not (ROOT / 'config/lidar_robot.yaml').exists()
     selected = overlay(tmp_path, {'endpoint': {'ip': '10.1.2.3'}, 'rpm': 420})
     custom = resolve_lidar(selected, deployment,
                            {'velodyne_port': '1234', 'velodyne_ip': ''}, share=share)
     assert custom['driver']['device_ip'] == '10.1.2.3'
     assert custom['driver']['port'] == 1234
-    assert custom['driver']['rpm'] == 420.
+    assert custom['driver']['rpm'] == 600.                 # the profile's alone
     assert len(custom['sources']) == 3
     assert custom['calibration']['sha256']
 
@@ -50,6 +50,7 @@ def test_defaults_deployment_selection_and_explicit_aliases(share, tmp_path):
 @pytest.mark.parametrize('patch', [
     {'model': 'HDL64'}, {'frame': ''}, {'rpm': True},
     {'rpm': float('nan')}, {'rpm': 0}, {'rpm': -2}, {'endpoint': {'port': True}},
+    {'endpoint': 3},
     {'endpoint': {'port': 0}}, {'endpoint': {'port': 65536}}, {'endpoint': {'ip': 'bad'}},
     {'unknown': 3}, {'calibration': {'file': '/missing'}}])
 def test_invalid_selected_layer_refuses(share, tmp_path, patch):
@@ -61,7 +62,7 @@ def test_invalid_selected_layer_refuses(share, tmp_path, patch):
 def test_duplicate_and_missing_selected_refuse(share, tmp_path):
     """Reject duplicate explicit keys and nonexistent nonempty selections."""
     path = tmp_path / 'duplicate.yaml'
-    path.write_text('lidar: {rpm: 200, rpm: 300}')
+    path.write_text('driver: {rpm: 200, rpm: 300}')
     with pytest.raises(ValueError):
         resolve_lidar(path, share=share)
     with pytest.raises(OSError):
@@ -82,14 +83,13 @@ def test_custom_calibration_relative_origin_and_content_identity(share, tmp_path
     path = tmp_path / 'custom.yaml'
     path.write_bytes(raw)
     selected = overlay(tmp_path, {'calibration': {'file': 'custom.yaml'}})
-    result = resolve_lidar(selected, overrides={'velodyne_port': '1234'}, share=share,
-                           fallback_ip='192.168.0.201')
+    result = resolve_lidar(selected, overrides={'velodyne_port': '1234'}, share=share)
     assert result['transform']['calibration'] == str(path)
     assert result['calibration'] == {'path': str(path), 'sha256': sha256(raw).hexdigest()}
     assert result['origins']['lidar.calibration'] == str(Path(selected).resolve())
     assert result['origins']['lidar.endpoint.port'] == '<explicit>'
     path.write_bytes(raw.replace(b'distance_resolution: 0.002', b'distance_resolution: 0.003'))
-    changed = resolve_lidar(selected, share=share, fallback_ip='192.168.0.201')
+    changed = resolve_lidar(selected, share=share)
     assert changed['calibration']['sha256'] != sha256(raw).hexdigest()
 
 
@@ -138,14 +138,30 @@ def test_invalid_operator_endpoint_is_not_hidden_by_alias(share, tmp_path, endpo
 def test_unused_shadowed_calibration_only_requires_valid_reference(share, tmp_path):
     """Validate shadowed reference schema without reading an unconsumed file."""
     deployment = overlay(tmp_path, {'calibration': {'file': '/missing/unused-calibration'}})
-    result = resolve_lidar(ROOT / 'config/lidar.yaml', deployment, share=share,
-                           fallback_ip='192.168.0.201')
+    result = resolve_lidar(ROOT / 'config/lidar.yaml', deployment, share=share)
     assert result['transform']['calibration'].endswith('/params/VLP16db.yaml')
 
 
-def test_no_address_anywhere_is_a_clear_error(share):
+def test_no_address_anywhere_is_a_clear_error(share, boat_network_env):
     """No literal IP ships: without LIDAR_IP, a YAML layer or velodyne_ip the launch refuses."""
+    boat_network_env.write_text('')
     with pytest.raises(ValueError, match='set LIDAR_IP in .*boat-network.env'):
         resolve_lidar(share=share)
-    assert resolve_lidar(overrides={'velodyne_ip': '10.0.0.9'}, share=share,
-                         fallback_ip='192.168.0.201')['driver']['device_ip'] == '10.0.0.9'
+    assert resolve_lidar(overrides={'velodyne_ip': '10.0.0.9'},
+                         share=share)['driver']['device_ip'] == '10.0.0.9'
+
+
+def test_vessel_facts_are_the_profiles_and_a_layer_only_fills_in(share, tmp_path, caplog):
+    """The model and rpm come from the vessel profile; an old lidar: overlay still reads."""
+    old = tmp_path / 'old.yaml'
+    old.write_text('lidar: {rpm: 420, endpoint: {port: 1234}}')
+    result = resolve_lidar(str(old), share=share)
+    assert result['driver']['rpm'] == 600. and result['driver']['port'] == 1234
+    assert result['origins']['lidar.rpm'] == 'vessel profile'
+    assert 'driver:' in caplog.text and 'comes from the vessel profile; ignored' in caplog.text
+    bare = resolve_lidar(str(old), share=share, profile={'lidar.endpoint.ip': '10.0.0.1',
+                                                         'lidar.model': 'VLP16'})
+    assert bare['driver']['rpm'] == 420.                  # no profile rpm: the layer's
+    with pytest.raises(ValueError, match="no lidar rpm: the vessel profile's"):
+        resolve_lidar(share=share, profile={'lidar.endpoint.ip': '10.0.0.1',
+                                            'lidar.model': 'VLP16'})
