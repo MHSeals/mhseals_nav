@@ -226,6 +226,8 @@ source install/setup.bash
 colcon test --packages-select mhseals_nav mhseals_hardware
 colcon test-result --verbose
 
+src/mhseals_nav/smoke.sh   # the landing gate: config parse and pure-python units, < 60 s, no ROS
+
 ros2 node list
 ros2 topic hz /odom/local
 ros2 topic hz /points
