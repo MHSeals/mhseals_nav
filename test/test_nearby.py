@@ -35,6 +35,17 @@ def test_xyz_without_float_xyz_is_empty():
     assert xyz(cloud([])).shape == (0, 3)
 
 
+def test_xyz_of_a_malformed_cloud_is_empty():
+    short_rows = cloud([(1, 2, 3), (4, 5, 6)])
+    short_rows.row_step = 8
+    short_data = cloud([(1, 2, 3)])
+    short_data.data = short_data.data[:-1]
+    past_step = cloud([(1, 2, 3)])
+    past_step.fields[2].offset = 14
+    for msg in (short_rows, short_data, past_step):
+        assert xyz(msg).shape == (0, 3)
+
+
 def test_sectors_start_at_the_bow_and_go_clockwise():
     body = numpy.array([[5.0, 0.0, 0.0],      # dead ahead: sector 0
                         [0.0, -3.0, 0.0],     # starboard beam: 90 deg, sector 4

@@ -22,13 +22,20 @@ import numpy
 FLOATS = {7: 'f4', 8: 'f8'}   # PointField FLOAT32, FLOAT64
 
 
+def datatype_size(field):
+    return numpy.dtype(FLOATS[field.datatype]).itemsize
+
+
 def xyz(cloud):
     """(N, 3) float64 finite x, y, z of a PointCloud2; empty without float x, y and z."""
     fields = {f.name: f for f in cloud.fields}
     if any(fields.get(n) is None or fields[n].datatype not in FLOATS for n in 'xyz'):
         return numpy.empty((0, 3))
     step, width, height = cloud.point_step, cloud.width, cloud.height
-    if step <= 0 or not width * height or len(cloud.data) < height * cloud.row_step:
+    if (step <= 0 or not width * height or cloud.row_step < width * step
+            or len(cloud.data) < height * cloud.row_step
+            or any(fields[n].offset < 0 or fields[n].offset + datatype_size(fields[n]) > step
+                   for n in 'xyz')):
         return numpy.empty((0, 3))
     order = '>' if cloud.is_bigendian else '<'
     layout = numpy.dtype({'names': list('xyz'),
