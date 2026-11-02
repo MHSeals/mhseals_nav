@@ -412,8 +412,14 @@ def load_fence(cfg):
 def node_class():
     import json
     import time
-    from geometry_msgs.msg import Point
+    from action_msgs.msg import GoalStatus
+    from geometry_msgs.msg import Point, PoseStamped
+    from nav2_msgs.action import NavigateToPose
+    from nav2_msgs.msg import SpeedLimit
     from nav_msgs.msg import Odometry
+    from rcl_interfaces.msg import ParameterDescriptor, SetParametersResult
+    from rclpy.action import ActionClient
+    from rclpy.parameter import Parameter
     from rclpy.qos import DurabilityPolicy, qos_profile_sensor_data, QoSProfile, ReliabilityPolicy
     from sensor_msgs.msg import NavSatFix, NavSatStatus
     from std_msgs.msg import ColorRGBA, String
@@ -429,20 +435,135 @@ def node_class():
                              reliability=ReliabilityPolicy.RELIABLE)
         fence = node.create_publisher(String, cfg['fence_topic'], latched)
         marker = node.create_publisher(Marker, cfg['marker_topic'], latched)
-        drawn = []
+        status = node.create_publisher(String, cfg['status_topic'], 10)
+        drawn, said = [], {'key': None, 'at': None}
 
         def publish_marker(now):
-            line = dog.outline(now)
-            if line is None or (drawn and drawn[-1] == line):
+            line, outside = dog.outline(now), dog.status(now)['inside'] is False
+            if line is None or (drawn and drawn[-1] == (line, outside)):
                 return
             msg = Marker(ns='fence', id=0, type=Marker.LINE_STRIP, action=Marker.ADD)
             msg.header.frame_id = cfg['marker_frame']      # stamp 0: rviz's latest TF
             msg.pose.orientation.w = 1.0
             msg.scale.x = float(cfg['marker_width'])
-            msg.color = ColorRGBA(**dict(zip('rgba', map(float, cfg['marker_color']))))
+            rgba = cfg['marker_outside_color'] if outside else cfg['marker_color']
+            msg.color = ColorRGBA(**dict(zip('rgba', map(float, rgba))))
             msg.points = [Point(x=x, y=y) for x, y in line]
             marker.publish(msg)
-            drawn[:] = [line]
+            drawn[:] = [(line, outside)]
+
+        def report(force=False):
+            """status_topic at status_rate and on a change (the distance aside)."""
+            try:
+                now = time.monotonic()
+                body = dog.status(now)
+                key = dict(body, distance_to_edge=None)
+                if force or key != said['key'] or now - said['at'] >= 1.0 / cfg['status_rate']:
+                    status.publish(String(data=json.dumps(body)))
+                    if key['inside'] != (said['key'] or {}).get('inside'):
+                        publish_marker(now)
+                    said.update(key=key, at=now)
+                drain()
+            except Exception as error:      # noqa: BLE001 - logged, the hold timer goes on
+                node.get_logger().error(f'fence status failed: {error}',
+                                        throttle_duration_sec=10.0)
+        node.create_timer(1.0 / cfg['rate_hz'], report)
+
+        # on_exit: return. One goal at a time; results of a goal given up are ignored.
+        to_pose = ActionClient(node, NavigateToPose, cfg['return_action'])
+        limit = node.create_publisher(SpeedLimit, cfg['speed_limit_topic'], 10)
+        goal = {'n': 0, 'handle': None}
+
+        def go(x, y, yaw):
+            goal['n'] += 1
+            n = goal['n']
+            if not to_pose.server_is_ready():
+                dog.return_result(time.monotonic(), f"rejected: no {cfg['return_action']} server")
+                return
+            limit.publish(SpeedLimit(percentage=False, speed_limit=float(cfg['return_speed'])))
+            pose = PoseStamped()
+            pose.header.frame_id = cfg['marker_frame']
+            pose.header.stamp = node.get_clock().now().to_msg()
+            pose.pose.position.x, pose.pose.position.y = float(x), float(y)
+            pose.pose.orientation.z, pose.pose.orientation.w = math.sin(yaw / 2), math.cos(yaw / 2)
+
+            def accepted(future):
+                handle = future.result()
+                if n != goal['n']:
+                    if handle is not None and handle.accepted:
+                        handle.cancel_goal_async()
+                    return
+                if handle is None or not handle.accepted:
+                    dog.return_result(time.monotonic(), 'rejected')
+                    return
+                goal['handle'] = handle
+                handle.get_result_async().add_done_callback(lambda r: ended(n, r))
+            to_pose.send_goal_async(NavigateToPose.Goal(pose=pose)).add_done_callback(accepted)
+
+        def ended(n, future):
+            if n != goal['n']:
+                return
+            goal['handle'] = None
+            result = future.result()
+            ok = result is not None and result.status == GoalStatus.STATUS_SUCCEEDED
+            dog.return_result(time.monotonic(), 'succeeded' if ok else 'aborted or replaced')
+
+        def cancel():
+            goal['n'] += 1
+            if goal['handle'] is not None:
+                goal['handle'].cancel_goal_async()
+                goal['handle'] = None
+            limit.publish(SpeedLimit(percentage=False, speed_limit=0.0))   # lifts the cap
+
+        def drain():
+            orders, dog.orders = dog.orders, []
+            for order, arg in orders:
+                if order == 'go':
+                    node.get_logger().warning(
+                        f'outside the fence: returning to {arg[0]:.1f}, {arg[1]:.1f} '
+                        f"({cfg['marker_frame']}) at {cfg['return_speed']} m/s")
+                    go(*arg)
+                elif order == 'cancel':
+                    node.get_logger().info(f'fence return over: {arg}')
+                    cancel()
+                else:
+                    node.get_logger().error(f'fence return failed: {arg}; holding (alert)')
+
+        # Live: course.corners (lat/lon course area) and on_exit, validated together.
+        corners = dog.cfg['fence_points'] if dog.frame == 'latlon' and dog.poly else None
+        if not node.has_parameter('course.corners'):
+            node.declare_parameter(
+                'course.corners',
+                [float(v) for v in corners] if corners else Parameter.Type.DOUBLE_ARRAY,
+                ParameterDescriptor(description='lat/lon course area [lat1, lon1, ...]'))
+        if not node.has_parameter('on_exit'):
+            node.declare_parameter('on_exit', dog.cfg['on_exit'],
+                                   ParameterDescriptor(description='alert | return'))
+
+        def on_set(params):
+            wanted = {p.name: p.value for p in params}
+            whys = []
+            if 'course.corners' in wanted:
+                why = problem('latlon', wanted['course.corners'])
+                whys += [f'course.corners: {why}'] if why else []
+            if 'on_exit' in wanted and wanted['on_exit'] not in ON_EXIT:
+                whys.append(f"on_exit: {wanted['on_exit']!r} is neither alert nor return")
+            if whys:
+                node.get_logger().warning(f"fence change refused: {'; '.join(whys)}")
+                return SetParametersResult(successful=False, reason='; '.join(whys))
+            if 'course.corners' in wanted:
+                dog.set_corners(wanted['course.corners'])
+                node.get_logger().warning(
+                    f"course area set: {len(dog.poly)} corners {list(wanted['course.corners'])}")
+                drawn.clear()
+            if 'on_exit' in wanted:
+                dog.set_on_exit(wanted['on_exit'])
+                node.get_logger().warning(f"on_exit: {wanted['on_exit']}")
+            if wanted.keys() & {'course.corners', 'on_exit'}:
+                publish_fence()
+                report(force=True)
+            return SetParametersResult(successful=True)
+        node.add_on_set_parameters_callback(on_set)
 
         def publish_fence():     # its own timer: a failure here never touches the holds
             try:
@@ -469,27 +590,24 @@ def node_class():
             node.get_logger().error(f"no valid fence (fence_file {cfg['fence_file']!r}): "
                                     'autonomy will be held')
         else:
-            node.get_logger().info(f'fence: {len(dog.poly)} vertices in {dog.frame}')
+            node.get_logger().info(f"fence: {len(dog.poly)} vertices in {dog.frame}, "
+                                   f"on_exit {dog.cfg['on_exit']}")
 
         def on_odom(msg):
             q = msg.pose.pose.orientation
             yaw = math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z))
             now = time.monotonic()
             dog.motion(now, yaw, msg.twist.twist.linear.x, msg.twist.twist.linear.y)
-            x, y = msg.pose.pose.position.x, msg.pose.pose.position.y
-            dog.map_position(now, x, y)
-            if dog.frame == 'map':
-                dog.position(now, x, y)
+            dog.map_position(now, msg.pose.pose.position.x, msg.pose.pose.position.y)
 
         def on_fix(msg):
             if msg.status.status >= NavSatStatus.STATUS_FIX and \
                     math.isfinite(msg.latitude) and math.isfinite(msg.longitude):
-                dog.position(time.monotonic(), msg.latitude, msg.longitude)
+                dog.fix(time.monotonic(), msg.latitude, msg.longitude)
 
         node.create_subscription(Odometry, cfg['odom_topic'], on_odom, qos_profile_sensor_data)
-        if dog.frame == 'latlon':
-            node.create_subscription(NavSatFix, cfg['gps_topic'], on_fix,
-                                     qos_profile_sensor_data)
+        # Whatever the frame: a course area set live (course.corners) needs the fix at once.
+        node.create_subscription(NavSatFix, cfg['gps_topic'], on_fix, qos_profile_sensor_data)
 
     return watchdog_class('fence_watchdog', 'fence_watchdog.yaml', logic, subscribe)
 

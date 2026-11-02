@@ -542,3 +542,121 @@ def test_node_anchor_service_moves_the_latched_marker():
         assert [(p.x, p.y) for p in markers[-1].points][0] == (10.0, 20.0)
     finally:
         rclpy.try_shutdown()
+
+
+def test_node_course_corners_on_exit_status_and_red_marker():
+    rclpy = pytest.importorskip('rclpy')
+    from nav_msgs.msg import Odometry
+    from rclpy.executors import SingleThreadedExecutor
+    from rclpy.parameter import Parameter
+    from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
+    from sensor_msgs.msg import NavSatFix
+    from std_msgs.msg import String
+    from visualization_msgs.msg import Marker
+    from ros_domain import require_isolated_domain
+    require_isolated_domain()
+    from mhseals_nav.fence_watchdog import node_class
+    rclpy.init()
+    try:
+        dog = node_class()(parameter_overrides=[
+            Parameter('fence_file', value=''), Parameter('fence_frame', value='map'),
+            Parameter('fence_points', value=BOX)])
+        probe = rclpy.create_node('fence_course_probe')
+        latched = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL,
+                             reliability=ReliabilityPolicy.RELIABLE)
+        statuses, markers = [], []
+        probe.create_subscription(String, CFG['status_topic'],
+                                  lambda m: statuses.append(json.loads(m.data)), 10)
+        probe.create_subscription(Marker, CFG['marker_topic'], markers.append, latched)
+        odom = probe.create_publisher(Odometry, CFG['odom_topic'], 10)
+        gps = probe.create_publisher(NavSatFix, CFG['gps_topic'], 10)
+        ex = SingleThreadedExecutor()
+        ex.add_node(dog)
+        ex.add_node(probe)
+
+        def spin(seconds, until, feed=None):
+            end = time.monotonic() + seconds
+            while time.monotonic() < end and not until():
+                if feed:
+                    feed()
+                ex.spin_once(timeout_sec=0.05)
+
+        spin(2.0, lambda: statuses)
+        assert statuses[-1]['frame'] == 'map' and statuses[-1]['corners'] == BOX
+        refused = dog.set_parameters_atomically([Parameter('course.corners', value=BOWTIE),
+                                                 Parameter('on_exit', value='return')])
+        assert not refused.successful and 'simple' in refused.reason
+        assert dog.logic.frame == 'map' and dog.get_parameter('on_exit').value == 'alert'
+        done = dog.set_parameters_atomically([Parameter('course.corners', value=LATLON),
+                                              Parameter('on_exit', value='return')])
+        assert done.successful
+        assert list(dog.get_parameter('course.corners').value) == LATLON
+        spin(2.0, lambda: statuses[-1]['corners'] == LATLON)
+        assert statuses[-1]['frame'] == 'latlon' and statuses[-1]['on_exit'] == 'return'
+
+        def feed():                     # east of the course area, no autonomy
+            fix = NavSatFix(latitude=42.0005, longitude=-70.9985)
+            fix.status.status = 0
+            gps.publish(fix)
+            msg = Odometry()
+            msg.pose.pose.orientation.w = 1.0
+            odom.publish(msg)
+        spin(3.0, lambda: statuses[-1]['inside'] is False and markers and
+             markers[-1].color.g == 0.0, feed)
+        assert statuses[-1]['inside'] is False and statuses[-1]['distance_to_edge'] > 30
+        assert (markers[-1].color.r, markers[-1].color.g) == (1.0, 0.0)
+        assert not statuses[-1]['returning']           # no autonomy: nothing to return
+    finally:
+        rclpy.try_shutdown()
+
+
+def test_node_return_sends_a_capped_goal_then_holds_when_it_ends_outside():
+    rclpy = pytest.importorskip('rclpy')
+    from geometry_msgs.msg import Twist
+    from nav2_msgs.action import NavigateToPose
+    from nav2_msgs.msg import SpeedLimit
+    from nav_msgs.msg import Odometry
+    from rclpy.action import ActionServer
+    from rclpy.executors import SingleThreadedExecutor
+    from rclpy.parameter import Parameter
+    from std_msgs.msg import String
+    from ros_domain import require_isolated_domain
+    require_isolated_domain()
+    from mhseals_nav.fence_watchdog import node_class
+    rclpy.init()
+    try:
+        dog = node_class()(parameter_overrides=[
+            Parameter('fence_file', value=''), Parameter('fence_frame', value='map'),
+            Parameter('fence_points', value=BOX), Parameter('on_exit', value='return')])
+        probe = rclpy.create_node('fence_return_probe')
+        goals, limits, holds = [], [], []
+
+        def execute(handle):            # Nav2 stand-in: done at once, the boat still outside
+            goals.append(handle.request.pose)
+            handle.succeed()
+            return NavigateToPose.Result()
+        ActionServer(probe, NavigateToPose, CFG['return_action'], execute)
+        probe.create_subscription(SpeedLimit, CFG['speed_limit_topic'],
+                                  lambda m: limits.append(m.speed_limit), 10)
+        probe.create_subscription(String, CFG['request_topic'],
+                                  lambda m: holds.append(json.loads(m.data)), 10)
+        cmd = probe.create_publisher(Twist, CFG['command_topic'], 10)
+        odom = probe.create_publisher(Odometry, CFG['odom_topic'], 10)
+        ex = SingleThreadedExecutor()
+        ex.add_node(dog)
+        ex.add_node(probe)
+        end = time.monotonic() + 3.0
+        while time.monotonic() < end and not (goals and holds and 0.0 in limits):
+            msg = Odometry()
+            msg.pose.pose.position.x, msg.pose.pose.position.y = 104.0, 25.0
+            msg.pose.pose.orientation.w = 1.0
+            odom.publish(msg)
+            cmd.publish(Twist())
+            ex.spin_once(timeout_sec=0.05)
+        pose = goals[0].pose
+        assert (pose.position.x, pose.position.y) == (100.0 - CFG['return_inset'], 25.0)
+        assert goals[0].header.frame_id == CFG['marker_frame']
+        assert limits[0] == CFG['return_speed'] and 0.0 in limits     # capped, then lifted
+        assert holds and holds[0]['op'] == 'hold' and holds[0]['cause'] == 'geofence'
+    finally:
+        rclpy.try_shutdown()
