@@ -93,22 +93,7 @@
     timeout: {static: 900.0, moving: 3.0, unknown: 10.0}
     miss_in_fov_s: 5.0
     fov: {hfov_deg: 110.0, range_m: 20.0}   # mirrors the backend YAML
-    # Disc radius per class (m), copied from mhseals_testing/config/minimap.yaml.
-    radius:
-      default: 0.20
-      red_pole_buoy: 0.25
-      red_buoy: 0.20
-      red_light_buoy: 0.25
-      green_pole_buoy: 0.25
-      green_buoy: 0.20
-      green_light_buoy: 0.25
-      yellow_buoy: 0.20
-      black_buoy: 0.20
-      blue_buoy: 0.30
-      yellow_target_boat: 0.60
-      black_target_boat: 0.60
-      black_triangle: 0.30
-      black_cross: 0.30
+    # Disc radius per class: config/classes.yaml (the one class list).
     grid:
       topic: /perception/track_grid
       size_m: 24.0

@@ -1,0 +1,19 @@
+# The object classes: one list for the detector, the tracker, lidar fusion, the tasks and the
+# TUI's minimap. id is the detector's model_class_id (custom_object_detection.yaml's class_NNN
+# follow it); radius is the disc the tracker, its track grid and lidar fusion give the class.
+# The tracker's class groups (tracker.yaml class_groups) match these names by pattern.
+default_radius: 0.20              # a class not listed
+classes:
+  black_buoy:         {id: 0, radius: 0.20}
+  black_cross:        {id: 1, radius: 0.30}
+  black_target_boat:  {id: 2, radius: 0.60}
+  black_triangle:     {id: 3, radius: 0.30}
+  blue_buoy:          {id: 4, radius: 0.30}
+  green_buoy:         {id: 5, radius: 0.20}
+  green_light_buoy:   {id: 6, radius: 0.25}
+  green_pole_buoy:    {id: 7, radius: 0.25}
+  red_buoy:           {id: 8, radius: 0.20}
+  red_light_buoy:     {id: 9, radius: 0.25}
+  red_pole_buoy:      {id: 10, radius: 0.25}
+  yellow_buoy:        {id: 11, radius: 0.20}
+  yellow_target_boat: {id: 12, radius: 0.60}

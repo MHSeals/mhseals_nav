@@ -31,6 +31,7 @@ from mhseals_nav.perception_status import StageClock, status
 from mhseals_nav.track_filter import (
     MOTION_NAMES, MOTION_STATIC, SOURCE_LIVE, SOURCE_PRIOR, TrackFilter, stamp_of)
 from mhseals_nav.tracker_markers import observation_markers, track_markers
+from mhseals_nav import classes
 from mhseals_nav.yaml_params import node_config
 
 RELIABLE = QoSProfile(depth=1, reliability=QoSReliabilityPolicy.RELIABLE)
@@ -55,7 +56,7 @@ def unpack(transform):
 class ObjectTracker(Node):
     def __init__(self):
         super().__init__('object_tracker', automatically_declare_parameters_from_overrides=True)
-        self.cfg = cfg = node_config(self, 'tracker.yaml')
+        self.cfg = cfg = classes.with_radius(node_config(self, 'tracker.yaml'))
         self.odom, self.map, self.base = cfg['tracking_frame'], cfg['map_frame'], cfg['base_frame']
         self.filter = TrackFilter(cfg)
         self.heading = HeadingCheck(cfg['heading_check'])

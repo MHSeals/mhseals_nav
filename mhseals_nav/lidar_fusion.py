@@ -18,6 +18,8 @@ import time
 
 import numpy as np
 
+from mhseals_nav import classes
+
 DEG = math.pi / 180
 UP = np.array([0.0, -1.0, 0.0])                  # optical axes
 BODY_TO_OPTICAL = np.array([[0.0, -1.0, 0.0], [0.0, 0.0, -1.0], [1.0, 0.0, 0.0]])
@@ -395,7 +397,7 @@ class Context:
         # Without camera_info no box is usable: rows go box-less (stereo tangential variance).
         self.has_K = K is not None
         self.cfg, self.K, self.image, self.A = cfg, K or (1, 1, 0, 0), image, A
-        self.meas, self.radii = tracker['meas'], tracker['radius']
+        self.meas, self.radii = tracker['meas'], classes.with_radius(tracker)['radius']
         self.e_mc, self.se_yaw = e_mc, se_yaw
 
     def radius(self, class_id):
@@ -914,7 +916,7 @@ class LidarFusion(Node):
         from mhseals_nav.yaml_params import node_config
         super().__init__('lidar_fusion', automatically_declare_parameters_from_overrides=True)
         self.cfg = cfg = node_config(self, 'lidar_fusion.yaml')
-        self.tracker = load_yaml('tracker.yaml')
+        self.tracker = classes.with_radius(load_yaml('tracker.yaml'))
         self.tf = Buffer()
         self.tf_listener = TransformListener(self.tf, self)
         self.K = self.image = None

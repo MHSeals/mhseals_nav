@@ -7,8 +7,10 @@ from types import SimpleNamespace as NS
 import numpy as np
 import yaml
 
-CFG = yaml.safe_load((Path(__file__).parents[1] / 'config/tracker.yaml').read_text())[
-    '/**']['ros__parameters']
+from mhseals_nav.classes import with_radius
+
+CFG = with_radius(yaml.safe_load((Path(__file__).parents[1] / 'config/tracker.yaml').read_text())[
+    '/**']['ros__parameters'])
 
 
 def ob(cls, x, y, backend_id='', score=0.9, velocity=None):
