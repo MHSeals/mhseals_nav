@@ -39,6 +39,7 @@ set(ENTRY_POINTS
   costmap_watchdog=costmap_watchdog
   approach_guard=approach_guard
   nearest_obstacle=nearest_obstacle
+  nearby=nearby
   link_watchdog=link_watchdog
   fence_watchdog=fence_watchdog
   fcu_watchdog=fcu_watchdog

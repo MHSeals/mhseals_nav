@@ -35,6 +35,14 @@ def lidar_smear_enabled():
         return bool(yaml.safe_load(f)['enabled'])
 
 
+def nearby_node(sim):
+    """/perception/nearby beside the lidar: /points summarized for the TUI."""
+    config = PathJoinSubstitution(
+        [FindPackageShare('mhseals_nav'), 'config', 'nearest_obstacle.yaml'])
+    return Node(package='mhseals_nav', executable='nearby', output='screen',
+                parameters=[config, {'use_sim_time': sim}])
+
+
 def sensor_nodes(context):
     endpoints = endpoint_from_launch(context)
     sim = launch_boolean(LaunchConfiguration('sim').perform(context))
@@ -45,7 +53,7 @@ def sensor_nodes(context):
                         output='screen', parameters=[endpoints.unity_parameters],
                         remappings=[('/points', '/points/instant')] if smear else [])
         return [endpoint] + ([Node(package='mhseals_nav', executable='lidar_smear',
-                                   output='screen')] if smear else [])
+                                   output='screen')] if smear else []) + [nearby_node(sim)]
     if 'lidar' in [name.strip() for name in ignored]:
         return []
     selected = LaunchConfiguration('lidar_params_file').perform(context)
@@ -80,7 +88,8 @@ def sensor_nodes(context):
     )
 
     return [velodyne_driver_node, velodyne_pointcloud_node,
-            Node(package='mhseals_nav', executable='lidar_relay', output='screen')]
+            Node(package='mhseals_nav', executable='lidar_relay', output='screen'),
+            nearby_node(sim)]
 
 
 def generate_launch_description():

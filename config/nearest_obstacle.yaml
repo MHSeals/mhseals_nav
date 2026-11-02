@@ -14,3 +14,13 @@
     lethal: 100              # OccupancyGrid value of a lethal cell
     max_age_s: 1.0           # receipt age of the costmap (5 Hz) and stamp age of the TF
     rate_hz: 5.0
+    # nearby (sensors part, beside the lidar): /points summarized for the TUI as JSON on topic,
+    # the nearest range per sector from the bow clockwise, the hull above plus hull_margin left out.
+    nearby:
+      cloud_topic: /points
+      topic: /perception/nearby
+      sectors: 16
+      rate: 5.0              # Hz at most; nothing without a new cloud
+      min_height: -0.10      # base_link z band, as the perception costmap's lidar marks
+      max_height: 3.0
+      hull_margin: 0.1       # the hull's own returns and spray at its side

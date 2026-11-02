@@ -44,7 +44,9 @@ def test_simulation_never_constructs_physical_nodes(sim):
         'sim': sim, 'sensors_ignore': '', 'lidar_params_file': '',
         'lidar_deployment_file': '', 'lidar_required_frame': '',
         'velodyne_ip': '10.2.3.4', 'velodyne_port': ''})
-    assert [n['package'] for n in nodes] == ['ros_tcp_endpoint']
+    assert [(n['package'], n['executable']) for n in nodes] == [
+        ('ros_tcp_endpoint', 'default_server_endpoint'), ('mhseals_nav', 'nearby')]
+    assert nodes[-1]['parameters'][1] == {'use_sim_time': True}
 
 
 @pytest.mark.parametrize('sim', ['false', '0', 'False'])
@@ -54,8 +56,9 @@ def test_physical_selection_and_configured_ip(sim, share):
         'sim': sim, 'sensors_ignore': '', 'lidar_params_file': '',
         'lidar_deployment_file': '', 'lidar_required_frame': '',
         'velodyne_ip': '10.2.3.4', 'velodyne_port': ''})
-    assert [n['package'] for n in nodes] == [
-        'velodyne_driver', 'velodyne_pointcloud', 'mhseals_nav']
+    assert [n['executable'] for n in nodes] == [
+        'velodyne_driver_node', 'velodyne_transform_node', 'lidar_relay', 'nearby']
+    assert nodes[-1]['parameters'][1] == {'use_sim_time': False}
     assert nodes[0]['parameters'][0]['device_ip'] == '10.2.3.4'
     assert factory()['sensor_nodes']({'sim': sim, 'sensors_ignore': ' lidar '}) == []
 
@@ -76,7 +79,8 @@ def test_simulation_lidar_smear_follows_the_config(enabled):
     if enabled:
         assert endpoint['remappings'] == [('/points', '/points/instant')]
         assert [(n['package'], n['executable']) for n in nodes] == [
-            ('ros_tcp_endpoint', 'default_server_endpoint'), ('mhseals_nav', 'lidar_smear')]
+            ('ros_tcp_endpoint', 'default_server_endpoint'), ('mhseals_nav', 'lidar_smear'),
+            ('mhseals_nav', 'nearby')]
     else:
         assert endpoint['remappings'] == []
-        assert [n['package'] for n in nodes] == ['ros_tcp_endpoint']
+        assert [n['executable'] for n in nodes] == ['default_server_endpoint', 'nearby']
