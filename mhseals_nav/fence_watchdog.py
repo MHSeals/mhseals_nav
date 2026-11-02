@@ -590,7 +590,7 @@ def node_class():
             node.get_logger().error(f"no valid fence (fence_file {cfg['fence_file']!r}): "
                                     'autonomy will be held')
         else:
-            node.get_logger().info(f"fence: {len(dog.poly)} vertices in {dog.frame}, "
+            node.get_logger().info(f'fence: {len(dog.poly)} vertices in {dog.frame}, '
                                    f"on_exit {dog.cfg['on_exit']}")
 
         def on_odom(msg):
