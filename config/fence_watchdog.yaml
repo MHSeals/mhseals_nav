@@ -2,7 +2,8 @@
 # and the FCU does not drive the thrusters). While autonomy commands flow and the boat is
 # outside the fence, or within margin_m of its edge and moving outward faster than
 # outward_speed_mps or facing within outward_angle_deg of the outward normal, it requests a
-# command_mux hold; it never releases (the operator clears it with U).
+# command_mux hold. The operator clears it with U; it releases its own hold once inside again
+# for release_after with the FCU disarmed (armed, it stays until U).
 # No valid fence, or position or odometry older than max_age_s, holds as well.
 #
 # The fence is the day's course area in fence_file (plain YAML, it overrides fence_frame and
@@ -31,4 +32,7 @@
     fence_topic: /fence_watchdog/fence # latched JSON: this fence in its own frame (latlon or map), the margin
     fence_rate_hz: 1.0                 #   rules, for the TUI's goal gates (one source)
     repeat_s: 1.0
+    release_after: 3.0                 # s clear, FCU disarmed: release its own hold
+    fcu_state_topic: /mavros/state
+    fcu_state_max_age: 3.0             # s; older armed state counts as armed
     rate_hz: 10.0

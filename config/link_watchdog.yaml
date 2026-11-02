@@ -1,7 +1,8 @@
 # link_watchdog (B): a lost operator link must not leave autonomy driving (FS_GCS_ENABLE=0).
 # The operator station publishes its host name on heartbeat_topic at ~2 Hz. While
 # autonomy commands flow and the newest heartbeat is older than max_age_s, it requests a
-# command_mux hold; it never releases (the operator clears it with U once the link is back).
+# command_mux hold. The operator clears it with U; it releases its own hold once the link has
+# been back for release_after with the FCU disarmed (armed, it stays until U).
 # Only beats naming one of operator_hosts count, never one naming B itself (a TUI on B over
 # SSH or tmux is not the operator). Enforced once a heartbeat has arrived this session;
 # require_operator also holds before the first one, since on the water an operator who never
@@ -21,4 +22,7 @@
     mux_state_topic: /command_mux/state # its input says what auto reaches
     mux_state_max_age_s: 2.5           # the mux republishes >= 1 Hz; older counts every command
     repeat_s: 1.0
+    release_after: 3.0                 # s clear, FCU disarmed: release its own hold
+    fcu_state_topic: /mavros/state
+    fcu_state_max_age: 3.0             # s; older armed state counts as armed
     rate_hz: 10.0

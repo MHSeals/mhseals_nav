@@ -3,7 +3,10 @@
 Each watches one condition. While it is bad and autonomy commands flow (an auto command
 within command_window_s), the watchdog asks command_mux for a hold with its own cause and
 token, and asks again every repeat_s, so a release while the condition is still bad is held
-again. It never releases: the operator clears holds. An auto command counts whatever its
+again. The operator clears holds (U clears them all); with release_after set, a watchdog
+also releases its own hold (its token, nobody else's) once its condition has been clear that
+long and the FCU reports disarmed on fcu_state_topic. Armed, or FCU state unknown or older
+than fcu_state_max_age, it never releases itself. An auto command counts whatever its
 value (a zero is station-keeping), except while the mux's own ~/state says an input that
 outranks auto has it (rc, manual or a hold): then the command reaches nothing, so it is not
 autonomy, and neither is a command received then once the mux has gone idle. Holds, the
@@ -51,6 +54,11 @@ class HoldGate:
         self.mux_at = None
         self.sent_at = None
         self.owed = False        # a hold due under rc/manual, still to send (transient causes)
+        self.mux_causes = None   # the hold causes the mux reports, None when unread
+        self.holding = False     # a hold of ours went out and has not been released since
+        self.clear_at = None     # since when the condition has been clear while holding
+        self.armed = None        # the FCU's armed flag, None when unknown
+        self.armed_at = None
 
     def reason(self, now):
         raise NotImplementedError
@@ -67,11 +75,42 @@ class HoldGate:
     def mux(self, now, state):
         """Note a command_mux ~/state (its JSON); one that can't be read is unknown."""
         try:
-            source = json.loads(state)['input']
+            body = json.loads(state)
+            source = body['input']
         except (ValueError, TypeError, KeyError):
-            source = None
+            body, source = {}, None
         self.mux_input = source if isinstance(source, str) else None
         self.mux_at = now
+        try:
+            self.mux_causes = {h['cause'] for h in body['holds']}
+        except (KeyError, TypeError):
+            self.mux_causes = None
+
+    def fcu(self, now, armed):
+        """Note the FCU's armed flag (its MAVROS state)."""
+        self.armed, self.armed_at = bool(armed), now
+
+    def disarmed(self, now):
+        limit = self.cfg.get('fcu_state_max_age')
+        return self.armed is False and limit is not None and fresh(self.armed_at, now, limit)
+
+    def release(self, now):
+        """Return True when our own hold should be released now (see release_after)."""
+        after = self.cfg.get('release_after')
+        if not self.holding or after is None:
+            return False
+        if self.reason(now) or self.owed:
+            self.clear_at = None
+            return False
+        if self.clear_at is None:
+            self.clear_at = now
+        if now - self.clear_at < after or not self.disarmed(now):
+            return False
+        self.holding, self.clear_at = False, None
+        # Checked only now, well after the last hold went out, so the state has caught up.
+        cleared = self.mux_known(now) and self.mux_causes is not None \
+            and self.cfg['cause'] not in self.mux_causes
+        return not cleared                # already cleared (U): nothing to send
 
     def mux_unknown(self):
         """Forget the mux state (its topic has other than one publisher)."""
@@ -108,6 +147,7 @@ class HoldGate:
             return False
         self.sent_at = now
         self.owed = False
+        self.holding, self.clear_at = True, None
         return True
 
 
@@ -140,6 +180,12 @@ def node_class(name, filename, logic, subscribe):
             self.create_subscription(String, cfg['mux_state_topic'], self.on_mux, QoSProfile(
                 depth=1, reliability=QoSReliabilityPolicy.RELIABLE,
                 durability=QoSDurabilityPolicy.TRANSIENT_LOCAL))
+            if cfg.get('release_after') is not None:
+                from mavros_msgs.msg import State
+                from rclpy.qos import qos_profile_sensor_data
+                self.create_subscription(
+                    State, cfg['fcu_state_topic'],
+                    lambda m: self.logic.fcu(time.monotonic(), m.armed), qos_profile_sensor_data)
             subscribe(self)
             self.create_timer(1.0 / cfg['rate_hz'], self.tick)
             self.status = self.create_publisher(String, '~/status', 10)
@@ -181,6 +227,13 @@ def node_class(name, filename, logic, subscribe):
                     throttle_duration_sec=5.0)
                 self.request.publish(String(data=json.dumps({
                     'op': 'hold', 'cause': self.cfg['cause'], 'by': name,
+                    'token': self.token})))
+            elif self.logic.release(now):
+                self.get_logger().info(
+                    f"clear for {self.cfg['release_after']} s and the FCU disarmed: "
+                    f"releasing my hold {self.cfg['cause']}")
+                self.request.publish(String(data=json.dumps({
+                    'op': 'release', 'cause': self.cfg['cause'], 'by': name,
                     'token': self.token})))
 
     return HoldWatchdog

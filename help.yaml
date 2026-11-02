@@ -81,7 +81,7 @@ commands:
   - name: watchdogs.launch
     run: ros2 launch mhseals_nav watchdogs.launch.py
     summary: The hold-only link, fence, FCU and EKF-input watchdogs (the odroid profile starts them).
-    notes: Each asks command_mux to hold while autonomy commands flow (an auto command the mux can forward, so not while rc, manual or a hold has it) and never releases; settings in config/<name>.yaml.
+    notes: Each asks command_mux to hold while autonomy commands flow (an auto command the mux can forward, so not while rc, manual or a hold has it); link and fence release their own hold once clear for release_after with the FCU disarmed; settings in config/<name>.yaml.
     params:
       - {name: sim, type: bool, default: false, description: Use simulation time.}
       - {name: require_operator, type: bool, description: link_watchdog holds before the first heartbeat; empty keeps YAML.}
