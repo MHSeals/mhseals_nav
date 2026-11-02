@@ -9,6 +9,10 @@ from /odom/global. No valid fence, or no fresh position or odometry, holds too.
 It also publishes the fence it enforces on fence_topic (latched JSON, see ``state``): the raw
 polygon in its own frame and the margin rules, so the TUI's goal gates check goals against this
 one source (a lat/lon fence in lat/lon, through navsat's toLL, never a translated copy).
+
+anchor_service (std_srvs/Trigger) re-anchors the fence at the boat any time (see ``anchor``);
+fence_topic then carries the moved points. marker_topic draws the fence for rviz, latched, in
+marker_frame.
 """
 
 from array import array
@@ -43,6 +47,39 @@ def project(origin, lat, lon):
     return ((lon - origin[1]) * k * math.cos(math.radians(origin[0])), (lat - origin[0]) * k)
 
 
+def reference(frame, points):
+    """The point the configured fence is anchored by: the map origin (where the boat started,
+    so the start of the test is the first anchoring) or, for an absolute lat/lon fence, the
+    vertex mean."""
+    if frame == 'map':
+        return (0.0, 0.0)
+    return (sum(points[::2]) / (len(points) // 2), sum(points[1::2]) / (len(points) // 2))
+
+
+def moved(points, ref, at):
+    """The flat vertex list translated so that ``ref`` lands on ``at`` (same frame)."""
+    da, db = at[0] - ref[0], at[1] - ref[1]
+    return [float(v) + (da if k % 2 == 0 else db) for k, v in enumerate(points)]
+
+
+def outline(frame, points, boat_raw=None, boat_map=None):
+    """Closed [(x, y), ...] of the fence in map, None when it cannot be placed there.
+
+    A map fence is its own points; a lat/lon one is placed through the boat, seen at once in
+    lat/lon (``boat_raw``) and in map (``boat_map``), east/north from the boat's fix.
+    """
+    if polygon(frame, points) is None:
+        return None
+    pairs = list(zip(points[::2], points[1::2]))
+    if frame == 'latlon':
+        if boat_raw is None or boat_map is None:
+            return None
+        pairs = [(boat_map[0] + e, boat_map[1] + n)
+                 for e, n in (project(boat_raw, lat, lon) for lat, lon in pairs)]
+    pairs = [(float(x), float(y)) for x, y in pairs]
+    return pairs + pairs[:1]
+
+
 def inside(p, poly):
     x, y = p
     result = False
@@ -66,7 +103,9 @@ class FenceWatchdog(HoldGate):
         super().__init__(cfg)
         self.frame = cfg['fence_frame']
         self.poly = polygon(self.frame, cfg.get('fence_points', []))
-        self.p, self.p_at = None, None
+        self.ref = reference(self.frame, cfg['fence_points']) if self.poly else None
+        self.p, self.p_at, self.raw = None, None, None
+        self.map_p, self.map_at = None, None
         self.yaw, self.v, self.motion_at = 0.0, (0.0, 0.0), None
         self.edge_m = None
 
@@ -76,7 +115,34 @@ class FenceWatchdog(HoldGate):
             return
         points = self.cfg['fence_points']
         self.p = project(points[:2], a, b) if self.frame == 'latlon' else (a, b)
-        self.p_at = now
+        self.p_at, self.raw = now, (a, b)
+
+    def map_position(self, now, x, y):
+        """The boat in map, which places a lat/lon fence's marker."""
+        self.map_p, self.map_at = (x, y), now
+
+    def anchor(self, now):
+        """Re-anchor the fence at the boat: (True, what) or (False, why not).
+
+        The configured shape moves so its reference (``reference``) sits at the boat, as the
+        start of the test placed it; margins, frame and shape stay as configured.
+        """
+        if self.poly is None:
+            return False, 'no valid fence configured'
+        if not fresh(self.p_at, now, self.cfg['max_age_s']):
+            return False, 'no boat position (missing or older than max_age_s)'
+        points = moved(self.cfg['fence_points'], self.ref, self.raw)
+        self.cfg = dict(self.cfg, fence_points=points)
+        self.poly, self.ref = polygon(self.frame, points), self.raw
+        self.position(self.p_at, *self.raw)       # the plane's origin moved with the fence
+        return True, f'fence anchored at {self.raw[0]:.7g}, {self.raw[1]:.7g} ({self.frame})'
+
+    def outline(self, now):
+        """The marker's closed outline in map (see ``outline``), None while not placeable."""
+        limit = self.cfg['max_age_s']
+        live = fresh(self.p_at, now, limit) and fresh(self.map_at, now, limit)
+        return outline(self.frame, self.cfg['fence_points'],
+                       self.raw if live else None, self.map_p if live else None)
 
     def motion(self, now, yaw, vx, vy):
         """Heading and body velocity; the velocity is rotated into the fence plane (ENU)."""
@@ -151,10 +217,13 @@ def load_fence(cfg):
 def node_class():
     import json
     import time
+    from geometry_msgs.msg import Point
     from nav_msgs.msg import Odometry
     from rclpy.qos import DurabilityPolicy, qos_profile_sensor_data, QoSProfile, ReliabilityPolicy
     from sensor_msgs.msg import NavSatFix, NavSatStatus
-    from std_msgs.msg import String
+    from std_msgs.msg import ColorRGBA, String
+    from std_srvs.srv import Trigger
+    from visualization_msgs.msg import Marker
 
     def logic(cfg):
         return FenceWatchdog(load_fence(cfg))
@@ -164,15 +233,43 @@ def node_class():
         latched = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL,
                              reliability=ReliabilityPolicy.RELIABLE)
         fence = node.create_publisher(String, cfg['fence_topic'], latched)
+        marker = node.create_publisher(Marker, cfg['marker_topic'], latched)
+        drawn = []
+
+        def publish_marker(now):
+            line = dog.outline(now)
+            if line is None or (drawn and drawn[-1] == line):
+                return
+            msg = Marker(ns='fence', id=0, type=Marker.LINE_STRIP, action=Marker.ADD)
+            msg.header.frame_id = cfg['marker_frame']      # stamp 0: rviz's latest TF
+            msg.pose.orientation.w = 1.0
+            msg.scale.x = float(cfg['marker_width'])
+            msg.color = ColorRGBA(**dict(zip('rgba', map(float, cfg['marker_color']))))
+            msg.points = [Point(x=x, y=y) for x, y in line]
+            marker.publish(msg)
+            drawn[:] = [line]
 
         def publish_fence():     # its own timer: a failure here never touches the holds
             try:
-                state = dog.state(time.monotonic(), node.get_clock().now().nanoseconds)
+                now = time.monotonic()
+                state = dog.state(now, node.get_clock().now().nanoseconds)
                 fence.publish(String(data=json.dumps(state)))
+                publish_marker(now)
             except Exception as error:      # noqa: BLE001 - logged, the hold timer goes on
                 node.get_logger().error(f'fence publish failed: {error}',
                                         throttle_duration_sec=10.0)
         node.create_timer(1.0 / cfg['fence_rate_hz'], publish_fence)
+
+        def on_anchor(_, response):
+            response.success, response.message = dog.anchor(time.monotonic())
+            if response.success:
+                node.get_logger().info(response.message)
+                drawn.clear()
+                publish_fence()
+            else:
+                node.get_logger().warning(f'fence anchor refused: {response.message}')
+            return response
+        node.create_service(Trigger, cfg['anchor_service'], on_anchor)
         if dog.poly is None:
             node.get_logger().error(f"no valid fence (fence_file {cfg['fence_file']!r}): "
                                     'autonomy will be held')
@@ -184,8 +281,10 @@ def node_class():
             yaw = math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z))
             now = time.monotonic()
             dog.motion(now, yaw, msg.twist.twist.linear.x, msg.twist.twist.linear.y)
+            x, y = msg.pose.pose.position.x, msg.pose.pose.position.y
+            dog.map_position(now, x, y)
             if dog.frame == 'map':
-                dog.position(now, msg.pose.pose.position.x, msg.pose.pose.position.y)
+                dog.position(now, x, y)
 
         def on_fix(msg):
             if msg.status.status >= NavSatStatus.STATUS_FIX and \

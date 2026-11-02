@@ -6,7 +6,7 @@ import math
 from pathlib import Path
 import time
 
-from mhseals_nav.fence_watchdog import FenceWatchdog, load_fence, polygon, project
+from mhseals_nav.fence_watchdog import FenceWatchdog, load_fence, outline, polygon, project
 import pytest
 import yaml
 
@@ -177,6 +177,79 @@ def test_state_of_a_lat_lon_fence_is_its_raw_lat_lon_whatever_the_position():
         dog.position(0.0, 42.0005, -70.9995)
 
 
+LATLON = [42.0, -71.0, 42.0, -70.999, 42.001, -70.999, 42.001, -71.0]
+
+
+def test_anchor_moves_a_map_fence_as_the_start_placed_it():
+    dog = FenceWatchdog(MAP)
+    assert dog.anchor(0.0) == (False, 'no boat position (missing or older than max_age_s)')
+    at(dog, 0.0, 10.0, 20.0)
+    ok, message = dog.anchor(0.0)
+    assert ok and 'fence anchored at 10, 20 (map)' == message
+    assert dog.cfg['fence_points'] == [10.0, 20.0, 110.0, 20.0, 110.0, 70.0, 10.0, 70.0]
+    assert dog.state(0.0)['points'] == dog.cfg['fence_points']
+    assert MAP['fence_points'] == BOX                       # the package config is untouched
+    assert dog.reason(0.0) == 'on the fence'                # BOX's corner is the origin
+    at(dog, 0.5, 105.0, 50.0)                               # outside the old box, in the new
+    assert dog.reason(0.5) == ''
+    at(dog, 1.0, 5.0, 50.0)                                 # in the old box, out of the new
+    assert dog.reason(1.0) == 'outside the fence'
+    at(dog, 1.5, 15.0, 25.0)                                # anchoring again is relative too
+    assert dog.anchor(1.5)[0]
+    assert dog.cfg['fence_points'][:2] == [15.0, 25.0]
+
+
+def test_anchor_refuses_without_a_fresh_position_or_a_fence():
+    dog = FenceWatchdog(MAP)
+    at(dog, 0.0, 10.0, 20.0)
+    ok, why = dog.anchor(CFG['max_age_s'] + 0.01)
+    assert not ok and 'no boat position' in why and dog.cfg['fence_points'] == BOX
+    dog = FenceWatchdog(dict(MAP, fence_points=[]))
+    at(dog, 0.0, 10.0, 20.0)
+    assert dog.anchor(0.0) == (False, 'no valid fence configured')
+
+
+def test_anchor_centres_a_lat_lon_fence_on_the_boat():
+    dog = FenceWatchdog(dict(CFG, fence_frame='latlon', fence_points=LATLON))
+    boat = (42.1, -71.2)
+    at(dog, 0.0, *boat)
+    assert dog.reason(0.0) == 'outside the fence'
+    assert dog.anchor(0.0)[0]
+    points = dog.cfg['fence_points']
+    assert sum(points[::2]) / 4 == pytest.approx(boat[0])
+    assert sum(points[1::2]) / 4 == pytest.approx(boat[1])
+    assert [b - a for a, b in zip(points, points[2:])] == pytest.approx(
+        [b - a for a, b in zip(LATLON, LATLON[2:])])          # same shape
+    assert dog.state(0.0)['frame'] == 'latlon' and dog.state(0.0)['points'] == points
+    at(dog, 0.5, *boat)
+    assert dog.reason(0.5) == ''
+
+
+def test_outline_of_a_map_fence_is_its_closed_points():
+    assert outline('map', BOX) == [(0.0, 0.0), (100.0, 0.0), (100.0, 50.0), (0.0, 50.0),
+                                   (0.0, 0.0)]
+    assert outline('map', BOX[:-1]) is None and outline('utm', BOX) is None
+    dog = FenceWatchdog(MAP)
+    assert dog.outline(0.0) == outline('map', BOX)          # no position needed
+    at(dog, 0.0, 10.0, 20.0)
+    dog.anchor(0.0)
+    assert dog.outline(100.0)[0] == (10.0, 20.0)
+
+
+def test_outline_of_a_lat_lon_fence_is_placed_through_the_boat():
+    assert outline('latlon', LATLON) is None                # nowhere to place it yet
+    line = outline('latlon', LATLON, boat_raw=(42.0, -71.0), boat_map=(5.0, -3.0))
+    assert len(line) == 5 and line[0] == line[-1] == (5.0, -3.0)
+    east, north = project((42.0, -71.0), 42.001, -70.999)
+    assert line[2] == pytest.approx((5.0 + east, -3.0 + north))
+    dog = FenceWatchdog(dict(CFG, fence_frame='latlon', fence_points=LATLON))
+    dog.position(0.0, 42.0, -71.0)
+    assert dog.outline(0.0) is None                         # no map pose yet
+    dog.map_position(0.0, 5.0, -3.0)
+    assert dog.outline(0.0) == line
+    assert dog.outline(CFG['max_age_s'] + 0.01) is None     # stale
+
+
 def test_back_inside_holds_no_more():
     dog = FenceWatchdog(MAP)
     assert at(dog, 0.0, 120.0, 25.0)
@@ -264,5 +337,64 @@ def test_node_holds_outside_a_map_fence():
         got.clear()
         drive(101.0, 3.0, until=lambda: len(got) >= 2)
         assert len(got) >= 2
+    finally:
+        rclpy.try_shutdown()
+
+
+def test_node_anchor_service_moves_the_latched_marker():
+    rclpy = pytest.importorskip('rclpy')
+    from nav_msgs.msg import Odometry
+    from rclpy.executors import SingleThreadedExecutor
+    from rclpy.parameter import Parameter
+    from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
+    from std_srvs.srv import Trigger
+    from visualization_msgs.msg import Marker
+    from ros_domain import require_isolated_domain
+    require_isolated_domain()
+    from mhseals_nav.fence_watchdog import node_class
+    rclpy.init()
+    try:
+        dog = node_class()(parameter_overrides=[
+            Parameter('fence_file', value=''), Parameter('fence_frame', value='map'),
+            Parameter('fence_points', value=BOX)])
+        probe = rclpy.create_node('fence_anchor_probe')
+        latched = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL,
+                             reliability=ReliabilityPolicy.RELIABLE)
+        markers = []
+        probe.create_subscription(Marker, CFG['marker_topic'], markers.append, latched)
+        odom = probe.create_publisher(Odometry, CFG['odom_topic'], 10)
+        anchor = probe.create_client(Trigger, CFG['anchor_service'])
+        ex = SingleThreadedExecutor()
+        ex.add_node(dog)
+        ex.add_node(probe)
+
+        def spin(seconds, until):
+            end = time.monotonic() + seconds
+            while time.monotonic() < end and not until():
+                ex.spin_once(timeout_sec=0.05)
+
+        def call():
+            future = anchor.call_async(Trigger.Request())
+            spin(3.0, future.done)
+            return future.result()
+
+        spin(3.0, lambda: markers)
+        first = markers[-1]
+        assert first.type == Marker.LINE_STRIP and first.header.frame_id == 'map'
+        assert [(p.x, p.y) for p in first.points] == outline('map', BOX)
+        assert anchor.wait_for_service(timeout_sec=3.0)
+        refused = call()
+        assert not refused.success and 'no boat position' in refused.message
+
+        msg = Odometry()
+        msg.pose.pose.position.x, msg.pose.pose.position.y = 10.0, 20.0
+        msg.pose.pose.orientation.w = 1.0
+        odom.publish(msg)
+        spin(1.0, lambda: dog.logic.p == (10.0, 20.0))
+        markers.clear()
+        done = call()
+        assert done.success and 'anchored' in done.message
+        spin(2.0, lambda: markers)
+        assert [(p.x, p.y) for p in markers[-1].points][0] == (10.0, 20.0)
     finally:
         rclpy.try_shutdown()

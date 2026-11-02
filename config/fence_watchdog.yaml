@@ -31,6 +31,14 @@
     mux_state_max_age_s: 2.5           # the mux republishes >= 1 Hz; older counts every command
     fence_topic: /fence_watchdog/fence # latched JSON: this fence in its own frame (latlon or map), the margin
     fence_rate_hz: 1.0                 #   rules, for the TUI's goal gates (one source)
+    # std_srvs/Trigger: move the fence to the boat (fresh position or refused), same shape and
+    # frame. A map fence keeps the boat where the map origin was (the start of the test); a
+    # lat/lon one is centred on it (vertex mean). Called by the characterization start.
+    anchor_service: /fence/anchor
+    marker_topic: /fence/marker        # latched visualization_msgs/Marker LINE_STRIP for rviz
+    marker_frame: map                  # odom_topic's frame; a lat/lon fence is placed via the boat
+    marker_width: 0.3                  # m
+    marker_color: [1.0, 0.6, 0.0, 1.0] # r g b a
     repeat_s: 1.0
     release_after: 3.0                 # s clear, FCU disarmed: release its own hold
     fcu_state_topic: /mavros/state
