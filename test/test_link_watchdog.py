@@ -66,6 +66,21 @@ def test_a_station_file_without_an_operator_accepts_any_host(tmp_path, text):
     assert len(logs) == 1 and logs[0][0]
 
 
+def test_a_station_file_of_bad_bytes_accepts_any_host_without_crashing(tmp_path):
+    dog, path, logs = station_dog(tmp_path)
+    path.write_bytes(b'operator: \xff\xfe\n')
+    assert dog.heartbeat(0.0, 'laptop-a') and len(logs) == 1 and logs[0][0]
+
+
+def test_a_write_in_the_same_mtime_tick_as_the_truncate_is_read(tmp_path):
+    dog, path, _ = station_dog(tmp_path)
+    path.write_text('')
+    os.utime(path, ns=(1, 1))
+    assert dog.heartbeat(0.0, 'laptop-b')  # empty: any host
+    take(path, 'laptop-a', 1)              # same mtime, new size
+    assert not dog.heartbeat(0.5, 'laptop-b') and dog.heartbeat(0.5, 'laptop-a')
+
+
 def test_literal_hosts_count_beside_the_station(tmp_path):
     dog, path, _ = station_dog(tmp_path, hosts=('station', 'Backup-Laptop'))
     take(path, 'laptop-a', 1)

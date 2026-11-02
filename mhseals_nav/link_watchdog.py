@@ -36,7 +36,9 @@ class Station:
     def current(self):
         """Return the operator's short name, or None (no usable file: accept any host)."""
         try:
-            stamp = self.path.stat().st_mtime_ns
+            info = self.path.stat()
+            # Size too: a write right after the truncate can share the coarse mtime tick.
+            stamp = (info.st_mtime_ns, info.st_size)
         except OSError:
             stamp = None
         if stamp != self.stamp:
@@ -50,7 +52,7 @@ class Station:
     def read(self):
         try:
             name = short((yaml.safe_load(self.path.read_text()) or {}).get('operator') or '')
-        except (OSError, yaml.YAMLError, AttributeError) as err:
+        except (OSError, ValueError, yaml.YAMLError, AttributeError) as err:  # bad UTF-8 too
             name, why = '', f'unreadable ({err})'
         else:
             why = 'names no operator'
