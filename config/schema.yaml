@@ -2,7 +2,7 @@
 #   type, units (docs/config-conventions.md R2), tier, doc, and range [lo, hi] only where a
 #   validator enforces exactly that range.
 # Nav2 keys are <server>.<plugin>.<key>; MAVROS keys are mavros_setup.<key>; fence keys are
-# fence_watchdog.<parameter>; lidar keys are the dotted keys of lidar.yaml.
+# fence_watchdog.<key> (its section of watchdogs.yaml, tune: applied); lidar keys are the dotted keys of lidar.yaml.
 
 controller_server.controller_frequency: {type: float, units: Hz, tier: reconfigure, doc: "Controller loop rate; model_dt derives from it."}
 controller_server.FollowPath.vx_max: {type: float, units: m/s, tier: live, doc: "Forward speed limit."}
@@ -45,6 +45,7 @@ lidar.endpoint.ip: {type: str, units: "1", tier: restart, doc: "Device IPv4 addr
 lidar.endpoint.port: {type: int, units: "1", range: [1, 65535], tier: restart, doc: "Device UDP port."}
 
 fence_watchdog.course.corners: {type: list, units: deg, tier: live, doc: "Course area [lat1, lon1, ...]: at least 3 corners of a simple polygon; replaces the fence whole or is refused with the reason."}
+fence_watchdog.margin: {type: float, units: m, tier: restart, doc: "Edge band where heading or moving outward already holds; covers the coast after a hold."}
 fence_watchdog.on_exit: {type: str, units: enum, tier: live, doc: "Outside under autonomy: alert holds; return pauses the runners, sends one slow Nav2 goal back inside, then holds until the operator or an agent releases it."}
 fence_watchdog.return_inset: {type: float, units: m, tier: restart, doc: "How far inside the nearest edge the return goal lies."}
 fence_watchdog.return_speed: {type: float, units: m/s, tier: restart, doc: "Nav2 speed limit while returning; lifted when the return ends."}

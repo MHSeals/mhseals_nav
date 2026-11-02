@@ -93,9 +93,9 @@ commands:
     run: ros2 param set /fence_watchdog on_exit return
     summary: The geofence's live keys - the course area and what leaving it does; /fence/status reports both.
     notes: >-
-      Restart keys in config/fence_watchdog.yaml: return_inset (m inside the nearest edge), return_speed
-      (m/s, Nav2's speed limit while returning), return_timeout (s back inside, else it holds as alert),
-      status_rate (Hz, and on every change).
+      Restart keys in config/watchdogs.yaml (tune.fence_watchdog): margin (m), return_inset (m inside
+      the nearest edge), return_speed (m/s, Nav2's speed limit while returning), return_timeout (s back
+      inside, else it holds); a return holds once over until the operator or an agent releases it.
     params:
       - {name: course.corners, description: 'Course area [lat1, lon1, ...], >= 3 corners of a simple polygon; replaced whole or refused.'}
       - {name: on_exit, choices: [alert, return], description: 'Outside under autonomy: alert holds; return drives one slow goal back inside first.'}
