@@ -17,6 +17,8 @@ SMOKE=(test/test_config_parse.py test/test_help_yaml.py test/test_config_schema.
 RUN=(python3 -m pytest -q -p no:cacheprovider -m 'not linter' -k 'not test_node')
 clone=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || echo "$PWD/.git")
 AGENTS=${MHSEALS_AGENTS:-$(dirname "$(dirname "$clone")")/mhseals_agents}
+# its parent on the path turns on the quarantine plugin (the root conftest.py); this checkout still comes first
+[[ $(basename "$AGENTS") == mhseals_agents && -d $AGENTS ]] && export PYTHONPATH=${PYTHONPATH:+$PYTHONPATH:}$(dirname "$AGENTS")
 
 if [[ ${1:-} == --impact ]]; then
     shift
