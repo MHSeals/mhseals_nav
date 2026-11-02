@@ -18,7 +18,7 @@ from sensor_msgs.msg import CameraInfo
 from mhseals_nav import perception_status
 from mhseals_nav.msg import Observation, ObservationArray
 from mhseals_nav.utils.live_params import LiveParams, positive
-from mhseals_nav.yaml_params import node_config
+from mhseals_nav.yaml_params import node_section_config
 
 VELOCITY_KINDS = {'none': Observation.VELOCITY_NONE,
                   'relative': Observation.VELOCITY_RELATIVE,
@@ -123,8 +123,8 @@ def convert_objects(packet, camera_size, velocity_kind):
 class ZedBackend(Node):
     def __init__(self):
         super().__init__('zed_backend', automatically_declare_parameters_from_overrides=True)
-        # Every default lives in config/zed_backend.yaml; launch overrides sit on top.
-        cfg = node_config(self, 'zed_backend.yaml')
+        # Every default lives in config/camera.yaml backend:; launch overrides sit on top.
+        cfg = node_section_config(self, 'camera.yaml', 'backend')
         if not self.has_parameter('max_detection_age'):  # LiveParams needs it declared
             self.declare_parameter('max_detection_age', cfg['max_detection_age'])
         self.backend = cfg['backend']
@@ -132,7 +132,7 @@ class ZedBackend(Node):
         if self.velocity_kind not in VELOCITY_KINDS:
             raise ValueError(f'velocity_kind must be one of {sorted(VELOCITY_KINDS)}')
         self.box2d_scale = cfg['box2d_scale']
-        self.fov = (cfg['fov']['hfov_deg'], cfg['fov']['range_m'])
+        self.fov = (math.degrees(cfg['fov']['hfov']), cfg['fov']['range'])   # status: deg, m
         self.live = LiveParams(
             self, {'max_detection_age': positive},
             lambda values, changed: setattr(self, 'max_age', values['max_detection_age']))

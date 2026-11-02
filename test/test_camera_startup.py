@@ -50,10 +50,10 @@ def test_each_layer_reaches_actual_throttle(tmp_path, monkeypatch, stage, hz):
     monkeypatch.delenv('ASTRO_DDS_ADDRESS', raising=False)
     paths = [tmp_path / name for name in ('package', 'deployment', 'operator')]
     for path, value in zip(paths, (3, 4, 5)):
-        path.write_text(f'preview_hz: {value}\n')
+        path.write_text(f'tune: {{preview_rate: {value}}}\n')
     count = ['package', 'deployment', 'operator', 'alias'].index(stage) + 1
     chosen = [str(path) if i < count else '' for i, path in enumerate(paths)]
-    result = resolve_camera(*chosen, preview_hz='6' if stage == 'alias' else '')
+    result = resolve_camera(*chosen, preview_rate='6' if stage == 'alias' else '')
     calls = []
     factory(lambda context: result, calls)['camera_startup'](
         {'camera_name': 'front', 'camera_model': 'zed2i', 'slam': 'false'})
@@ -66,8 +66,8 @@ def test_each_layer_reaches_actual_throttle(tmp_path, monkeypatch, stage, hz):
 
 
 @pytest.mark.parametrize('raw', [
-    'preview_hz: false', 'preview_hz: .nan',
-    'preview_hz: 2\npreview_hz: 3', 'unknown: 2', 'missing'])
+    'preview_rate: false', 'preview_rate: .nan',
+    'preview_rate: 2\npreview_rate: 3', 'unknown: 2', 'missing'])
 def test_invalid_masked_layer_never_constructs_or_creates_dds(tmp_path, monkeypatch, raw):
     """Reject input before actual pinned_profile can write a temporary DDS profile."""
     monkeypatch.setenv('ASTRO_DDS_ADDRESS', '192.168.8.20')
@@ -83,7 +83,7 @@ def test_invalid_masked_layer_never_constructs_or_creates_dds(tmp_path, monkeypa
     monkeypatch.setattr(tempfile, 'mkstemp', temporary)
     calls = []
     namespace = factory(lambda context: resolve_camera(
-        ROOT / 'config/camera_startup.yaml', path, preview_hz='9'), calls)
+        ROOT / 'config/camera.yaml', path, preview_rate='9'), calls)
     with pytest.raises((ValueError, OSError)):
         namespace['camera_startup']({'camera_name': 'front', 'slam': 'false'})
     assert calls == [] and temporary_profiles == []

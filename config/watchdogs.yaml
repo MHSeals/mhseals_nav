@@ -64,7 +64,7 @@ fence_watchdog:
   odom_topic: /odom/global              # EKF (map): heading and velocity; position for map fences
   gps_topic: /gps/filtered              # navsat_transform's lat/lon of /odom/global
   outward_speed: 0.1
-  outward_angle: 1.0472                 # 60 degrees
+  outward_angle: 1.047198                # 60 degrees
   max_age: 1.0
   fence_topic: /fence_watchdog/fence    # latched JSON: the fence and its margin rules, for the
   fence_rate: 1.0                       #   TUI's goal gates (one source)

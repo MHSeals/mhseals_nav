@@ -41,7 +41,7 @@ While a task runs, the runner sends zero velocity to `/cmd_vel_nav` whenever Nav
 | `fcu_url` | `robot`, `odom` | Empty selects SITL TCP in simulation or the Cube's `/dev/serial/by-id/usb-CubePilot_CubeOrange+_*-if00` on hardware |
 | `camera_name` | `robot`, `camera`, `odom`, `slam` | `front`; camera namespace and topic prefix |
 | `camera_model`, `slam` | `camera` | `zed2i`, `false`; `slam:=true` also relays raw RGB and depth |
-| `backend` | `objects` | `sim`; `zed` reads `config/zed_backend.yaml`, `sim` reads `config/sim_backend.yaml` |
+| `backend` | `objects` | `sim`; `zed` reads `config/camera.yaml` (`backend:`), `sim` reads `config/sim_backend.yaml` |
 
 Other arguments and defaults are listed by `--show-args`. Keeping `use_lidar:=true` while skipping the local driver lets another host or simulator supply `/points`; stale data never triggers a fallback.
 

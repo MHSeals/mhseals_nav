@@ -43,7 +43,8 @@ def propagating_module_loggers():
     and its own handlers, so records never reach the root logger caplog listens on.
     """
     loggers = [logging.getLogger('mhseals_nav.navigation_config'),
-               logging.getLogger('mhseals_nav.lidar_configuration')]
+               logging.getLogger('mhseals_nav.lidar_configuration'),
+               logging.getLogger('mhseals_nav.camera_configuration')]
     saved = [logger.propagate for logger in loggers]
     for logger in loggers:
         logger.propagate = True

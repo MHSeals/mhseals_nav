@@ -6,7 +6,8 @@ from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
-BACKENDS = {'zed': 'zed_backend', 'sim': 'sim_backend'}
+# backend -> (executable, its parameter file; None: it reads its section of a subsystem file)
+BACKENDS = {'zed': ('zed_backend', None), 'sim': ('sim_backend', 'sim_backend.yaml')}
 # Sim: /points on the default graph, the camera's body-axes link and its camera_info; crane's
 # IMU runs at 19-20 Hz, healthy next to the 4 Hz FCU stream the attitude gate is for.
 SIM_FUSION = {'points_transport': 'direct', 'camera_axes': 'body',
@@ -33,7 +34,7 @@ def nodes(context):
     def config(name):
         return PathJoinSubstitution([FindPackageShare('mhseals_nav'), 'config', name])
 
-    executable = BACKENDS[backend]
+    executable, backend_file = BACKENDS[backend]
     fusion = fusion_config()
     tracker = [config('tracker.yaml'), clock]
     fused = []
@@ -46,7 +47,7 @@ def nodes(context):
                                   *([SIM_FUSION] if sim == 'true' else [])])]
     return [
         Node(package='mhseals_nav', executable=executable, output='screen',
-             parameters=[config(f'{executable}.yaml'), clock]),
+             parameters=[*([config(backend_file)] if backend_file else []), clock]),
         *fused,
         Node(package='mhseals_nav', executable='object_tracker', output='screen',
              parameters=tracker),

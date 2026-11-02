@@ -54,14 +54,14 @@ def relay(name, executable, arguments):
                 arguments=arguments, parameters=[{'lazy': True}], output='screen')
 
 
-def relays(camera_name, slam, preview_hz):
+def relays(camera_name, slam, preview_rate):
     zed = f'/{camera_name}/zed_node'
     out = f'/{camera_name}_camera'
     found = [
         relay(f'{camera_name}_info_relay', 'relay',
               [f'{zed}/rgb/color/rect/camera_info', f'{out}/camera_info']),
         relay(f'{camera_name}_preview_throttle', 'throttle',
-              ['messages', f'{zed}/rgb/color/rect/image/compressed', str(preview_hz),
+              ['messages', f'{zed}/rgb/color/rect/image/compressed', str(preview_rate),
                f'{out}/preview/compressed']),
     ]
     if slam:
@@ -77,7 +77,7 @@ def relays(camera_name, slam, preview_hz):
 def relay_nodes(context, settings):
     camera_name = LaunchConfiguration('camera_name').perform(context)
     slam = LaunchConfiguration('slam').perform(context).lower() == 'true'
-    return [Node(**kwargs) for kwargs in relays(camera_name, slam, settings.preview_hz)]
+    return [Node(**kwargs) for kwargs in relays(camera_name, slam, settings.preview_rate)]
 
 
 def camera_startup(context):
@@ -111,7 +111,7 @@ def generate_launch_description():
                               description='Explicit camera startup deployment YAML'),
         DeclareLaunchArgument('camera_startup_file', default_value='',
                               description='Explicit camera startup operator YAML'),
-        DeclareLaunchArgument('preview_hz', default_value='',
+        DeclareLaunchArgument('preview_rate', default_value='',
                               description='Explicit preview throttle rate; empty inherits YAML'),
         DeclareLaunchArgument('camera_name', default_value='front',
                               description='ZED namespace; topics are /<camera_name>/zed_node/*'),

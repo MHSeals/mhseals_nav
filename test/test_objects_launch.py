@@ -61,7 +61,8 @@ def test_backend_tracker_and_perception_costmap(sim, backend, executable):
         executable, 'object_tracker', 'nav2_costmap_2d', 'lifecycle_manager',
         'nearest_obstacle']
     clock = {'use_sim_time': sim == 'true'}
-    assert nodes[0]['parameters'] == [f'mhseals_nav/config/{executable}.yaml', clock]
+    own = [] if executable == 'zed_backend' else [f'mhseals_nav/config/{executable}.yaml']
+    assert nodes[0]['parameters'] == [*own, clock]    # zed_backend: camera.yaml backend:
     assert nodes[1]['parameters'] == ['mhseals_nav/config/tracker.yaml', clock]
     costmap, manager, nearest = nodes[2:]
     assert nearest['parameters'] == ['mhseals_nav/config/nearest_obstacle.yaml', clock]

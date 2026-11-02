@@ -53,7 +53,7 @@ commands:
       - {name: camera_name, default: front, description: 'ZED namespace; topics are /<camera_name>/zed_node/*.'}
       - {name: camera_model, default: zed2i, description: ZED model.}
       - {name: slam, type: bool, default: false, description: Also relay raw RGB and depth for RTAB-Map.}
-      - {name: preview_hz, type: float, description: Preview throttle rate; empty inherits YAML.}
+      - {name: preview_rate, type: float, description: 'Preview throttle rate (Hz); empty inherits config/camera.yaml tune.preview_rate.'}
 
   - name: odom.launch
     run: ros2 launch mhseals_nav odom.launch.py

@@ -18,7 +18,7 @@ spec.loader.exec_module(camera)
 
 
 def default_rate():
-    return resolve_camera(ROOT / 'config/camera_startup.yaml').preview_hz
+    return resolve_camera(ROOT / 'config/camera.yaml').preview_rate
 
 
 def wrapper_arguments():
@@ -37,10 +37,10 @@ def fake_share(monkeypatch):
     from launch_ros.substitutions import FindPackageShare
     monkeypatch.delenv('ASTRO_DDS_ADDRESS', raising=False)
     monkeypatch.setattr(camera, 'from_launch', lambda context: resolve_camera(
-        ROOT / 'config/camera_startup.yaml',
+        ROOT / 'config/camera.yaml',
         deployment_file=context.launch_configurations.get('camera_deployment_file', ''),
         operator_file=context.launch_configurations.get('camera_startup_file', ''),
-        preview_hz=context.launch_configurations.get('preview_hz', '')))
+        preview_rate=context.launch_configurations.get('preview_rate', '')))
     real = FindPackageShare.perform
     monkeypatch.setattr(FindPackageShare, 'perform', lambda self, context: (
         '/share/mhseals_nav' if 'mhseals_nav' in perform_substitutions(context, self.package)
@@ -70,7 +70,7 @@ def test_one_config_point_with_defaults():
     defaults = {name: perform_substitutions(LaunchContext(), arg.default_value)
                 for name, arg in declared.items()}
     assert defaults == {'camera_name': 'front', 'camera_model': 'zed2i', 'slam': 'false',
-                        'camera_deployment_file': '', 'camera_startup_file': '', 'preview_hz': ''}
+                        'camera_deployment_file': '', 'camera_startup_file': '', 'preview_rate': ''}
 
 
 def test_wrapper_include_loads_our_files_and_publishes_no_pose_tf():

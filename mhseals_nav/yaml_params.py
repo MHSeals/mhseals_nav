@@ -1,8 +1,9 @@
 """A node's YAML from the installed share as defaults, with launch overrides on top.
 
-``watchdog_config`` is the one reader of config/watchdogs.yaml: defaults, the watchdog's section
-and its tune: entries, then overrides, strictly (an unknown key is an error naming it). Keys that
-lost their unit suffix are still read from overrides for one release, with a warning.
+``section_config`` reads one node's section of a subsystem file (watchdogs.yaml, camera.yaml):
+its defaults, the section and its tune: entries, then overrides, strictly (an unknown key is an
+error naming it). Keys that lost their unit suffix are still read from overrides for one release,
+with a warning.
 """
 
 import math
@@ -27,7 +28,8 @@ RENAMED = {'max_age_s': ('max_age', None), 'command_window_s': ('command_window'
            'memory_s': ('memory', None), 'warmup_s': ('warmup', None),
            'cluster_m': ('cluster', None), 'miss_s': ('miss', None), 'crop_m': ('crop', None),
            'confirm_s': ('confirm', None), 'recent_s': ('recent', None),
-           'max_costmap_age_s': ('max_costmap_age', None), 'max_tf_age_s': ('max_tf_age', None)}
+           'max_costmap_age_s': ('max_costmap_age', None), 'max_tf_age_s': ('max_tf_age', None),
+           'hfov_deg': ('hfov', math.radians), 'range_m': ('range', None)}
 
 
 def nested(flat):
@@ -87,13 +89,18 @@ def renamed(flat, warn=lambda message: None):
 
 
 def watchdog_config(name, overrides=None, warn=lambda message: None, path=None):
-    """The watchdog ``name``'s settings: defaults < its section < tune.<name> < ``overrides``.
+    """The watchdog ``name``'s section of config/watchdogs.yaml (see ``section_config``)."""
+    return section_config(WATCHDOGS, name, overrides, warn, path)
+
+
+def section_config(filename, name, overrides=None, warn=lambda message: None, path=None):
+    """Section ``name`` of config/<filename>: defaults < the section < tune.<name> < overrides.
 
     ``overrides`` is flat ({'course.corners': [...]}) as ROS parameters are. Strict: the file
     must have the section, and an override must name a key the section has.
     """
     from mhseals_nav.navigation_config import load_strict
-    path = Path(path) if path else config_path(WATCHDOGS)
+    path = Path(path) if path else config_path(filename)
     doc = load_strict(path.read_text(), path)
     if not isinstance(doc, dict) or not isinstance(doc.get(name), dict):
         raise ValueError(f'{path}: no {name} section')
@@ -106,8 +113,12 @@ def watchdog_config(name, overrides=None, warn=lambda message: None, path=None):
     return merge(cfg, over)
 
 
-def node_watchdog_config(node, name):
-    """``watchdog_config`` with the node's parameters (built with automatically_declare...)."""
+def node_section_config(node, filename, name):
+    """``section_config`` with the node's parameters (built with automatically_declare...)."""
     flat = {key: p.value for key, p in node._parameters.items()
             if key not in ROS_PARAMETERS and not key.startswith('qos_overrides.')}
-    return watchdog_config(name, flat, node.get_logger().warning)
+    return section_config(filename, name, flat, node.get_logger().warning)
+
+
+def node_watchdog_config(node, name):
+    return node_section_config(node, WATCHDOGS, name)

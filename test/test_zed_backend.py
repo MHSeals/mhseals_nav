@@ -115,7 +115,7 @@ def test_unknown_velocity_kind_raises():
 @pytest.fixture
 def backend():
     require_isolated_domain()
-    rclpy.init()  # no overrides: every value below comes from config/zed_backend.yaml
+    rclpy.init()  # no overrides: every value below comes from config/camera.yaml backend:
     node = ZedBackend()
     node.pub = SimpleNamespace(sent=[], publish=lambda m: node.pub.sent.append(m))
     node.status_pub = SimpleNamespace(sent=[], publish=lambda m: node.status_pub.sent.append(m))
@@ -150,7 +150,7 @@ def test_node_publishes_fresh_frames_and_drops_stale_and_reordered(backend):
 def test_node_holds_no_default_values():
     import ast
     from pathlib import Path
-    """Defaults live in config/zed_backend.yaml only (the backend fixture passes none)."""
+    """Defaults live in config/camera.yaml backend: only (the backend fixture passes none)."""
     text = (Path(__file__).parents[1] / 'mhseals_nav/zed_backend.py').read_text()
     declared = [c for c in ast.walk(ast.parse(text)) if isinstance(c, ast.Call)
                 and getattr(c.func, 'attr', '') == 'declare_parameter']
@@ -162,9 +162,9 @@ def test_box2d_scale_matches_the_wrapper_publish_downscale():
     import yaml
     from pathlib import Path
     config = Path(__file__).parents[1] / 'config'
-    ours = yaml.safe_load((config / 'zed_backend.yaml').read_text())['/**']['ros__parameters']
+    ours = yaml.safe_load((config / 'camera.yaml').read_text())['backend']
     wrapper = yaml.safe_load((config / 'zed_boat.yaml').read_text())['/**']['ros__parameters']
     general = wrapper['general']
     scale = general['pub_downscale_factor'] if general['pub_resolution'] == 'CUSTOM' else 1.0
     assert ours['box2d_scale'] == scale
-    assert ours['fov']['range_m'] == wrapper['object_detection']['max_range']
+    assert ours['fov']['range'] == wrapper['object_detection']['max_range']
