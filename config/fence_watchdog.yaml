@@ -12,7 +12,9 @@
 #   fence_points: [42.000, -71.000, 42.000, -70.999, 42.001, -70.999, 42.001, -71.000]
 # Lat/lon is the one to use on the water: map's origin is wherever the boat started
 # (navsat_transform wait_for_datum: false). fence_points is a flat list of at least 3 vertex
-# pairs; a launch may pass it as a parameter instead (sim: a map-frame box).
+# pairs; a launch may pass it as a parameter instead (sim: a map-frame box). The TUI saves
+# course: {corners: [...], on_exit: alert|return} there; that on_exit wins over the one below at
+# startup (an invalid one keeps it, with a warning).
 /**:
   ros__parameters:
     fence_file: ~/.config/mhseals/fence.yaml

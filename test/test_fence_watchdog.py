@@ -298,6 +298,25 @@ def test_fence_file_or_parameter_course_corners_are_a_lat_lon_area(tmp_path):
         assert cfg['fence_frame'] == 'latlon' and cfg['fence_points'] == LATLON
 
 
+def test_fence_file_course_on_exit_applies_at_startup_or_warns(tmp_path, caplog):
+    """The TUI saves course.on_exit in the fence file; a restart keeps it, a bad one warns."""
+    day = tmp_path / 'fence.yaml'
+    day.write_text(yaml.safe_dump({'course': {'corners': LATLON, 'on_exit': 'return'}}))
+    cfg = load_fence(dict(MAP, fence_file=str(day)))
+    assert cfg['on_exit'] == 'return' and FenceWatchdog(cfg).cfg['on_exit'] == 'return'
+    assert CFG['on_exit'] == 'alert' and not caplog.records
+    for bad in ('drift', ['return'], 3):
+        day.write_text(yaml.safe_dump({'course': {'corners': LATLON, 'on_exit': bad}}))
+        caplog.clear()
+        cfg = load_fence(dict(MAP, fence_file=str(day)))
+        assert cfg['on_exit'] == 'alert' and FenceWatchdog(cfg).poly is not None
+        assert [r.levelname for r in caplog.records] == ['WARNING']
+        assert 'course.on_exit' in caplog.text and 'stays alert' in caplog.text
+    day.write_text(yaml.safe_dump({'course': {'corners': LATLON}}))
+    caplog.clear()
+    assert load_fence(dict(MAP, fence_file=str(day)))['on_exit'] == 'alert' and not caplog.records
+
+
 def test_on_exit_is_alert_or_return():
     dog = FenceWatchdog(MAP)
     assert dog.set_on_exit('return') == '' and dog.cfg['on_exit'] == 'return'

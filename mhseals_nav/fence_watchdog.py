@@ -24,6 +24,7 @@ the operator (or any hold) takes the mux, or the goal ends elsewhere. status_top
 """
 
 from array import array
+import logging
 import math
 from pathlib import Path
 
@@ -35,6 +36,7 @@ NEAR_EDGE = 'within the margin heading outward'
 OUTSIDE = 'outside the fence'
 INSIDE = ('', NEAR_EDGE, 'on the fence')      # reasons with the boat in the fence
 ON_EXIT = ('alert', 'return')
+log = logging.getLogger(__name__)
 
 
 def problem(frame, points):
@@ -390,6 +392,8 @@ def load_fence(cfg):
     A file that cannot be read or does not parse to a mapping leaves no valid fence, which
     holds. ``course: {corners: [lat1, lon1, ...]}`` (the TUI's course area, in the file or a
     ``course.corners`` parameter) is a lat/lon fence and wins over fence_frame/fence_points.
+    The file's ``course.on_exit`` (what the TUI saved) wins over the package on_exit when it is
+    alert or return; anything else keeps the package value, with a warning.
     """
     path = Path(cfg['fence_file']).expanduser() if cfg['fence_file'] else None
     if path is not None and path.is_file():
@@ -403,6 +407,12 @@ def load_fence(cfg):
                    fence_points=day.get('fence_points'))
         if isinstance(day.get('course'), dict) and 'corners' in day['course']:
             cfg = dict(cfg, fence_frame='latlon', fence_points=day['course']['corners'])
+        on_exit = day['course'].get('on_exit') if isinstance(day.get('course'), dict) else None
+        if on_exit in ON_EXIT:
+            cfg = dict(cfg, on_exit=on_exit)
+        elif on_exit is not None:
+            log.warning(f"{path}: course.on_exit {on_exit!r} is neither alert nor return; "
+                        f"on_exit stays {cfg['on_exit']}")
     course = cfg.get('course')
     if isinstance(course, dict) and course.get('corners') is not None:
         cfg = dict(cfg, fence_frame='latlon', fence_points=list(course['corners']))
@@ -539,6 +549,8 @@ def node_class():
         if not node.has_parameter('on_exit'):
             node.declare_parameter('on_exit', dog.cfg['on_exit'],
                                    ParameterDescriptor(description='alert | return'))
+        elif node.get_parameter('on_exit').value != dog.cfg['on_exit']:    # fence_file's
+            node.set_parameters([Parameter('on_exit', value=dog.cfg['on_exit'])])
 
         def on_set(params):
             wanted = {p.name: p.value for p in params}
