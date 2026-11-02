@@ -82,8 +82,8 @@ def test_rate_counts_arrivals_in_the_window():
 
 def test_config_section_has_the_node_keys():
     from pathlib import Path
-    cfg = yaml.safe_load((Path(__file__).parents[1] / 'config/nearest_obstacle.yaml').read_text())
-    near = cfg['/**']['ros__parameters']['nearby']
+    from mhseals_nav.yaml_params import section_config
+    near = section_config('lidar.yaml', 'costmap', path=Path(__file__).parents[1] / 'config/lidar.yaml')
     assert set(near) == {'cloud_topic', 'topic', 'sectors', 'rate', 'min_height', 'max_height',
-                         'hull_margin'}
+                         'half_length', 'half_width', 'hull_margin'}
     assert near['topic'] == '/perception/nearby' and near['sectors'] == 16

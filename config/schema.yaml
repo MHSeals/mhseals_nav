@@ -40,6 +40,8 @@ mavros_setup.rc_timer: {type: float, units: s, tier: restart, doc: "RC diagnosti
 mavros_setup.fcu_sysid: {type: int, units: "1", range: [1, 255], tier: restart, doc: "MAVLink system ID whose observations are accepted."}
 
 lidar.tune.smear: {type: bool, units: bool, tier: restart, doc: "Sim only: smear the simulator's instantaneous scan over a VLP16 sweep, as a turning boat sees it."}
+lidar.costmap.sectors: {type: int, units: count, tier: restart, doc: "Sectors of /perception/nearby, from the bow clockwise."}
+lidar.costmap.rate: {type: float, units: Hz, tier: restart, doc: "Most /perception/nearby summaries per second; none without a new cloud."}
 lidar.driver.frame: {type: str, units: frame, tier: restart, doc: "Lidar TF frame; the full robot requires lidar_link."}
 lidar.driver.endpoint.ip: {type: str, units: "1", tier: restart, doc: "Device IPv4 address; the vessel profile's unless a layer or velodyne_ip sets it."}
 lidar.driver.endpoint.port: {type: int, units: "1", range: [1, 65535], tier: restart, doc: "Device UDP port."}

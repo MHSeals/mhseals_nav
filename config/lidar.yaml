@@ -8,6 +8,19 @@ tune:
   # on the water and lidar_relay's deskew can be judged.
   smear: false
 
+# /perception/nearby (nearby.py, beside the lidar): /points summarized for the TUI as JSON, the
+# nearest range per sector from the bow clockwise, the hull plus hull_margin left out.
+costmap:
+  cloud_topic: /points
+  topic: /perception/nearby
+  sectors: 16
+  rate: 5.0                     # at most; nothing without a new cloud
+  min_height: -0.10             # base_link z band, as the perception costmap's lidar marks
+  max_height: 3.0
+  half_length: 0.5315           # the hull, as nav2_params' footprint without its padding
+  half_width: 0.4475
+  hull_margin: 0.1              # the hull's own returns and spray at its side
+
 driver:
   frame: lidar_link
   calibration:

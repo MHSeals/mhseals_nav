@@ -99,15 +99,15 @@ def node_class():
     from tf2_msgs.msg import TFMessage
 
     from mhseals_nav.lidar_relay import add_static, lidar_mount
-    from mhseals_nav.yaml_params import node_config
+    from mhseals_nav.yaml_params import node_section_config
 
     class Nearby(Node):
         def __init__(self):
             super().__init__('nearby', automatically_declare_parameters_from_overrides=True)
-            cfg = node_config(self, 'nearest_obstacle.yaml')
-            self.cfg, self.near = cfg, cfg['nearby']
-            self.hull = (cfg['half_length_m'] + self.near['hull_margin'],
-                         cfg['half_width_m'] + self.near['hull_margin'])
+            # config/lidar.yaml costmap:, launch overrides on top
+            self.near = cfg = node_section_config(self, 'lidar.yaml', 'costmap')
+            self.hull = (cfg['half_length'] + cfg['hull_margin'],
+                         cfg['half_width'] + cfg['hull_margin'])
             self.cloud, self.rate = None, Rate()
             self.static, self.mounts = {}, {}
             self.pub = self.create_publisher(String, self.near['topic'], 10)

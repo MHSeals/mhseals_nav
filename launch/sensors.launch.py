@@ -35,11 +35,9 @@ def lidar_smear_enabled():
 
 
 def nearby_node(sim):
-    """/perception/nearby beside the lidar: /points summarized for the TUI."""
-    config = PathJoinSubstitution(
-        [FindPackageShare('mhseals_nav'), 'config', 'nearest_obstacle.yaml'])
+    """/perception/nearby beside the lidar: /points summarized for the TUI (lidar.yaml costmap:)."""
     return Node(package='mhseals_nav', executable='nearby', output='screen',
-                parameters=[config, {'use_sim_time': sim}])
+                parameters=[{'use_sim_time': sim}])
 
 
 def sensor_nodes(context):
