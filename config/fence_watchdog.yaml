@@ -49,7 +49,7 @@
     on_exit: alert
     return_inset: 10.0
     return_speed: 0.5
-    return_timeout: 60.0
+    return_timeout: 15.0
     return_action: navigate_to_pose
     speed_limit_topic: /speed_limit
     # JSON {inside, distance_to_edge, frame, on_exit, corners, returning}
