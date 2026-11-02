@@ -262,6 +262,145 @@ def test_back_inside_holds_no_more():
     assert not dog.reason(0.5)
 
 
+BOWTIE = [42.0, -71.0, 42.001, -70.999, 42.0, -70.999, 42.001, -71.0]
+
+
+def test_corners_must_be_a_simple_polygon():
+    assert problem('latlon', LATLON) == ''
+    assert 'simple' in problem('latlon', BOWTIE)
+    assert 'simple' in problem('latlon', LATLON[:2] * 2 + LATLON[4:6])          # repeated
+    assert 'simple' in problem('latlon', [42.0, -71.0, 42.0005, -71.0, 42.001, -71.0])
+    assert 'at least 3' in problem('latlon', LATLON[:4])
+    assert 'finite' in problem('latlon', LATLON[:-1] + [float('nan')])
+    assert 'outside lat' in problem('latlon', [91.0] + LATLON[1:])
+    assert polygon('map', [0, 0, 10, 10, 10, 0, 0, 10]) is None             # map too
+
+
+def test_course_corners_replace_the_fence_whole_or_not_at_all():
+    dog = FenceWatchdog(MAP)
+    dog.fix(0.0, 42.0005, -70.9995)                  # kept while the fence is in map
+    at(dog, 0.0, 50.0, 25.0)
+    assert 'simple' in dog.set_corners(BOWTIE)
+    assert dog.frame == 'map' and dog.cfg['fence_points'] == BOX
+    assert dog.set_corners(LATLON) == ''
+    assert dog.frame == 'latlon' and dog.state(0.0)['points'] == LATLON
+    assert dog.reason(0.0) == ''                     # placed at once by the fix it had
+    dog.fix(0.5, 42.002, -70.9995)
+    assert dog.reason(0.5) == 'outside the fence'
+
+
+def test_fence_file_or_parameter_course_corners_are_a_lat_lon_area(tmp_path):
+    day = tmp_path / 'fence.yaml'
+    day.write_text(yaml.safe_dump({'course': {'corners': LATLON}}))
+    for cfg in (dict(MAP, fence_file=str(day)), dict(MAP, fence_file='', course={
+            'corners': LATLON})):
+        cfg = load_fence(cfg)
+        assert cfg['fence_frame'] == 'latlon' and cfg['fence_points'] == LATLON
+
+
+def test_on_exit_is_alert_or_return():
+    dog = FenceWatchdog(MAP)
+    assert dog.set_on_exit('return') == '' and dog.cfg['on_exit'] == 'return'
+    assert 'neither' in dog.set_on_exit('drift') and dog.cfg['on_exit'] == 'return'
+    with pytest.raises(ValueError):
+        FenceWatchdog(dict(MAP, on_exit='drift'))
+
+
+def test_status_says_inside_and_the_distance_to_the_edge():
+    dog = FenceWatchdog(MAP)
+    assert dog.status(0.0) == {'inside': None, 'distance_to_edge': None, 'frame': 'map',
+                               'on_exit': 'alert', 'corners': BOX, 'returning': False}
+    at(dog, 0.0, 90.0, 25.0)
+    assert (dog.status(0.0)['inside'], dog.status(0.0)['distance_to_edge']) == (True, 10.0)
+    at(dog, 0.5, 103.0, 25.0)
+    assert (dog.status(0.5)['inside'], dog.status(0.5)['distance_to_edge']) == (False, 3.0)
+    assert dog.status(5.0)['inside'] is None                        # stale
+    assert FenceWatchdog(dict(MAP, fence_points=[])).status(0.0)['corners'] is None
+    json.dumps(dog.status(0.5))
+
+
+RETURN = dict(MAP, on_exit='return')
+
+
+def leave(dog, now):
+    """Just east of the fence under autonomy; whether a hold went out."""
+    return at(dog, now, 104.0, 25.0)
+
+
+def left(on_exit='return'):
+    dog = FenceWatchdog(dict(RETURN, on_exit=on_exit))
+    leave(dog, 0.0)
+    dog.orders.clear()
+    return dog
+
+
+def test_return_sends_one_slow_goal_inside_instead_of_a_hold():
+    dog = FenceWatchdog(RETURN)
+    assert not leave(dog, 0.0)
+    (order, goal), = dog.orders
+    assert order == 'go' and goal == pytest.approx((100.0 - CFG['return_inset'], 25.0, math.pi))
+    assert dog.status(0.0)['returning']
+    dog.orders.clear()
+    for k in range(1, 10):                          # outside a while: no hold, no second goal
+        assert not leave(dog, k * 1.0)
+    assert dog.orders == []
+    assert not at(dog, 10.0, 95.0, 25.0, math.pi, 0.5)       # back in, heading in
+    assert dog.returning is not None                         # on to the interior point
+    dog.return_result(12.0, 'succeeded')
+    assert dog.orders == [('cancel', 'goal succeeded')] and dog.returning is None
+
+
+def test_return_not_back_inside_in_time_holds_until_inside():
+    dog = left()
+    assert not leave(dog, CFG['return_timeout'])
+    assert leave(dog, CFG['return_timeout'] + 0.1)
+    assert [o for o, _ in dog.orders] == ['cancel', 'failed']
+    dog.orders.clear()
+    assert leave(dog, CFG['return_timeout'] + 2.0)               # the hold repeats as alert
+    assert dog.orders == [] and dog.returning is None
+    at(dog, 70.0, 50.0, 25.0)                                    # inside: return armed again
+    assert not leave(dog, 71.0) and dog.orders[0][0] == 'go'
+
+
+def test_return_gives_way_to_the_operator_then_holds_as_alert():
+    dog = left()
+    dog.mux(1.0, json.dumps({'input': 'manual', 'holds': []}))
+    assert not leave(dog, 1.0)                       # under manual nothing holds
+    assert [o for o, _ in dog.orders] == ['cancel', 'failed']
+    dog.mux(2.0, json.dumps({'input': 'auto', 'holds': []}))
+    assert leave(dog, 2.0)                           # autonomy again, still outside
+
+
+def test_return_goal_aborted_or_replaced_holds():
+    dog = left()
+    dog.return_result(1.0, 'aborted or replaced')
+    assert dog.orders == [('cancel', 'goal aborted or replaced'),
+                          ('failed', 'the return goal ended outside (aborted or replaced)')]
+    assert leave(dog, 1.0)
+
+
+def test_return_stops_on_alert_or_stale_position():
+    dog = left()
+    dog.set_on_exit('alert')
+    assert leave(dog, 1.0) and dog.orders == [('cancel', 'on_exit is alert')]
+    dog = left()
+    dog.command(2.0)
+    assert dog.tick(2.0) and [o for o, _ in dog.orders] == ['cancel', 'failed']
+
+
+def test_return_goal_of_a_lat_lon_course_area_is_in_map():
+    cfg = dict(CFG, fence_frame='latlon', fence_points=LATLON, on_exit='return')
+    lat, lon = 42.0005, -70.9989                      # east of the east edge (-70.999)
+    dog = FenceWatchdog(cfg)
+    dog.map_position(0.0, 7.0, -2.0)
+    assert not at(dog, 0.0, lat, lon)
+    (order, (x, y, yaw)), = dog.orders
+    east = project((lat, lon), lat, -70.999)[0] - CFG['return_inset']
+    assert (x, y, yaw) == pytest.approx((7.0 + east, -2.0, math.pi), abs=0.01)
+    dog = FenceWatchdog(cfg)                          # no map pose: hold as alert
+    assert at(dog, 0.0, lat, lon) and dog.orders[0][0] == 'failed'
+
+
 def test_node_holds_outside_a_map_fence():
     rclpy = pytest.importorskip('rclpy')
     from geometry_msgs.msg import Twist
