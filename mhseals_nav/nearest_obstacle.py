@@ -3,7 +3,7 @@
 The velocity controller's drift observer must not learn a dock's or a buoy's reaction as
 current; it needs only where the closest obstacle is. One small Vector3Stamped in the base
 frame, from the nearest point of the hull rectangle to the nearest lethal cell (NaN when
-there is none within ``radius_m``). Nothing is published while the costmap or the TF is
+there is none within ``radius``). Nothing is published while the costmap or the TF is
 missing or stale, so a subscriber sees silence, not a clear sky.
 """
 
@@ -95,23 +95,23 @@ def node_class():
                                      lambda m: self.grid.full(m, time.monotonic()), latched)
             self.create_subscription(OccupancyGridUpdate, cfg['updates_topic'],
                                      lambda m: self.grid.update(m, time.monotonic()), 10)
-            self.create_timer(1.0 / cfg['rate_hz'], self.tick)
+            self.create_timer(1.0 / cfg['rate'], self.tick)
 
         def tick(self):
             cfg, grid = self.cfg, self.grid
-            if grid.cells is None or time.monotonic() - grid.received > cfg['max_age_s']:
+            if grid.cells is None or time.monotonic() - grid.received > cfg['max_age']:
                 return
             try:
                 tf = self.tf.lookup_transform(grid.frame, cfg['base_frame'], Time())
             except TransformException:
                 return
             stamp = Time.from_msg(tf.header.stamp, clock_type=self.get_clock().clock_type)
-            if (self.get_clock().now() - stamp).nanoseconds * 1e-9 > cfg['max_age_s']:
+            if (self.get_clock().now() - stamp).nanoseconds * 1e-9 > cfg['max_age']:
                 return
             t, q = tf.transform.translation, tf.transform.rotation
             yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
             found = nearest(grid.cells, grid.resolution, grid.origin, (t.x, t.y, yaw),
-                            (cfg['half_length_m'], cfg['half_width_m']), cfg['radius_m'],
+                            (cfg['half_length'], cfg['half_width']), cfg['radius'],
                             cfg['lethal'])
             msg = Vector3Stamped()
             msg.header.stamp = self.get_clock().now().to_msg()
