@@ -13,6 +13,7 @@ tune:
 costmap:
   cloud_topic: /points
   topic: /perception/nearby
+  base_frame: base_link         # the summary's frame (the cloud moves there by its /tf_static mount)
   sectors: 16
   rate: 5.0                     # at most; nothing without a new cloud
   min_height: -0.10             # base_link z band, as the perception costmap's lidar marks

@@ -135,7 +135,7 @@ def node_class():
             out = summarize(body, int(self.near['sectors']), self.near['min_height'],
                             self.near['max_height'], self.hull)
             stamp = Time.from_msg(cloud.header.stamp, clock_type=self.get_clock().clock_type)
-            out.update(rate=self.rate.hz(), frame=self.cfg['base_frame'], latency=round(
+            out.update(rate=self.rate.hz(), frame=self.near['base_frame'], latency=round(
                 (self.get_clock().now() - stamp).nanoseconds * 1e-9, 3))
             self.pub.publish(String(data=json.dumps(out)))
 
