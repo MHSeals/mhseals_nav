@@ -1,8 +1,8 @@
 # Keys the TUI displays. One entry per key:
 #   type, units (docs/config-conventions.md R2), tier, doc, and range [lo, hi] only where a
 #   validator enforces exactly that range.
-# Nav2 keys are <server>.<plugin>.<key>; MAVROS keys are mavros_setup.<key>; lidar keys are
-# the dotted keys of lidar.yaml.
+# Nav2 keys are <server>.<plugin>.<key>; MAVROS keys are mavros_setup.<key>; fence keys are
+# fence_watchdog.<parameter>; lidar keys are the dotted keys of lidar.yaml.
 
 controller_server.controller_frequency: {type: float, units: Hz, tier: reconfigure, doc: "Controller loop rate; model_dt derives from it."}
 controller_server.FollowPath.vx_max: {type: float, units: m/s, tier: live, doc: "Forward speed limit."}
@@ -43,3 +43,10 @@ lidar.frame: {type: str, units: frame, tier: restart, doc: "Lidar TF frame; the 
 lidar.rpm: {type: float, units: "1", tier: restart, doc: "Driver rotation speed in revolutions per minute."}
 lidar.endpoint.ip: {type: str, units: "1", tier: restart, doc: "Device IPv4 address."}
 lidar.endpoint.port: {type: int, units: "1", range: [1, 65535], tier: restart, doc: "Device UDP port."}
+
+fence_watchdog.course.corners: {type: list, units: deg, tier: live, doc: "Course area [lat1, lon1, ...]: at least 3 corners of a simple polygon; replaces the fence whole or is refused with the reason."}
+fence_watchdog.on_exit: {type: str, units: enum, tier: live, doc: "Outside under autonomy: alert holds; return sends one slow Nav2 goal back inside, then holds as alert does."}
+fence_watchdog.return_inset: {type: float, units: m, tier: restart, doc: "How far inside the nearest edge the return goal lies."}
+fence_watchdog.return_speed: {type: float, units: m/s, tier: restart, doc: "Nav2 speed limit while returning; lifted when the return ends."}
+fence_watchdog.return_timeout: {type: float, units: s, tier: restart, doc: "Time to get back inside before the return holds as alert does."}
+fence_watchdog.status_rate: {type: float, units: Hz, tier: restart, doc: "Rate of the /fence/status JSON; it also publishes on every change."}

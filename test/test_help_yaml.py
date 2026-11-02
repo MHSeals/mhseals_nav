@@ -46,3 +46,12 @@ def test_choices_match_the_code():
     profiles = ROOT / 'config/tasks/profiles'
     assert {p['name']: set(p.get('choices', [])) for c in COMMANDS if c['name'] == 'run_task'
             for p in c['params']}['--profile'] == {p.stem for p in profiles.glob('*.yaml')}
+
+
+def test_fence_lists_its_live_keys():
+    from mhseals_nav.fence_watchdog import ON_EXIT
+    assert choices('fence') == set(ON_EXIT)
+    source = (ROOT / 'mhseals_nav/fence_watchdog.py').read_text()
+    fence = next(c for c in COMMANDS if c['name'] == 'fence')
+    for param in fence['params']:
+        assert f"'{param['name']}'" in source, param['name']

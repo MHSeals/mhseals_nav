@@ -7,13 +7,14 @@ import yaml
 ROOT = Path(__file__).parents[1]
 SCHEMA = yaml.safe_load((ROOT / 'config/schema.yaml').read_text())
 FILES = {'controller_server': 'nav2_params', 'velocity_smoother': 'nav2_params',
-         'mavros_setup': 'mavros_setup', 'lidar': 'lidar'}
+         'mavros_setup': 'mavros_setup', 'lidar': 'lidar', 'fence_watchdog': 'fence_watchdog'}
 R2_UNITS = {'s', 'Hz', 'm', 'm/s', 'rad', 'rad/s', 'm/s^2', 'count', 'bool', 'enum', 'frame',
             'topic', 'path', '1'}
 # Not in the R2 list yet; the astro lane owns docs/config-conventions.md.
-PENDING_R2 = {'rad/s^2', 'ID:Hz', 'm/s, m/s, rad/s', 'm/s^2, m/s^2, rad/s^2'}
-# Settable in a layer, but defaulted outside the package YAML (boat-network.env LIDAR_IP).
-NO_PACKAGE_DEFAULT = {'lidar.endpoint.ip'}
+PENDING_R2 = {'rad/s^2', 'ID:Hz', 'deg', 'm/s, m/s, rad/s', 'm/s^2, m/s^2, rad/s^2'}
+# Settable in a layer, but defaulted outside the package YAML (boat-network.env LIDAR_IP,
+# fence_file for the course area).
+NO_PACKAGE_DEFAULT = {'lidar.endpoint.ip', 'fence_watchdog.course.corners'}
 TYPES = {'float': (int, float), 'int': (int,), 'bool': (bool,), 'str': (str,),
          'list': (list,)}
 
@@ -24,6 +25,8 @@ def lookup(key):
     parts = key.split('.')
     if head in ('controller_server', 'velocity_smoother', 'mavros_setup'):
         parts = [head, 'ros__parameters', *parts[1:]]
+    elif head == 'fence_watchdog':
+        parts = ['/**', 'ros__parameters', *parts[1:]]
     for part in parts:
         node = node[part]
     return node

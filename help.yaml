@@ -89,6 +89,20 @@ commands:
       - {name: fence_points, description: 'Flat [a, b, ...] vertex list; replaces fence_file.'}
       - {name: fcu_watchdog, type: bool, default: true, description: Hold on a stale or disconnected MAVROS.}
 
+  - name: fence
+    run: ros2 param set /fence_watchdog on_exit return
+    summary: The geofence's live keys - the course area and what leaving it does; /fence/status reports both.
+    notes: >-
+      Restart keys in config/fence_watchdog.yaml: return_inset (m inside the nearest edge), return_speed
+      (m/s, Nav2's speed limit while returning), return_timeout (s back inside, else it holds as alert),
+      status_rate (Hz, and on every change).
+    params:
+      - {name: course.corners, description: 'Course area [lat1, lon1, ...], >= 3 corners of a simple polygon; replaced whole or refused.'}
+      - {name: on_exit, choices: [alert, return], description: 'Outside under autonomy: alert holds; return drives one slow goal back inside first.'}
+    examples:
+      - "ros2 param set /fence_watchdog course.corners '[42.000, -71.000, 42.000, -70.999, 42.001, -70.999]'"
+      - ros2 topic echo /fence/status
+
   - name: navigation.launch
     run: ros2 launch mhseals_nav navigation.launch.py
     summary: Nav2 alone, with the measured-limits overlay.
@@ -135,6 +149,7 @@ commands:
     examples:
       - ros2 topic echo /mavros/state
       - ros2 topic hz /points
+      - ros2 topic echo /perception/nearby
       - ros2 run rqt_tf_tree rqt_tf_tree
       - docker exec roboboat_dev bash -c 'ros2 topic hz /odom/local'
       - ros2 launch rosbridge_server rosbridge_websocket_launch.xml
