@@ -10,6 +10,7 @@ import re
 from types import MappingProxyType
 
 
+from . import layers
 from .navigation_config import load_strict
 
 ALIASES = {'mavros_odom_rate': (33,), 'mavros_imu_rate': (30, 31),
@@ -84,14 +85,18 @@ def validate_setup(params, *, complete=True):
 
 def parameters_from_yaml(raw, path='<mavros_setup>'):
     """Read only the consumed per-node schema; unsupported settings fail closed."""
-    data = load_strict(raw, path)
+    return setup_layer(load_strict(raw, path), 'selected')
+
+
+def setup_layer(data, label):
+    """A layer's mavros_setup.ros__parameters, validated (complete in the package layer)."""
     if not isinstance(data, dict) or set(data) != {'mavros_setup'}:
         raise ValueError('expected only mavros_setup')
     node = data['mavros_setup']
     if not isinstance(node, dict) or set(node) != {'ros__parameters'}:
         raise ValueError('expected only mavros_setup.ros__parameters')
     params = node['ros__parameters']
-    validate_setup(params, complete=False)
+    validate_setup(params, complete=label == 'package')
     return params
 
 
@@ -103,9 +108,7 @@ def resolve_setup(path, overrides=None):
     """Resolve selected bytes then explicit aliases, validating before construction."""
     if not path:
         raise ValueError('mavros_setup_params_file must select an existing file')
-    params = installed_setup_defaults()
-    selected = parameters_from_yaml(Path(path).expanduser().read_text(), path)
-    params.update(selected)
+    params, _ = layers.resolve(package_setup(), path, validate=setup_layer)
     validate_setup(params)
     rates = dict(validate_rates(params['message_rates']))
     for alias, text in (overrides or {}).items():
@@ -124,11 +127,14 @@ def resolve_setup(path, overrides=None):
             for key, value in normalized.items()}
 
 
+def package_setup():
+    from ament_index_python.packages import get_package_share_directory
+    return Path(get_package_share_directory('mhseals_nav')) / 'config' / 'mavros_setup.yaml'
+
+
 def installed_setup_defaults():
     """Load the same package authority for direct executable startup."""
-    from ament_index_python.packages import get_package_share_directory
-    path = Path(get_package_share_directory('mhseals_nav')) / 'config' / 'mavros_setup.yaml'
-    params = parameters_from_yaml(path.read_text(), path)
+    params, _ = layers.resolve(package_setup(), validate=setup_layer)
     normalized = validate_setup(params)
     return {key: list(value) if key == 'message_rates' else value
             for key, value in normalized.items()}
