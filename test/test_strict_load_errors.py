@@ -44,7 +44,7 @@ def test_camera(bad):
 
 
 def test_mavros(bad, monkeypatch):
-    monkeypatch.setattr(mavros_configuration, 'installed_setup_defaults', dict)
+    monkeypatch.setattr(mavros_configuration, 'package_setup', lambda: ROOT / 'config' / 'mavros_setup.yaml')
     with pytest.raises(ValueError) as error:
         resolve_setup(str(bad))
     check(error, bad)
