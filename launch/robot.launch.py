@@ -104,11 +104,9 @@ def generate_launch_description():
                 'mavros_gps_rate', 'mavros_rc_rate', *LAYER_ARGUMENTS, *ALIASES,
                 *ENDPOINT_LAYERS, 'endpoint_context', 'ros_ip', 'ros_port',
                 'ekf_startup_context', 'ekf_overlay_file', 'navsat_transform_config_file')},
-            'rtabmap_params_file': launch_configurations['rtabmap_params_file'],
             'ekf_local_config_file': launch_configurations['ekf_local_config_file'],
             'ekf_global_config_file': launch_configurations['ekf_global_config_file'],
             'urdf_file': launch_configurations['urdf_file'],
-            'camera_name': launch_configurations['camera_name']
         }.items()
     )
 
