@@ -59,7 +59,7 @@ def compile_navigation(params_file, limits_file, *, sim, share=None):
     ceilings = load_ceilings(ceilings_path(share))
     result = project_launch(validated_merge_limits(base, limits, ceilings),
                             {'sim': boolean(sim)}, bt_paths(share))
-    rectangle = hull(hull_path(share))
+    rectangle = hull(hull_path(share))   # an overlay footprint is refused: base has none
     for name in ('local_costmap', 'global_costmap'):
         result[name][name]['ros__parameters'].update(
             footprint=footprint(rectangle), footprint_padding=rectangle['padding'])

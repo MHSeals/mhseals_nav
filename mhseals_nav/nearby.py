@@ -99,13 +99,13 @@ def node_class():
     from tf2_msgs.msg import TFMessage
 
     from mhseals_nav.lidar_relay import add_static, lidar_mount
-    from mhseals_nav.yaml_params import hull, node_section_config
+    from mhseals_nav.yaml_params import rectangle, node_section_config
 
     class Nearby(Node):
         def __init__(self):
             super().__init__('nearby', automatically_declare_parameters_from_overrides=True)
             # config/hull.yaml < config/lidar.yaml costmap: < launch overrides
-            self.near = cfg = node_section_config(self, 'lidar.yaml', 'costmap', hull())
+            self.near = cfg = node_section_config(self, 'lidar.yaml', 'costmap', rectangle())
             self.hull = (cfg['half_length'] + cfg['hull_margin'],
                          cfg['half_width'] + cfg['hull_margin'])
             self.cloud, self.rate = None, Rate()

@@ -18,7 +18,7 @@ from socket import gethostname
 from time import monotonic
 
 from mhseals_nav.robot_geometry import quat_matrix
-from mhseals_nav.yaml_params import camera_fov, merge
+from mhseals_nav.yaml_params import camera_fov, merge, renamed
 import numpy as np
 
 try:
@@ -317,9 +317,9 @@ class SimBackend(Node):
         from mhseals_nav.utils.live_params import LiveParams, finite, one_of, positive
         super().__init__('sim_backend', automatically_declare_parameters_from_overrides=True)
         # The FOV is the camera's (config/camera.yaml backend.fov), parameters on top.
-        self.cfg = merge({'fov': camera_fov()}, nest(
+        self.cfg = merge({'fov': camera_fov()}, nest(renamed(
             {n: p.value for n, p in self.get_parameters_by_prefix('').items()
-             if n != 'use_sim_time'}))
+             if n != 'use_sim_time'}, self.get_logger().warning)))
         cfg = self.cfg
         rules = {f'inject.{k}': finite for k in INJECT_KEYS + NOISE_KEYS}
         self.rng = np.random.default_rng(int(cfg['inject']['seed']))

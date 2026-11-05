@@ -97,7 +97,13 @@ def hull(path=None):
     """
     from mhseals_nav.navigation_config import load_strict
     path = Path(path) if path else config_path(HULL)
-    return load_strict(path.read_text(), path)['/**']['ros__parameters']
+    return load_strict(path.read_text(), path)
+
+
+def rectangle(path=None):
+    """The hull rectangle of config/hull.yaml ({half_length, half_width}), the nodes' default."""
+    h = hull(path)
+    return {'half_length': h['half_length'], 'half_width': h['half_width']}
 
 
 def footprint(rectangle):
