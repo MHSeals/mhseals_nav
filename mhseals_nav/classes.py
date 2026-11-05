@@ -7,7 +7,7 @@ from mhseals_nav.yaml_params import config_path
 
 @lru_cache(maxsize=None)
 def _load(path):
-    from mhseals_nav.navigation_config import load_strict
+    from mhseals_nav.layers import load_strict
     doc = load_strict(path.read_text(), path)
     if not isinstance(doc, dict) or set(doc) != {'default_radius', 'classes'}:
         raise ValueError(f'{path}: expected default_radius and classes')

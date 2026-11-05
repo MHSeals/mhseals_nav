@@ -76,7 +76,7 @@ def relays(camera_name, slam, preview_rate):
 
 def relay_nodes(context, settings):
     camera_name = LaunchConfiguration('camera_name').perform(context)
-    from mhseals_nav.endpoint_configuration import boolean
+    from mhseals_nav.layers import boolean
     slam = boolean(LaunchConfiguration('slam').perform(context))
     return [Node(**kwargs) for kwargs in relays(camera_name, slam, settings.preview_rate)]
 

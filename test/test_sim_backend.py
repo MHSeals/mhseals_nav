@@ -24,10 +24,6 @@ def obj(p, v=(0.0, 0.0, 0.0), label='red_buoy', truth_id=None):
             'id': truth_id}
 
 
-def test_nest_rebuilds_the_yaml_shape_from_parameter_names():
-    assert sb.nest({'a.b.c': 1, 'a.d': 2, 'e': 3}) == {'a': {'b': {'c': 1}, 'd': 2}, 'e': 3}
-
-
 def test_injection_uses_live_params_without_a_case_and_rows_with_one():
     c = cfg()
     c['inject']['heading_bias_deg'] = 2.0

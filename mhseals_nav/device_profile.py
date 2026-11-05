@@ -11,7 +11,7 @@ import json
 import os
 from pathlib import Path
 
-from .navigation_config import deep_merge, load_strict
+from .layers import deep_merge, load_strict
 
 KEYS = {'extends', 'requires', 'args', 'parts'}
 OVERLAY_KEYS = KEYS - {'extends'}

@@ -9,7 +9,7 @@ from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
-from mhseals_nav.endpoint_configuration import boolean as endpoint_boolean
+from mhseals_nav.layers import boolean as endpoint_boolean
 from mhseals_nav.localization_configuration import compile_localization
 from mhseals_nav.odometry_configuration import ALIASES, from_launch, LAYER_ARGUMENTS
 

@@ -11,8 +11,8 @@ import os
 from mhseals_nav.robot_geometry import description_xml
 
 from mhseals_nav.endpoint_configuration import (
-    boolean as endpoint_boolean,
     from_launch as endpoint_from_launch, LAYER_ARGUMENTS as ENDPOINT_LAYERS, UNSET_GCS)
+from mhseals_nav.layers import boolean as endpoint_boolean
 
 from mhseals_nav.odometry_configuration import ALIASES, from_launch, LAYER_ARGUMENTS
 

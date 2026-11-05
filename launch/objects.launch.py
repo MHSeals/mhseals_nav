@@ -23,7 +23,7 @@ def fusion_config():
 
 
 def nodes(context):
-    from mhseals_nav.endpoint_configuration import boolean
+    from mhseals_nav.layers import boolean
     from mhseals_nav.yaml_params import footprint, hull
     sim = boolean(LaunchConfiguration('sim').perform(context))
     backend = LaunchConfiguration('backend').perform(context)

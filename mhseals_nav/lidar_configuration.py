@@ -17,7 +17,7 @@ import string
 import yaml
 
 from . import boat_network, layers
-from .navigation_config import load_strict
+from .layers import load_strict
 
 log = logging.getLogger(__name__)
 SECTIONS = {'tune', 'driver', 'costmap', 'fusion'}      # config/lidar.yaml

@@ -58,7 +58,7 @@ def mux_state(state):
 
 def mux_defaults():
     """watchdogs.yaml's mux_state_topic and mux_state_max_age (its defaults), for other readers."""
-    from mhseals_nav.navigation_config import load_strict
+    from mhseals_nav.layers import load_strict
     from mhseals_nav.yaml_params import config_path, WATCHDOGS
     path = config_path(WATCHDOGS)
     defaults = load_strict(path.read_text(), path)['defaults']

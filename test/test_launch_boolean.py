@@ -30,13 +30,13 @@ def test_sim_clock_is_boolean(sim):
 @pytest.mark.parametrize('text, value', [('1', True), ('True', True), ('0', False),
                                          ('false', False)])
 def test_one_strict_parser(text, value):
-    from mhseals_nav.endpoint_configuration import boolean
+    from mhseals_nav.layers import boolean
     assert boolean(text) is value
 
 
 @pytest.mark.parametrize('text', ['yes', '', 'on', None])
 def test_one_strict_parser_rejects(text):
-    from mhseals_nav.endpoint_configuration import boolean
+    from mhseals_nav.layers import boolean
     with pytest.raises(ValueError, match='invalid launch boolean'):
         boolean(text)
 
