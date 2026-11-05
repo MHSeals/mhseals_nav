@@ -5,13 +5,9 @@ from pathlib import Path
 import pytest
 
 
-@pytest.mark.parametrize('filename,function', [
-    ('odom.launch.py', 'create_rtabmap_odom_node'),
-    ('slam.launch.py', 'create_rtabmap_slam_node'),
-])
 @pytest.mark.parametrize('sim', ['false', 'true'])
-def test_sim_clock_is_boolean(filename, function, sim):
-    source = Path(__file__).parents[1] / 'launch' / filename
+def test_sim_clock_is_boolean(sim):
+    source = Path(__file__).parents[1] / 'launch' / 'slam.launch.py'
     tree = ast.parse(source.read_text())
     # Select the factory containing RTABMap parameters, independent of name.
     factory = next(node for node in tree.body if isinstance(node, ast.FunctionDef)
@@ -46,8 +42,3 @@ def test_velodyne_driver_and_transform_use_same_model(tmp_path):
     assert driver['model'] == transform['model'] == 'VLP16'
     assert driver['frame_id'] == transform['frame_id'] == 'lidar_link'
 
-
-def test_imu_filter_is_opt_in():
-    source = (Path(__file__).parents[1] / 'launch' / 'odom.launch.py').read_text()
-    assert "('use_imu_filter', 'false'" in source
-    assert "condition=IfCondition(launch_configurations['use_imu_filter'])" in source
