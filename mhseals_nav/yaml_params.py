@@ -33,14 +33,18 @@ RENAMED = {'max_age_s': ('max_age', None), 'command_window_s': ('command_window'
            'hfov_deg': ('hfov', math.radians), 'range_m': ('range', None)}
 
 
+def params_file(name):
+    """config/<name>'s ros__parameters (``layers.config_path``), read strictly."""
+    path = config_path(name)
+    return load_strict(path.read_text(), path)['/**']['ros__parameters']
+
+
 def node_config(node, filename, base=None):
     """Return ``base`` < config/<filename> < the node's parameters.
 
     The node must be built with ``automatically_declare_parameters_from_overrides=True``.
     """
-    path = config_path(filename)
-    cfg = deep_merge(deep_merge({}, base or {}),
-                     load_strict(path.read_text(), path)['/**']['ros__parameters'])
+    cfg = deep_merge(deep_merge({}, base or {}), params_file(filename))
     flat = {name: p.value for name, p in node._parameters.items() if name != 'use_sim_time'}
     return deep_merge(cfg, nested(flat))
 
