@@ -8,7 +8,6 @@ overrides) and the velodyne_ip/velodyne_port aliases go on top. The model and rp
 profile's alone: a layer that still sets them is used only without a profile, with a warning.
 """
 from collections.abc import Mapping
-from hashlib import sha256
 from ipaddress import IPv4Address
 import logging
 import math
@@ -17,7 +16,7 @@ import string
 
 import yaml
 
-from . import boat_network
+from . import boat_network, layers
 from .navigation_config import load_strict
 
 log = logging.getLogger(__name__)
@@ -125,10 +124,8 @@ def parse_lidar(raw, path='<lidar>'):
 
 
 def _layer(path):
-    path = Path(path).expanduser().resolve(strict=True)
-    raw = path.read_bytes()
-    values = parse_lidar(raw, path)
-    return values, {'path': str(path), 'sha256': sha256(raw).hexdigest()}
+    path, raw, digest = layers.read(path)
+    return parse_lidar(raw, path), {'path': str(path), 'sha256': digest}
 
 
 def validate_reference(reference):
@@ -154,10 +151,9 @@ def _calibration(reference, source, share):
         path = Path(reference['file']).expanduser()
         if not path.is_absolute():
             path = Path(source).parent / path
-    path = path.resolve(strict=True)
-    raw = path.read_bytes()
+    path, raw, digest = layers.read(path)
     validate_calibration(raw, path)
-    return {'path': str(path), 'sha256': sha256(raw).hexdigest()}
+    return {'path': str(path), 'sha256': digest}
 
 
 def profile_facts(network_env=None):
