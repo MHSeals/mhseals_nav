@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Smoke tier (< 60 s, gates landing): config parse and the pure-python units, no ROS needed.
-# Tests named test_node_* start ROS nodes and are left to the full suite (CI / nightly).
+# Tests named test_node_* start ROS nodes and are left to the container suite; CI (tests.yml)
+# runs this, then every test without ROS (those needing ROS skip there).
 # Usage: ./smoke.sh [--impact] [extra pytest args]
 #   --impact: only the smoke tests mhseals_agents' timpact picks against origin/main (ALL, or no
 #   timpact: the full smoke). A plain run goes through its tcache (tier smoke) when that exists,
