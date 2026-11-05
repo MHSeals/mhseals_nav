@@ -36,9 +36,8 @@ from mhseals_nav.msg import TrackArray
 from mhseals_nav.startup_projection import PRECISE_TREE
 from mhseals_nav.tasks import load_config, tracks
 from mhseals_nav.tasks.conditions import speed as conditions_speed
-# config_path and load_params live in the ROS-free host; kept here for their callers.
-from mhseals_nav.tasks.host import (config_path, EVENTS_SCHEMA, load_params,  # noqa: F401
-                                    MissionHost)
+from mhseals_nav.tasks.host import MissionHost
+from mhseals_nav.tasks.params import load_params
 from mhseals_nav.tasks.trees import TREES
 from nav2_msgs.action import BackUp, NavigateThroughPoses, NavigateToPose
 from nav2_msgs.msg import SpeedLimit

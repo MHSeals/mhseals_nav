@@ -6,8 +6,8 @@ from pathlib import Path
 from xml.etree import ElementTree
 
 from . import layers
-from .layers import boolean
-from .navigation_config import (load_ceilings, load_overlay, load_strict,
+from .layers import boolean, load_strict
+from .navigation_config import (load_ceilings, load_overlay,
                                 validate_navigation_base,
                                 validated_merge_limits)
 from .yaml_params import camera_fov, footprint, HULL, hull

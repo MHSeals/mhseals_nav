@@ -26,8 +26,6 @@ from mhseals_nav.tasks.actuators import fitted
 from mhseals_nav.tasks.behaviours import SpeedCap
 from mhseals_nav.tasks.conditions import Conditions
 from mhseals_nav.tasks.layout import Layout
-# The parameters live in the py_trees-free params module; kept here for their callers.
-from mhseals_nav.tasks.params import config_path, load_params  # noqa: F401
 from mhseals_nav.tasks.recognition import Recogniser
 from mhseals_nav.tasks.search import camera_view, Coverage, load_config as load_search
 from mhseals_nav.tasks.trees import KINDS, TREES

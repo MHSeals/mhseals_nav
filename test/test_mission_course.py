@@ -15,9 +15,9 @@ from pathlib import Path
 import subprocess
 import sys
 
-from mhseals_nav.navigation_config import load_strict
+from mhseals_nav.layers import load_strict
 from mhseals_nav.startup_projection import effective_limits
-from mhseals_nav.tasks.host import config_path, load_params
+from mhseals_nav.tasks.params import config_path, load_params
 from mhseals_nav.tasks.tracks import Track
 import pytest
 
@@ -247,7 +247,8 @@ class NoRos(importlib.abc.MetaPathFinder):
         if name.split('.')[0] in ('ament_index_python', 'rclpy'):
             raise ModuleNotFoundError(name)
 sys.meta_path.insert(0, NoRos())
-from mhseals_nav.tasks.host import config_path, load_params, MissionHost
+from mhseals_nav.tasks.host import MissionHost
+from mhseals_nav.tasks.params import config_path, load_params
 print(config_path('mission_2026.yaml'))
 print(sorted(load_params('mission', config_path('mission_2026.yaml'))['tasks']))
 """
