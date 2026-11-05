@@ -81,26 +81,6 @@ def load_overlay(path, *, strict=False):
     return data
 
 
-EKF_NODES = {'ekf_local', 'ekf_global', 'navsat_transform'}
-
-
-def ekf_overlay(path, node, base_path=None):
-    """Strict compatibility projection; missing explicit selections now refuse."""
-    from .localization_configuration import NODES, parse_base, parse_overlay
-    if node not in NODES:
-        raise ValueError('unsupported localization node: ' + node)
-    if base_path is not None:
-        parse_base(Path(base_path).expanduser().read_bytes(), node, base_path)
-    selected = Path(path).expanduser() if path else Path.home() / '.config/mhseals/ekf.yaml'
-    try:
-        raw = selected.read_bytes()
-    except FileNotFoundError:
-        if path or selected.is_symlink():
-            raise
-        raw = b''
-    return parse_overlay(raw, selected).get(node, {})
-
-
 def valid_numbers(controller, follow):
     """True when the values derived() computes from are numbers and the frequency is positive."""
     values = {'controller_frequency': controller.get('controller_frequency', 1)}
