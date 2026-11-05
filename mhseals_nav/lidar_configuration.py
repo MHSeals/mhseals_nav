@@ -14,8 +14,6 @@ import math
 from pathlib import Path
 import string
 
-import yaml
-
 from . import boat_network, layers
 from .layers import load_strict
 
@@ -161,19 +159,20 @@ def profile_facts(network_env=None):
 
     The vessel's directory holds its network env (``boat_network.path()``). From the profile it
     ``extends`` down to the vessel, each profile's lidar.yaml and then its profile.yaml ``lidar:``
-    lay over the facts so far.
+    lay over the facts so far. Every file is read strictly and each profile.yaml in the chain must
+    exist (as mhseals_hardware's vessel.section): a broken vessel refuses, never reads as defaults.
     """
     env = Path(network_env) if network_env else boat_network.path()
     if env is None or not env.is_file():
         return {}, None
-    chain, here = [], env.parent
+    chain, here = [], env.resolve().parent
     while here is not None and len(chain) < 8 and here not in [d for d, _ in chain]:
-        profile = _mapping(here / 'profile.yaml')
+        profile = _profile(here / 'profile.yaml', required=True)
         chain.insert(0, (here, profile))
         here = here.parent / profile['extends'] if profile.get('extends') else None
     facts = {}
     for directory, profile in chain:
-        facts.update(_mapping(directory / 'lidar.yaml'))
+        facts.update(_profile(directory / 'lidar.yaml'))
         facts.update(profile.get('lidar') or {})
     return facts, env
 
@@ -219,13 +218,18 @@ def profile_mount(network_env=None):
     return properties
 
 
-def _mapping(path):
-    """A profile file's mapping, {} when it is missing or not one."""
-    try:
-        data = yaml.safe_load(path.read_text())
-    except (OSError, yaml.YAMLError):
+def _profile(path, required=False):
+    """A vessel profile file's mapping, read strictly; {} when an optional file is missing."""
+    if not path.is_file():
+        if required:
+            raise ValueError(f'vessel profile {path} is missing')
         return {}
-    return data if isinstance(data, dict) else {}
+    data = load_strict(path.read_bytes(), path)
+    if data is None:
+        return {}
+    if not isinstance(data, dict):
+        raise ValueError(f'{path}: must be a mapping')
+    return data
 
 
 def resolve_lidar(selected='', deployment='', overrides=None, *, share=package_share,

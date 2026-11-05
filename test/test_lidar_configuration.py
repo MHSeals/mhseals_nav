@@ -186,3 +186,18 @@ def test_the_profiles_mount_overrides_the_descriptions_lidar_properties(boat_net
     profile.write_text('extends: fleet\nlidar: {model: VLP16, rpm: 600, mount: {xyz: [1, 2]}}\n')
     with pytest.raises(ValueError, match='three finite numbers'):
         profile_mount()
+
+
+def test_a_broken_vessel_profile_refuses(boat_network_env):
+    """A vessel profile that cannot be read refuses rather than losing even the fleet's facts."""
+    from mhseals_nav.lidar_configuration import profile_facts
+    profile = boat_network_env.parent / 'profile.yaml'
+    profile.write_text('extends: fleet\nlidar: {model: VLP16, rpm: 600\n')
+    with pytest.raises(ValueError, match='profile.yaml'):
+        profile_facts()
+    profile.write_text('extends: fleet\nlidar: {model: VLP16}\nlidar: {rpm: 600}\n')
+    with pytest.raises(ValueError, match='Duplicate key'):
+        profile_facts()
+    profile.write_text('extends: missing\n')
+    with pytest.raises(ValueError, match='missing/profile.yaml is missing'):
+        profile_facts()
