@@ -20,9 +20,7 @@ costmap:
   rate: 5.0                     # at most; nothing without a new cloud
   min_height: -0.10             # base_link z band, as the perception costmap's lidar marks
   max_height: 3.0
-  half_length: 0.5315           # the hull, as nav2_params' footprint without its padding
-  half_width: 0.4475
-  hull_margin: 0.1              # the hull's own returns and spray at its side
+  hull_margin: 0.1              # around config/hull.yaml: the hull's own returns, side spray
 
 driver:
   frame: lidar_link

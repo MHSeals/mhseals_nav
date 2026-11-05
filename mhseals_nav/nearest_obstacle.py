@@ -116,13 +116,13 @@ def node_class():
     from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy
     from tf2_ros import Buffer, TransformListener
 
-    from mhseals_nav.yaml_params import node_config
+    from mhseals_nav.yaml_params import hull, node_config
 
     class NearestObstacle(Node):
         def __init__(self):
             super().__init__('nearest_obstacle',
                              automatically_declare_parameters_from_overrides=True)
-            self.cfg = cfg = node_config(self, 'nearest_obstacle.yaml')
+            self.cfg = cfg = node_config(self, 'nearest_obstacle.yaml', hull())
             self.grid = Grid()
             self.tf = Buffer()
             self.tf_listener = TransformListener(self.tf, self)

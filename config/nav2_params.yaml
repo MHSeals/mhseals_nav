@@ -2,7 +2,7 @@
 # hold a line through a gate or into a dock, but it prefers facing along the
 # path because the camera looks forward. Velocity limits are overwritten from
 # the characterization (thrust_characterize --nav2-overlay). The hull footprint
-# is simulation-derived and needs hardware validation; see the workspace
+# (config/hull.yaml) is simulation-derived and needs hardware validation; see the workspace
 # README before connecting any actuator.
 controller_server:
   ros__parameters:
@@ -155,10 +155,7 @@ local_costmap:
       width: 12
       height: 12
       resolution: 0.05
-      # Padding covers buoy range noise the tracker discs (max_extra_m 0.1) do not: ZED depth
-      # error is about 0.25 m at 5 m, so 0.05 would leave ~1 sigma.
-      footprint: "[[0.5315, 0.4475], [0.5315, -0.4475], [-0.5315, -0.4475], [-0.5315, 0.4475]]"
-      footprint_padding: 0.1
+      # footprint and footprint_padding: config/hull.yaml, written in by startup_projection.
       # StaticLayer reads these from the costmap, not from its own namespace.
       trinary_costmap: false     # keep the Orin's graded costs
       use_maximum: false
@@ -225,10 +222,7 @@ global_costmap:
       width: 100
       height: 100
       resolution: 0.20
-      # Padding covers buoy range noise the tracker discs (max_extra_m 0.1) do not: ZED depth
-      # error is about 0.25 m at 5 m, so 0.05 would leave ~1 sigma.
-      footprint: "[[0.5315, 0.4475], [0.5315, -0.4475], [-0.5315, -0.4475], [-0.5315, 0.4475]]"
-      footprint_padding: 0.1
+      # footprint and footprint_padding: config/hull.yaml, written in by startup_projection.
       # StaticLayer reads these from the costmap, not from its own namespace.
       trinary_costmap: false     # keep the Orin's graded costs
       use_maximum: false

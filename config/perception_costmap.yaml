@@ -17,8 +17,7 @@
     track_unknown_space: false
     trinary_costmap: false       # keep the tracker's graded swath
     use_maximum: true            # tracks add to lidar marks, never clear them
-    footprint: "[[0.5315, 0.4475], [0.5315, -0.4475], [-0.5315, -0.4475], [-0.5315, 0.4475]]"
-    footprint_padding: 0.1
+    # footprint and footprint_padding: config/hull.yaml, passed by objects.launch.py.
     plugins: [lidar_layer, track_layer]
     # Spatio-temporal voxels that decay: over open water a LiDAR's rays mostly return
     # nothing, so nothing would ever clear a mark; marks let go after 3 s.

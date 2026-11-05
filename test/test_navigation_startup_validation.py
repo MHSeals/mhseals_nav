@@ -122,7 +122,8 @@ def inert_navigation_factory():
     share = Path(tempfile.mkdtemp())
     shutil.copytree(ROOT / 'mhseals_nav/behavior_trees', share / 'behavior_trees')
     (share / 'config').mkdir()
-    shutil.copyfile(ROOT / 'config/nav2_ceilings.yaml', share / 'config/nav2_ceilings.yaml')
+    for name in ('nav2_ceilings.yaml', 'hull.yaml', 'camera.yaml'):
+        shutil.copyfile(ROOT / 'config' / name, share / 'config' / name)
     (share / 'launch').mkdir()
     shutil.copyfile(ROOT / 'launch/navigation.launch.py', share / 'launch/navigation.launch.py')
     ns = {'LaunchConfiguration': Configuration,

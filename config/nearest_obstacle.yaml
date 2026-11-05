@@ -8,8 +8,6 @@
     updates_topic: /perception/costmap_updates
     output_topic: /perception/nearest_obstacle
     base_frame: base_link
-    half_length: 0.5315      # the hull, as nav2_params' footprint without its padding
-    half_width: 0.4475
     radius: 1.5              # farther obstacles report NaN
     lethal: 100              # OccupancyGrid value of a lethal cell
     max_age: 1.0             # receipt age of the costmap (5 Hz) and stamp age of the TF

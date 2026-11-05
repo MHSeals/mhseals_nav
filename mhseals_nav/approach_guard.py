@@ -28,6 +28,7 @@ giving anything new the authority to move it.
 
 from mhseals_nav.hold_watchdog import HoldGate, node_class as watchdog_class, run
 from mhseals_nav.nearest_obstacle import Grid, grid_pose, hull_gap, lethal_points
+from mhseals_nav.yaml_params import hull
 import numpy
 
 
@@ -220,7 +221,7 @@ def node_class():
 
         node.create_timer(cfg['repeat'], publish_report)
 
-    return watchdog_class('approach_guard', Guard, subscribe)
+    return watchdog_class('approach_guard', Guard, subscribe, hull())   # config/hull.yaml
 
 
 def main(args=None):

@@ -131,8 +131,6 @@ approach_guard:
   updates_topic: /perception/costmap_updates
   report_topic: /approach_guard/approach   # JSON {gap_m, at, enforce}, <= 1 / repeat
   base_frame: base_link
-  half_length: 0.5315                   # the hull, as nav2_params' footprint without padding
-  half_width: 0.4475
   lethal: 100                           # OccupancyGrid value of a lethal cell
   move: 0.6                             # 4 cells of the 0.15 m costmap: edge flicker stays under
   min_age: 1.0                          # so a hull moving at >= 0.6 m/s is seen
