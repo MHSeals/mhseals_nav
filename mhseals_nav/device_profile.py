@@ -172,7 +172,7 @@ def check(profile, name):
             if spec.get('args'):
                 raise ValueError(f'{here}.args: give a run part its arguments in run')
             if spec['run'][0] != 'mhseals_nav' and tuple(spec['run'][:2]) not in OTHER_PACKAGE_RUNS:
-                raise ValueError(f'{here}.run: {spec["run"][0]} {spec["run"][1]} is another package\'s; '
+                raise ValueError(f'{here}.run: {" ".join(spec["run"][:2])} is another package\'s; '
                                  'a device part runs mhseals_nav executables')
             continue
         if not (launches / spec['launch']).is_file():
