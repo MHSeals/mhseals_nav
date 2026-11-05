@@ -195,3 +195,102 @@ def test_rate_shortfalls_flags_ids_stuck_at_the_fcu_default():
     counts = {33: 935, 30: 95, 27: 140, 1: 95, 116: 90}
     assert rate_shortfalls(counts, 50., wanted) == [(27, 10., 2.8), (30, 20., 1.9), (65, 25., 0.)]
     assert rate_shortfalls({33: 1000, 30: 1000, 27: 500, 1: 100, 65: 1250}, 50., wanted) == []
+
+
+POLICY = {'reboot_dedupe_window': 5., 'verify_period': 10., 'rc_grace': 2., 'rc_window': 5.,
+          'rc_min_hz': 10., 'rc_min_channels': 8}
+
+
+class Clock:
+    def __init__(self):
+        self.now = 100.
+
+    def __call__(self):
+        return self.now
+
+
+def keeper():
+    from mhseals_nav.mavros_setup import RateKeeper
+    clock = Clock()
+    return RateKeeper(POLICY, clock), clock
+
+
+def take(rates):
+    """take() without blocking the test when nothing was asked."""
+    assert rates.wanted.is_set()
+    return rates.take()
+
+
+def test_one_reboot_seen_as_state_edge_and_boot_clock_asks_once():
+    rates, clock = keeper()
+    rates.on_state(True)
+    assert take(rates) is None
+    rates.on_message(2, 90_000)
+    clock.now += 10.
+    rates.on_state(False)
+    rates.on_state(True)
+    assert take(rates) is None
+    assert rates.on_message(2, 1_500)  # same reboot, within the dedupe window
+    assert not rates.wanted.is_set()
+    clock.now += 6.
+    assert not rates.on_message(2, 2_500)
+    assert rates.on_message(2, 500)
+    assert take(rates) is None
+
+
+def test_subsets_merge_and_a_pending_whole_list_wins():
+    rates, _ = keeper()
+    rates.want({33})
+    rates.want({30, 27})
+    assert take(rates) == {33, 30, 27}
+    rates.want()
+    rates.want({33})
+    assert take(rates) is None
+
+
+def test_verify_waits_a_full_window_and_requests_only_the_short_ids():
+    rates, clock = keeper()
+    rates.on_state(True)
+    take(rates)
+    assert rates.verify({33: 20., 30: 20.}) == []  # opens the span
+    for _ in range(200):
+        rates.on_message(33)
+    for _ in range(20):
+        rates.on_message(30)
+    clock.now += 5.
+    assert rates.verify({33: 20., 30: 20.}) == []  # half a window
+    clock.now += 5.
+    assert rates.verify({33: 20., 30: 20.}) == [(30, 20., 2.)]
+    assert take(rates) == {30}
+
+
+def test_verify_does_not_count_while_busy_or_disconnected():
+    rates, clock = keeper()
+    rates.on_state(True)
+    take(rates)
+    rates.verify({30: 20.})
+    rates.busy = True
+    clock.now += 10.
+    assert rates.verify({30: 20.}) == [] and rates.span is None
+    rates.busy = False
+    rates.on_state(False)
+    assert rates.verify({30: 20.}) == [] and rates.span is None
+
+
+def test_rc_monitor_reports_each_transition_once():
+    from mhseals_nav.mavros_setup import RcMonitor
+    clock = Clock()
+    rc = RcMonitor(POLICY, clock)
+    assert rc.check(False) is None
+    assert rc.check(True) is None  # grace starts
+    clock.now += 2.
+    assert rc.check(True) == 'low'
+    clock.now += 0.1
+    assert rc.check(True) is None
+    for _ in range(130):
+        clock.now += 0.04
+        rc.arrive(16)
+    assert rc.check(True) == 'ok'
+    assert rc.check(True) is None
+    clock.now += 6.
+    assert rc.check(True) == 'low'

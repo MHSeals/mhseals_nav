@@ -143,6 +143,121 @@ def ekf_status_values(status):
     return (1 if stuck else 0), ','.join(status['names']), values
 
 
+class RateKeeper:
+    """When to request which message rates: reconnects, reboots and rates that fall short.
+
+    want() wakes the worker for some ids or the whole list; take() hands them over.
+    Not set at start: the first connected state is a false->true edge and asks.
+    """
+
+    def __init__(self, policy, clock=time.monotonic):
+        self.policy, self.clock = policy, clock
+        self.wanted = threading.Event()
+        self.lock = threading.Lock()  # subset and wanted change together
+        self.subset = None            # ids to request on the next wake; None is the whole list
+        self.busy = False             # a request round is running: its arrivals are not counted
+        self.connected = False
+        self.last_reboot = None
+        self.boot_ms = None
+        self.counts = collections.Counter()  # FCU messages per id since span
+        self.span = None              # start of the counting span; None while not counting
+
+    def want(self, ids=None):
+        """Wake the worker for ``ids``, or the whole list; a pending whole list wins."""
+        with self.lock:
+            if ids is None or (self.wanted.is_set() and self.subset is None):
+                self.subset = None
+            else:
+                self.subset = set(ids) | (self.subset or set())
+            self.wanted.set()
+
+    def take(self):
+        """Wait for a wake; the ids to request, None for the whole list."""
+        self.wanted.wait()
+        with self.lock:
+            self.wanted.clear()
+            ids, self.subset = self.subset, None
+        return ids
+
+    def reboot_seen(self):
+        # One reboot shows as both a state edge and a boot-clock reset; ask once.
+        now = self.clock()
+        if not is_duplicate_trigger(self.last_reboot, now, self.policy['reboot_dedupe_window']):
+            self.want()
+            self.last_reboot = now
+
+    def on_state(self, connected):
+        if reconnected(self.connected, connected):
+            self.reboot_seen()
+        self.connected = connected
+
+    def on_message(self, msgid, boot_ms=None):
+        """Count an FCU message; True when its boot clock went backwards (a reboot)."""
+        self.counts[msgid] += 1
+        if boot_ms is None:
+            return False
+        went_back = rebooted(self.boot_ms, boot_ms)
+        if went_back:
+            self.reboot_seen()
+        self.boot_ms = boot_ms
+        return went_back
+
+    def verify(self, wanted):
+        """Request again the ids arriving below 0.7 of their rate over the last period.
+
+        wanted maps id to Hz; returns the shortfalls requested again.
+        """
+        now = self.clock()
+        if not self.connected or self.busy or self.wanted.is_set():
+            self.span = None
+            return []
+        if self.span is None or now - self.span < self.policy['verify_period']:
+            if self.span is None:
+                self.counts.clear()
+                self.span = now
+            return []
+        short = rate_shortfalls(dict(self.counts), now - self.span, wanted)
+        self.counts.clear()
+        self.span = now
+        if short:
+            self.want({i for i, _, _ in short})
+        return short
+
+
+class RcMonitor:
+    """Whether /mavros/rc/in arrives fast and full enough, as low/ok transitions.
+
+    Checked only while connected and after a grace period, so start-up and reboots
+    do not warn before the rate request has had time to take effect.
+    """
+
+    def __init__(self, policy, clock=time.monotonic):
+        self.policy, self.clock = policy, clock
+        self.arrivals = collections.deque()
+        self.low = False
+        self.since = None
+
+    def arrive(self, channels):
+        self.arrivals.append((self.clock(), channels))
+
+    def check(self, connected):
+        """'low' or 'ok' when the state changes, else None."""
+        now = self.clock()
+        if not connected:
+            self.since = None
+            return None
+        self.since = self.since or now
+        if now - self.since < self.policy['rc_grace']:
+            return None
+        low = rc_rate_low(self.arrivals, now, window=self.policy['rc_window'],
+                          min_hz=self.policy['rc_min_hz'],
+                          min_channels=self.policy['rc_min_channels'])
+        if low == self.low:
+            return None
+        self.low = low
+        return 'low' if low else 'ok'
+
+
 def spin_until_shutdown(node):
     """Spin until SIGINT; the wait-set RCLError of a context shut down mid-spin is a clean exit."""
     import rclpy
@@ -171,38 +286,13 @@ def main(args=None):
     for name, value in defaults.items():
         node.declare_parameter(name, value)
     policy = validate_setup({name: node.get_parameter(name).value for name in defaults})
+    keeper = RateKeeper(policy)
+    rc = RcMonitor(policy)
     # A changed list is requested at once; the FCU keeps the latest request.
     live = LiveParams(node, {'message_rates': rates_rule},
-                      on_change=lambda values, changed: want())
+                      on_change=lambda values, changed: keeper.want())
     client = node.create_client(MessageInterval, '/mavros/set_message_interval')
-    wanted = threading.Event()
-    subset = [None]       # ids to request on the next wake; None is the whole list
-    busy = [False]        # a request round is running: its arrivals are not counted
-    lock = threading.Lock()   # subset and wanted change together
-
-    def want(ids=None):
-        """Wake the worker for ``ids``, or the whole list; a pending whole list wins."""
-        with lock:
-            if ids is None or (wanted.is_set() and subset[0] is None):
-                subset[0] = None
-            else:
-                subset[0] = set(ids) | (subset[0] or set())
-            wanted.set()
-    # Not set at start: the first connected /mavros/state is a False->True edge and asks.
-    connected = [False]
-    last_reboot = [None]
-
-    def reboot_seen():
-        # One reboot shows as both a state edge and a boot-clock reset; ask once.
-        now = time.monotonic()
-        if not is_duplicate_trigger(last_reboot[0], now, policy['reboot_dedupe_window']):
-            want()
-            last_reboot[0] = now
-
-    def receive_state(state):
-        if reconnected(connected[0], state.connected):
-            reboot_seen()
-        connected[0] = state.connected
+    log = node.get_logger()
 
     def call(message_id, hz):
         done = threading.Event()
@@ -213,60 +303,34 @@ def main(args=None):
 
     def work():
         while rclpy.ok():
-            wanted.wait()
-            with lock:
-                wanted.clear()
-                ids, subset[0] = subset[0], None
+            ids = keeper.take()
             rates = live['message_rates']
             if ids is not None:
                 rates = [(i, hz) for i, hz in rates if i in ids]
             if client.wait_for_service(timeout_sec=policy['service_wait']):
-                busy[0] = True
+                keeper.busy = True
                 try:
-                    request_rates(rates, call, node.get_logger().info,
-                                  attempts=policy['retry_attempts'],
+                    request_rates(rates, call, log.info, attempts=policy['retry_attempts'],
                                   wait=policy['retry_delay'])
                 finally:
-                    busy[0] = False
+                    keeper.busy = False
             else:
-                wanted.set()  # the wait already took 10 s; try again rather than skip
+                keeper.want()  # the wait already took 10 s; try again rather than skip
 
     ekf_pub = node.create_publisher(DiagnosticStatus, '/fcu/ekf_status', 10)
 
-    boot_ms = [None]
-    counts = collections.Counter()   # FCU messages per id since span[0]
-    span = [None]                    # start of the counting span; None while not counting
-
     def verify_rates():
-        """Request again the ids arriving below 0.7 of their rate over the last period."""
-        now = time.monotonic()
-        if not connected[0] or busy[0] or wanted.is_set():
-            span[0] = None
-            return
-        if span[0] is None or now - span[0] < policy['verify_period']:
-            if span[0] is None:
-                counts.clear()
-                span[0] = now
-            return
-        short = rate_shortfalls(dict(counts), now - span[0], dict(live['message_rates']))
-        counts.clear()
-        span[0] = now
+        short = keeper.verify(dict(live['message_rates']))
         if short:
-            node.get_logger().info('rates short, requesting again: ' + ', '.join(
+            log.info('rates short, requesting again: ' + ', '.join(
                 f'{i} at {got:.1f} of {hz:g} Hz' for i, hz, got in short))
-            want({i for i, _, _ in short})
 
     def receive_mavlink(msg):
+        # A routed GCS SYSTEM_TIME has its own boot clock and would look like a reboot.
         if not from_fcu(msg.sysid, msg.compid, policy['fcu_sysid']):
             return
-        counts[msg.msgid] += 1
-        now_ms = decode_boot_ms(msg.msgid, msg.len, msg.payload64)
-        # A routed GCS SYSTEM_TIME has its own boot clock and would look like a reboot.
-        if now_ms is not None:
-            if rebooted(boot_ms[0], now_ms):
-                node.get_logger().info('FCU boot time went backwards; requesting rates again')
-                reboot_seen()
-            boot_ms[0] = now_ms
+        if keeper.on_message(msg.msgid, decode_boot_ms(msg.msgid, msg.len, msg.payload64)):
+            log.info('FCU boot time went backwards; requesting rates again')
         status = decode_ekf_status(msg.msgid, msg.len, msg.payload64)
         if status is None:
             return
@@ -275,41 +339,23 @@ def main(args=None):
             level=bytes([level]), name='fcu_ekf', message=message,
             values=[KeyValue(key=k, value=v) for k, v in values.items()]))
 
+    def check_rc_rate():
+        # One severity per call site: rclpy raises when a site changes severity.
+        change = rc.check(keeper.connected)
+        if change == 'low':
+            log.warning(
+                f"rc rate low: /mavros/rc/in under {policy['rc_min_hz']:g} Hz "
+                f"or under {policy['rc_min_channels']} channels; "
+                'MANUAL will be choppy and stick takeover impossible')
+        elif change == 'ok':
+            log.info('rc rate ok')
+
     node.create_subscription(Mavlink, '/uas1/mavlink_source', receive_mavlink,
                              qos_profile_sensor_data)
-    node.create_subscription(State, '/mavros/state', receive_state, 10)
-
-    # Checked only while connected and after a full window, so start-up and reboots
-    # do not warn before the rate request has had time to take effect.
-    rc_arrivals = collections.deque()
-    rc_low = [False]
-    rc_since = [None]
-
-    def check_rc_rate():
-        now = time.monotonic()
-        if not connected[0]:
-            rc_since[0] = None
-            return
-        rc_since[0] = rc_since[0] or now
-        if now - rc_since[0] < policy['rc_grace']:
-            return
-        low = rc_rate_low(rc_arrivals, now, window=policy['rc_window'],
-                          min_hz=policy['rc_min_hz'], min_channels=policy['rc_min_channels'])
-        if low != rc_low[0]:
-            rc_low[0] = low
-            # One severity per call site: rclpy raises when a site changes severity.
-            if low:
-                node.get_logger().warning(
-                    f"rc rate low: /mavros/rc/in under {policy['rc_min_hz']:g} Hz "
-                    f"or under {policy['rc_min_channels']} channels; "
-                    'MANUAL will be choppy and stick takeover impossible')
-            else:
-                node.get_logger().info('rc rate ok')
-
-    node.create_subscription(
-        RCIn, '/mavros/rc/in',
-        lambda msg: rc_arrivals.append((time.monotonic(), len(msg.channels))),
-        qos_profile_sensor_data)
+    node.create_subscription(State, '/mavros/state',
+                             lambda state: keeper.on_state(state.connected), 10)
+    node.create_subscription(RCIn, '/mavros/rc/in', lambda msg: rc.arrive(len(msg.channels)),
+                             qos_profile_sensor_data)
     node.create_timer(policy['rc_timer'], check_rc_rate)
     node.create_timer(policy['verify_period'], verify_rates)
     threading.Thread(target=work, daemon=True).start()
