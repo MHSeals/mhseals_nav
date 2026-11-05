@@ -28,6 +28,7 @@ from mhseals_nav import course_map, track_grid
 from mhseals_nav.heading_check import HeadingCheck
 from mhseals_nav.msg import ObservationArray, Track, TrackArray
 from mhseals_nav.perception_status import StageClock, status
+from mhseals_nav.robot_geometry import quat_matrix
 from mhseals_nav.track_filter import (
     MOTION_NAMES, MOTION_STATIC, SOURCE_LIVE, SOURCE_PRIOR, TrackFilter, stamp_of)
 from mhseals_nav.tracker_markers import observation_markers, track_markers
@@ -40,17 +41,10 @@ LATCHED = QoSProfile(depth=1, reliability=QoSReliabilityPolicy.RELIABLE,
 OBSERVATIONS = QoSProfile(depth=5, reliability=QoSReliabilityPolicy.BEST_EFFORT)
 
 
-def matrix(q):
-    x, y, z, w = q.x, q.y, q.z, q.w
-    return np.array([
-        [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
-        [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
-        [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)]])
-
-
 def unpack(transform):
     t = transform.transform
-    return matrix(t.rotation), np.array([t.translation.x, t.translation.y, t.translation.z])
+    r, p = t.rotation, t.translation
+    return quat_matrix(r.x, r.y, r.z, r.w), np.array([p.x, p.y, p.z])
 
 
 class ObjectTracker(Node):

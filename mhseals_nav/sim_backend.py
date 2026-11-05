@@ -17,6 +17,7 @@ from pathlib import Path
 from socket import gethostname
 from time import monotonic
 
+from mhseals_nav.robot_geometry import quat_matrix
 import numpy as np
 
 try:
@@ -34,13 +35,6 @@ PHANTOM_ID = 1000  # ZED label_id of phantom i is PHANTOM_ID + i; truth ids are 
 def rz(angle):
     c, s = math.cos(angle), math.sin(angle)
     return np.array([[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]])
-
-
-def quat_matrix(x, y, z, w):
-    return np.array([
-        [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
-        [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
-        [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)]])
 
 
 def nest(flat):

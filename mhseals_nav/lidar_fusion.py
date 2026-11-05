@@ -19,6 +19,7 @@ import time
 import numpy as np
 
 from mhseals_nav import classes
+from mhseals_nav.robot_geometry import matrix_rpy, quat_matrix, rpy_matrix  # noqa: F401 (tests)
 
 DEG = math.pi / 180
 UP = np.array([0.0, -1.0, 0.0])                  # optical axes
@@ -27,29 +28,6 @@ SOURCES = ('lidar', 'split', 'lidar_ray', 'held', 'stereo', 'pass')
 
 
 # ------------------------------------------------------------------ geometry
-def quat_matrix(x, y, z, w):
-    return np.array([
-        [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
-        [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
-        [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)]])
-
-
-def rpy_matrix(roll, pitch, yaw):
-    """Rz(yaw) Ry(pitch) Rx(roll); arrays broadcast to (..., 3, 3)."""
-    roll, pitch, yaw = np.broadcast_arrays(*(np.asarray(a, float) for a in (roll, pitch, yaw)))
-    cr, sr, cp, sp, cy, sy = (f(a) for a in (roll, pitch, yaw) for f in (np.cos, np.sin))
-    R = np.empty(roll.shape + (3, 3))
-    R[..., 0, :] = np.stack([cy * cp, cy * sp * sr - sy * cr, cy * sp * cr + sy * sr], -1)
-    R[..., 1, :] = np.stack([sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr], -1)
-    R[..., 2, :] = np.stack([-sp, cp * sr, cp * cr], -1)
-    return R
-
-
-def matrix_rpy(R):
-    return (math.atan2(R[2][1], R[2][2]), -math.asin(max(-1.0, min(1.0, R[2][0]))),
-            math.atan2(R[1][0], R[0][0]))
-
-
 def small_rotation(w):
     """Rotation of the vector w (rad), Rodrigues."""
     w = np.asarray(w, float)
