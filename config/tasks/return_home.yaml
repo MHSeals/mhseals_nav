@@ -6,7 +6,7 @@ max_gate_width: 4.0
 search_distance: 6.0
 first_gate_radius: 30.0 # m; the task's first gate is the nearest within this, any way
 corner_side: 1.0        # m the next gate lies to the side before the route gets a mid-point
-gate_exit: 1.1          # m past each gate: half the hull (0.53) and a margin
+gate_margin: 0.57       # m the exit lies past each gate beyond half the hull (hull.yaml)
 gate_retry_past: 0.5     # m further past the gate per retry when Nav2 ends the route short of the crossing; less: the dock is near (exit at most 2.1 m)
 time_limit: 240.0
 timeout: 240.0

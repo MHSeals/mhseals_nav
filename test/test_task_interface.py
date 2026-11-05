@@ -163,7 +163,7 @@ def test_pass_gates_through_a_gate_reports_one_goal(monkeypatch):
     monkeypatch.setattr(interface, 'Goal', lambda future: SimpleNamespace(
         done=False, settled=False))
     monkeypatch.setattr(interface, 'NavigateThroughPoses', SimpleNamespace(Goal=lambda **k: None))
-    navigator.send(geometry.through((10.0, 0.0, 0.0)))
+    navigator.send(geometry.through((10.0, 0.0, 0.0), after=1.1))
     assert len(events) == 1 and events[0][0] == 'goal'
 
 

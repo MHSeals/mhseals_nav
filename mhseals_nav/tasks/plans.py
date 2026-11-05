@@ -273,7 +273,7 @@ class PlanGatePass(Leaf):
     ``key``_end holds only the endpoint, for extending a completed crossing.
     """
 
-    def __init__(self, name, key, source, back=False, before=1.5, after=1.1):
+    def __init__(self, name, key, source, back=False, before=1.5, *, after):
         super().__init__(name, reads=(source,), writes=(key, key + '_end'))
         self.key, self.source, self.back = key, source, back
         self.before, self.after = before, after
@@ -282,7 +282,7 @@ class PlanGatePass(Leaf):
         gates = self.board.get(self.source)
         if not gates:
             return Status.FAILURE
-        route = geometry.through(gates[-1], self.before, self.after)
+        route = geometry.through(gates[-1], self.before, after=self.after)
         if self.back:
             route = geometry.reverse(route)
         self.board.set(self.key, route, overwrite=True)
@@ -297,7 +297,7 @@ class PlanChainBack(Leaf):
     gates reversed); ``corner_side`` and ``after`` as for ``geometry.chain``.
     """
 
-    def __init__(self, name, key, source, corner_side=1.0, after=1.1):
+    def __init__(self, name, key, source, corner_side, after):
         super().__init__(name, reads=(source,), writes=(key,))
         self.key, self.source, self.corner_side, self.after = key, source, corner_side, after
 

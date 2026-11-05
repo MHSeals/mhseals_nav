@@ -351,11 +351,11 @@ class GateRun(Driver):
     The cleared gates go to ``key``; each is reported as ``gate_cleared``.
     """
 
-    def __init__(self, name, key, red, green, gates=None, search=10.0, step=5.0,
+    def __init__(self, name, key, red, green, *, exit_after, gates=None, search=10.0, step=5.0,
                  max_width=8.0, min_width=1.0, near=None, radius=None, lookahead=3,
                  replan=0.7, retries=2, exclude=(), toward=None, red_side='any',
                  first_radius=None, exclude_radius=None, spread=None, corner_side=None,
-                 exit_after=1.1, next_search=None, retry_past=1.0):
+                 next_search=None, retry_past=1.0):
         super().__init__(name, reads=((near,) if near else ()) + tuple(exclude),
                          writes=(key,))
         if red_side not in ('port', 'starboard', 'any'):

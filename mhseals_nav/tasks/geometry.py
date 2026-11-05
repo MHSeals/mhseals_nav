@@ -2,6 +2,8 @@
 
 import math
 
+from mhseals_nav.yaml_params import rectangle
+
 
 def wrap(angle):
     """``angle`` in (-pi, pi]."""
@@ -86,11 +88,18 @@ def relative(pose, offsets):
     return route
 
 
-def through(gate, before=1.5, after=1.1):
+def gate_exit(margin, hull=None):
+    """How far past a gate's line its exit lies: half the hull (config/hull.yaml) and ``margin``.
+
+    Far enough that the stern clears the line, near enough not to land on what lies beyond.
+    """
+    return rectangle(hull)['half_length'] + margin
+
+
+def through(gate, before=1.5, *, after):
     """Two poses that carry the whole hull across a gate's line, not just to it.
 
-    ``after`` is half the hull (0.53 m) and a margin: far enough to clear the
-    line, near enough not to land on what lies beyond the gate.
+    The exit lies ``after`` m past the line (``gate_exit``).
     """
     x, y, yaw = gate
     c, s = math.cos(yaw), math.sin(yaw)
