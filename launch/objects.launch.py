@@ -23,13 +23,12 @@ def fusion_config():
 
 
 def nodes(context):
-    sim = LaunchConfiguration('sim').perform(context).lower()
-    if sim not in ('true', 'false'):
-        raise ValueError('sim must be true or false')
+    from mhseals_nav.endpoint_configuration import boolean
+    sim = boolean(LaunchConfiguration('sim').perform(context))
     backend = LaunchConfiguration('backend').perform(context)
     if backend not in BACKENDS:
         raise ValueError(f'backend must be one of {sorted(BACKENDS)}')
-    clock = {'use_sim_time': sim == 'true'}
+    clock = {'use_sim_time': sim}
 
     def config(name):
         return PathJoinSubstitution([FindPackageShare('mhseals_nav'), 'config', name])
@@ -44,7 +43,7 @@ def nodes(context):
         fused = [Node(package='mhseals_nav', executable='lidar_fusion', output='screen',
                       respawn=True, respawn_delay=1.0,
                       parameters=[config('lidar_fusion.yaml'), clock,
-                                  *([SIM_FUSION] if sim == 'true' else [])])]
+                                  *([SIM_FUSION] if sim else [])])]
     return [
         Node(package='mhseals_nav', executable=executable, output='screen',
              parameters=[*([config(backend_file)] if backend_file else []), clock]),

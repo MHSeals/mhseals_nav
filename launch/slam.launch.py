@@ -8,7 +8,8 @@ from launch_ros.substitutions import FindPackageShare
 
 
 def create_rtabmap_slam_node(context):
-    sim = LaunchConfiguration('sim').perform(context).lower() == 'true'
+    from mhseals_nav.endpoint_configuration import boolean
+    sim = boolean(LaunchConfiguration('sim').perform(context))
     rtabmap_params_file = LaunchConfiguration('rtabmap_params_file').perform(context)
     camera_name = LaunchConfiguration('camera_name').perform(context)
 

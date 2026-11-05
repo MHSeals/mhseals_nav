@@ -4,7 +4,7 @@ from pathlib import Path
 
 from mhseals_nav import boat_network
 from mhseals_nav.endpoint_configuration import (
-    LAYER_ARGUMENTS as ENDPOINT_LAYERS, resolve_endpoints, UNSET_GCS)
+    boolean, LAYER_ARGUMENTS as ENDPOINT_LAYERS, resolve_endpoints, UNSET_GCS)
 from mhseals_nav.lidar_configuration import resolve_lidar
 
 import pytest
@@ -26,7 +26,7 @@ def factory(lidar_resolver=resolve_lidar):
     namespace = {'LaunchConfiguration': Configuration, 'Node': lambda **kw: kw,
                  'PathJoinSubstitution': lambda x: x, 'FindPackageShare': lambda x: x,
                  'large_data_env': {}, 'resolve_lidar': lidar_resolver,
-                 'boat_network': boat_network,
+                 'boat_network': boat_network, 'boolean': boolean,
                  'endpoint_from_launch': lambda context: resolve_endpoints(
                      Path(__file__).parents[1] / 'config/endpoint_startup.yaml'),
                  'ENDPOINT_LAYERS': ENDPOINT_LAYERS, 'UNSET_GCS': UNSET_GCS,
@@ -66,7 +66,7 @@ def test_physical_selection_and_configured_ip(sim, share):
 def test_invalid_boolean_fails_before_any_node():
     namespace = factory()
     namespace['Node'] = lambda **kw: pytest.fail('constructed a node')
-    with pytest.raises(ValueError, match='Invalid sim boolean'):
+    with pytest.raises(ValueError, match='invalid launch boolean'):
         namespace['sensor_nodes']({'sim': 'yes', 'sensors_ignore': ''})
 
 

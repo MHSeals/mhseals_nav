@@ -130,13 +130,6 @@ class LocalizationConfiguration:
                      for k, v in self.nodes[name].items()}, use_sim_time=self.use_sim_time)
 
 
-def simulation_clock(value):
-    """No unknown clock spelling silently selects wall time."""
-    if type(value) is str and value.lower() in ('true', 'false'):
-        return value.lower() == 'true'
-    raise ValueError('sim must be true or false')
-
-
 def compile_localization(base_paths, overlay_selection='', use_sim_time=False):
     """Compile the complete closure before any launch object is constructed."""
     if type(use_sim_time) is not bool or set(base_paths) != set(NODES):

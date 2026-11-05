@@ -46,11 +46,11 @@ def discover_device(strategy, dev_root=Path('/dev')):
 
 
 def boolean(value):
-    """Match the established strict launch vocabulary without truthiness coercion."""
+    """The one launch boolean parser: true/false/1/0 (any case), a bool; anything else raises."""
     if type(value) is bool:
         return value
     if not isinstance(value, str) or value.strip().lower() not in ('true', 'false', '1', '0'):
-        raise ValueError('endpoint sim/fcu selector must be a boolean')
+        raise ValueError(f'invalid launch boolean: {value}')
     return value.strip().lower() in ('true', '1')
 
 
