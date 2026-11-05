@@ -1,6 +1,8 @@
 """Shared pytest fixtures."""
 
+import importlib.util
 import logging
+import re
 
 import pytest
 
@@ -13,6 +15,42 @@ LIDAR_IP = '192.168.0.201'
 def pytest_configure(config):
     """Keep tests that start nodes off the live boat: private domain, localhost only."""
     isolate_ros_env()
+
+
+NO_ROS = importlib.util.find_spec('rclpy') is None
+MISSING = re.compile(r"No module named '([\w.]+)'|"
+                     r"cannot import name '\w+' from '([\w.]+)' \(unknown location\)")
+
+
+def ros_missing(text):
+    """The module an ImportError lacks, on a host with no ROS, when it is not this package."""
+    match = MISSING.search(text) if NO_ROS else None
+    name = match and (match[1] or match[2]).split('.')[0]
+    return name if name and name != 'mhseals_nav' else None
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_make_collect_report(collector):
+    """With no ROS here, a test file that imports ROS (or the linters) skips, not errors."""
+    outcome = yield
+    report = outcome.get_result()
+    name = report.failed and ros_missing(str(report.longrepr))
+    if name:
+        report.outcome = 'skipped'
+        report.longrepr = (str(collector.path), 0, f'Skipped: needs {name} (no ROS here)')
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    """With no ROS here, a test that imports ROS skips, not fails (CI's ROS-free step)."""
+    outcome = yield
+    report = outcome.get_result()
+    name = (call.excinfo is not None and call.excinfo.errisinstance(ImportError)
+            and ros_missing(str(call.excinfo.value)))
+    if name:
+        report.outcome = 'skipped'
+        report.longrepr = (str(item.path), item.location[1] or 0,
+                           f'Skipped: needs {name} (no ROS here)')
 
 
 @pytest.fixture(autouse=True)
