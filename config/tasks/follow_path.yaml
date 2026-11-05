@@ -8,7 +8,7 @@ max_gate_width: 4.0     # m; keeps a red from pairing with the next gate's green
 search_distance: 8.0
 first_gate_radius: 30.0 # m; the task's first gate is the nearest within this, any way
 corner_side: 1.0        # m the next gate lies to the side before the route gets a mid-point
-gate_exit: 0.7          # m past each gate: half the hull (0.53) and a margin; less to overrun at a turn
+gate_margin: 0.17       # m the exit lies past each gate beyond half the hull (hull.yaml); less to overrun at a turn
 gate_retry_past: 1.0     # m further past the gate per retry when Nav2 ends the route short of the crossing
 speed: 0.25             # m/s cap through the gates (Nav2 speed limit); 0 for none
 time_limit: 300.0

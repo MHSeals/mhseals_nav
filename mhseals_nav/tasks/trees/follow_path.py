@@ -8,6 +8,7 @@ species) there were before leaving the task.
 from mhseals_nav.tasks.behaviours import (
     CountObjects, GateRun, Navigate, Remember, ReportCount, ReportObjects, SpeedCap,
 )
+from mhseals_nav.tasks.geometry import gate_exit
 from mhseals_nav.tasks.plans import PlanChainBack, PlanCircle
 from py_trees.behaviours import Success
 from py_trees.common import ParallelPolicy
@@ -43,7 +44,7 @@ def build(params):
         # 2026 debris field: circle the green beacons, then back through the channel.
         *[rescue(params, i + 1) for i in range(params.get('rescues', 0))],
         *([PlanChainBack('plan the way back', 'path_back', 'path', params['corner_side'],
-                         params['gate_exit']),
+                         gate_exit(params['gate_margin'])),
            SpeedCap('gate speed back', Navigate('back through the channel', 'path_back',
                                                 retries=2, why='back through the channel'),
                     params['speed'])] if params.get('and_back') else []),

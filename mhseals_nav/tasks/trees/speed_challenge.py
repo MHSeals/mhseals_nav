@@ -15,6 +15,7 @@ from mhseals_nav.tasks import layout, search
 from mhseals_nav.tasks.behaviours import (
     CountObjects, GateRun, Leaf, Navigate, ReadColour, Report, ReportCount, Search,
 )
+from mhseals_nav.tasks.geometry import gate_exit
 from mhseals_nav.tasks.plans import PlanCircle, PlanConcat, PlanGatePass, PlanView
 from py_trees.common import ParallelPolicy, Status
 from py_trees.composites import Parallel, Selector, Sequence
@@ -95,7 +96,8 @@ def build(params):
         PlanCircle('plan circle', 'circle', (mark,), params['circle_radius'],
                    clockwise=params['circle_clockwise'], points=params['circle_points'],
                    direction=('speed_colour', params['turn']) if indicators else None),
-        PlanGatePass('plan return', 'return', 'speed_gate', back=True),
+        PlanGatePass('plan return', 'return', 'speed_gate', back=True,
+                     after=gate_exit(params['gate_margin'])),
         PlanConcat('plan lap', 'lap', ('circle', 'circle_rest', 'return')),
         Navigate('round the mark and back through the gate', 'lap', retries=2,
                  why='round the mark, back through the gate'),
