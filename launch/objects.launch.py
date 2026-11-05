@@ -14,16 +14,9 @@ SIM_FUSION = {'points_transport': 'direct', 'camera_axes': 'body',
               'camera_info_topic': '/front_camera/camera_info', 'attitude_min_hz': 15.0}
 
 
-def fusion_config():
-    """config/lidar_fusion.yaml of this package (``layers.config_path``), read strictly."""
-    from mhseals_nav import layers
-    path = layers.config_path('lidar_fusion.yaml')
-    return layers.load_strict(path.read_bytes(), path)['/**']['ros__parameters']
-
-
 def nodes(context):
     from mhseals_nav.layers import boolean
-    from mhseals_nav.yaml_params import footprint, hull
+    from mhseals_nav.yaml_params import footprint, hull, params_file
     sim = boolean(LaunchConfiguration('sim').perform(context))
     backend = LaunchConfiguration('backend').perform(context)
     if backend not in BACKENDS:
@@ -36,7 +29,7 @@ def nodes(context):
     rectangle = hull()
     footprinted = {'footprint': footprint(rectangle), 'footprint_padding': rectangle['padding']}
     executable, backend_file = BACKENDS[backend]
-    fusion = fusion_config()
+    fusion = params_file('lidar_fusion.yaml')
     tracker = [config('tracker.yaml'), clock]
     fused = []
     if fusion['enabled']:

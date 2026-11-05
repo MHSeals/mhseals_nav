@@ -2,16 +2,19 @@
 
 import ast
 from pathlib import Path
+from unittest import mock
 
 import pytest
 import yaml
+
+from mhseals_nav import yaml_params
 
 
 def object_nodes(sim, backend, fusion=None):
     source = Path(__file__).parents[1] / 'launch/objects.launch.py'
     tree = ast.parse(source.read_text())
     body = [node for node in tree.body
-            if (isinstance(node, ast.FunctionDef) and node.name in ('nodes', 'fusion_config'))
+            if (isinstance(node, ast.FunctionDef) and node.name == 'nodes')
             or (isinstance(node, ast.Assign)
                 and node.targets[0].id in ('BACKENDS', 'SIM_FUSION'))]
     values = dict(sim=sim, backend=backend)
@@ -27,10 +30,11 @@ def object_nodes(sim, backend, fusion=None):
                      PathJoinSubstitution=lambda parts: '/'.join(map(str, parts)),
                      FindPackageShare=lambda package: package, __file__=str(source))
     exec(compile(ast.Module(body=body, type_ignores=[]), str(source), 'exec'), namespace)
-    if fusion is not None:
-        loaded = namespace['fusion_config']()
-        namespace['fusion_config'] = lambda: {**loaded, **fusion}
-    return namespace['nodes'](None)
+    read = yaml_params.params_file
+    overlay = {'lidar_fusion.yaml': fusion or {}}
+    with mock.patch.object(yaml_params, 'params_file',
+                           lambda name: {**read(name), **overlay.get(name, {})}):
+        return namespace['nodes'](None)
 
 
 @pytest.mark.parametrize('sim', ['true', 'false'])

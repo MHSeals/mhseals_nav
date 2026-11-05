@@ -20,6 +20,7 @@ import numpy as np
 
 from mhseals_nav import classes
 from mhseals_nav.robot_geometry import matrix_rpy, quat_matrix, rpy_matrix
+from mhseals_nav.yaml_params import params_file
 
 DEG = math.pi / 180
 UP = np.array([0.0, -1.0, 0.0])                  # optical axes
@@ -875,10 +876,7 @@ except ImportError:  # host pytest exercises only the pure functions
     Node = object
 
 
-def load_yaml(name):
-    from mhseals_nav.layers import config_path, load_strict
-    path = config_path(name)
-    return load_strict(path.read_text(), path)['/**']['ros__parameters']
+load_yaml = params_file  # pinned: mhseals_testing's fusion calib reads nav configs through it
 
 
 class LidarFusion(Node):
@@ -892,7 +890,7 @@ class LidarFusion(Node):
         from mhseals_nav.yaml_params import node_config
         super().__init__('lidar_fusion', automatically_declare_parameters_from_overrides=True)
         self.cfg = cfg = node_config(self, 'lidar_fusion.yaml')
-        self.tracker = classes.with_radius(load_yaml('tracker.yaml'))
+        self.tracker = classes.with_radius(params_file('tracker.yaml'))
         self.tf = Buffer()
         self.tf_listener = TransformListener(self.tf, self)
         self.K = self.image = None
