@@ -33,7 +33,7 @@ def ceilings_path(share=None):
     return root / 'config' / 'nav2_ceilings.yaml'
 
 
-def compile_navigation(params_file, limits_file, *, sim, use_lidar, share=None):
+def compile_navigation(params_file, limits_file, *, sim, share=None):
     """
     Strictly load the base and optional operator limits, validate, bound and project them.
 
@@ -46,11 +46,11 @@ def compile_navigation(params_file, limits_file, *, sim, use_lidar, share=None):
     limits = load_overlay(limits_file, strict=True) if limits_file else {}
     ceilings = load_ceilings(ceilings_path(share))
     return project_launch(validated_merge_limits(base, limits, ceilings),
-                          {'sim': boolean(sim), 'use_lidar': boolean(use_lidar)}, bt_paths(share))
+                          {'sim': boolean(sim)}, bt_paths(share))
 
 
 def project_launch(parameters, invocation, bt_files):
-    """Return the parameters with the session clock, lidar and launch contract applied."""
+    """Return the parameters with the session clock and launch contract applied."""
     result = deepcopy(parameters)
 
     def clocks(mapping):
@@ -64,10 +64,6 @@ def project_launch(parameters, invocation, bt_files):
     selected = [name for _, name in SERVERS if name in result]
     for name in selected:
         result[name]['ros__parameters']['enable_stamped_cmd_vel'] = False
-    for name in ('local_costmap', 'global_costmap'):
-        params = result.get(name, {}).get(name, {}).get('ros__parameters', {})
-        if 'obstacle_layer' in params:
-            params['obstacle_layer']['enabled'] = invocation['use_lidar']
     if 'bt_navigator' in result:
         result['bt_navigator']['ros__parameters'].update(bt_files)
     result['lifecycle_manager_navigation'] = {'ros__parameters': {
@@ -75,8 +71,7 @@ def project_launch(parameters, invocation, bt_files):
     return result
 
 
-def effective_limits(params_file=None, limits_file='', *, sim='true', use_lidar='true',
-                     share=None):
+def effective_limits(params_file=None, limits_file='', *, sim='true', share=None):
     """Return the motion limits a launch resolves, read from ``compile_navigation``'s output.
 
     For a model of the boat (the fast sim) that must not interpret Nav2's fields itself:
@@ -87,8 +82,7 @@ def effective_limits(params_file=None, limits_file='', *, sim='true', use_lidar=
     """
     root = Path(share) if share else Path(__file__).parents[1]
     params_file = params_file or root / 'config' / 'nav2_params.yaml'
-    nav = compile_navigation(params_file, limits_file, sim=sim, use_lidar=use_lidar,
-                             share=share)
+    nav = compile_navigation(params_file, limits_file, sim=sim, share=share)
     controller = nav['controller_server']['ros__parameters']
     smoother = nav['velocity_smoother']['ros__parameters']
     shim = controller['FollowPath']

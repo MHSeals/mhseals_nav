@@ -17,7 +17,6 @@ def generate_launch_description():
     launch_args = [
         # General
         ('sim', 'true', 'Use simulation time'),
-        ('use_lidar', 'true', 'Enable lidar costmap; false requires supervised operation'),
         ('enable_slam', 'false', 'Enable optional RTABMap lidar-cloud mapping'),
         ('command_mux', 'false',
          'A command_mux arbitrates /cmd_vel; starts the stale-costmap watchdog and the '
@@ -119,7 +118,6 @@ def generate_launch_description():
             'sim': launch_configurations['sim'],
             'params_file': launch_configurations['nav2_params_file'],
             'limits_file': launch_configurations['limits_file'],
-            'use_lidar': launch_configurations['use_lidar'],
             'command_mux': launch_configurations['command_mux'],
         }.items())
 
