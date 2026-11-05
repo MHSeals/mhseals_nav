@@ -45,7 +45,7 @@ link_watchdog:
   cause: operator_link
   heartbeat_topic: /operator/heartbeat
   operator_hosts: [station]             # host names; station = the one named in station_file
-  station_file: ~/.config/mhseals/station.yaml  # hw.sh station take; absent: any host counts
+  station_file: ~/.config/mhseals/station.yaml  # hw.sh station take; absent: no station
   release_after: 3.0
 
 # Autonomy stays inside the day's course area (FCU FENCE_ENABLE=0, and the FCU does not drive
