@@ -83,7 +83,7 @@ def sensor_nodes(context):
 
 def generate_launch_description():
     launch_args = [
-        ('sim', 'true', 'Run in simulation mode'),
+        ('sim', 'false', 'Run in simulation mode'),
         ('lidar_params_file', '', 'Optional selected lidar YAML over package/deployment defaults'),
         ('lidar_deployment_file', '', 'Optional deployment lidar YAML layer'),
         ('lidar_required_frame', '', 'Internal full-robot fixed frame contract'),

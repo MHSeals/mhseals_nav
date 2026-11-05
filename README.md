@@ -8,22 +8,20 @@ This package serves as the core navigation system for the ASV, interacting with 
 
 Launch files separate the main responsibilities:
 
-- `robot.launch.py` composes sensors, localization, navigation, and objects. `enable_slam:=true` additionally starts the lidar-cloud RTABMap mapper; navigation and EKF localization run either way. Generally used for simulation; on the boat, launch components on their respective hosts.
 - `sensors.launch.py` starts the Velodyne driver and lidar relay with `sim:=false`, or the ROS TCP endpoint with `sim:=true`. It never starts the camera.
-- `device.launch.py device:=<profile>` is how any computer starts its share of the stack. A device profile in `config/devices/` lists its parts, each an include of a launch file here with arguments, or one `ros2 run`. The profiles are `odroid` (the boat computer, with the hold-only link, fence and FCU watchdogs of `watchdogs.launch.py`, which a part's `with: [watchdogs]` starts beside odometry on the boat itself), `jetson` (camera, `objects.launch.py backend:=zed`, the lidar and mhseals_testing's `host_diagnostic`), `operator` (the RTK base and the operator heartbeat) and `sim` (both computers on one machine; the watchdogs need no operator or FCU and fence a map-frame box). `only:=a,b` starts a subset, and `overrides:='<json>'` is the session layer over `$ROS_WS/config/devices/<profile>.yaml` and `~/.config/mhseals/devices/<profile>.yaml`. The profiles are the only place a part is assigned to a computer; mhseals_testing derives which host runs what from them. Start it in the container (`docker exec roboboat_dev bash -c 'ros2 launch mhseals_nav device.launch.py device:=jetson'`) so `ASTRO_DDS_ADDRESS` pins the camera's DDS profile; the TUI does this on demand. The thruster driver and `command_mux` are never parts: they start with arming in the TUI.
+- `device.launch.py device:=<profile>` is how any computer starts its share of the stack. A device profile in `config/devices/` lists its parts, each an include of a launch file here with arguments, or one `ros2 run`. The profiles are `odroid` (the boat computer, with the hold-only link, fence and FCU watchdogs of `watchdogs.launch.py`, which a part's `with: [watchdogs]` starts beside odometry on the boat itself), `jetson` (camera, `objects.launch.py backend:=zed`, the lidar and mhseals_testing's `host_diagnostic`), `operator` (the RTK base and the operator heartbeat) and `sim` (both computers on one machine against the simulator, the one-machine bring-up; the watchdogs need no operator or FCU and fence a map-frame box). `only:=a,b` starts a subset, and `overrides:='<json>'` is the session layer over `$ROS_WS/config/devices/<profile>.yaml` and `~/.config/mhseals/devices/<profile>.yaml`. The profiles are the only place a part is assigned to a computer; mhseals_testing derives which host runs what from them. Start it in the container (`docker exec roboboat_dev bash -c 'ros2 launch mhseals_nav device.launch.py device:=jetson'`) so `ASTRO_DDS_ADDRESS` pins the camera's DDS profile; the TUI does this on demand. The thruster driver and `command_mux` are never parts: they start with arming in the TUI.
 - `camera.launch.py` starts the ZED wrapper with `config/zed_boat.yaml` and `config/custom_object_detection.yaml`, plus lazy `/front_camera/camera_info` and a 2 Hz preview; `slam:=true` adds raw RGB and depth.
 - `odom.launch.py` starts MAVROS and measurement relays (`fcu:=true`), robot TF, and `ekf.launch.py` (dual EKFs and Navsat; `start_ekf:=false` leaves them to a separate launch, and `~/.config/mhseals/ekf.yaml` overrides parameters per node).
-- `navigation.launch.py` starts Nav2 servers and lifecycle management. SLAM is optional.
+- `navigation.launch.py` starts Nav2 servers and lifecycle management. SLAM is optional. With `command_mux:=true` it adds the stale-costmap watchdog (unless `perception:=false`, for Nav2 without a perception costmap) and the approach guard.
 - `slam.launch.py` starts RTABMap mapping, leaving localization TF with the EKFs.
-- `objects.launch.py` starts one camera backend (`backend:=zed|sim`), the tracker and the perception costmap. With `sim:=false`, `robot.launch.py` starts neither sensors nor perception; the Orin runs them.
+- `objects.launch.py` starts one camera backend (`backend:=zed|sim`), the tracker and the perception costmap. On the boat the Orin runs them.
 
 ```bash
 ros2 launch mhseals_nav <launch_name>.launch.py param1:=value1 param2:=value2
-ros2 launch mhseals_nav robot.launch.py --show-args
-ros2 launch mhseals_nav robot.launch.py sim:=true
+ros2 launch mhseals_nav device.launch.py device:=sim
 ```
 
-Start each component once. `robot` includes navigation, so running it also starts Nav2. `sim:=true` requires the simulator's `/clock`; use `sim:=false` on the boat.
+Start each component once. `sim` defaults to `false` in every launch file; the `sim` profile sets it, and `sim:=true` requires the simulator's `/clock`.
 
 `/cmd_vel` is the final smoothed navigation output. Nav2 commands are velocity targets; the hardware PWM driver interprets Twist as effort, so autonomous propulsion requires a calibrated velocity controller.
 
@@ -33,12 +31,12 @@ While a task runs, the runner sends zero velocity to `/cmd_vel_nav` whenever Nav
 
 | Parameter | Launch files | Default / purpose |
 | --- | --- | --- |
-| `sim` | `robot`, `sensors`, `odom`, `navigation`, `slam`, `objects` | `true`; simulation time requires `/clock`. In `objects`, also selects simulated detections rather than ZED input |
-| `sensors_ignore` | `robot`, `sensors` | Empty; comma-separated local drivers to skip, e.g. `lidar`. Does not disable Nav2 obstacle layers |
-| `enable_slam` | `robot` | `false`; include `slam.launch.py` for lidar-cloud RTABMap mapping from `/points`. It leaves TF ownership with the EKFs and does not change Nav2 localization |
-| `fcu` | `robot`, `odom` | `true`; start MAVROS and its relays. `false` when a simulator (crane_ml `--crane-roboboat-contract`) publishes `/odom/mavros`, `/imu/raw` and `/gps/fix` itself, so simulation needs no ArduPilot |
-| `fcu_url` | `robot`, `odom` | Empty selects SITL TCP in simulation or the Cube's `/dev/serial/by-id/usb-CubePilot_CubeOrange+_*-if00` on hardware |
-| `camera_name` | `robot`, `camera`, `slam` | `front`; camera namespace and topic prefix |
+| `sim` | `sensors`, `odom`, `ekf`, `navigation`, `slam`, `objects`, `task`, `watchdogs` | `false`; simulation time requires `/clock`. In `objects`, also selects the sim lidar-fusion settings |
+| `perception` | `navigation` | `true`; `false` skips the stale-costmap watchdog for Nav2 without a perception costmap |
+| `sensors_ignore` | `sensors` | Empty; comma-separated local drivers to skip, e.g. `lidar` |
+| `fcu` | `odom` | `true`; start MAVROS and its relays. `false` when a simulator (crane_ml `--crane-roboboat-contract`) publishes `/odom/mavros`, `/imu/raw` and `/gps/fix` itself, so simulation needs no ArduPilot |
+| `fcu_url` | `odom` | Empty selects SITL TCP in simulation or the Cube's `/dev/serial/by-id/usb-CubePilot_CubeOrange+_*-if00` on hardware |
+| `camera_name` | `camera`, `slam` | `front`; camera namespace and topic prefix |
 | `camera_model`, `slam` | `camera` | `zed2i`, `false`; `slam:=true` also relays raw RGB and depth |
 | `backend` | `objects` | `sim`; `zed` reads `config/camera.yaml` (`backend:`), `sim` reads `config/sim_backend.yaml` |
 

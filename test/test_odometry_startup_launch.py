@@ -129,21 +129,6 @@ def test_robot_state_frequency(tmp_path):
     assert result[0]['parameters'][0]['publish_frequency'] == 42.
 
 
-def test_full_robot_forwards_startup_and_localization_selections():
-    calls = []
-    namespace = factories('robot.launch.py', lambda: None, calls)
-    namespace.update(LaunchDescription=lambda x: x,
-                     DeclareLaunchArgument=lambda *args, **kwargs: None,
-                     persistent_limits_path=lambda: '')
-    namespace['generate_launch_description']()
-    # Identify the odom include by its complete localization forwarding surface.
-    candidates = [dict(x['launch_arguments']) for x in calls if 'launch_arguments' in x]
-    selected = next(x for x in candidates if 'urdf_file' in x and 'fcu_url' in x)
-    required = (*ALIASES, *LAYER_ARGUMENTS, 'ekf_startup_context', 'ekf_overlay_file',
-                'navsat_transform_config_file', 'ekf_local_config_file', 'ekf_global_config_file')
-    assert all(selected[name].name == name for name in required)
-
-
 @pytest.mark.parametrize('alias', [False, True])
 def test_integer_spelled_frequency_projects_as_double(tmp_path, alias):
     selected = tmp_path / 'operator.yaml'

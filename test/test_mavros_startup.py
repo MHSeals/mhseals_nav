@@ -13,7 +13,6 @@ import pytest
 
 from test_mavros_configuration import selected
 
-from test_robot_overlay import robot_factory
 
 ROOT = Path(__file__).parents[1]
 
@@ -56,31 +55,6 @@ def defaults(entities):
     return {e.args[0]: e.default_value for e in entities if hasattr(e, 'default_value')}
 
 
-@pytest.mark.parametrize('explicit', ['', '20.0'])
-def test_nondefault_robot_forwarded_and_direct_equivalent(tmp_path, explicit):
-    """Nondefault robot forwarded and direct equivalent."""
-    path = selected(tmp_path, ['33:7', '30:8', '31:9', '24:4', '27:3', '1:4', '193:6'])
-    ns = factory()
-    direct = defaults(ns['generate_launch_description']())
-    assert all(direct[name] == '' for name in ALIASES)
-    robot = robot_factory()
-    robot_context = defaults(robot)
-    assert all(robot_context[name] == '' for name in ALIASES)
-    robot_context.update(mavros_setup_params_file=path, mavros_imu_rate=explicit)
-    timer = next(e for e in robot if getattr(e, 'period', None) == 2.0)
-    forwarded = {key: value.perform(robot_context)
-                 for key, value in timer.actions[0].launch_arguments}
-    direct.update(mavros_setup_params_file=path, mavros_imu_rate=explicit)
-    a = ns['create_mavros_setup_node'](dict(direct, **forwarded))[0]
-    b = ns['create_mavros_setup_node'](direct)[0]
-    assert a.parameters == b.parameters
-    assert a.parameters[0] == path
-    rates = dict(entry.split(':') for entry in a.parameters[1]['message_rates'])
-    assert {key: rates[key] for key in ('27', '1', '193')} == {'27': '3', '1': '4', '193': '6'}
-    assert rates['30'] == ('20' if explicit else '8')
-    assert rates['31'] == ('20' if explicit else '9')
-
-
 @pytest.mark.parametrize('selection', ['', '/missing/rates.yaml', 'invalid'])
 def test_selection_failure_precedes_node(tmp_path, selection):
     """Selection failure precedes node."""
@@ -116,7 +90,7 @@ def test_fcu_gate_still_contains_setup_and_sim_default():
     group = next(e for e in opaque.function(defaults(entities)) if hasattr(e, 'actions'))
     assert group.condition.args[0].name == 'fcu'
     assert group.actions[-1].function is ns['create_mavros_setup_node']
-    assert defaults(entities)['sim'] == 'true'
+    assert defaults(entities)['sim'] == 'false'
 
 
 @pytest.mark.parametrize('rates', [['31:17'], ['31:nan']])

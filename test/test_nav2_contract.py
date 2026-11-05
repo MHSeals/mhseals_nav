@@ -126,9 +126,7 @@ def test_launch_responsibilities_and_velocity_output():
     slam = (ROOT / 'launch/slam.launch.py').read_text()
     assert "package='rtabmap_slam'" in slam
     assert 'navigation.launch.py' not in slam
-    robot = (ROOT / 'launch/robot.launch.py').read_text()
-    for child in ('navigation', 'slam', 'objects'):
-        assert f"'{child}.launch.py'" in robot
+    assert not (ROOT / 'launch/robot.launch.py').exists()   # device.launch.py device:=sim
 
 
 def test_rtabmap_uses_the_live_lidar_contract():

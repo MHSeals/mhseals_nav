@@ -4,10 +4,8 @@ import tempfile
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
-from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
-from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 import yaml
 
@@ -57,25 +55,33 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument('params_file', default_value=PathJoinSubstitution(
             [share, 'config', 'nav2_params.yaml'])),
-        DeclareLaunchArgument('sim', default_value='true'),
+        DeclareLaunchArgument('sim', default_value='false'),
         DeclareLaunchArgument('limits_file', default_value='',
                              description='Overlay (measured limits, ~/.config/mhseals/nav2.yaml) merged with params_file'),
         DeclareLaunchArgument('command_mux', default_value='false',
                               description='A command_mux arbitrates /cmd_vel; start the '
                                           'stale-costmap watchdog and the approach guard '
                                           'that ask it to hold'),
+        DeclareLaunchArgument('perception', default_value='true',
+                              description='A perception costmap feeds Nav2; false skips the '
+                                          'stale-costmap watchdog'),
         OpaqueFunction(function=navigation_nodes),
-        # Hold-only: without a mux nothing would act on its requests.
-        Node(package='mhseals_nav', executable='costmap_watchdog', name='costmap_watchdog',
-             output='screen', condition=IfCondition(LaunchConfiguration('command_mux')),
-             parameters=[{'use_sim_time': ParameterValue(LaunchConfiguration('sim'),
-                                                         value_type=bool)}]),
-        # Holds, hold-only too, when an obstacle closes in on the hull from any side.
-        Node(package='mhseals_nav', executable='approach_guard', name='approach_guard',
-             output='screen', condition=IfCondition(LaunchConfiguration('command_mux')),
-             parameters=[{'use_sim_time': ParameterValue(LaunchConfiguration('sim'),
-                                                         value_type=bool),
-                          # Log-only on the boat until water bags replay clean.
-                          'enforce': ParameterValue(LaunchConfiguration('sim'),
-                                                    value_type=bool)}]),
+        OpaqueFunction(function=guard_nodes),
     ])
+
+
+def guard_nodes(context):
+    """Hold-only nodes; without a mux nothing would act on their requests."""
+    from mhseals_nav.endpoint_configuration import boolean
+
+    def flag(name):
+        return boolean(LaunchConfiguration(name).perform(context))
+    if not flag('command_mux'):
+        return []
+    clock = {'use_sim_time': flag('sim')}
+    nodes = [('costmap_watchdog', clock)] if flag('perception') else []
+    # The approach guard holds when an obstacle closes in on the hull from any side.
+    # Log-only on the boat until water bags replay clean.
+    nodes.append(('approach_guard', dict(clock, enforce=flag('sim'))))
+    return [Node(package='mhseals_nav', executable=name, name=name, output='screen',
+                 parameters=[parameters]) for name, parameters in nodes]

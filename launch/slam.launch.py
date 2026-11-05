@@ -31,7 +31,7 @@ def create_rtabmap_slam_node(context):
 def generate_launch_description():
     share = FindPackageShare('mhseals_nav')
     return LaunchDescription([
-        DeclareLaunchArgument('sim', default_value='true'),
+        DeclareLaunchArgument('sim', default_value='false'),
         DeclareLaunchArgument('camera_name', default_value='front'),
         DeclareLaunchArgument('rtabmap_params_file', default_value=PathJoinSubstitution(
             [share, 'config', 'rtabmap.yaml'])),
