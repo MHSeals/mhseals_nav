@@ -66,6 +66,7 @@ def boat_network_env(tmp_path_factory, monkeypatch):
     from mhseals_nav import boat_network
     root = tmp_path_factory.mktemp('profiles')
     (root / 'fleet').mkdir()
+    (root / 'fleet/profile.yaml').write_text('name: fleet\n')
     (root / 'fleet/lidar.yaml').write_text('driver: lidar/vlp16\naddress: $LIDAR_IP\nrpm:\n')
     (root / 'vessel').mkdir()
     (root / 'vessel/profile.yaml').write_text(
