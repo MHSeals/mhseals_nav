@@ -2,9 +2,10 @@
 
 The FCU fence is off and could not stop the ODROID-driven thrusters anyway. The fence is a
 polygon in lat/lon (the map origin moves with every start, navsat wait_for_datum is false)
-or in map metres; fence_file, the day's course area, overrides the package YAML. Position
-comes from the EKF (/gps/filtered for lat/lon, /odom/global for map), heading and velocity
-from /odom/global. No valid fence, or no fresh position or odometry, holds too.
+or in map metres, and it lives only in fence_file (``fence.load_fence``), read again whenever
+the file changes; no file, or an invalid one, is no fence. Position comes from the EKF
+(/gps/filtered for lat/lon, /odom/global for map), heading and velocity from /odom/global.
+No valid fence, or no fresh position or odometry, holds too.
 
 It also publishes the fence it enforces on fence_topic (latched JSON, see ``state``): the raw
 polygon in its own frame and the margin rules, so the TUI's goal gates check goals against this
@@ -14,11 +15,9 @@ anchor_service (std_srvs/Trigger) re-anchors a map fence at the stopped boat (se
 a lat/lon course area stays where it is. marker_topic draws the fence for rviz, latched, in
 marker_frame, marker_outside_color while the boat is outside.
 
-The course area is live: the ``course.corners`` parameter ([lat1, lon1, lat2, lon2, ...], at
-least 3 corners, a simple polygon) replaces the fence atomically or is refused with the reason,
-and reads back what is enforced. ``on_exit`` (alert | return) is live too: alert holds outside;
-return, under autonomy, first asks the procedure and task runners to pause (pause_topic, latched
-JSON, see ``pause``) so none fights it, then after return_lead sends Nav2 one slow goal
+The file's ``on_exit`` (alert | return) says what leaving does: alert holds outside; return,
+under autonomy, first asks the procedure and task runners to pause (pause_topic, latched JSON,
+see ``pause``) so none fights it, then after return_lead sends Nav2 one slow goal
 (return_speed) to the nearest interior point (return_inset in). However the return ends, back
 inside, not back within return_timeout, the operator (or any hold) taking the mux, or the goal
 ending elsewhere, it holds the mux and stays paused until the operator or an agent releases the
@@ -28,7 +27,7 @@ status_rate and on every change.
 
 import math
 
-from mhseals_nav.fence import (closest, inside, load_fence, moved, ON_EXIT, outline,  # noqa: F401
+from mhseals_nav.fence import (closest, FenceFile, inside, moved, ON_EXIT, outline,  # noqa: F401
                                polygon, problem, project, reference)
 from mhseals_nav.hold_watchdog import fresh, HoldGate, node_class as watchdog_class, run
 
@@ -38,13 +37,12 @@ INSIDE = ('', NEAR_EDGE, 'on the fence')      # reasons with the boat in the fen
 
 
 class FenceWatchdog(HoldGate):
-    def __init__(self, cfg):
+    def __init__(self, cfg, fence=None, why='no fence loaded'):
+        """``fence`` is ``load_fence``'s {'frame', 'points', 'on_exit'}, None (with ``why``) for
+        none, which holds."""
         super().__init__(cfg)
-        if cfg['on_exit'] not in ON_EXIT:
-            raise ValueError(f"on_exit: {cfg['on_exit']!r} is neither alert nor return")
-        self.frame = cfg['fence_frame']
-        self.poly = polygon(self.frame, cfg.get('fence_points', []))
-        self.ref = reference(self.frame, cfg['fence_points']) if self.poly else None
+        self.frame, self.points, self.on_exit, self.poly, self.ref, self.error = \
+            None, None, 'alert', None, None, why
         self.p, self.p_at, self.raw = None, None, None
         self.fix_ll, self.fix_at = None, None
         self.map_p, self.map_at = None, None
@@ -54,6 +52,7 @@ class FenceWatchdog(HoldGate):
         self.return_failed = False   # until back inside: hold as alert does
         self.parked = None       # {'why', 'seen'} after a return, until its hold is released
         self.orders = []         # for the node: (go, (x, y, yaw)), (cancel, why), (failed, why)
+        self.set_fence(fence, why)
 
     def position(self, now, a, b):
         """(lat, lon) for a lat/lon fence, else (x, y) in map."""
@@ -61,8 +60,7 @@ class FenceWatchdog(HoldGate):
             self.fix_ll, self.fix_at = (a, b), now
         if self.poly is None:
             return
-        points = self.cfg['fence_points']
-        self.p = project(points[:2], a, b) if self.frame == 'latlon' else (a, b)
+        self.p = project(self.points[:2], a, b) if self.frame == 'latlon' else (a, b)
         self.p_at, self.raw = now, (a, b)
 
     def fix(self, now, lat, lon):
@@ -77,29 +75,29 @@ class FenceWatchdog(HoldGate):
         if self.frame == 'map':
             self.position(now, x, y)
 
-    def set_corners(self, corners):
-        """Make the lat/lon ``corners`` the fence, whole or not at all: the reason, '' when set."""
-        why = problem('latlon', corners)
-        if why:
-            return why
-        points = [float(v) for v in corners]
-        self.cfg = dict(self.cfg, fence_frame='latlon', fence_points=points)
-        self.frame, self.poly = 'latlon', polygon('latlon', points)
-        self.ref = reference('latlon', points)
-        self.p, self.p_at, self.raw = None, None, None
-        if self.fix_ll is not None:          # the plane's origin is the first corner
-            self.position(self.fix_at, *self.fix_ll)
-        if self.returning is not None:       # aimed at the old fence: plan again
-            self.returning = None
-            self.orders.append(('cancel', 'the course area changed'))
-        return ''
+    def set_fence(self, fence, why=''):
+        """Enforce ``fence`` (see ``__init__``) from now on; None, with ``why``, is no fence.
 
-    def set_on_exit(self, mode):
-        """alert or return: the reason, '' when set."""
-        if mode not in ON_EXIT:
-            return f'{mode!r} is neither alert nor return'
-        self.cfg = dict(self.cfg, on_exit=mode)
-        return ''
+        A return aimed at another polygon is called off, to be planned again on this one.
+        """
+        old = (self.frame, self.points)
+        if fence is None:
+            self.frame, self.points, self.poly, self.ref, self.error = None, None, None, None, why
+        else:
+            self.frame, self.points, self.on_exit = fence['frame'], fence['points'], \
+                fence['on_exit']
+            self.poly, self.error = polygon(self.frame, self.points), ''
+            self.ref = reference(self.frame, self.points) if self.poly else None
+        if (self.frame, self.points) == old:
+            return
+        self.p, self.p_at, self.raw = None, None, None
+        if self.frame == 'latlon' and self.fix_ll is not None:   # placed by what it had
+            self.position(self.fix_at, *self.fix_ll)
+        elif self.frame == 'map' and self.map_p is not None:
+            self.position(self.map_at, *self.map_p)
+        if self.returning is not None:
+            self.returning = None
+            self.orders.append(('cancel', 'the fence changed'))
 
     def anchor(self, now):
         """Re-anchor the fence at the boat: (True, what) or (False, why not).
@@ -118,9 +116,8 @@ class FenceWatchdog(HoldGate):
             return False, 'no odometry (missing or older than max_age)'
         if math.hypot(*self.v) > self.cfg['anchor_max_speed']:
             return False, f'boat moving ({math.hypot(*self.v):.1f} m/s)'
-        points = moved(self.cfg['fence_points'], self.ref, self.raw)
-        self.cfg = dict(self.cfg, fence_points=points)
-        self.poly, self.ref = polygon(self.frame, points), self.raw
+        self.points = moved(self.points, self.ref, self.raw)
+        self.poly, self.ref = polygon(self.frame, self.points), self.raw
         self.position(self.p_at, *self.raw)       # the plane's origin moved with the fence
         return True, f'fence anchored at {self.raw[0]:.7g}, {self.raw[1]:.7g} ({self.frame})'
 
@@ -128,7 +125,7 @@ class FenceWatchdog(HoldGate):
         """The marker's closed outline in map (see ``outline``), None while not placeable."""
         limit = self.cfg['max_age']
         live = fresh(self.p_at, now, limit) and fresh(self.map_at, now, limit)
-        return outline(self.frame, self.cfg['fence_points'],
+        return outline(self.frame, self.points,
                        self.raw if live else None, self.map_p if live else None)
 
     def motion(self, now, yaw, vx, vy):
@@ -139,18 +136,18 @@ class FenceWatchdog(HoldGate):
     def state(self, now, stamp_ns=0):
         """Return what fence_topic carries: the raw fence it enforces and its margin rules.
 
-        Always the same keys. ``frame`` is latlon ([lat, lon, ...]; a reader projects with
-        ``project`` from the first vertex, as here) or map ([x, y, ...]); ``points`` is the
-        configured flat list when ``valid``, else None with ``error`` saying why. ``reason`` is
-        the hold reason now ('' while all is well); ``stamp_ns`` the node's clock. A reader
-        treats a message older than three periods (3 / fence_rate) as no fence.
+        Always the same keys. ``frame`` (None without a fence) is latlon ([lat, lon, ...]; a
+        reader projects with ``project`` from the first vertex, as here) or map ([x, y, ...]);
+        ``points`` is the enforced flat list when ``valid``, else None with ``error`` saying
+        why. ``reason`` is the hold reason now ('' while all is well); ``stamp_ns`` the node's
+        clock. A reader treats a message older than three periods (3 / fence_rate) as no fence.
         """
         cfg, valid = self.cfg, self.poly is not None
         return {'valid': valid, 'frame': self.frame,
-                'points': [float(v) for v in cfg['fence_points']] if valid else None,
+                'points': list(self.points) if valid else None,
                 'margin_m': cfg['margin'], 'outward_angle_deg': math.degrees(cfg['outward_angle']),
                 'outward_speed_mps': cfg['outward_speed'], 'reason': self.reason(now),
-                'error': '' if valid else 'no valid fence configured', 'stamp_ns': stamp_ns}
+                'error': '' if valid else self.error or 'no valid fence', 'stamp_ns': stamp_ns}
 
     def reason(self, now):
         """The hold reason: where the boat is, else why a finished return still holds."""
@@ -195,8 +192,7 @@ class FenceWatchdog(HoldGate):
         edge = min(math.dist(c, self.p) for c in closest(self.p, self.poly)) if live else None
         return {'inside': inside(self.p, self.poly) if live else None,
                 'distance_to_edge': round(edge, 2) if live else None, 'frame': self.frame,
-                'on_exit': self.cfg['on_exit'],
-                'corners': [float(v) for v in self.cfg['fence_points']] if valid else None,
+                'on_exit': self.on_exit, 'corners': list(self.points) if valid else None,
                 'returning': self.returning is not None, 'paused': self.pause()['paused']}
 
     def pause(self):
@@ -237,7 +233,7 @@ class FenceWatchdog(HoldGate):
         if why in INSIDE:
             self.return_failed = False
         if self.returning is None:
-            if why == OUTSIDE and self.cfg['on_exit'] == 'return' and self.parked is None \
+            if why == OUTSIDE and self.on_exit == 'return' and self.parked is None \
                     and not self.return_failed and self.autonomy(now):
                 goal = self.return_goal(now)
                 if goal is None:
@@ -250,7 +246,7 @@ class FenceWatchdog(HoldGate):
         if sending is not None and now >= sending:
             self.returning.update(send_at=None, sent=now, tries=self.returning['tries'] + 1)
             self.orders.append(('go', self.returning['goal']))
-        if self.cfg['on_exit'] != 'return':
+        if self.on_exit != 'return':
             self.stop('on_exit is alert', failed=False)
         elif why not in INSIDE and why != OUTSIDE:
             self.stop(why, failed=True)
@@ -324,9 +320,7 @@ def node_class():
     from nav2_msgs.action import NavigateToPose
     from nav2_msgs.msg import SpeedLimit
     from nav_msgs.msg import Odometry
-    from rcl_interfaces.msg import ParameterDescriptor, SetParametersResult
     from rclpy.action import ActionClient
-    from rclpy.parameter import Parameter
     from rclpy.qos import DurabilityPolicy, qos_profile_sensor_data, QoSProfile, ReliabilityPolicy
     from sensor_msgs.msg import NavSatFix, NavSatStatus
     from std_msgs.msg import ColorRGBA, String
@@ -334,7 +328,7 @@ def node_class():
     from visualization_msgs.msg import Marker
 
     def logic(cfg):
-        return FenceWatchdog(load_fence(cfg))
+        return FenceWatchdog(cfg)      # no fence (a hold) until subscribe's first read
 
     def subscribe(node):
         cfg, dog = node.logic.cfg, node.logic
@@ -442,46 +436,26 @@ def node_class():
                 else:
                     node.get_logger().error(f'fence return failed: {arg}; holding (alert)')
 
-        # Live: course.corners (lat/lon course area) and on_exit, validated together.
-        corners = dog.cfg['fence_points'] if dog.frame == 'latlon' and dog.poly else None
-        if not node.has_parameter('course.corners'):
-            node.declare_parameter(
-                'course.corners',
-                [float(v) for v in corners] if corners else Parameter.Type.DOUBLE_ARRAY,
-                ParameterDescriptor(description='lat/lon course area [lat1, lon1, ...]'))
-        if not node.has_parameter('on_exit'):
-            node.declare_parameter('on_exit', dog.cfg['on_exit'],
-                                   ParameterDescriptor(description='alert | return'))
-        elif node.get_parameter('on_exit').value != dog.cfg['on_exit']:    # fence_file's
-            node.set_parameters([Parameter('on_exit', value=dog.cfg['on_exit'])])
+        # The fence is fence_file alone, read again on every change (the TUI's course popup and
+        # boat_agent fence write it whole): checked at fence_rate.
+        watched = FenceFile(cfg['fence_file'])
 
-        def on_set(params):
-            wanted = {p.name: p.value for p in params}
-            whys = []
-            if 'course.corners' in wanted:
-                why = problem('latlon', wanted['course.corners'])
-                whys += [f'course.corners: {why}'] if why else []
-            if 'on_exit' in wanted and wanted['on_exit'] not in ON_EXIT:
-                whys.append(f"on_exit: {wanted['on_exit']!r} is neither alert nor return")
-            if whys:
-                node.get_logger().warning(f"fence change refused: {'; '.join(whys)}")
-                return SetParametersResult(successful=False, reason='; '.join(whys))
-            if 'course.corners' in wanted:
-                dog.set_corners(wanted['course.corners'])
-                node.get_logger().warning(
-                    f"course area set: {len(dog.poly)} corners {list(wanted['course.corners'])}")
-                drawn.clear()
-            if 'on_exit' in wanted:
-                dog.set_on_exit(wanted['on_exit'])
-                node.get_logger().warning(f"on_exit: {wanted['on_exit']}")
-            if wanted.keys() & {'course.corners', 'on_exit'}:
-                publish_fence()
-                report(force=True)
-            return SetParametersResult(successful=True)
-        node.add_on_set_parameters_callback(on_set)
+        def reload():
+            read = watched.poll()
+            if read is None:
+                return
+            dog.set_fence(*read)
+            if dog.poly is None:
+                node.get_logger().error(f'no valid fence ({read[1]}): autonomy will be held')
+            else:
+                node.get_logger().warning(f'fence: {len(dog.poly)} vertices in {dog.frame}, '
+                                          f'on_exit {dog.on_exit}, from {cfg["fence_file"]}')
+            drawn.clear()
+            report(force=True)
 
         def publish_fence():     # its own timer: a failure here never touches the holds
             try:
+                reload()
                 now = time.monotonic()
                 state = dog.state(now, node.get_clock().now().nanoseconds)
                 fence.publish(String(data=json.dumps(state)))
@@ -501,12 +475,7 @@ def node_class():
                 node.get_logger().warning(f'fence anchor refused: {response.message}')
             return response
         node.create_service(Trigger, cfg['anchor_service'], on_anchor)
-        if dog.poly is None:
-            node.get_logger().error(f"no valid fence (fence_file {cfg['fence_file']!r}): "
-                                    'autonomy will be held')
-        else:
-            node.get_logger().info(f'fence: {len(dog.poly)} vertices in {dog.frame}, '
-                                   f"on_exit {dog.cfg['on_exit']}")
+        publish_fence()
 
         def on_odom(msg):
             q = msg.pose.pose.orientation
@@ -521,7 +490,7 @@ def node_class():
                 dog.fix(time.monotonic(), msg.latitude, msg.longitude)
 
         node.create_subscription(Odometry, cfg['odom_topic'], on_odom, qos_profile_sensor_data)
-        # Whatever the frame: a course area set live (course.corners) needs the fix at once.
+        # Whatever the frame: a lat/lon fence written live needs the fix at once.
         node.create_subscription(NavSatFix, cfg['gps_topic'], on_fix, qos_profile_sensor_data)
 
     return watchdog_class('fence_watchdog', logic, subscribe)

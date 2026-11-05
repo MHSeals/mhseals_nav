@@ -189,8 +189,7 @@ def watchdog_nodes(**arguments):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     context = LaunchContext()
-    defaults = {'sim': 'false', 'require_operator': '', 'fence_frame': '', 'fence_points': '',
-                'fcu_watchdog': 'true'}
+    defaults = {'sim': 'false', 'require_operator': '', 'fence_file': '', 'fcu_watchdog': 'true'}
     context.launch_configurations.update({**defaults, **arguments})
     assert len(module.watchdogs(context)) in (3, 4)          # the launch builds the nodes
     return dict(module.watchdog_parameters(lambda name: {**defaults, **arguments}[name]))
@@ -212,18 +211,16 @@ def test_the_sim_watchdogs_need_no_operator_or_fcu_and_fence_a_map_box():
     assert nodes['ekf_input_watchdog'] == {'use_sim_time': True}
     assert nodes['link_watchdog'] == {'use_sim_time': True, 'require_operator': False}
     fence = nodes['fence_watchdog']
-    # An operator file cannot move it.
-    assert fence['fence_frame'] == 'map' and fence['fence_file'] == ''
-    from mhseals_nav.fence_watchdog import inside, polygon
-    box = polygon('map', fence['fence_points'])
+    # The package's crane box, never the operator's file.
+    assert fence == {'use_sim_time': True, 'fence_file': 'fences/crane.yaml'}
+    from mhseals_nav.fence import inside, load_fence, polygon
+    box = polygon('map', load_fence(fence['fence_file'])[0]['points'])
     assert inside((0.0, 0.0), box) and inside((12.0, -14.0), box)
     assert not inside((-77.0, -76.0), box)
     assert 'host_diagnostic' not in dict(device_profile.select(device_profile.load('sim')))
 
 
 @pytest.mark.parametrize('arguments, message', [
-    ({'fence_points': '[1, 2, x'}, 'fence_points: not a list'),
-    ({'fence_points': '[1, true]'}, 'flat list of numbers'),
     ({'require_operator': 'maybe'}, 'require_operator: invalid launch boolean: maybe'),
 ])
 def test_bad_watchdog_arguments_are_refused(arguments, message):

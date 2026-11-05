@@ -14,9 +14,8 @@ R2_UNITS = {'s', 'Hz', 'm', 'm/s', 'rad', 'rad/s', 'm/s^2', 'count', 'bool', 'en
             'topic', 'path', '1'}
 # Not in the R2 list yet; the astro lane owns docs/config-conventions.md.
 PENDING_R2 = {'rad/s^2', 'ID:Hz', 'deg', 'm/s, m/s, rad/s', 'm/s^2, m/s^2, rad/s^2'}
-# Settable in a layer, but defaulted outside the package YAML (boat-network.env LIDAR_IP,
-# fence_file for the course area).
-NO_PACKAGE_DEFAULT = {'lidar.driver.endpoint.ip', 'fence_watchdog.course.corners'}
+# Settable in a layer, but defaulted outside the package YAML (boat-network.env LIDAR_IP).
+NO_PACKAGE_DEFAULT = {'lidar.driver.endpoint.ip'}
 TYPES = {'float': (int, float), 'int': (int,), 'bool': (bool,), 'str': (str,),
          'list': (list,)}
 

@@ -96,7 +96,7 @@ def watchdog_config(name, overrides=None, warn=lambda message: None, path=None):
 def section_config(filename, name, overrides=None, warn=lambda message: None, path=None):
     """Section ``name`` of config/<filename>: defaults < the section < tune.<name> < overrides.
 
-    ``overrides`` is flat ({'course.corners': [...]}) as ROS parameters are. Strict: the file
+    ``overrides`` is flat ({'lidar.rpm': 600}) as ROS parameters are. Strict: the file
     must have the section, and an override must name a key the section has.
     """
     from mhseals_nav.navigation_config import load_strict

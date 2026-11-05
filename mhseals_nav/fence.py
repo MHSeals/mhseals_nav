@@ -4,7 +4,6 @@ Pure (no ROS), so fence_watchdog and the TUI's goal gates share one implementati
 """
 
 from array import array
-import logging
 import math
 from pathlib import Path
 
@@ -12,7 +11,6 @@ import yaml
 
 EARTH_RADIUS_M = 6371000.0
 ON_EXIT = ('alert', 'return')
-log = logging.getLogger(__name__)
 
 
 def problem(frame, points):
@@ -131,35 +129,59 @@ def closest(p, poly):
         yield x1 + t * dx, y1 + t * dy
 
 
+def load_fence(fence_file):
+    """The fence ``fence_file`` holds: ({'frame', 'points', 'on_exit'}, '') or (None, why).
 
-def load_fence(cfg):
-    """Return cfg with fence_frame and fence_points from fence_file when that file exists.
-
-    A file that cannot be read or does not parse to a mapping leaves no valid fence, which
-    holds. ``course: {corners: [lat1, lon1, ...]}`` (the TUI's course area, in the file or a
-    ``course.corners`` parameter) is a lat/lon fence and wins over fence_frame/fence_points.
-    The file's ``course.on_exit`` (what the TUI saved) wins over the package on_exit when it is
-    alert or return; anything else keeps the package value, with a warning.
+    ``{frame: latlon | map, points: [a, b, ...], on_exit: alert | return}`` (on_exit defaults
+    to alert), or the TUI's ``course: {corners: [lat1, lon1, ...], on_exit}``, a lat/lon fence.
+    ~ expands; a relative path is in this package's config/ (the simulator's fences/crane.yaml).
+    No file, an unreadable or invalid one, is no fence, which holds.
     """
-    path = Path(cfg['fence_file']).expanduser() if cfg['fence_file'] else None
-    if path is not None and path.is_file():
+    path = resolve(fence_file)
+    if path is None:
+        return None, 'no fence_file'
+    try:
+        day = yaml.safe_load(path.read_text())
+    except (OSError, UnicodeDecodeError, yaml.YAMLError) as error:
+        return None, f'{path}: {type(error).__name__}'
+    if isinstance(day, dict) and isinstance(day.get('course'), dict):
+        day = dict(day['course'], frame='latlon', points=day['course'].get('corners'))
+    if not isinstance(day, dict):
+        return None, f'{path}: not a mapping'
+    on_exit = day.get('on_exit', 'alert')
+    why = problem(day.get('frame'), day.get('points')) or (
+        '' if on_exit in ON_EXIT else f'on_exit {on_exit!r} is neither alert nor return')
+    if why:
+        return None, f'{path}: {why}'
+    return {'frame': day['frame'], 'points': [float(v) for v in day['points']],
+            'on_exit': on_exit}, ''
+
+
+def resolve(fence_file):
+    """fence_file as a path (see ``load_fence``), None when empty."""
+    if not fence_file:
+        return None
+    path = Path(fence_file).expanduser()
+    if path.is_absolute():
+        return path
+    from mhseals_nav.yaml_params import config_path
+    return config_path(path)
+
+
+class FenceFile:
+    """fence_file, read again whenever it changes (written or replaced): an edit applies live."""
+
+    def __init__(self, fence_file):
+        self.fence_file, self.seen = fence_file, ()      # () is no stat: the first poll reads
+
+    def poll(self):
+        """``load_fence``'s answer when the file changed since the last poll, else None."""
         try:
-            day = yaml.safe_load(path.read_text())
-        except (OSError, UnicodeDecodeError, yaml.YAMLError):
-            day = None
-        if not isinstance(day, dict):
-            return dict(cfg, fence_points=None)
-        cfg = dict(cfg, fence_frame=day.get('fence_frame', cfg['fence_frame']),
-                   fence_points=day.get('fence_points'))
-        if isinstance(day.get('course'), dict) and 'corners' in day['course']:
-            cfg = dict(cfg, fence_frame='latlon', fence_points=day['course']['corners'])
-        on_exit = day['course'].get('on_exit') if isinstance(day.get('course'), dict) else None
-        if on_exit in ON_EXIT:
-            cfg = dict(cfg, on_exit=on_exit)
-        elif on_exit is not None:
-            log.warning(f"{path}: course.on_exit {on_exit!r} is neither alert nor return; "
-                        f"on_exit stays {cfg['on_exit']}")
-    course = cfg.get('course')
-    if isinstance(course, dict) and course.get('corners') is not None:
-        cfg = dict(cfg, fence_frame='latlon', fence_points=list(course['corners']))
-    return cfg
+            info = resolve(self.fence_file).stat()
+            seen = (info.st_ino, info.st_mtime_ns, info.st_size)
+        except (AttributeError, OSError):       # no fence_file, or none there
+            seen = None
+        if seen == self.seen:
+            return None
+        self.seen = seen
+        return load_fence(self.fence_file)

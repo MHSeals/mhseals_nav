@@ -19,8 +19,9 @@ def config(name):
 
 
 LINK = config('link_watchdog')
-FENCE = dict(config('fence_watchdog'), fence_frame='map',
-             fence_points=[0.0, 0.0, 100.0, 0.0, 100.0, 50.0, 0.0, 50.0])
+FENCE = config('fence_watchdog')
+BOX = {'frame': 'map', 'points': [0.0, 0.0, 100.0, 0.0, 100.0, 50.0, 0.0, 50.0],
+       'on_exit': 'alert'}
 WINDOW = LINK['command_window']
 
 
@@ -31,7 +32,7 @@ def link(cfg=LINK):
 
 def fence():
     """Odometry and position missing: the condition is bad from the start."""
-    return FenceWatchdog(FENCE)
+    return FenceWatchdog(FENCE, BOX)
 
 
 def mux(dog, now, source):

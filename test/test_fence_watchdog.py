@@ -6,15 +6,26 @@ import math
 from pathlib import Path
 import time
 
-from mhseals_nav.fence_watchdog import (FenceWatchdog, load_fence, outline, polygon, problem,
-                                        project)
-from mhseals_nav.yaml_params import watchdog_config
+from mhseals_nav.fence import FenceFile, load_fence, outline, polygon, problem, project
+from mhseals_nav.fence_watchdog import FenceWatchdog
+from mhseals_nav.yaml_params import config_path, watchdog_config
 import pytest
 import yaml
 
 CFG = watchdog_config('fence_watchdog')
 BOX = [0.0, 0.0, 100.0, 0.0, 100.0, 50.0, 0.0, 50.0]      # map metres, x east, y north
-MAP = dict(CFG, fence_frame='map', fence_points=BOX)
+MAP = {'frame': 'map', 'points': BOX, 'on_exit': 'alert'}
+
+
+def latlon(points, on_exit='alert'):
+    return {'frame': 'latlon', 'points': points, 'on_exit': on_exit}
+
+
+def written(tmp_path, body):
+    """A fence file holding ``body`` (YAML text, or a mapping dumped as YAML)."""
+    path = tmp_path / 'fence.yaml'
+    path.write_text(body if isinstance(body, str) else yaml.safe_dump(body))
+    return path
 
 
 def at(dog, now, x, y, yaw=0.0, vx=0.0):
@@ -25,13 +36,13 @@ def at(dog, now, x, y, yaw=0.0, vx=0.0):
 
 
 def test_well_inside_requests_nothing_whatever_the_heading():
-    dog = FenceWatchdog(MAP)
+    dog = FenceWatchdog(CFG, MAP)
     for k, yaw in enumerate((0.0, 1.5, 3.1, -1.5)):
         assert not at(dog, k * 2.0, 50.0, 25.0, yaw, 1.0)
 
 
 def test_outside_holds_only_under_autonomy():
-    dog = FenceWatchdog(MAP)
+    dog = FenceWatchdog(CFG, MAP)
     dog.position(0.0, 120.0, 25.0)
     dog.motion(0.0, math.pi, 0.0, 0.0)       # facing back in, still outside
     assert dog.reason(0.0) == 'outside the fence'
@@ -41,10 +52,10 @@ def test_outside_holds_only_under_autonomy():
 
 
 def test_near_the_edge_holds_only_heading_outward():
-    dog = FenceWatchdog(MAP)
+    dog = FenceWatchdog(CFG, MAP)
     edge = 100.0 - CFG['margin'] / 2      # inside the margin of the east edge
     assert at(dog, 0.0, edge, 25.0, 0.0, 0.0)                    # facing east, still
-    dog = FenceWatchdog(MAP)
+    dog = FenceWatchdog(CFG, MAP)
     assert not at(dog, 0.0, edge, 25.0, math.pi, 0.5)            # facing and moving west
     assert not at(dog, 2.0, edge, 25.0, math.pi / 2, 0.5)        # along the edge
     assert at(dog, 4.0, edge, 25.0, math.pi, -0.5)               # backing out east
@@ -52,7 +63,7 @@ def test_near_the_edge_holds_only_heading_outward():
 
 def test_near_edge_reason_does_not_change_with_the_distance():
     """The node logs on a reason change: a distance in it would log every tick."""
-    dog = FenceWatchdog(MAP)
+    dog = FenceWatchdog(CFG, MAP)
     reasons = set()
     for k, x in enumerate((96.0, 97.0, 98.0)):
         assert at(dog, k * 1.0, x, 25.0)
@@ -63,40 +74,41 @@ def test_near_edge_reason_does_not_change_with_the_distance():
 
 
 def test_outward_angle_and_margin_bounds():
-    dog = FenceWatchdog(MAP)
+    dog = FenceWatchdog(CFG, MAP)
     inside = CFG['outward_angle'] - 0.05
     edge = 100.0 - CFG['margin'] + 0.1
     assert at(dog, 0.0, edge, 25.0, inside, 0.0)
-    dog = FenceWatchdog(MAP)
+    dog = FenceWatchdog(CFG, MAP)
     assert not at(dog, 0.0, edge, 25.0, inside + 0.1, 0.0)
     assert not at(dog, 2.0, 100.0 - CFG['margin'] - 0.1, 25.0, 0.0, 1.0)
 
 
 def test_near_a_corner_both_edges_count():
     for yaw in (0.0, math.pi / 4, math.pi / 2):                   # east, NE, north
-        dog = FenceWatchdog(MAP)
+        dog = FenceWatchdog(CFG, MAP)
         assert at(dog, 0.0, 98.5, 47.0, yaw, 0.0)                 # 1.5 m from E, 3 m from N
-    dog = FenceWatchdog(MAP)
+    dog = FenceWatchdog(CFG, MAP)
     assert not at(dog, 0.0, 98.5, 47.0, -3 * math.pi / 4, 0.0)
 
 
-def test_no_valid_fence_holds():
+def test_no_valid_fence_holds(tmp_path):
     for points in ([], [0.0, 0.0, 1.0, 1.0], BOX[:-1], BOX[:-2] + [0.0, float('nan')],
                    BOX[:-1] + ['x'], {'a': 1}):
-        dog = FenceWatchdog(dict(MAP, fence_points=points))
-        assert dog.poly is None
+        fence, why = load_fence(written(tmp_path, dict(MAP, points=points)))
+        dog = FenceWatchdog(CFG, fence, why)
+        assert fence is None and why and dog.poly is None
         assert at(dog, 0.0, 50.0, 25.0)
     assert polygon('utm', BOX) is None
-    dog = FenceWatchdog({k: v for k, v in CFG.items() if k != 'fence_points'})
+    dog = FenceWatchdog(CFG)                          # none loaded
     assert at(dog, 0.0, 42.0, -71.0)
 
 
 def test_stale_position_or_odometry_holds():
-    dog = FenceWatchdog(MAP)
+    dog = FenceWatchdog(CFG, MAP)
     dog.motion(0.0, 0.0, 0.0, 0.0)
     dog.command(0.0)
     assert dog.reason(0.0) == 'position missing or stale' and dog.tick(0.0)
-    dog = FenceWatchdog(MAP)
+    dog = FenceWatchdog(CFG, MAP)
     assert not at(dog, 0.0, 50.0, 25.0)
     late = CFG['max_age'] + 0.01
     dog.position(late, 50.0, 25.0)
@@ -107,42 +119,61 @@ def test_stale_position_or_odometry_holds():
 def test_lat_lon_fence():
     lat0, lon0 = 42.0, -71.0
     d = 0.001                                # ~111 m north, ~83 m east
-    dog = FenceWatchdog(dict(CFG, fence_frame='latlon', fence_points=[
-        lat0, lon0, lat0, lon0 + d, lat0 + d, lon0 + d, lat0 + d, lon0]))
+    fence = latlon([lat0, lon0, lat0, lon0 + d, lat0 + d, lon0 + d, lat0 + d, lon0])
+    dog = FenceWatchdog(CFG, fence)
     east, north = project((lat0, lon0), lat0 + d, lon0 + d)
     assert east == pytest.approx(82.7, abs=0.2) and north == pytest.approx(111.2, abs=0.2)
     assert not at(dog, 0.0, lat0 + d / 2, lon0 + d / 2, 0.0, 1.0)
     assert at(dog, 2.0, lat0 + d / 2, lon0 + d + 1e-5, math.pi, 0.0)   # 0.8 m outside east
-    dog = FenceWatchdog(dog.cfg)
+    dog = FenceWatchdog(CFG, fence)
     assert at(dog, 0.0, lat0 + d / 2, lon0 + d - 2e-5, 0.0, 0.0)      # 1.7 m in, facing east
 
 
-def test_fence_file_overrides_the_package_fence(tmp_path):
-    day = tmp_path / 'fence.yaml'
-    day.write_text(yaml.safe_dump({'fence_frame': 'map', 'fence_points': BOX}))
-    cfg = load_fence(dict(CFG, fence_file=str(day), fence_points=[1.0]))
-    assert (cfg['fence_frame'], cfg['fence_points']) == ('map', BOX)
-    for text in ('- 1\n', ': :\n', 'fence_frame: map\n'):
-        day.write_text(text)
-        assert FenceWatchdog(load_fence(dict(CFG, fence_file=str(day)))).poly is None
-    assert load_fence(dict(CFG, fence_file=str(tmp_path / 'missing.yaml'))) == \
-        dict(CFG, fence_file=str(tmp_path / 'missing.yaml'))
+def test_the_fence_is_its_file_and_a_missing_or_malformed_one_holds(tmp_path):
+    day = written(tmp_path, MAP)
+    assert load_fence(str(day)) == (MAP, '')
+    assert load_fence(written(tmp_path, {'frame': 'map', 'points': BOX})) == (MAP, '')
+    for text in ('- 1\n', ': :\n', 'frame: map\n', 'points: [0, 0, 1, 0, 1, 1]\n',
+                 yaml.safe_dump(dict(MAP, on_exit='drift')),
+                 yaml.safe_dump(dict(MAP, frame='utm'))):
+        fence, why = load_fence(written(tmp_path, text))
+        assert fence is None and str(day) in why, text
+        dog = FenceWatchdog(CFG, fence, why)
+        assert dog.poly is None and at(dog, 0.0, 50.0, 25.0)
+        assert dog.state(0.0)['error'] == why
+    assert load_fence(tmp_path / 'missing.yaml')[0] is None
+    assert load_fence('') == (None, 'no fence_file')
 
 
 def test_unreadable_fence_file_holds(tmp_path, monkeypatch):
-    """Even with a valid fence in the parameters: the day's file was meant to replace it."""
     day = tmp_path / 'fence.yaml'
-    day.write_bytes(b'fence_frame: map\nfence_points: [\xff\xfe]\n')   # not UTF-8
-    dog = FenceWatchdog(load_fence(dict(MAP, fence_file=str(day))))
-    assert dog.poly is None and at(dog, 0.0, 50.0, 25.0)
-    day.write_text(yaml.safe_dump({'fence_frame': 'map', 'fence_points': BOX}))
-    day.chmod(0)                       # root still reads it, so also refuse the read itself
+    day.write_bytes(b'frame: map\npoints: [\xff\xfe]\n')   # not UTF-8
+    assert load_fence(day) == (None, f'{day}: UnicodeDecodeError')
+    written(tmp_path, MAP)
 
     def refuse(*_, **__):
         raise PermissionError(13, 'Permission denied', str(day))
     monkeypatch.setattr(Path, 'read_text', refuse)
-    dog = FenceWatchdog(load_fence(dict(MAP, fence_file=str(day))))
-    assert dog.poly is None and at(dog, 0.0, 50.0, 25.0)
+    assert load_fence(day) == (None, f'{day}: PermissionError')
+
+
+def test_a_relative_fence_file_is_in_the_package_config():
+    assert load_fence('fences/crane.yaml')[0]['frame'] == 'map'
+    assert load_fence(str(config_path('fences/crane.yaml')))[0]['frame'] == 'map'
+
+
+def test_the_crane_search_area_lies_inside_the_sim_fence_minus_its_margin():
+    """The sim fences the crane world with fences/crane.yaml; its mission searches inside."""
+    sim = yaml.safe_load(config_path('devices/sim.yaml').read_text())
+    fence, why = load_fence(sim['parts']['watchdogs']['args']['fence_file'])
+    assert not why and fence['frame'] == 'map'
+    poly = polygon('map', fence['points'])
+    (x0, y0), (x1, y1) = yaml.safe_load(
+        config_path('tasks/mission_crane.yaml').read_text())['search']['area']
+    from mhseals_nav.fence import closest, inside
+    for corner in ((x0, y0), (x1, y0), (x1, y1), (x0, y1)):
+        assert inside(corner, poly), corner
+        assert min(math.dist(corner, c) for c in closest(corner, poly)) >= CFG['margin']
 
 
 STATE_KEYS = {'valid', 'frame', 'points', 'margin_m', 'outward_angle_deg', 'outward_speed_mps',
@@ -150,7 +181,7 @@ STATE_KEYS = {'valid', 'frame', 'points', 'margin_m', 'outward_angle_deg', 'outw
 
 
 def test_state_of_a_map_fence_is_its_points():
-    dog = FenceWatchdog(MAP)
+    dog = FenceWatchdog(CFG, MAP)
     state = dog.state(0.0, 7)
     assert set(state) == STATE_KEYS
     assert state['valid'] and state['frame'] == 'map'
@@ -163,7 +194,7 @@ def test_state_of_a_map_fence_is_its_points():
 
 
 def test_state_without_a_fence_is_invalid():
-    state = FenceWatchdog(dict(MAP, fence_points=[])).state(0.0)
+    state = FenceWatchdog(CFG, None, 'no fence_file').state(0.0)
     assert set(state) == STATE_KEYS
     assert not state['valid'] and state['points'] is None and state['error']
 
@@ -171,7 +202,7 @@ def test_state_without_a_fence_is_invalid():
 def test_state_of_a_lat_lon_fence_is_its_raw_lat_lon_whatever_the_position():
     """No map copy: the TUI checks goals in lat/lon (toLL), so a rotated map cannot shift it."""
     points = [42.0, -71.0, 42.0, -70.999, 42.001, -70.999, 42.001, -71.0]
-    dog = FenceWatchdog(dict(CFG, fence_frame='latlon', fence_points=points))
+    dog = FenceWatchdog(CFG, latlon(points))
     for state in (dog.state(0.0), dog.state(100.0)):         # no fix yet, then a stale one
         assert set(state) == STATE_KEYS and state['valid'] and state['frame'] == 'latlon'
         assert state['points'] == points
@@ -182,14 +213,14 @@ LATLON = [42.0, -71.0, 42.0, -70.999, 42.001, -70.999, 42.001, -71.0]
 
 
 def test_anchor_moves_a_map_fence_as_the_start_placed_it():
-    dog = FenceWatchdog(MAP)
+    dog = FenceWatchdog(CFG, MAP)
     assert dog.anchor(0.0) == (False, 'no boat position (missing or older than max_age)')
     at(dog, 0.0, 10.0, 20.0)
     ok, message = dog.anchor(0.0)
     assert ok and 'fence anchored at 10, 20 (map)' == message
-    assert dog.cfg['fence_points'] == [10.0, 20.0, 110.0, 20.0, 110.0, 70.0, 10.0, 70.0]
-    assert dog.state(0.0)['points'] == dog.cfg['fence_points']
-    assert MAP['fence_points'] == BOX                       # the package config is untouched
+    assert dog.points == [10.0, 20.0, 110.0, 20.0, 110.0, 70.0, 10.0, 70.0]
+    assert dog.state(0.0)['points'] == dog.points
+    assert MAP['points'] == BOX                             # the file's fence is untouched
     assert dog.reason(0.0) == 'on the fence'                # BOX's corner is the origin
     at(dog, 0.5, 105.0, 50.0)                               # outside the old box, in the new
     assert dog.reason(0.5) == ''
@@ -197,44 +228,44 @@ def test_anchor_moves_a_map_fence_as_the_start_placed_it():
     assert dog.reason(1.0) == 'outside the fence'
     at(dog, 1.5, 15.0, 25.0)                                # anchoring again is relative too
     assert dog.anchor(1.5)[0]
-    assert dog.cfg['fence_points'][:2] == [15.0, 25.0]
+    assert dog.points[:2] == [15.0, 25.0]
 
 
 def test_anchor_refuses_without_a_fresh_position_or_a_fence():
-    dog = FenceWatchdog(MAP)
+    dog = FenceWatchdog(CFG, MAP)
     at(dog, 0.0, 10.0, 20.0)
     ok, why = dog.anchor(CFG['max_age'] + 0.01)
-    assert not ok and 'no boat position' in why and dog.cfg['fence_points'] == BOX
-    dog = FenceWatchdog(dict(MAP, fence_points=[]))
+    assert not ok and 'no boat position' in why and dog.points == BOX
+    dog = FenceWatchdog(CFG, None, 'no fence_file')
     at(dog, 0.0, 10.0, 20.0)
     assert dog.anchor(0.0) == (False, 'no valid fence configured')
 
 
 def test_anchor_refuses_while_moving_or_without_odometry():
-    dog = FenceWatchdog(MAP)
+    dog = FenceWatchdog(CFG, MAP)
     dog.position(0.0, 10.0, 20.0)
     ok, why = dog.anchor(0.0)
-    assert not ok and 'no odometry' in why and dog.cfg['fence_points'] == BOX
+    assert not ok and 'no odometry' in why and dog.points == BOX
     at(dog, 0.0, 10.0, 20.0, 1.0, CFG['anchor_max_speed'] + 0.1)
     ok, why = dog.anchor(0.0)
-    assert not ok and 'moving' in why and dog.cfg['fence_points'] == BOX
+    assert not ok and 'moving' in why and dog.points == BOX
     at(dog, 0.5, 10.0, 20.0, 1.0, CFG['anchor_max_speed'] / 2)
     assert dog.anchor(0.5)[0]
 
 
 def test_anchor_keeps_a_lat_lon_course_area_fixed():
-    dog = FenceWatchdog(dict(CFG, fence_frame='latlon', fence_points=LATLON))
+    dog = FenceWatchdog(CFG, latlon(LATLON))
     assert dog.anchor(0.0) == (True, 'course area fixed')      # no position needed
     at(dog, 0.0, 42.1, -71.2)
     assert dog.anchor(0.0) == (True, 'course area fixed')
-    assert dog.cfg['fence_points'] == LATLON and dog.reason(0.0) == 'outside the fence'
+    assert dog.points == LATLON and dog.reason(0.0) == 'outside the fence'
 
 
 def test_outline_of_a_map_fence_is_its_closed_points():
     assert outline('map', BOX) == [(0.0, 0.0), (100.0, 0.0), (100.0, 50.0), (0.0, 50.0),
                                    (0.0, 0.0)]
     assert outline('map', BOX[:-1]) is None and outline('utm', BOX) is None
-    dog = FenceWatchdog(MAP)
+    dog = FenceWatchdog(CFG, MAP)
     assert dog.outline(0.0) == outline('map', BOX)          # no position needed
     at(dog, 0.0, 10.0, 20.0)
     dog.anchor(0.0)
@@ -247,7 +278,7 @@ def test_outline_of_a_lat_lon_fence_is_placed_through_the_boat():
     assert len(line) == 5 and line[0] == line[-1] == (5.0, -3.0)
     east, north = project((42.0, -71.0), 42.001, -70.999)
     assert line[2] == pytest.approx((5.0 + east, -3.0 + north))
-    dog = FenceWatchdog(dict(CFG, fence_frame='latlon', fence_points=LATLON))
+    dog = FenceWatchdog(CFG, latlon(LATLON))
     dog.position(0.0, 42.0, -71.0)
     assert dog.outline(0.0) is None                         # no map pose yet
     dog.map_position(0.0, 5.0, -3.0)
@@ -256,7 +287,7 @@ def test_outline_of_a_lat_lon_fence_is_placed_through_the_boat():
 
 
 def test_back_inside_holds_no_more():
-    dog = FenceWatchdog(MAP)
+    dog = FenceWatchdog(CFG, MAP)
     assert at(dog, 0.0, 120.0, 25.0)
     assert not at(dog, 0.5, 50.0, 25.0)
     assert not dog.reason(0.5)
@@ -276,57 +307,53 @@ def test_corners_must_be_a_simple_polygon():
     assert polygon('map', [0, 0, 10, 10, 10, 0, 0, 10]) is None             # map too
 
 
-def test_course_corners_replace_the_fence_whole_or_not_at_all():
-    dog = FenceWatchdog(MAP)
+def test_a_new_fence_replaces_the_old_and_is_placed_at_once():
+    dog = FenceWatchdog(CFG, MAP)
     dog.fix(0.0, 42.0005, -70.9995)                  # kept while the fence is in map
     at(dog, 0.0, 50.0, 25.0)
-    assert 'simple' in dog.set_corners(BOWTIE)
-    assert dog.frame == 'map' and dog.cfg['fence_points'] == BOX
-    assert dog.set_corners(LATLON) == ''
+    dog.set_fence(latlon(LATLON))
     assert dog.frame == 'latlon' and dog.state(0.0)['points'] == LATLON
     assert dog.reason(0.0) == ''                     # placed at once by the fix it had
     dog.fix(0.5, 42.002, -70.9995)
     assert dog.reason(0.5) == 'outside the fence'
+    dog.set_fence(None, 'gone')
+    assert dog.reason(0.5) == 'no valid fence configured' and dog.state(0.5)['error'] == 'gone'
+    dog.set_fence(MAP)
+    dog.map_position(0.5, 50.0, 25.0)
+    assert dog.frame == 'map' and dog.reason(0.5) == ''
 
 
-def test_fence_file_or_parameter_course_corners_are_a_lat_lon_area(tmp_path):
-    day = tmp_path / 'fence.yaml'
-    day.write_text(yaml.safe_dump({'course': {'corners': LATLON}}))
-    for cfg in (dict(MAP, fence_file=str(day)), dict(MAP, fence_file='', course={
-            'corners': LATLON})):
-        cfg = load_fence(cfg)
-        assert cfg['fence_frame'] == 'latlon' and cfg['fence_points'] == LATLON
-
-
-def test_fence_file_course_on_exit_applies_at_startup_or_warns(tmp_path, caplog):
-    """The TUI saves course.on_exit in the fence file; a restart keeps it, a bad one warns."""
-    day = tmp_path / 'fence.yaml'
-    day.write_text(yaml.safe_dump({'course': {'corners': LATLON, 'on_exit': 'return'}}))
-    cfg = load_fence(dict(MAP, fence_file=str(day)))
-    assert cfg['on_exit'] == 'return' and FenceWatchdog(cfg).cfg['on_exit'] == 'return'
-    assert CFG['on_exit'] == 'alert' and not caplog.records
+def test_the_tui_course_area_is_a_lat_lon_fence_with_its_on_exit(tmp_path):
+    day = written(tmp_path, {'course': {'corners': LATLON}})
+    assert load_fence(day) == (latlon(LATLON), '')
+    written(tmp_path, {'course': {'corners': LATLON, 'on_exit': 'return'}})
+    assert load_fence(day) == (latlon(LATLON, 'return'), '')
     for bad in ('drift', ['return'], 3):
-        day.write_text(yaml.safe_dump({'course': {'corners': LATLON, 'on_exit': bad}}))
-        caplog.clear()
-        cfg = load_fence(dict(MAP, fence_file=str(day)))
-        assert cfg['on_exit'] == 'alert' and FenceWatchdog(cfg).poly is not None
-        assert [r.levelname for r in caplog.records] == ['WARNING']
-        assert 'course.on_exit' in caplog.text and 'stays alert' in caplog.text
-    day.write_text(yaml.safe_dump({'course': {'corners': LATLON}}))
-    caplog.clear()
-    assert load_fence(dict(MAP, fence_file=str(day)))['on_exit'] == 'alert' and not caplog.records
+        written(tmp_path, {'course': {'corners': LATLON, 'on_exit': bad}})
+        assert load_fence(day)[0] is None and 'on_exit' in load_fence(day)[1]
+    written(tmp_path, {'course': {'corners': BOWTIE}})
+    assert 'simple' in load_fence(day)[1]
 
 
-def test_on_exit_is_alert_or_return():
-    dog = FenceWatchdog(MAP)
-    assert dog.set_on_exit('return') == '' and dog.cfg['on_exit'] == 'return'
-    assert 'neither' in dog.set_on_exit('drift') and dog.cfg['on_exit'] == 'return'
-    with pytest.raises(ValueError):
-        FenceWatchdog(dict(MAP, on_exit='drift'))
+def test_the_fence_file_is_read_again_when_it_changes(tmp_path):
+    day = tmp_path / 'fence.yaml'
+    watched = FenceFile(str(day))
+    assert watched.poll()[0] is None                 # the first poll reads: none there
+    assert watched.poll() is None                    # unchanged
+    written(tmp_path, MAP)
+    assert watched.poll() == (MAP, '') and watched.poll() is None
+    temp = tmp_path / 'fence.yaml.tmp'               # the TUI writes whole, then replaces
+    temp.write_text(yaml.safe_dump({'course': {'corners': LATLON, 'on_exit': 'return'}}))
+    temp.replace(day)
+    assert watched.poll() == (latlon(LATLON, 'return'), '')
+    written(tmp_path, 'points: [')
+    assert watched.poll()[0] is None
+    day.unlink()
+    assert watched.poll()[0] is None and watched.poll() is None
 
 
 def test_status_says_inside_and_the_distance_to_the_edge():
-    dog = FenceWatchdog(MAP)
+    dog = FenceWatchdog(CFG, MAP)
     assert dog.status(0.0) == {'inside': None, 'distance_to_edge': None, 'frame': 'map',
                                'on_exit': 'alert', 'corners': BOX, 'returning': False,
                                'paused': False}
@@ -335,7 +362,7 @@ def test_status_says_inside_and_the_distance_to_the_edge():
     at(dog, 0.5, 103.0, 25.0)
     assert (dog.status(0.5)['inside'], dog.status(0.5)['distance_to_edge']) == (False, 3.0)
     assert dog.status(5.0)['inside'] is None                        # stale
-    assert FenceWatchdog(dict(MAP, fence_points=[])).status(0.0)['corners'] is None
+    assert FenceWatchdog(CFG, None, 'no fence_file').status(0.0)['corners'] is None
     json.dumps(dog.status(0.5))
 
 
@@ -350,7 +377,7 @@ def leave(dog, now):
 
 def left(on_exit='return'):
     """Outside with the return goal out (past return_lead)."""
-    dog = FenceWatchdog(dict(RETURN, on_exit=on_exit))
+    dog = FenceWatchdog(CFG, dict(RETURN, on_exit=on_exit))
     leave(dog, 0.0)
     leave(dog, LEAD)
     dog.orders.clear()
@@ -362,7 +389,7 @@ def mux(dog, now, *causes, source='auto'):
 
 
 def test_return_pauses_the_runners_then_sends_one_slow_goal_inside():
-    dog = FenceWatchdog(RETURN)
+    dog = FenceWatchdog(CFG, RETURN)
     assert not leave(dog, 0.0)
     assert dog.orders == [] and dog.pause() == {
         'paused': True, 'cause': 'geofence', 'by': 'fence_watchdog',
@@ -465,7 +492,7 @@ def test_return_goal_aborted_or_replaced_holds():
 
 def test_return_stops_on_alert_or_stale_position():
     dog = left()
-    dog.set_on_exit('alert')
+    dog.set_fence(MAP)                               # the file says alert now
     assert leave(dog, 1.0) and dog.orders == [('cancel', 'on_exit is alert')]
     assert not dog.pause()['paused']                 # alert's hold pauses through the mux
     dog = left()
@@ -474,9 +501,9 @@ def test_return_stops_on_alert_or_stale_position():
 
 
 def test_return_goal_of_a_lat_lon_course_area_is_in_map():
-    cfg = dict(CFG, fence_frame='latlon', fence_points=LATLON, on_exit='return')
+    fence = latlon(LATLON, 'return')
     lat, lon = 42.0005, -70.9989                      # east of the east edge (-70.999)
-    dog = FenceWatchdog(cfg)
+    dog = FenceWatchdog(CFG, fence)
     dog.map_position(0.0, 7.0, -2.0)
     assert not at(dog, 0.0, lat, lon)
     dog.map_position(LEAD, 7.0, -2.0)
@@ -484,11 +511,11 @@ def test_return_goal_of_a_lat_lon_course_area_is_in_map():
     (order, (x, y, yaw)), = dog.orders
     east = project((lat, lon), lat, -70.999)[0] - CFG['return_inset']
     assert (x, y, yaw) == pytest.approx((7.0 + east, -2.0, math.pi), abs=0.01)
-    dog = FenceWatchdog(cfg)                          # no map pose: hold as alert
+    dog = FenceWatchdog(CFG, fence)                   # no map pose: hold as alert
     assert at(dog, 0.0, lat, lon) and dog.orders[0][0] == 'failed'
 
 
-def test_node_holds_outside_a_map_fence():
+def test_node_holds_outside_a_map_fence(tmp_path):
     rclpy = pytest.importorskip('rclpy')
     from geometry_msgs.msg import Twist
     from nav_msgs.msg import Odometry
@@ -503,8 +530,7 @@ def test_node_holds_outside_a_map_fence():
     rclpy.init()
     try:
         dog = node_class()(parameter_overrides=[
-            Parameter('fence_file', value=''), Parameter('fence_frame', value='map'),
-            Parameter('fence_points', value=BOX)])
+            Parameter('fence_file', value=str(written(tmp_path, MAP)))])
         probe = rclpy.create_node('fence_probe')
         got = []
         probe.create_subscription(String, CFG['request_topic'],
@@ -572,7 +598,7 @@ def test_node_holds_outside_a_map_fence():
         rclpy.try_shutdown()
 
 
-def test_node_anchor_service_moves_the_latched_marker():
+def test_node_anchor_service_moves_the_latched_marker(tmp_path):
     rclpy = pytest.importorskip('rclpy')
     from nav_msgs.msg import Odometry
     from rclpy.executors import SingleThreadedExecutor
@@ -586,8 +612,7 @@ def test_node_anchor_service_moves_the_latched_marker():
     rclpy.init()
     try:
         dog = node_class()(parameter_overrides=[
-            Parameter('fence_file', value=''), Parameter('fence_frame', value='map'),
-            Parameter('fence_points', value=BOX)])
+            Parameter('fence_file', value=str(written(tmp_path, MAP)))])
         probe = rclpy.create_node('fence_anchor_probe')
         latched = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL,
                              reliability=ReliabilityPolicy.RELIABLE)
@@ -631,7 +656,7 @@ def test_node_anchor_service_moves_the_latched_marker():
         rclpy.try_shutdown()
 
 
-def test_node_course_corners_on_exit_status_and_red_marker():
+def test_node_reloads_its_fence_file_live_status_and_red_marker(tmp_path):
     rclpy = pytest.importorskip('rclpy')
     from nav_msgs.msg import Odometry
     from rclpy.executors import SingleThreadedExecutor
@@ -645,9 +670,8 @@ def test_node_course_corners_on_exit_status_and_red_marker():
     from mhseals_nav.fence_watchdog import node_class
     rclpy.init()
     try:
-        dog = node_class()(parameter_overrides=[
-            Parameter('fence_file', value=''), Parameter('fence_frame', value='map'),
-            Parameter('fence_points', value=BOX)])
+        day = written(tmp_path, MAP)
+        dog = node_class()(parameter_overrides=[Parameter('fence_file', value=str(day))])
         probe = rclpy.create_node('fence_course_probe')
         latched = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL,
                              reliability=ReliabilityPolicy.RELIABLE)
@@ -670,15 +694,12 @@ def test_node_course_corners_on_exit_status_and_red_marker():
 
         spin(2.0, lambda: statuses)
         assert statuses[-1]['frame'] == 'map' and statuses[-1]['corners'] == BOX
-        refused = dog.set_parameters_atomically([Parameter('course.corners', value=BOWTIE),
-                                                 Parameter('on_exit', value='return')])
-        assert not refused.successful and 'simple' in refused.reason
-        assert dog.logic.frame == 'map' and dog.get_parameter('on_exit').value == 'alert'
-        done = dog.set_parameters_atomically([Parameter('course.corners', value=LATLON),
-                                              Parameter('on_exit', value='return')])
-        assert done.successful
-        assert list(dog.get_parameter('course.corners').value) == LATLON
-        spin(2.0, lambda: statuses[-1]['corners'] == LATLON)
+        written(tmp_path, {'course': {'corners': BOWTIE, 'on_exit': 'return'}})
+        spin(3.0, lambda: statuses[-1]['corners'] is None)
+        assert statuses[-1]['corners'] is None and dog.logic.reason(time.monotonic()) == \
+            'no valid fence configured'                # an invalid file holds
+        written(tmp_path, {'course': {'corners': LATLON, 'on_exit': 'return'}})
+        spin(3.0, lambda: statuses[-1]['corners'] == LATLON)
         assert statuses[-1]['frame'] == 'latlon' and statuses[-1]['on_exit'] == 'return'
 
         def feed():                     # east of the course area, no autonomy
@@ -693,11 +714,14 @@ def test_node_course_corners_on_exit_status_and_red_marker():
         assert statuses[-1]['inside'] is False and statuses[-1]['distance_to_edge'] > 30
         assert (markers[-1].color.r, markers[-1].color.g) == (1.0, 0.0)
         assert not statuses[-1]['returning']           # no autonomy: nothing to return
+        day.unlink()
+        spin(3.0, lambda: statuses[-1]['corners'] is None)
+        assert statuses[-1]['corners'] is None and dog.logic.poly is None
     finally:
         rclpy.try_shutdown()
 
 
-def test_node_return_sends_a_capped_goal_then_holds_when_it_ends_outside():
+def test_node_return_sends_a_capped_goal_then_holds_when_it_ends_outside(tmp_path):
     rclpy = pytest.importorskip('rclpy')
     from geometry_msgs.msg import Twist
     from nav2_msgs.action import NavigateToPose
@@ -713,8 +737,7 @@ def test_node_return_sends_a_capped_goal_then_holds_when_it_ends_outside():
     rclpy.init()
     try:
         dog = node_class()(parameter_overrides=[
-            Parameter('fence_file', value=''), Parameter('fence_frame', value='map'),
-            Parameter('fence_points', value=BOX), Parameter('on_exit', value='return')])
+            Parameter('fence_file', value=str(written(tmp_path, RETURN)))])
         probe = rclpy.create_node('fence_return_probe')
         goals, limits, holds, pauses = [], [], [], []
 
