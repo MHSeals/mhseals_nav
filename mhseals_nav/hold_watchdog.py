@@ -30,7 +30,10 @@ DDS would drop the dead node from the graph.
 """
 
 import json
+import os
+from pathlib import Path
 import secrets
+import tempfile
 import time
 
 STATUS_S = 0.5    # s between ~/status beats; a TUI calls a watchdog dead after 2 s without one
@@ -41,6 +44,50 @@ MUX_KEYS = ('mux_state_topic', 'mux_state_max_age')   # required in every watchd
 
 def fresh(at, now, limit):
     return at is not None and now - at <= limit
+
+
+def mux_state(state):
+    """Return a command_mux ~/state (its JSON) as (input, body); input None when unreadable."""
+    try:
+        body = json.loads(state)
+        source = body['input']
+    except (ValueError, TypeError, KeyError):
+        body, source = {}, None
+    return (source if isinstance(source, str) else None), body
+
+
+def mux_defaults():
+    """watchdogs.yaml's mux_state_topic and mux_state_max_age (its defaults), for other readers."""
+    from mhseals_nav.navigation_config import load_strict
+    from mhseals_nav.yaml_params import config_path, WATCHDOGS
+    path = config_path(WATCHDOGS)
+    defaults = load_strict(path.read_text(), path)['defaults']
+    return {key: defaults[key] for key in MUX_KEYS}
+
+
+def token(name):
+    """Return the watchdog ``name``'s hold token, kept as long as command_mux keeps its holds.
+
+    ``$XDG_RUNTIME_DIR/mhseals/watchdog_<name>_<ROS_DOMAIN_ID>.token`` (0600), beside
+    hold_store's file: a restarted watchdog still releases its own hold, a reboot clears both.
+    The first writer wins whole (linked in from a temp file), so two starts share one token.
+    """
+    base = os.environ.get('XDG_RUNTIME_DIR') or tempfile.gettempdir()
+    domain = os.environ.get('ROS_DOMAIN_ID') or '0'
+    path = Path(base) / 'mhseals' / f'watchdog_{name}_{domain}.token'
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not path.exists() or not path.read_text().strip():
+        fd, temp = tempfile.mkstemp(dir=path.parent)   # 0600
+        with os.fdopen(fd, 'w') as out:
+            out.write(secrets.token_hex(8))
+        try:
+            os.link(temp, path)
+        except FileExistsError:   # another start won, or an empty file: replace only that
+            if not path.read_text().strip():
+                os.replace(temp, path)
+        finally:
+            Path(temp).unlink(missing_ok=True)
+    return path.read_text().strip()
 
 
 class HoldGate:
@@ -74,12 +121,7 @@ class HoldGate:
 
     def mux(self, now, state):
         """Note a command_mux ~/state (its JSON); one that can't be read is unknown."""
-        try:
-            body = json.loads(state)
-            source = body['input']
-        except (ValueError, TypeError, KeyError):
-            body, source = {}, None
-        self.mux_input = source if isinstance(source, str) else None
+        self.mux_input, body = mux_state(state)
         self.mux_at = now
         try:
             self.mux_causes = {h['cause'] for h in body['holds']}
@@ -175,7 +217,7 @@ def node_class(name, logic, subscribe):
             if missing:
                 raise ValueError(f"watchdogs.yaml {name}: missing {', '.join(missing)}")
             self.logic = logic(cfg)
-            self.token = secrets.token_hex(8)
+            self.token = token(name)
             self.request = self.create_publisher(String, cfg['request_topic'], 10)
             self.create_subscription(Twist, cfg['command_topic'], self.on_command, 10)
             # Latched like the mux publishes it, so the state is known from the start.

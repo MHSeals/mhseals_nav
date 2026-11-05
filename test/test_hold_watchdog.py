@@ -38,6 +38,26 @@ def mux(dog, now, source):
     dog.mux(now, json.dumps({'input': source, 'holds': []}))
 
 
+def test_a_restarted_watchdog_reuses_its_token_so_it_can_release_its_own_hold(
+        tmp_path, monkeypatch):
+    """The token lives as long as command_mux's held holds: the runtime dir, per domain."""
+    import os
+    from mhseals_nav.hold_watchdog import token
+    monkeypatch.setenv('XDG_RUNTIME_DIR', str(tmp_path))
+    monkeypatch.setenv('ROS_DOMAIN_ID', '7')
+    first = token('link_watchdog')                  # the watchdog that placed the hold
+    assert token('link_watchdog') == first          # restarted: the same token releases it
+    assert token('fence_watchdog') != first
+    path = tmp_path / 'mhseals' / 'watchdog_link_watchdog_7.token'
+    assert path.read_text() == first and os.stat(path).st_mode & 0o777 == 0o600
+    assert sorted(p.suffix for p in path.parent.iterdir()) == ['.token', '.token']  # no temps
+    monkeypatch.setenv('ROS_DOMAIN_ID', '8')
+    assert token('link_watchdog') != first
+    path.write_text('')                             # a torn or emptied file gets a new token
+    monkeypatch.setenv('ROS_DOMAIN_ID', '7')
+    assert token('link_watchdog') not in ('', first)
+
+
 def test_every_config_names_the_mux_state():
     for name in ('approach_guard', 'costmap_watchdog', 'ekf_input_watchdog', 'fcu_watchdog',
                  'fence_watchdog', 'link_watchdog'):
