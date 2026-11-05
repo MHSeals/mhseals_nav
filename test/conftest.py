@@ -20,13 +20,16 @@ def pytest_configure(config):
 NO_ROS = importlib.util.find_spec('rclpy') is None
 MISSING = re.compile(r"No module named '([\w.]+)'|"
                      r"cannot import name '\w+' from '([\w.]+)' \(unknown location\)")
+# Only ROS (and its linters) may be missing: a dropped pip dependency still fails.
+ROS_MODULE = re.compile(r'rcl\w*|rosidl\w*|launch\w*|ament_\w+|\w+_(msgs|srvs|interfaces)|'
+                        r'tf2\w*|xacro|message_filters|cv_bridge|builtin_interfaces')
 
 
 def ros_missing(text):
-    """The module an ImportError lacks, on a host with no ROS, when it is not this package."""
+    """The ROS module an ImportError lacks, on a host with no ROS (None for any other)."""
     match = MISSING.search(text) if NO_ROS else None
     name = match and (match[1] or match[2]).split('.')[0]
-    return name if name and name != 'mhseals_nav' else None
+    return name if name and ROS_MODULE.fullmatch(name) else None
 
 
 @pytest.hookimpl(hookwrapper=True)
