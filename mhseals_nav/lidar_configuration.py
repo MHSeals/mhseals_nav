@@ -241,7 +241,7 @@ def resolve_lidar(selected='', deployment='', overrides=None, *, share=package_s
     """
     profile = profile_lidar() if profile is None else dict(profile)
     validate_present(profile)
-    paths = [Path(share('mhseals_nav')) / 'config/lidar.yaml']
+    paths = [layers.config_path('lidar.yaml')]
     paths += [path for path in (deployment, selected) if path != '']
     values, origins, sources = dict(profile), dict.fromkeys(profile, 'vessel profile'), []
     for path in paths:

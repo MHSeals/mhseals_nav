@@ -40,9 +40,9 @@ def pinned_profile(profile, address):
 
 
 def dds_env(context):
+    from mhseals_nav.layers import config_path   # tests exec this function alone
     profile = pinned_profile(
-        PathJoinSubstitution([FindPackageShare('mhseals_nav'), 'config',
-                              'camera_dds.xml']).perform(context),
+        str(config_path('camera_dds.xml')),
         os.environ.get('ASTRO_DDS_ADDRESS'))
     return [SetEnvironmentVariable('FASTRTPS_DEFAULT_PROFILES_FILE', profile),
             SetEnvironmentVariable('FASTDDS_DEFAULT_PROFILES_FILE', profile)]
@@ -84,7 +84,8 @@ def relay_nodes(context, settings):
 def camera_startup(context):
     settings = from_launch(context)
     environment = dds_env(context)
-    share = FindPackageShare('mhseals_nav')
+    from mhseals_nav.layers import package_path
+    share = str(package_path())
     wrapper = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(PathJoinSubstitution([
             FindPackageShare('zed_wrapper'), 'launch', 'zed_camera.launch.py'])),

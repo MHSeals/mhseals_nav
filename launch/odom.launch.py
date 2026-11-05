@@ -3,7 +3,6 @@ from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDesc
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
-from launch_ros.substitutions import FindPackageShare
 from launch.conditions import IfCondition
 
 import os
@@ -75,7 +74,8 @@ def create_mavros_setup_node(context):
     )]
 
 def generate_launch_description():
-    mhseals_nav_dir = FindPackageShare('mhseals_nav')
+    from mhseals_nav.layers import package_path   # tests exec this function alone
+    mhseals_nav_dir = str(package_path())
 
     launch_args = [
         ('sim', 'false', 'Run in simulation mode'),
@@ -130,7 +130,8 @@ def odometry_nodes(context):
     endpoint_from_launch(context)
     endpoint_boolean(LaunchConfiguration('sim').perform(context))
     endpoint_boolean(LaunchConfiguration('fcu').perform(context))
-    mhseals_nav_dir = FindPackageShare('mhseals_nav')
+    from mhseals_nav.layers import package_path   # tests exec this function alone
+    mhseals_nav_dir = str(package_path())
     launch_configurations = {name: LaunchConfiguration(name) for name in (
         'sim', 'fcu', 'start_ekf',
         'navsat_transform_config_file', 'ekf_local_config_file', 'ekf_global_config_file',

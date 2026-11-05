@@ -2,9 +2,8 @@
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
-from launch_ros.substitutions import FindPackageShare
 
 # backend -> (executable, its parameter file; None: it reads its section of a subsystem file)
 BACKENDS = {'zed': ('zed_backend', None), 'sim': ('sim_backend', 'sim_backend.yaml')}
@@ -15,7 +14,7 @@ SIM_FUSION = {'points_transport': 'direct', 'camera_axes': 'body',
 
 
 def nodes(context):
-    from mhseals_nav.layers import boolean
+    from mhseals_nav.layers import boolean, config_path
     from mhseals_nav.yaml_params import footprint, hull, params_file
     sim = boolean(LaunchConfiguration('sim').perform(context))
     backend = LaunchConfiguration('backend').perform(context)
@@ -24,7 +23,7 @@ def nodes(context):
     clock = {'use_sim_time': sim}
 
     def config(name):
-        return PathJoinSubstitution([FindPackageShare('mhseals_nav'), 'config', name])
+        return str(config_path(name))
 
     rectangle = hull()
     footprinted = {'footprint': footprint(rectangle), 'footprint_padding': rectangle['padding']}

@@ -7,7 +7,6 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction, TimerAction
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
-from launch_ros.substitutions import FindPackageShare
 
 from mhseals_nav.layers import boolean as endpoint_boolean
 from mhseals_nav.localization_configuration import compile_localization
@@ -50,7 +49,8 @@ def ekf_nodes(context):
 
 
 def generate_launch_description():
-    config = PathJoinSubstitution([FindPackageShare('mhseals_nav'), 'config'])
+    from mhseals_nav.layers import config_path   # tests exec this function alone
+    config = str(config_path())
     return LaunchDescription([
         *[DeclareLaunchArgument(name, default_value='')
           for name in (*LAYER_ARGUMENTS, *ALIASES) if name != 'ekf_delay'],

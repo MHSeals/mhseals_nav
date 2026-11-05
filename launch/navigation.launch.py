@@ -6,8 +6,9 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
-from launch_ros.substitutions import FindPackageShare
 import yaml
+
+from mhseals_nav.layers import package_path
 
 
 def navigation_nodes(context):
@@ -17,8 +18,7 @@ def navigation_nodes(context):
     parameters = compile_navigation(
         LaunchConfiguration('params_file').perform(context),
         LaunchConfiguration('limits_file').perform(context),
-        sim=LaunchConfiguration('sim').perform(context),
-        share=FindPackageShare('mhseals_nav').perform(context))
+        sim=LaunchConfiguration('sim').perform(context))
     handle = tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False)
     with handle:
         yaml.safe_dump(parameters, handle)
@@ -51,7 +51,7 @@ def navigation_nodes(context):
 
 
 def generate_launch_description():
-    share = FindPackageShare('mhseals_nav')
+    share = str(package_path())
     return LaunchDescription([
         DeclareLaunchArgument('params_file', default_value=PathJoinSubstitution(
             [share, 'config', 'nav2_params.yaml'])),
