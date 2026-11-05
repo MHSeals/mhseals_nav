@@ -1,7 +1,6 @@
 # PROPOSED FCU change set: fcu-cleanup (blastoise, CubeOrange+, ArduRover 4.6.3). NOT APPLIED.
 # Separate from odom-100hz.proposed.param, which does not depend on it. Agents never write FCU
 # parameters; the owner applies it with the discipline in .handoff/specs/fcu_changes.md.
-# WARNING: SERVO1-4_FUNCTION 0 breaks the thruster_allocation RC passthrough.
 #
 # Format: NAME,VALUE   # was OLD | why. Unlisted parameters stay as in the latest snapshot.
 

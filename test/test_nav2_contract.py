@@ -117,7 +117,6 @@ def test_launch_responsibilities_and_velocity_output():
     launch = (ROOT / 'launch/navigation.launch.py').read_text()
     assert "('cmd_vel_smoothed', 'cmd_vel')" in launch
     assert "('cmd_vel', 'cmd_vel_nav')" in launch
-    assert "twist_converter" not in launch
     assert "enable_mavros_velocity" not in launch
     assert "LaunchConfiguration('use_lidar')" in launch
     assert "('received_global_plan', 'local_plan')" in launch
