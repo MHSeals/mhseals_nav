@@ -82,19 +82,16 @@ def load_overlay(path, *, strict=False):
 
 
 def valid_numbers(controller, follow):
-    """True when the values derived() computes from are numbers and the frequency is positive."""
+    """Raise ValueError unless the values derived() computes from are numbers and the frequency is positive."""
     values = {'controller_frequency': controller.get('controller_frequency', 1)}
     for key in ('vx_max', 'time_steps', 'model_dt', 'vx_std', 'vy_std', 'wz_std', 'vy_max', 'wz_max'):
         if key in follow:
             values[key] = follow[key]
     for key, value in values.items():
         if isinstance(value, bool) or not isinstance(value, (int, float)):
-            log.error('Not deriving navigation limits: %s = %r is not a number', key, value)
-            return False
+            raise ValueError(f'{key} = {value!r}: not a number, the derived limits follow it')
     if values['controller_frequency'] <= 0:
-        log.error('Not deriving navigation limits: controller_frequency must be positive')
-        return False
-    return True
+        raise ValueError('controller_frequency must be positive, the derived limits follow it')
 
 
 def mppi_controller(controller, *, legacy=False):
@@ -129,7 +126,7 @@ def derived(config, original=None):
     The smoother passes what MPPI may command, the rotation shim and the behavior server turn no faster than it, MPPI
     advances one model_dt per control cycle, and the plan must reach the whole horizon. original is the
     current tuning whose prune_distance is a floor. Raises ValueError when a FollowPath limit those sections take is
-    missing.
+    missing or a value they follow is not a number.
     """
     result = deepcopy(config)
     controller = result.get('controller_server', {}).get('ros__parameters', {})
@@ -138,8 +135,7 @@ def derived(config, original=None):
         return result
     follow = controller[name]
     original = (original or config)['controller_server']['ros__parameters'][name]
-    if not valid_numbers(controller, follow):
-        return result
+    valid_numbers(controller, follow)
     if 'controller_frequency' in controller:
         follow['model_dt'] = round(1 / controller['controller_frequency'], 6)
     # Sampling noise above an axis limit would clip most samples.
