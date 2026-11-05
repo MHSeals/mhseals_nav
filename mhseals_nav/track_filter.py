@@ -511,10 +511,10 @@ class TrackFilter:
         forward = R[:, 2] if 'optical' in frame else R[:, 0]
         offset = np.asarray(xy) - p[:2]
         rho = float(np.hypot(*offset))
-        if rho > fov['range_m'] or rho < 1e-3 or not np.any(forward[:2]):
+        if rho > fov['range'] or rho < 1e-3 or not np.any(forward[:2]):
             return False
         bearing = wrap(math.atan2(offset[1], offset[0]) - math.atan2(forward[1], forward[0]))
-        return abs(bearing) <= math.radians(fov['hfov_deg']) / 2
+        return abs(bearing) <= fov['hfov'] / 2
 
     def _miss_in_fov(self, R, p, frame, live, matched, t):
         """Negative evidence: a STATIC track in view that nobody sees for a while is gone."""

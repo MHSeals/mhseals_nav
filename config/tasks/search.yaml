@@ -7,10 +7,6 @@ radius: 60.0          # m; half-side of the square around home when area is null
 cell: 1.5             # m; grid cell side
 forget_s: 120.0       # s; a seen cell is worth a fresh look again after this long
 
-# Camera fallback, used until /perception/status reports hfov_deg and range_m.
-hfov_deg: 110.0
-range_m: 20.0
-
 # When the target counts as found: live tracks of all (or any) labels at this confidence.
 need: all             # all | any
 min_confidence: 0.5

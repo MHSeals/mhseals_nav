@@ -1,8 +1,10 @@
 """sim_backend pure parts: injection geometry, schedules, truth ids, phantoms, ZED packet."""
 import math
 from pathlib import Path
+import re
 
 from mhseals_nav import sim_backend as sb
+from mhseals_nav.yaml_params import camera_fov
 import numpy as np
 import pytest
 import yaml
@@ -12,7 +14,8 @@ UNITY_AXES = np.array([[0.0, 1.0, 0.0], [-1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])  # x
 
 
 def cfg():
-    return yaml.safe_load(CONFIG.read_text())['/**']['ros__parameters']
+    """As the node reads it: the camera's FOV under sim_backend.yaml."""
+    return dict(yaml.safe_load(CONFIG.read_text())['/**']['ros__parameters'], fov=camera_fov())
 
 
 def obj(p, v=(0.0, 0.0, 0.0), label='red_buoy', truth_id=None):
@@ -81,8 +84,18 @@ def test_camera_and_world_lifts_round_trip():
     assert sb.to_camera(p_w, pose, UNITY_AXES, np.array([.5, 0, .3])) == pytest.approx(p)
 
 
+def test_the_camera_fov_is_stated_once():
+    """camera.yaml backend.fov (radians) is the FOV; no other config carries one."""
+    config = CONFIG.parent
+    assert camera_fov() == {'hfov': pytest.approx(math.radians(110.0)), 'range': 20.0}
+    for name in ('sim_backend.yaml', 'tracker.yaml', 'tasks/search.yaml'):
+        assert not re.search(r'\b(hfov_deg|range_m)\b', (config / name).read_text()), name
+    raw = yaml.safe_load(CONFIG.read_text())['/**']['ros__parameters']
+    assert 'fov' not in raw
+
+
 def test_fov_follows_base_forward_and_range():
-    fov = {'hfov_deg': 110.0, 'range_m': 20.0}
+    fov = {'hfov': math.radians(110.0), 'range': 20.0}
     assert sb.in_fov(np.array([0.0, 10.0, 0.0]), UNITY_AXES, fov)
     assert not sb.in_fov(np.array([0.0, -10.0, 0.0]), UNITY_AXES, fov)   # behind
     assert not sb.in_fov(np.array([10.0, 5.0, 0.0]), UNITY_AXES, fov)    # 63 deg off axis
@@ -142,7 +155,7 @@ def test_scene_adds_truth_ids_and_only_phantoms_in_view():
 
 
 def test_zed_packet_carries_ids_tracking_ok_and_a_box_around_the_centre():
-    K = sb.pinhole((1280, 720), 110.0)
+    K = sb.pinhole((1280, 720), math.radians(110.0))
     packet = sb.zed_packet(1_500_000_000, 'front_camera_link',
                            [obj([0.5, 6.0, 0.0], truth_id=3), obj([0.0, 6.0, 0.0])], UNITY_AXES, K,
                            (1280, 720))
@@ -160,7 +173,7 @@ def test_zed_mode_runs_the_boat_conversion():
     pytest.importorskip('rclpy')
     from mhseals_nav.msg import Observation
     objects = [obj([0.5, 6.0, 0.1], v=[0.2, 0.0, 0.0], truth_id=3), obj([0.0, 9.0, 0.0])]
-    K = sb.pinhole((1280, 720), 110.0)
+    K = sb.pinhole((1280, 720), math.radians(110.0))
     zed = sb.observations(objects, 2_000_000_000, 'cam', 'zed', UNITY_AXES, K, (1280, 720))
     plain = sb.observations(objects, 2_000_000_000, 'cam', 'plain', UNITY_AXES, K, (1280, 720))
     assert zed.backend == plain.backend == 'sim'
@@ -189,7 +202,7 @@ def noise(**kw):
 
 
 def test_noisy_merges_near_same_label_boxes_into_the_union_keeping_the_nearer_id():
-    K = sb.pinhole((1280, 720), 110.0)
+    K = sb.pinhole((1280, 720), math.radians(110.0))
     near, far = obj([-0.35, 8.0, 0.0], truth_id=1), obj([0.35, 8.3, 0.0], truth_id=2)
     other = obj([2.0, 8.0, 0.0], label='green_buoy', truth_id=3)
     out = sb.noisy([near, far, other], UNITY_AXES, K, noise(merge_gap_px=20.0), {},
@@ -207,7 +220,7 @@ def test_noisy_merges_near_same_label_boxes_into_the_union_keeping_the_nearer_id
 
 
 def test_depth_error_is_along_the_ray_correlated_per_id_and_leaves_the_box_on_truth():
-    K = sb.pinhole((1280, 720), 110.0)
+    K = sb.pinhole((1280, 720), math.radians(110.0))
     o = obj([1.0, 10.0, 0.0], truth_id=4)
     state, rng, errs = {}, np.random.default_rng(1), []
     for k in range(400):
@@ -223,7 +236,7 @@ def test_depth_error_is_along_the_ray_correlated_per_id_and_leaves_the_box_on_tr
 
 
 def test_box_jitter_moves_each_edge_independently():
-    K = sb.pinhole((1280, 720), 110.0)
+    K = sb.pinhole((1280, 720), math.radians(110.0))
     o = obj([0.0, 6.0, 0.0])
     rng = np.random.default_rng(2)
     truth = sb.pixel_box(o, UNITY_AXES, K)
