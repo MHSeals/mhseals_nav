@@ -1,13 +1,13 @@
 """Startup endpoint selection; discovery observations never prove connectivity."""
 from dataclasses import dataclass
-from hashlib import sha256
 from ipaddress import IPv4Address
 from pathlib import Path
 import re
 from types import MappingProxyType
 
 
-from .navigation_config import load_strict
+from . import layers
+from .navigation_config import deep_merge
 
 CONTEXTS = ('standalone', 'full_robot', 'tui')
 LAYER_ARGUMENTS = ('endpoint_deployment_file', 'endpoint_startup_file')
@@ -169,12 +169,15 @@ def validate_layer(layer):
                         validate_url(item, gcs=True)
 
 
-def merge(target, layer):
-    for key, value in layer.items():
-        if isinstance(value, dict):
-            merge(target.setdefault(key, {}), value)
-        else:
-            target[key] = value
+def validate_package(layer, label):
+    """Validate a layer; the package one must state every field."""
+    validate_layer(layer)
+    if label == 'package' and not (
+            set(layer) == {'fcu_url', 'simulation_fcu_url', 'serial_fallback', 'unity', 'contexts'}
+            and set(layer['unity']) == {'ip', 'port'} and set(layer['contexts']) == set(CONTEXTS)
+            and all(set(item) == {'discovery', 'baud', 'gcs_url'}
+                    for item in layer['contexts'].values())):
+        raise ValueError('complete package endpoint authority required')
 
 
 def resolve_endpoints(package_file=None, deployment_file='', operator_file='', aliases=None,
@@ -188,27 +191,8 @@ def resolve_endpoints(package_file=None, deployment_file='', operator_file='', a
                         'config/endpoint_startup.yaml')
     if not package_file:
         raise ValueError('package endpoint authority must select a file')
-    values, inputs = {}, []
-    for label, selected in (('package', package_file), ('deployment', deployment_file),
-                            ('operator', operator_file)):
-        if not selected:
-            continue
-        path = Path(selected).expanduser().resolve(strict=True)
-        raw = path.read_bytes()
-        layer = load_strict(raw, path)
-        validate_layer(layer)
-        merge(values, layer)
-        if label == 'package':
-            complete = (set(values) == {'fcu_url', 'simulation_fcu_url', 'serial_fallback',
-                                        'unity', 'contexts'} and
-                        set(values['unity']) == {'ip', 'port'} and
-                        set(values['contexts']) == set(CONTEXTS) and
-                        all(set(item) == {'discovery', 'baud', 'gcs_url'}
-                            for item in values['contexts'].values()))
-            if not complete:
-                raise ValueError('complete package endpoint authority required')
-        inputs.append(freeze({
-            'path': str(path), 'sha256': sha256(raw).hexdigest(), 'layer': label}))
+    values, inputs = layers.resolve(package_file, deployment_file, operator_file,
+                                    validate=validate_package)
     explicit = {}
     for name, value in (aliases or {}).items():
         if name not in ALIASES:
@@ -229,7 +213,7 @@ def resolve_endpoints(package_file=None, deployment_file='', operator_file='', a
         else:
             layer = {'fcu_url': value}
         validate_layer(layer)
-        merge(values, layer)
+        deep_merge(values, layer)
         explicit[name] = value
     validate_layer(values)
     return EndpointConfiguration(freeze(values), tuple(inputs), freeze(explicit), context)
