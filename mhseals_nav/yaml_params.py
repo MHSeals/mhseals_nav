@@ -9,8 +9,6 @@ with a warning.
 import math
 from pathlib import Path
 
-import yaml
-
 from mhseals_nav.layers import config_path, deep_merge, load_strict, nested
 
 WATCHDOGS = 'watchdogs.yaml'

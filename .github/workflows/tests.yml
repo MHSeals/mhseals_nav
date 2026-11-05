@@ -12,7 +12,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: pip install pytest PyYAML numpy py_trees
+      - run: pip install pytest PyYAML numpy py_trees flake8
+      # pyflakes only (unused imports and names, undefined names): runs without ROS, no style churn.
+      - run: flake8 --select=F mhseals_nav launch test
       - run: ./smoke.sh
       # Every ROS-free test, not only the smoke list; a test needing ROS skips (test/conftest.py).
       - run: python3 -m pytest -q -p no:cacheprovider -m 'not linter' -k 'not test_node' test/

@@ -8,7 +8,7 @@ from mhseals_nav.camera_configuration import resolve_camera
 import pytest
 from launch import LaunchContext
 from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription, \
-    OpaqueFunction, SetEnvironmentVariable
+    OpaqueFunction
 from launch.utilities import normalize_to_list_of_substitutions, perform_substitutions
 
 ROOT = Path(__file__).parents[1]
