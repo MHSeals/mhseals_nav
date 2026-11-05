@@ -43,6 +43,7 @@ class FenceWatchdog(HoldGate):
         super().__init__(cfg)
         self.frame, self.points, self.on_exit, self.poly, self.ref, self.error = \
             None, None, 'alert', None, None, why
+        self.source = None                  # the file's own points; self.points may be anchored
         self.p, self.p_at, self.raw = None, None, None
         self.fix_ll, self.fix_at = None, None
         self.map_p, self.map_at = None, None
@@ -80,15 +81,19 @@ class FenceWatchdog(HoldGate):
 
         A return aimed at another polygon is called off, to be planned again on this one.
         """
-        old = (self.frame, self.points)
+        old = (self.frame, self.source)
         if fence is None:
-            self.frame, self.points, self.poly, self.ref, self.error = None, None, None, None, why
+            self.frame, self.source, self.points, self.poly, self.ref = None, None, None, None, None
+            self.on_exit, self.error = 'alert', why
         else:
-            self.frame, self.points, self.on_exit = fence['frame'], fence['points'], \
-                fence['on_exit']
-            self.poly, self.error = polygon(self.frame, self.points), ''
+            self.on_exit, self.error = fence['on_exit'], ''
+            if (fence['frame'], fence['points']) == old:
+                return                      # same shape (an on_exit edit): keep any anchoring
+            self.frame, self.source = fence['frame'], fence['points']
+            self.points = list(self.source)
+            self.poly = polygon(self.frame, self.points)
             self.ref = reference(self.frame, self.points) if self.poly else None
-        if (self.frame, self.points) == old:
+        if (self.frame, self.source) == old:
             return
         self.p, self.p_at, self.raw = None, None, None
         if self.frame == 'latlon' and self.fix_ll is not None:   # placed by what it had
