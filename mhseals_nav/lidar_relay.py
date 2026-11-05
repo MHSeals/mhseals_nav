@@ -14,7 +14,7 @@ import os
 import signal
 import sys
 
-from ament_index_python.packages import get_package_share_directory
+from mhseals_nav.layers import config_path
 
 
 def finite(message):
@@ -241,7 +241,7 @@ def main():
     parser.add_argument("--max-bytes", type=int, default=32 * 1024,
                         help="cloud payload cap for the default transport")
     args, _ = parser.parse_known_args()
-    profile = os.path.join(get_package_share_directory("mhseals_nav"), "config", "fastdds_large_data.xml")
+    profile = str(config_path("fastdds_large_data.xml"))
 
     # Spawned children start without this process's DDS state, so each one
     # applies its own transport before rclpy creates a participant.

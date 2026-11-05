@@ -52,13 +52,9 @@ def test_invalid_alias(value):
         resolve_camera(BASE, preview_rate=value)
 
 
-def test_installed_share_selection_from_unrelated_cwd(tmp_path, monkeypatch):
-    share = tmp_path / 'share/mhseals_nav'
-    (share / 'config').mkdir(parents=True)
+def test_installed_share_selection_from_unrelated_cwd(tmp_path, monkeypatch, installed):
+    share = installed
     (share / 'config/camera.yaml').write_bytes(BASE.read_bytes())
-    packages = ModuleType('ament_index_python.packages')
-    packages.get_package_share_directory = lambda name: str(share)
-    monkeypatch.setitem(sys.modules, 'ament_index_python.packages', packages)
     monkeypatch.chdir(tmp_path)
     assert resolve_camera().inputs[0]['path'] == str(share / 'config/camera.yaml')
     with pytest.raises(FileNotFoundError):
@@ -67,9 +63,6 @@ def test_installed_share_selection_from_unrelated_cwd(tmp_path, monkeypatch):
 
 def test_actual_launch_adapter_uses_selected_files_and_alias(tmp_path, monkeypatch):
     from mhseals_nav.camera_configuration import from_launch
-    package = ModuleType('ament_index_python.packages')
-    package.get_package_share_directory = lambda name: str(ROOT)
-    monkeypatch.setitem(sys.modules, 'ament_index_python.packages', package)
     substitutions = ModuleType('launch.substitutions')
 
     class Configuration:

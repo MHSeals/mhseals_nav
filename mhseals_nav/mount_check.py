@@ -25,13 +25,13 @@ import math
 from pathlib import Path
 import sys
 
-from mhseals_nav.layers import load_strict
-from mhseals_nav.robot_geometry import description_dir, matrix_rpy, quat_matrix, RobotGeometry
+from mhseals_nav.layers import config_path, load_strict
+from mhseals_nav.robot_geometry import matrix_rpy, quat_matrix, RobotGeometry
 import numpy as np
 
 OK, WARN, ERROR, UNOBSERVABLE = 'OK', 'WARN', 'ERROR', 'UNOBSERVABLE'
 EXIT_UNOBSERVABLE = 3
-CONFIG = description_dir().parent / 'config' / 'mount_check.yaml'
+CONFIG = config_path('mount_check.yaml')
 TOPIC, POS, NUM, INT, PAIR = 'topic', 'pos', 'num', 'int', 'pair'
 SCHEMA = {
     'topics': {key: (TOPIC,) for key in ('points', 'imu', 'image', 'camera_info', 'tf_static')},

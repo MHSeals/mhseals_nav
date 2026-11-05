@@ -65,20 +65,12 @@ def test_no_fallback(path):
         resolve_setup(path)
 
 
-def test_installed_default_loader_is_actual_main_seam(tmp_path, monkeypatch):
+def test_installed_default_loader_is_actual_main_seam(installed):
     """Installed default loader is actual main seam."""
     import ast
-    import sys
-    from types import ModuleType
     from mhseals_nav.mavros_configuration import installed_setup_defaults
 
-    package = ModuleType('ament_index_python')
-    packages = ModuleType('ament_index_python.packages')
-    packages.get_package_share_directory = lambda name: str(tmp_path)
-    monkeypatch.setitem(sys.modules, 'ament_index_python', package)
-    monkeypatch.setitem(sys.modules, 'ament_index_python.packages', packages)
-    (tmp_path / 'config').mkdir()
-    path = tmp_path / 'config/mavros_setup.yaml'
+    path = installed / 'config/mavros_setup.yaml'
     data = yaml.safe_load((Path(__file__).parents[1] / 'config/mavros_setup.yaml').read_text())
     data['mavros_setup']['ros__parameters']['message_rates'] = ['31:17']
     path.write_text(yaml.safe_dump(data))

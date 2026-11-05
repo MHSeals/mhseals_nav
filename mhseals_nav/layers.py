@@ -11,6 +11,26 @@ from types import MappingProxyType
 
 import yaml
 
+SOURCE = Path(__file__).resolve().parents[1]   # the source tree, when this module runs from one
+
+
+def package_path(*parts):
+    """This package's shipped file: the source tree when this module runs from it, else the share.
+
+    The package's one lookup of its own files. A source checkout (or a symlink install) has
+    package.xml beside this module's package; a plain install puts the module in site-packages,
+    so the installed share answers.
+    """
+    if (SOURCE / 'package.xml').exists():
+        return SOURCE.joinpath(*parts)
+    from ament_index_python.packages import get_package_share_directory
+    return Path(get_package_share_directory('mhseals_nav')).joinpath(*parts)
+
+
+def config_path(*parts):
+    """config/<parts> of this package (see ``package_path``)."""
+    return package_path('config', *parts)
+
 
 def deep_merge(dst, src):
     """Recursively copy src onto dst in place; lists, scalars and a mapping over a non-mapping replace."""

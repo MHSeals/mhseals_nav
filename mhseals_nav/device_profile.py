@@ -11,7 +11,7 @@ import json
 import os
 from pathlib import Path
 
-from .layers import deep_merge, load_strict
+from .layers import deep_merge, load_strict, package_path
 
 KEYS = {'extends', 'requires', 'args', 'parts'}
 OVERLAY_KEYS = KEYS - {'extends'}
@@ -23,12 +23,8 @@ OTHER_PACKAGE_RUNS = {('mhseals_testing', 'rtk_base')}   # operator tooling with
 
 
 def share():
-    """Return the installed share directory, else the source tree."""
-    try:
-        from ament_index_python.packages import get_package_share_directory
-        return Path(get_package_share_directory('mhseals_nav'))
-    except (ImportError, LookupError):
-        return Path(__file__).resolve().parents[1]
+    """Return this package's directory (layers.package_path: the source tree, else the share)."""
+    return package_path()
 
 
 def available():

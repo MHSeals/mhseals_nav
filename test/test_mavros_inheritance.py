@@ -44,12 +44,12 @@ def test_invalid_selected_field_cannot_be_masked(tmp_path, bad):
 
 
 @pytest.mark.parametrize('change', ['invalid', 'incomplete', 'missing'])
-def test_bad_installed_baseline_cannot_be_masked(tmp_path, monkeypatch, change):
+def test_bad_installed_baseline_cannot_be_masked(tmp_path, installed, change):
     """Even a complete valid selected file cannot repair a broken baseline."""
-    from ament_index_python import packages
+    baseline = installed / 'config' / 'mavros_setup.yaml'
+    baseline.write_bytes((ROOT / 'config/mavros_setup.yaml').read_bytes())
     selected = layer(tmp_path, installed_setup_defaults())
-    baseline = tmp_path / 'installed' / 'config' / 'mavros_setup.yaml'
-    baseline.parent.mkdir(parents=True)
+    baseline.unlink()
     data = yaml.safe_load((ROOT / 'config/mavros_setup.yaml').read_text())
     params = data['mavros_setup']['ros__parameters']
     if change == 'invalid':
@@ -58,8 +58,6 @@ def test_bad_installed_baseline_cannot_be_masked(tmp_path, monkeypatch, change):
         del params['retry_attempts']
     if change != 'missing':
         baseline.write_text(yaml.safe_dump(data))
-    monkeypatch.setattr(packages, 'get_package_share_directory',
-                        lambda name: str(baseline.parents[1]))
     with pytest.raises((ValueError, OSError)):
         resolve_setup(selected)
 

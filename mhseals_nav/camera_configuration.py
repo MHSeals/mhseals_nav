@@ -7,7 +7,6 @@ one release, with a warning.
 from dataclasses import dataclass
 import logging
 import math
-from pathlib import Path
 
 from . import layers
 
@@ -48,9 +47,7 @@ def preview(data, label):
 def resolve_camera(package_file=None, deployment_file='', operator_file='', preview_rate=''):
     """Resolve package < explicit deployment < operator < nonempty launch alias."""
     if package_file is None:
-        from ament_index_python.packages import get_package_share_directory
-        package_file = (Path(get_package_share_directory('mhseals_nav')) /
-                        'config/camera.yaml')
+        package_file = layers.config_path('camera.yaml')
     if not package_file:
         raise ValueError('camera package authority must select a file')
     values, inputs = layers.resolve(package_file, deployment_file, operator_file, validate=preview)

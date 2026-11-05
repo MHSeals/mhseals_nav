@@ -19,13 +19,9 @@ large_data_env = {'FASTRTPS_DEFAULT_PROFILES_FILE': LARGE_DATA_PROFILE,
 def lidar_smear_enabled():
     """Read the sim lidar smear switch, config/lidar.yaml tune.smear (default off)."""
     # Imported here: tests exec this file's functions without its module-level imports.
-    import os
-
-    from ament_index_python.packages import get_package_share_directory
-    import yaml
-    path = os.path.join(get_package_share_directory('mhseals_nav'), 'config', 'lidar.yaml')
-    with open(path) as f:
-        return bool(yaml.safe_load(f)['tune']['smear'])
+    from mhseals_nav.layers import config_path, load_strict
+    path = config_path('lidar.yaml')
+    return bool(load_strict(path.read_text(), path)['tune']['smear'])
 
 
 def nearby_node(sim):

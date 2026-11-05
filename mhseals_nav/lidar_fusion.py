@@ -876,11 +876,9 @@ except ImportError:  # host pytest exercises only the pure functions
 
 
 def load_yaml(name):
-    from pathlib import Path
-    import yaml
-    from ament_index_python.packages import get_package_share_directory
-    path = Path(get_package_share_directory('mhseals_nav')) / 'config' / name
-    return yaml.safe_load(path.read_text())['/**']['ros__parameters']
+    from mhseals_nav.layers import config_path, load_strict
+    path = config_path(name)
+    return load_strict(path.read_text(), path)['/**']['ros__parameters']
 
 
 class LidarFusion(Node):
@@ -947,12 +945,11 @@ class LidarFusion(Node):
         import multiprocessing
         import os
         import threading
-        from ament_index_python.packages import get_package_share_directory
         from rclpy.serialization import deserialize_message
         from sensor_msgs.msg import PointCloud2
         from mhseals_nav import lidar_relay
-        profile = os.path.join(get_package_share_directory('mhseals_nav'), 'config',
-                               'fastdds_large_data.xml')
+        from mhseals_nav.layers import config_path
+        profile = str(config_path('fastdds_large_data.xml'))
         context = multiprocessing.get_context('spawn')
         reader, writer = context.Pipe(duplex=False)
         self.child = context.Process(target=lidar_relay.receive, daemon=True,

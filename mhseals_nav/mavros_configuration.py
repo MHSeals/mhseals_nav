@@ -5,7 +5,6 @@ MAVROS MessageInterval uses Hz: zero restores the FCU default and -1 disables.
 No request result or observed delivery is inferred by this resolver.
 """
 import math
-from pathlib import Path
 import re
 from types import MappingProxyType
 
@@ -128,8 +127,7 @@ def resolve_setup(path, overrides=None):
 
 
 def package_setup():
-    from ament_index_python.packages import get_package_share_directory
-    return Path(get_package_share_directory('mhseals_nav')) / 'config' / 'mavros_setup.yaml'
+    return layers.config_path('mavros_setup.yaml')
 
 
 def installed_setup_defaults():

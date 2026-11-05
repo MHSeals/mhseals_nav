@@ -32,6 +32,7 @@ from geometry_msgs.msg import Point, PoseStamped, Twist, Vector3Stamped
 from mavros_msgs.msg import GPSRAW
 from mhseals_nav import robot_geometry
 from mhseals_nav.hold_watchdog import mux_defaults, mux_state, OUTRANK_AUTO
+from mhseals_nav.layers import package_path
 from mhseals_nav.msg import TrackArray
 from mhseals_nav.tasks import load_config, tracks
 from mhseals_nav.tasks.conditions import speed as conditions_speed
@@ -137,7 +138,6 @@ class Navigator:
     def __init__(self, node, frame='map', hold_topic='/cmd_vel_nav', backup_wait_s=0.0,
                  speed_limit_topic='/speed_limit', controller='controller_server',
                  vx_max_param='FollowPath.vx_max'):
-        from ament_index_python.packages import get_package_share_directory
         self.node, self.frame, self.report, self.last = node, frame, None, None
         self.backup_wait_s, self.backup_since = backup_wait_s, None
         self.goals, self.closed = [], False
@@ -151,8 +151,7 @@ class Navigator:
         self.through = ActionClient(node, NavigateThroughPoses, 'navigate_through_poses')
         self.backup = ActionClient(node, BackUp, 'backup')  # behavior_server's backup plugin
         # Docking ends on the tight goal checker (behavior_trees/nav_precise.xml).
-        self.precise_tree = (f"{get_package_share_directory('mhseals_nav')}"
-                             '/behavior_trees/nav_precise.xml')
+        self.precise_tree = str(package_path('behavior_trees', 'nav_precise.xml'))
 
     def pose(self, x, y, yaw):
         pose = PoseStamped()

@@ -15,22 +15,14 @@ import xml.etree.ElementTree as ET
 
 import numpy as np
 
-SOURCE_DESCRIPTION = Path(__file__).resolve().parents[1] / 'description'
+from mhseals_nav.layers import package_path
+
 XACRO = '{http://www.ros.org/wiki/xacro}'
 
 
 def description_dir():
-    """Return the installed package's share/mhseals_nav/description, else the source tree's.
-
-    A plain install puts this module in site-packages, so ``__file__`` finds the description
-    only for a symlink install or a source checkout (the tests).
-    """
-    try:
-        from ament_index_python.packages import get_package_share_directory
-        share = Path(get_package_share_directory('mhseals_nav')) / 'description'
-    except Exception:       # ament missing or the package not installed
-        return SOURCE_DESCRIPTION
-    return share if share.is_dir() else SOURCE_DESCRIPTION
+    """Return this package's description/ (layers.package_path: the source tree, else the share)."""
+    return package_path('description')
 
 
 def description_path(robot='blastoise'):
