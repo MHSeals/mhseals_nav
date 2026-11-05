@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from mhseals_nav.mission_check import load_gates, read_cmds, split_goals, goal_stats, violations
+from mission_check import load_gates, read_cmds, split_goals, goal_stats, violations
 
-GATES = Path(__file__).resolve().parents[1] / 'config/mission_gates.yaml'
+GATES = Path(__file__).with_name('mission_gates.yaml')
 
 
 def _goal(start, seconds, rotate_s=0.0, reverse_s=0.0):
