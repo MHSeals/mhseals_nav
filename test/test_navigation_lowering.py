@@ -140,7 +140,7 @@ def test_missing_params_file_names_the_path(tmp_path):
 def test_both_costmaps_get_the_hull_footprint_with_its_padding():
     """config/hull.yaml is the one hull: the compile writes it into both Nav2 costmaps."""
     root = Path(__file__).resolve().parents[1]
-    hull = yaml.safe_load((root / 'config/hull.yaml').read_text())['/**']['ros__parameters']
+    hull = yaml.safe_load((root / 'config/hull.yaml').read_text())
     x, y = hull['half_length'], hull['half_width']
     nav = compile_navigation(root / 'config/nav2_params.yaml', '', sim='true')
     for name in ('local_costmap', 'global_costmap'):
@@ -149,6 +149,16 @@ def test_both_costmaps_get_the_hull_footprint_with_its_padding():
         assert params['footprint_padding'] == hull['padding']
     raw = yaml.safe_load((root / 'config/nav2_params.yaml').read_text())
     assert 'footprint' not in raw['local_costmap']['local_costmap']['ros__parameters']
+
+
+def test_an_operator_limits_footprint_is_refused(tmp_path):
+    """The footprint is hull.yaml's alone: an overlay naming one fails, never silently replaced."""
+    root = Path(__file__).resolve().parents[1]
+    limits = tmp_path / 'limits.yaml'
+    limits.write_text(yaml.safe_dump({'local_costmap': {'local_costmap': {'ros__parameters': {
+        'footprint': '[[1.0, 1.0], [1.0, -1.0], [-1.0, -1.0], [-1.0, 1.0]]'}}}}))
+    with pytest.raises(ValueError, match='footprint: unknown parameter'):
+        compile_navigation(root / 'config/nav2_params.yaml', limits, sim='true')
 
 
 def test_effective_limits_are_what_the_launch_resolves(tmp_path):
@@ -176,7 +186,7 @@ def test_effective_limits_are_what_the_launch_resolves(tmp_path):
                                          'precise_goal_checker': {'xy': 0.3, 'yaw': 0.25}}
     assert resolved['progress'] == {'radius': 0.1, 'time': 20.0}
     assert resolved['passed_goal_radius'] == 1.0
-    hull = yaml.safe_load((root / 'config/hull.yaml').read_text())['/**']['ros__parameters']
+    hull = yaml.safe_load((root / 'config/hull.yaml').read_text())
     assert {(abs(x), abs(y)) for x, y in resolved['footprint']} == {
         (hull['half_length'], hull['half_width'])}
     camera = yaml.safe_load((root / 'config/camera.yaml').read_text())['backend']['fov']

@@ -487,3 +487,20 @@ def test_close_confirmed_boats_of_one_class_never_merge():
     first.co_seen.clear()
     g._merge(t + 60.0)
     assert g.merged == 1
+
+
+def test_a_filter_from_raw_tracker_yaml_takes_the_camera_fov():
+    """tracker.yaml has no fov: TrackFilter reads camera.yaml's (replay builds it this way)."""
+    from pathlib import Path
+
+    import yaml
+
+    from mhseals_nav.yaml_params import camera_fov
+    raw = yaml.safe_load((Path(__file__).parents[1] / 'config/tracker.yaml').read_text())
+    f = TrackFilter(raw['/**']['ros__parameters'])
+    fov, R, p = camera_fov(), np.eye(3), np.zeros(3)
+    assert f.cfg['fov'] == fov
+    assert f.in_fov(R, p, 'base_link', (fov['range'] - 0.1, 0.0))
+    assert not f.in_fov(R, p, 'base_link', (fov['range'] + 0.1, 0.0))
+    side = fov['hfov'] / 2 + 0.05
+    assert not f.in_fov(R, p, 'base_link', (math.cos(side), math.sin(side)))

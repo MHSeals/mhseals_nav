@@ -1,10 +1,8 @@
 # The hull rectangle about base_link, stated once (yaml_params.hull). nearby, nearest_obstacle
 # and approach_guard take it as their defaults; startup_projection writes it into both Nav2
 # costmaps' footprint and objects.launch.py into the perception costmap's, each with padding.
-/**:
-  ros__parameters:
-    half_length: 0.5315
-    half_width: 0.4475
-    # Nav2 footprint_padding: buoy range noise the tracker discs (max_extra_m 0.1) do not
-    # cover; ZED depth error is about 0.25 m at 5 m, so 0.05 would leave ~1 sigma.
-    padding: 0.1
+half_length: 0.5315
+half_width: 0.4475
+# Nav2 footprint_padding: buoy range noise the tracker discs (max_extra_m 0.1) do not
+# cover; ZED depth error is about 0.25 m at 5 m, so 0.05 would leave ~1 sigma.
+padding: 0.1
