@@ -34,7 +34,6 @@ While a task runs, the runner sends zero velocity to `/cmd_vel_nav` whenever Nav
 | Parameter | Launch files | Default / purpose |
 | --- | --- | --- |
 | `sim` | `robot`, `sensors`, `odom`, `navigation`, `slam`, `objects` | `true`; simulation time requires `/clock`. In `objects`, also selects simulated detections rather than ZED input |
-| `use_lidar` | `robot`, `navigation` | `true`; require `/points` for obstacle avoidance. `false` disables both obstacle layers for supervised testing; cameras do not replace them |
 | `sensors_ignore` | `robot`, `sensors` | Empty; comma-separated local drivers to skip, e.g. `lidar`. Does not disable Nav2 obstacle layers |
 | `enable_slam` | `robot` | `false`; include `slam.launch.py` for lidar-cloud RTABMap mapping from `/points`. It leaves TF ownership with the EKFs and does not change Nav2 localization |
 | `fcu` | `robot`, `odom` | `true`; start MAVROS and its relays. `false` when a simulator (crane_ml `--crane-roboboat-contract`) publishes `/odom/mavros`, `/imu/raw` and `/gps/fix` itself, so simulation needs no ArduPilot |
@@ -43,7 +42,7 @@ While a task runs, the runner sends zero velocity to `/cmd_vel_nav` whenever Nav
 | `camera_model`, `slam` | `camera` | `zed2i`, `false`; `slam:=true` also relays raw RGB and depth |
 | `backend` | `objects` | `sim`; `zed` reads `config/camera.yaml` (`backend:`), `sim` reads `config/sim_backend.yaml` |
 
-Other arguments and defaults are listed by `--show-args`. Keeping `use_lidar:=true` while skipping the local driver lets another host or simulator supply `/points`; stale data never triggers a fallback.
+Other arguments and defaults are listed by `--show-args`. Lidar reaches Nav2 only inside `/perception/costmap`; a no-lidar run is a perception-side choice (`perception_costmap.yaml` lidar_layer), not a Nav2 argument.
 
 ### Architecture
 
@@ -63,7 +62,7 @@ Other arguments and defaults are listed by `--show-args`. Keeping `use_lidar:=tr
 | Consumer | Required topics |
 | --- | --- |
 | Localization | `/odom/mavros` (`Odometry`, body velocity), `/imu/raw` (`Imu`, FCU-fused MAVROS `/imu/data`), `/gps/fix` |
-| Navigation | `/odom/local`, `/points` (when `use_lidar:=true`), action goals in `map` |
+| Navigation | `/odom/local`, `/perception/costmap`, action goals in `map` |
 | Object tracking | `/detections` (`Detection3DArray`, metres, acquisition timestamps, labels in `results[].hypothesis.class_id`) |
 | SLAM (optional) | `/points`, `odom → base_link` TF, synchronized clocks |
 | Simulation | `/clock` plus the inputs of the enabled components |

@@ -107,7 +107,7 @@ def inert_navigation_factory():
     class Configuration:
         def __init__(self, name): self.name = name
         def perform(self, context):
-            defaults = {'sim': 'true', 'use_lidar': 'true'}
+            defaults = {'sim': 'true'}
             return context.get(self.name, defaults.get(self.name))
     import os
     import tempfile
@@ -204,8 +204,7 @@ def test_actual_factory_consumes_final_projection(base, tmp_path):
     base['bt_navigator']['ros__parameters']['default_nav_to_pose_bt_xml'] = '/chosen/tree.xml'
     path = tmp_path / 'base.yaml'
     path.write_text(yaml.safe_dump(base))
-    context = {'params_file': str(path), 'limits_file': '', 'sim': 'true',
-               'use_lidar': 'false'}
+    context = {'params_file': str(path), 'limits_file': '', 'sim': 'true'}
     ns = inert_navigation_factory()
     nodes = ns['navigation_nodes'](context)
     effective = yaml.safe_load(Path(nodes[0]['parameters'][0]).read_text())
@@ -236,7 +235,7 @@ def test_factory_accepts_an_overlay_within_the_ceilings(base, tmp_path):
     from mhseals_nav.startup_projection import compile_navigation
     ns = inert_navigation_factory()
     assert ns['navigation_nodes']({'params_file': str(base_path), 'limits_file': str(overlay)})
-    result = compile_navigation(base_path, overlay, sim='true', use_lidar='true',
+    result = compile_navigation(base_path, overlay, sim='true',
                                 share=ns['share'])
     follow = result['controller_server']['ros__parameters']['FollowPath']
     assert follow['wz_max'] == 0.5 and follow['vx_min'] == -0.05

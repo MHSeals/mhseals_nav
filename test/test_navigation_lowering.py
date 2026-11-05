@@ -73,7 +73,7 @@ def test_required_base_is_checked_without_an_overlay(tmp_path):
     path = tmp_path / 'bad.yaml'
     path.write_text('controller_server: []')
     with pytest.raises(ValueError, match='required mapping'):
-        compile_navigation(path, '', sim='true', use_lidar='true')
+        compile_navigation(path, '', sim='true')
 
 
 @pytest.mark.parametrize('name', ['FollowPath', 'Custom'])
@@ -86,7 +86,7 @@ def test_selected_non_mppi_plugin_does_not_receive_mppi_fields(base, tmp_path, n
     controller['controller_plugins'] = [name]
     path = tmp_path / 'custom.yaml'
     path.write_text(yaml.safe_dump(base))
-    selected = compile_navigation(path, '', sim='true', use_lidar='true')
+    selected = compile_navigation(path, '', sim='true')
     assert selected['controller_server']['ros__parameters'][name] == custom
     assert 'model_dt' not in selected['controller_server']['ros__parameters'][name]
 
@@ -116,7 +116,7 @@ def _compile_text(tmp_path, text):
 def test_strict_loader_names_file_and_line(tmp_path, text, message):
     path = _compile_text(tmp_path, text)
     for call in (lambda: load_overlay(path, strict=True),
-                 lambda: compile_navigation(path, '', sim='true', use_lidar='true')):
+                 lambda: compile_navigation(path, '', sim='true')):
         with pytest.raises(ValueError, match=message) as error:
             call()
         assert str(path) in str(error.value) and 'line ' in str(error.value)
@@ -127,14 +127,14 @@ def test_limits_file_errors_name_the_limits_path(base, tmp_path):
     limits = tmp_path / 'limits.yaml'
     limits.write_text('a: 1\na: 2\n')
     with pytest.raises(ValueError, match='Duplicate key') as error:
-        compile_navigation(params, limits, sim='true', use_lidar='true')
+        compile_navigation(params, limits, sim='true')
     assert str(limits) in str(error.value)
 
 
 def test_missing_params_file_names_the_path(tmp_path):
     missing = tmp_path / 'absent.yaml'
     with pytest.raises(FileNotFoundError, match='absent.yaml'):
-        compile_navigation(missing, '', sim='true', use_lidar='true')
+        compile_navigation(missing, '', sim='true')
 
 
 def test_effective_limits_are_what_the_launch_resolves(tmp_path):
@@ -146,7 +146,7 @@ def test_effective_limits_are_what_the_launch_resolves(tmp_path):
     limits.write_text(yaml.safe_dump({'controller_server': {'ros__parameters': {
         'FollowPath': {'vx_max': 0.5, 'vy_max': 0.3, 'wz_max': 0.4, 'ay_max': 0.2}}}}))
     resolved = effective_limits(params, limits)
-    launched = compile_navigation(params, limits, sim='true', use_lidar='true',
+    launched = compile_navigation(params, limits, sim='true',
                                   share=None)
     follow = launched['controller_server']['ros__parameters']['FollowPath']
     smoother = launched['velocity_smoother']['ros__parameters']

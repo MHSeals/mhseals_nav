@@ -118,7 +118,7 @@ def test_launch_responsibilities_and_velocity_output():
     assert "('cmd_vel_smoothed', 'cmd_vel')" in launch
     assert "('cmd_vel', 'cmd_vel_nav')" in launch
     assert "enable_mavros_velocity" not in launch
-    assert "LaunchConfiguration('use_lidar')" in launch
+    assert 'use_lidar' not in launch   # lidar reaches Nav2 only in /perception/costmap
     assert "('received_global_plan', 'local_plan')" in launch
     assert "'object_tracker'" not in (ROOT / 'launch/odom.launch.py').read_text()
     assert "'object_tracker'" not in launch
@@ -198,14 +198,13 @@ def test_package_xml_depends_on_rotation_shim():
     assert '<exec_depend>nav2_rotation_shim_controller</exec_depend>' in xml
 
 
-@pytest.mark.parametrize('use_lidar', [True, False])
-def test_factory_emits_installed_behavior_trees_and_lidar(use_lidar):
+def test_factory_emits_installed_behavior_trees_and_perception_costmap():
     from test_navigation_startup_validation import inert_navigation_factory
 
     factory = inert_navigation_factory()
     nodes = factory['navigation_nodes']({
         'params_file': str(ROOT / 'config/nav2_params.yaml'), 'limits_file': '',
-        'sim': 'false', 'use_lidar': str(use_lidar).lower()})
+        'sim': 'false'})
     emitted = yaml.safe_load(Path(nodes[0]['parameters'][0]).read_text())
     navigator = emitted['bt_navigator']['ros__parameters']
     expected = {'default_nav_to_pose_bt_xml': 'nav_to_pose.xml',

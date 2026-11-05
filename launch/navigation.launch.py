@@ -3,8 +3,8 @@ import os
 import tempfile
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, LogInfo, OpaqueFunction
-from launch.conditions import IfCondition, UnlessCondition
+from launch.actions import DeclareLaunchArgument, OpaqueFunction
+from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
@@ -20,7 +20,6 @@ def navigation_nodes(context):
         LaunchConfiguration('params_file').perform(context),
         LaunchConfiguration('limits_file').perform(context),
         sim=LaunchConfiguration('sim').perform(context),
-        use_lidar=LaunchConfiguration('use_lidar').perform(context),
         share=FindPackageShare('mhseals_nav').perform(context))
     handle = tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False)
     with handle:
@@ -61,9 +60,6 @@ def generate_launch_description():
         DeclareLaunchArgument('sim', default_value='true'),
         DeclareLaunchArgument('limits_file', default_value='',
                              description='Overlay (measured limits, ~/.config/mhseals/nav2.yaml) merged with params_file'),
-        DeclareLaunchArgument('use_lidar', default_value='true'),
-        LogInfo(msg='LIDAR DISABLED: no range-obstacle avoidance; visual supervision required.',
-                condition=UnlessCondition(LaunchConfiguration('use_lidar'))),
         DeclareLaunchArgument('command_mux', default_value='false',
                               description='A command_mux arbitrates /cmd_vel; start the '
                                           'stale-costmap watchdog and the approach guard '
