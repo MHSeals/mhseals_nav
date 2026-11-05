@@ -13,7 +13,8 @@ SMOKE=(test/test_config_parse.py test/test_help_yaml.py test/test_config_schema.
     test/test_hold_release.py test/test_costmap_watchdog.py test/test_ekf_input_watchdog.py
     test/test_fcu_watchdog.py test/test_approach_guard.py test/test_navigation_config.py
     test/test_track_filter.py test/test_track_grid.py test/test_course_map.py
-    test/test_nearby.py test/test_classes.py test/test_watchdogs_config.py)
+    test/test_nearby.py test/test_classes.py test/test_watchdogs_config.py
+    test/test_operator_heartbeat.py test/test_host_diagnostic.py)
 RUN=(python3 -m pytest -q -p no:cacheprovider -m 'not linter' -k 'not test_node')
 clone=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || echo "$PWD/.git")
 AGENTS=${MHSEALS_AGENTS:-$(dirname "$(dirname "$clone")")/mhseals_agents}

@@ -19,6 +19,7 @@ PART_KEYS = {'launch', 'run', 'args', 'nodes', 'enabled', 'kind', 'with'}
 KINDS = ('sensing', 'commander')
 COMMANDER_LAUNCHES = {'navigation.launch.py', 'task.launch.py'}
 DRIVERS = {'thruster_pwm_node', 'command_mux'}
+OTHER_PACKAGE_RUNS = {('mhseals_testing', 'rtk_base')}   # operator tooling with no home here
 
 
 def share():
@@ -147,7 +148,8 @@ def load(name, deployment_file='', startup_file='', overrides=None):
 
 
 def check(profile, name):
-    """Each part runs one launch file of this package or one executable; drivers never.
+    """Each part runs one launch file or executable of this package (or the operator's rtk_base);
+    drivers never.
 
     A part's ``with`` names other sensing parts of the profile that start beside it.
     """
@@ -169,6 +171,9 @@ def check(profile, name):
                                  'arming in the TUI, never as a device part')
             if spec.get('args'):
                 raise ValueError(f'{here}.args: give a run part its arguments in run')
+            if spec['run'][0] != 'mhseals_nav' and tuple(spec['run'][:2]) not in OTHER_PACKAGE_RUNS:
+                raise ValueError(f'{here}.run: {spec["run"][0]} {spec["run"][1]} is another package\'s; '
+                                 'a device part runs mhseals_nav executables')
             continue
         if not (launches / spec['launch']).is_file():
             raise ValueError(f'{here}.launch: no {spec["launch"]} in mhseals_nav/launch')

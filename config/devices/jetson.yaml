@@ -12,4 +12,4 @@ parts:
   # relay that carries /points onto the default transport is the proof the part is up.
   sensors: {launch: sensors.launch.py, nodes: [lidar_relay_publish]}
   # Temperature, power mode and free disk on /diagnostics for the TUI's preflight.
-  host_diagnostic: {run: [mhseals_testing, host_diagnostic], nodes: [host_diagnostic]}
+  host_diagnostic: {run: [mhseals_nav, host_diagnostic], nodes: [host_diagnostic]}

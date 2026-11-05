@@ -54,7 +54,7 @@ def test_jetson_runs_camera_zed_perception_and_the_lidar():
         'camera.launch.py': (None, {'sim': 'false', 'camera_model': 'zed2i'}),
         'objects.launch.py': (None, {'sim': 'false', 'backend': 'zed'}),
         'sensors.launch.py': (None, {'sim': 'false'}),
-        'host_diagnostic': (['ros2', 'run', 'mhseals_testing', 'host_diagnostic'], {}),
+        'host_diagnostic': (['ros2', 'run', 'mhseals_nav', 'host_diagnostic'], {}),
     }
 
 
@@ -85,7 +85,7 @@ def test_the_sim_starts_odometry_without_its_watchdogs():
 def test_a_run_part_is_one_ros2_run():
     assert expand(device='operator') == {
         'rtk_base': (['ros2', 'run', 'mhseals_testing', 'rtk_base'], {}),
-        'operator_heartbeat': (['ros2', 'run', 'mhseals_testing', 'operator_heartbeat'], {})}
+        'operator_heartbeat': (['ros2', 'run', 'mhseals_nav', 'operator_heartbeat'], {})}
 
 
 def test_sim_extends_both_computers_without_the_camera():
@@ -165,6 +165,8 @@ def test_no_launch_file_here_starts_the_thruster_driver_or_the_mux():
     ({'parts': {'pwm': {'run': ['mhseals_hardware', 'thruster_pwm_node']}}}, 'with arming'),
     ({'parts': {'mux': {'run': ['mhseals_hardware', 'command_mux']}}}, 'start with arming'),
     ({'parts': {'odd': {'nodes': ['x']}}}, 'exactly one of launch or run'),
+    ({'parts': {'beat': {'run': ['mhseals_testing', 'operator_heartbeat']}}}, "another package's"),
+    ({'parts': {'gps': {'run': ['some_driver', 'rtk_base']}}}, "another package's"),
     ({'parts': {'ekf': {'enabled': 'no'}}}, 'true or false'),
     ({'parts': {'ekf': {'colour': 'red'}}}, 'keys from'),
     ({'extends': ['jetson']}, 'keys from'),

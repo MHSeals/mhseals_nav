@@ -42,6 +42,8 @@ set(ENTRY_POINTS
   fence_watchdog=fence_watchdog
   fcu_watchdog=fcu_watchdog
   ekf_input_watchdog=ekf_input_watchdog
+  operator_heartbeat=operator_heartbeat
+  host_diagnostic=host_diagnostic
 )
 foreach(entry ${ENTRY_POINTS})
   string(REPLACE "=" ";" entry "${entry}")
