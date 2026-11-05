@@ -231,6 +231,21 @@ def test_anchor_moves_a_map_fence_as_the_start_placed_it():
     assert dog.points[:2] == [15.0, 25.0]
 
 
+def test_an_on_exit_edit_or_a_resave_keeps_an_anchored_fence_where_it_is():
+    dog = FenceWatchdog(CFG, MAP)
+    at(dog, 0.0, 10.0, 20.0)
+    assert dog.anchor(0.0)[0]
+    anchored = list(dog.points)
+    dog.set_fence(dict(MAP, on_exit='return'))              # the file's on_exit changed
+    assert (dog.points, dog.on_exit) == (anchored, 'return')
+    dog.set_fence(dict(MAP, points=list(BOX), on_exit='return'))    # re-saved, same content
+    assert dog.points == anchored
+    dog.set_fence(dict(MAP, points=[v * 2 for v in BOX]))   # a new shape is the file's
+    assert dog.points == [v * 2 for v in BOX]
+    dog.set_fence(None, 'no fence_file')
+    assert dog.status(0.0)['on_exit'] == 'alert'            # no fence, no return
+
+
 def test_anchor_refuses_without_a_fresh_position_or_a_fence():
     dog = FenceWatchdog(CFG, MAP)
     at(dog, 0.0, 10.0, 20.0)
@@ -333,6 +348,8 @@ def test_the_tui_course_area_is_a_lat_lon_fence_with_its_on_exit(tmp_path):
         assert load_fence(day)[0] is None and 'on_exit' in load_fence(day)[1]
     written(tmp_path, {'course': {'corners': BOWTIE}})
     assert 'simple' in load_fence(day)[1]
+    written(tmp_path, dict(MAP, course={'on_exit': 'return'}))     # no corners: not the TUI's
+    assert load_fence(day) == (MAP, '')
 
 
 def test_the_fence_file_is_read_again_when_it_changes(tmp_path):

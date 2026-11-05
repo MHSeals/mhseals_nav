@@ -144,7 +144,8 @@ def load_fence(fence_file):
         day = yaml.safe_load(path.read_text())
     except (OSError, UnicodeDecodeError, yaml.YAMLError) as error:
         return None, f'{path}: {type(error).__name__}'
-    if isinstance(day, dict) and isinstance(day.get('course'), dict):
+    if isinstance(day, dict) and isinstance(day.get('course'), dict) \
+            and 'corners' in day['course']:
         day = dict(day['course'], frame='latlon', points=day['course'].get('corners'))
     if not isinstance(day, dict):
         return None, f'{path}: not a mapping'
