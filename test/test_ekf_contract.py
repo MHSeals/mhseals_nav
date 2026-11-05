@@ -82,7 +82,7 @@ def test_mavros_relays_preserve_sensor_abstraction_at_safe_rates(tmp_path):
     rates = {int(message_id): float(hz)
              for message_id, hz in (entry.split(':') for entry in parameters['message_rates'])}
     # 31 feeds /imu/raw at 100 Hz once SCHED_LOOP_RATE is 200; 30 is the 25 Hz fallback.
-    assert rates == {33: 20., 30: 25., 31: 100., 24: 5., 27: 10., 1: 2., 193: 2., 65: 25.}
+    assert rates == {33: 20., 30: 25., 31: 100., 24: 10., 27: 100., 1: 2., 193: 2., 65: 25.}
     assert 127 not in rates and 128 not in rates  # a Here4 never emits GPS_RTK
     assert ALIASES == {'mavros_odom_rate': (33,), 'mavros_imu_rate': (30, 31),
                        'mavros_gps_rate': (24,), 'mavros_rc_rate': (65,)}

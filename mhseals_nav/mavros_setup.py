@@ -286,8 +286,8 @@ def main(args=None):
     for name, value in defaults.items():
         node.declare_parameter(name, value)
     policy = validate_setup({name: node.get_parameter(name).value for name in defaults})
-    keeper = RateKeeper(policy)
-    rc = RcMonitor(policy)
+    keeper = RateKeeper(policy, time.monotonic)   # main's clock (the tests inject one)
+    rc = RcMonitor(policy, time.monotonic)
     # A changed list is requested at once; the FCU keeps the latest request.
     live = LiveParams(node, {'message_rates': rates_rule},
                       on_change=lambda values, changed: keeper.want())
