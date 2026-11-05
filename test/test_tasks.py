@@ -13,7 +13,7 @@ if importlib.util.find_spec('py_trees') is not None:
     import py_trees
     from mhseals_nav.tasks.trees import TREES
 
-EXIT = 5e-3   # gate exits are half the hull (hull.yaml, 0.5315) and 0.57: 1.1 m within this
+EXIT = geometry.gate_exit(0.57)   # the task YAMLs' gate_margin past half the hull (hull.yaml)
 NO_SEARCH = {'priors': False, 'scan': False, 'next_view': False, 'sweep': False}
 
 
@@ -273,8 +273,8 @@ def test_nav_channel_crosses_both_gates():
     # One flowing route through both gates: no stop between them.
     assert len(world.goals) == 1
     route = [p[:2] for p in world.goals[0].route]
-    assert route == [pytest.approx(p, abs=EXIT)
-                     for p in [(5.5, 0.0), (8.1, 0.0), (11.5, 0.0), (14.1, 0.0)]]
+    assert route == [pytest.approx(p)
+                     for p in [(5.5, 0.0), (7 + EXIT, 0.0), (11.5, 0.0), (13 + EXIT, 0.0)]]
 
 
 def test_nav_channel_searches_ahead_for_the_second_gate():
@@ -287,7 +287,7 @@ def test_nav_channel_searches_ahead_for_the_second_gate():
 
     assert world.run(script=appear) == 'SUCCESS'
     assert world.goals[1].cancelled  # the search leg was preempted by the sighting
-    assert world.goals[-1].route[-1][:2] == pytest.approx((21.1, 0), abs=EXIT)
+    assert world.goals[-1].route[-1][:2] == pytest.approx((20 + EXIT, 0))
 
 
 def test_follow_path_runs_every_gate_and_reports_the_species_count():
@@ -523,7 +523,7 @@ def test_return_home_finds_the_black_gate_by_home():
                               ('black_buoy', 10, 12.6), ('black_buoy', 14, 9.4)]
     assert world.run() == 'SUCCESS'
     assert world.goals[0].route == [pytest.approx((6, 0, math.pi))]
-    assert world.goals[-1].route[-1][:2] == pytest.approx((-3.6, 0), abs=EXIT)
+    assert world.goals[-1].route[-1][:2] == pytest.approx((-2.5 - EXIT, 0))
     assert world.names() == ['gate_cleared', 'returned_home']
 
 
@@ -758,7 +758,7 @@ def test_gate_run_retries_an_aborted_gate_and_keeps_a_lost_gate():
     assert world.run(script=trouble) == 'SUCCESS'
     assert world.names() == ['gate_cleared', 'gate_cleared']
     assert ('decision', {'kind': 'retry', 'reason': 'gate 1 aborted: retry'}) in world.events
-    assert world.goals[1].route[-1][:2] == pytest.approx((14.1, 0), abs=EXIT)
+    assert world.goals[1].route[-1][:2] == pytest.approx((13 + EXIT, 0))
 
 
 def test_gate_run_gives_up_after_its_retries():
@@ -878,7 +878,7 @@ def test_a_replanned_gate_route_never_turns_back_to_a_passed_lead_in():
     world = World('nav_channel', params('nav_channel'))
     world.state.update(pose=(6.5, 0.0, 0.0), objects=gate(7, 0, 3) + gate(13, 0, 3))
     world.run(ticks=1)
-    assert world.goals[0].route[0][:2] == pytest.approx((8.1, 0), abs=EXIT)  # not back to 5.5
+    assert world.goals[0].route[0][:2] == pytest.approx((7 + EXIT, 0))  # not back to 5.5
 
 
 def test_conditions_gate_precise_tasks_and_catch_a_weak_thruster():
