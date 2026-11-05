@@ -1,6 +1,7 @@
 # The operator laptop: the USB RTK base, sending corrections to MAVROS (the rover side is in odometry).
+# rtk_base is operator tooling in mhseals_testing, the one part another package runs.
 requires: []
 parts:
   rtk_base: {run: [mhseals_testing, rtk_base], nodes: [rtk_base]}
   # /operator/heartbeat for the boat's link_watchdog, which holds when it stops.
-  operator_heartbeat: {run: [mhseals_testing, operator_heartbeat], nodes: [operator_heartbeat]}
+  operator_heartbeat: {run: [mhseals_nav, operator_heartbeat], nodes: [operator_heartbeat]}
