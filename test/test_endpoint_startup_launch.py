@@ -118,7 +118,6 @@ def test_invalid_clock_precedes_node(clock):
     assert calls == []
 
 
-
 @pytest.mark.parametrize('url', [
     'tcp://host:１２３４', 'serial:///dev/ttyACM0:５７６００',
     'udp://@host:14550/?ids=１,２'])

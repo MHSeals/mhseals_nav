@@ -11,7 +11,7 @@ ROOT = Path(__file__).parents[1]
 
 
 def guards(**arguments):
-    """The guard nodes navigation.launch.py starts for ``arguments`` over its defaults."""
+    """Return the guard nodes navigation.launch.py starts for ``arguments`` over its defaults."""
     spec = importlib.util.spec_from_file_location(
         'navigation_launch', ROOT / 'launch/navigation.launch.py')
     module = importlib.util.module_from_spec(spec)

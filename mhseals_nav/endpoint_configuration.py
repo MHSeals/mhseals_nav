@@ -46,7 +46,7 @@ def discover_device(strategy, dev_root=Path('/dev')):
 
 
 def boolean(value):
-    """The one launch boolean parser: true/false/1/0 (any case), a bool; anything else raises."""
+    """Parse a launch boolean, the package's one parser: true/false/1/0 (any case) or a bool."""
     if type(value) is bool:
         return value
     if not isinstance(value, str) or value.strip().lower() not in ('true', 'false', '1', '0'):
