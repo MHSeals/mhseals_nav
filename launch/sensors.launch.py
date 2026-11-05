@@ -1,17 +1,24 @@
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import LaunchConfiguration
 
 from launch_ros.actions import Node
-from launch_ros.substitutions import FindPackageShare
 from mhseals_nav.endpoint_configuration import (
     from_launch as endpoint_from_launch, LAYER_ARGUMENTS as ENDPOINT_LAYERS, UNSET_GCS)
 from mhseals_nav.layers import boolean
 from mhseals_nav.lidar_configuration import resolve_lidar
 
+
+
+def config_file(name):
+    """config/<name> of this package (layers.config_path), as a launch string."""
+    # Imported here: tests exec this file's functions without its module-level imports.
+    from mhseals_nav.layers import config_path
+    return str(config_path(name))
+
+
 # Large-data transport for the lidar pair only; see config/fastdds_large_data.xml.
-LARGE_DATA_PROFILE = PathJoinSubstitution(
-    [FindPackageShare('mhseals_nav'), 'config', 'fastdds_large_data.xml'])
+LARGE_DATA_PROFILE = config_file('fastdds_large_data.xml')
 large_data_env = {'FASTRTPS_DEFAULT_PROFILES_FILE': LARGE_DATA_PROFILE,
                   'FASTDDS_DEFAULT_PROFILES_FILE': LARGE_DATA_PROFILE}
 

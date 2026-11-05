@@ -4,7 +4,8 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
-from launch_ros.substitutions import FindPackageShare
+
+from mhseals_nav.layers import package_path
 
 
 def create_rtabmap_slam_node(context):
@@ -29,7 +30,7 @@ def create_rtabmap_slam_node(context):
 
 
 def generate_launch_description():
-    share = FindPackageShare('mhseals_nav')
+    share = str(package_path())
     return LaunchDescription([
         DeclareLaunchArgument('sim', default_value='false'),
         DeclareLaunchArgument('camera_name', default_value='front'),

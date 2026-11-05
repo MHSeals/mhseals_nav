@@ -228,6 +228,7 @@ def test_package_xml_depends_on_rotation_shim():
 
 
 def test_factory_emits_installed_behavior_trees_and_perception_costmap():
+    from mhseals_nav.startup_projection import TREES
     from test_navigation_startup_validation import inert_navigation_factory
 
     factory = inert_navigation_factory()
@@ -240,8 +241,7 @@ def test_factory_emits_installed_behavior_trees_and_perception_costmap():
                 'default_nav_through_poses_bt_xml': 'nav_replan_recov.xml'}
     for key, name in expected.items():
         artifact = Path(navigator[key])
-        assert artifact == factory['share'] / 'behavior_trees' / name
-        assert artifact.read_bytes() == (ROOT / 'mhseals_nav/behavior_trees' / name).read_bytes()
+        assert artifact == TREES / name   # the module's trees, as run_task's precise tree
         tree = ET.fromstring(artifact.read_bytes())
         assert not any(node.tag in ['Spin', 'BackUp', 'ClearEntireCostmap']
                        for node in tree.iter())

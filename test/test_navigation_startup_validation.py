@@ -2,6 +2,7 @@
 import ast
 from pathlib import Path
 
+from mhseals_nav.startup_projection import TREES
 from mhseals_nav.navigation_config import load_overlay, validated_merge_limits
 import pytest
 import yaml
@@ -118,19 +119,17 @@ def inert_navigation_factory():
     events = types.ModuleType('launch.event_handlers')
     events.OnShutdown = lambda **kw: None
     import shutil
-    from types import SimpleNamespace
+    from mhseals_nav import layers
+    # A package tree (package.xml beside config/) that layers.package_path answers with.
     share = Path(tempfile.mkdtemp())
-    shutil.copytree(ROOT / 'mhseals_nav/behavior_trees', share / 'behavior_trees')
+    (share / 'package.xml').touch()
     (share / 'config').mkdir()
     for name in ('nav2_ceilings.yaml', 'hull.yaml', 'camera.yaml'):
         shutil.copyfile(ROOT / 'config' / name, share / 'config' / name)
-    (share / 'launch').mkdir()
-    shutil.copyfile(ROOT / 'launch/navigation.launch.py', share / 'launch/navigation.launch.py')
     ns = {'LaunchConfiguration': Configuration,
           'os': os,
           'yaml': yaml,
           'tempfile': tempfile,
-          'FindPackageShare': lambda name: SimpleNamespace(perform=lambda _: str(share)),
           'PathJoinSubstitution': lambda parts: parts,
           'RewrittenYaml': lambda **kw: kw,
           'ParameterValue': lambda *a, **kw: a,
@@ -142,7 +141,8 @@ def inert_navigation_factory():
 
     def run(context):
         with patch.dict(sys.modules, {
-                'launch.actions': actions, 'launch.event_handlers': events}):
+                'launch.actions': actions, 'launch.event_handlers': events}), \
+                patch.object(layers, 'SOURCE', share):
             return factory(context)
 
     ns['share'] = share
@@ -221,7 +221,7 @@ def test_actual_factory_consumes_final_projection(base, tmp_path):
         costmap = effective[name][name]['ros__parameters']
         assert costmap['use_sim_time'] is True
         assert 'obstacle_layer' not in costmap
-    tree = ns['share'] / 'behavior_trees/nav_to_pose.xml'
+    tree = TREES / 'nav_to_pose.xml'   # beside the module, as run_task's precise tree
     assert effective['bt_navigator']['ros__parameters']['default_nav_to_pose_bt_xml'] == str(tree)
     assert effective['lifecycle_manager_navigation']['ros__parameters']['use_sim_time'] is True
 

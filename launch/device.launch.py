@@ -9,10 +9,10 @@ from launch import LaunchDescription
 from launch.actions import (DeclareLaunchArgument, ExecuteProcess, GroupAction,
                             IncludeLaunchDescription, OpaqueFunction)
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
-from launch_ros.substitutions import FindPackageShare
+from launch.substitutions import LaunchConfiguration
 
 from mhseals_nav.device_profile import launch_arguments, load, select
+from mhseals_nav.layers import package_path
 
 
 def parts(context):
@@ -26,8 +26,7 @@ def parts(context):
             actions.append(ExecuteProcess(cmd=['ros2', 'run', *spec['run']], name=name,
                                           output='screen'))
             continue
-        source = PythonLaunchDescriptionSource(PathJoinSubstitution(
-            [FindPackageShare('mhseals_nav'), 'launch', spec['launch']]))
+        source = PythonLaunchDescriptionSource(str(package_path('launch', spec['launch'])))
         actions.append(GroupAction(scoped=True, actions=[IncludeLaunchDescription(
             source, launch_arguments=launch_arguments(profile, spec).items())]))
     return actions

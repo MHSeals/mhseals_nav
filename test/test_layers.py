@@ -59,7 +59,8 @@ def test_a_plain_install_reads_the_share(installed):
 
 
 def test_only_package_path_asks_ament_for_this_package():
-    share = re.compile(r'get_package_share_directory\(\s*[\'"]mhseals_nav[\'"]')
+    """Launch files and nodes take this package's files from layers, never the share directly."""
+    share = re.compile(r'(get_package_share_directory|FindPackageShare|share)\(\s*[\'"]mhseals_nav[\'"]')
     hits = sorted(str(path.relative_to(ROOT)) for path in
                   [*ROOT.glob('mhseals_nav/**/*.py'), *ROOT.glob('launch/*.py')]
                   if share.search(path.read_text()))
