@@ -5,14 +5,11 @@ are overlays of it (``tune: {preview_rate: ...}``). An old ``preview_hz: ...`` l
 one release, with a warning.
 """
 from dataclasses import dataclass
-from hashlib import sha256
 import logging
 import math
 from pathlib import Path
-from types import MappingProxyType
 
-
-from .navigation_config import load_strict
+from . import layers
 
 
 log = logging.getLogger(__name__)
@@ -36,15 +33,16 @@ def rate(value):
     return float(value)
 
 
-def preview(data, path):
-    """A layer's preview rate: tune.preview_rate (camera.yaml's shape) or an old preview_hz."""
+def preview(data, label):
+    """A layer as {preview_rate}: tune.preview_rate (camera.yaml's shape) or an old preview_hz."""
     if type(data) is dict and set(data) == {'preview_hz'}:
-        log.warning('%s: preview_hz is deprecated, write tune: {preview_rate: ...}', path)
-        return rate(data['preview_hz'])
+        log.warning('%s camera layer: preview_hz is deprecated, write tune: {preview_rate: ...}',
+                    label)
+        return {'preview_rate': rate(data['preview_hz'])}
     if (type(data) is not dict or not set(data) <= {'tune', 'backend'} or
             type(data.get('tune')) is not dict or set(data['tune']) != {'preview_rate'}):
         raise ValueError('camera startup must hold tune.preview_rate only (camera.yaml: and backend)')
-    return rate(data['tune']['preview_rate'])
+    return {'preview_rate': rate(data['tune']['preview_rate'])}
 
 
 def resolve_camera(package_file=None, deployment_file='', operator_file='', preview_rate=''):
@@ -55,16 +53,8 @@ def resolve_camera(package_file=None, deployment_file='', operator_file='', prev
                         'config/camera.yaml')
     if not package_file:
         raise ValueError('camera package authority must select a file')
-    inputs = []
-    for layer, selected in (('package', package_file), ('deployment', deployment_file),
-                            ('operator', operator_file)):
-        if not selected:
-            continue
-        path = Path(selected).expanduser().resolve(strict=True)
-        raw = path.read_bytes()
-        resolved = preview(load_strict(raw, path), path)
-        inputs.append(MappingProxyType({
-            'path': str(path), 'sha256': sha256(raw).hexdigest(), 'layer': layer}))
+    values, inputs = layers.resolve(package_file, deployment_file, operator_file, validate=preview)
+    resolved = values['preview_rate']
     if preview_rate != '':
         value = preview_rate
         if type(value) is str:
