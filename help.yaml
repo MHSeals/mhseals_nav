@@ -107,9 +107,9 @@ commands:
     summary: Run one task tree (mhseals_nav/tasks/trees) with its config/tasks/ YAML.
     notes: Exits 0 success, 1 failure, 2 timeout, 3 human override, 4 refused (human has control).
     params:
-      - {name: task, required: true, choices: [nav_channel, follow_path, docking, speed_challenge, return_home,
+      - {name: task, choices: [nav_channel, follow_path, docking, speed_challenge, return_home,
                                                 supply_drop, harbor_alert, pair_test, circle_test, mission],
-         description: Task tree name.}
+         description: Task tree name; empty runs none (a whole-profile bring-up).}
       - {name: sim, type: bool, default: false, description: Use simulation time.}
       - {name: params_file, type: path, description: 'Task YAML; default config/tasks/<task>.yaml.'}
     examples:
