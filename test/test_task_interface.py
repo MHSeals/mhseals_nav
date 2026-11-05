@@ -25,6 +25,18 @@ def capture(events, details=True):
         if details else payload['event'])
 
 
+def mux(source):
+    """Return a command_mux ~/state message with ``source`` as its input."""
+    return SimpleNamespace(data=json.dumps({'input': source, 'holds': []}))
+
+
+def live(runner):
+    """``runner`` with the mux at auto for the whole test (its state never goes stale)."""
+    runner.mux['mux_state_max_age'] = float('inf')
+    runner._mux(mux('auto'))
+    return runner
+
+
 CIRCLE = {'mark': 'yellow_buoy', 'search_distance': 15.0, 'circle_radius': 3.0,
           'circle_clockwise': False, 'circle_points': 12}
 
@@ -40,7 +52,7 @@ def test_circle_waits_for_initial_tf_before_planning(monkeypatch):
         return SimpleNamespace(done=False, cancel=lambda: None)
 
     try:
-        runner = TaskRunner('circle_test', dict(CIRCLE))
+        runner = live(TaskRunner('circle_test', dict(CIRCLE)))
         runner.host.objects = [('yellow_buoy', 9.0, 0.0)]
         monkeypatch.setattr(runner.host.navigator, 'ready', lambda: True)
         monkeypatch.setattr(runner.host.navigator, 'send', send)
@@ -67,7 +79,7 @@ def test_home_reported_once_and_goal_per_send(monkeypatch):
     rclpy.init()
     runner = None
     try:
-        runner = TaskRunner('circle_test', dict(CIRCLE))
+        runner = live(TaskRunner('circle_test', dict(CIRCLE)))
         runner.host.objects = [('yellow_buoy', 9.0, 0.0)]
         events = []
         monkeypatch.setattr(runner.host, 'sink', capture(events))
@@ -155,22 +167,68 @@ def test_pass_gates_through_a_gate_reports_one_goal(monkeypatch):
     assert len(events) == 1 and events[0][0] == 'goal'
 
 
-def authority(owner):
-    """Return an authority record shaped like harness/authority.derive output."""
-    return json.dumps({'schema': 'mhseals.authority/1', 'owner': owner, 'source': None,
-                       'claims': [],
-                       'task': {'state': 'RUNNING'} if owner == 'task' else None})
+def test_the_mux_state_suspends_a_task_unless_fresh_and_not_outranking_auto():
+    """rc, manual and hold suspend; so do no state, a stale one and an unreadable one."""
+    from mhseals_nav.hold_watchdog import mux_state
+    from mhseals_nav.tasks.interface import mux_suspends
+    for source in ('rc', 'manual', 'hold'):
+        assert mux_suspends(source, 0.1, 2.5) == f'{source} has control'
+    for source in ('auto', 'idle'):
+        assert mux_suspends(source, 0.1, 2.5) == ''
+    assert mux_suspends('auto', None, 2.5) == 'no command_mux state'
+    assert mux_suspends('auto', 3.0, 2.5) == 'command_mux state older than 2.5 s'
+    for bad in ('', 'not json', 'null', '[]', '{}', '{"input": 3}'):
+        assert mux_suspends(mux_state(bad)[0], 0.1, 2.5) == 'unreadable command_mux state'
+
+
+def test_no_mux_state_refuses_after_the_wait_and_a_stale_one_preempts(monkeypatch):
+    rclpy.init()
+    runner = None
+    events = []
+    try:
+        runner = TaskRunner('circle_test', dict(CIRCLE))
+        runner.host.objects = [('yellow_buoy', 9.0, 0.0)]
+        monkeypatch.setattr(runner.host.navigator, 'ready', lambda: True)
+        monkeypatch.setattr(runner.host.navigator, 'send', lambda *a, **k: SimpleNamespace(
+            done=False, cancel=lambda: None))
+        monkeypatch.setattr(runner, 'pose', lambda: (1.0, 0.0, 0.5))
+        monkeypatch.setattr(runner.host, 'sink', capture(events))
+        runner.tick()  # within mux_state_max_age of the start: waits for the latched state
+        assert runner.host.outcome is None and runner.host.started is None
+        runner.born -= runner.mux['mux_state_max_age'] + 0.1
+        runner.tick()
+        assert runner.host.outcome == 'REFUSED' and runner.host.started is None
+        assert 'no command_mux state: not starting' in [
+            d.get('reason') for e, d in events if e == 'decision']
+    finally:
+        if runner is not None:
+            runner.destroy_node()
+        rclpy.try_shutdown()
+
+    rclpy.init()
+    runner = None
+    try:
+        runner = TaskRunner('circle_test', dict(CIRCLE))
+        runner.host.objects = [('yellow_buoy', 9.0, 0.0)]
+        monkeypatch.setattr(runner.host.navigator, 'ready', lambda: True)
+        monkeypatch.setattr(runner.host.navigator, 'send', lambda *a, **k: SimpleNamespace(
+            done=False, cancel=lambda: None))
+        monkeypatch.setattr(runner, 'pose', lambda: (1.0, 0.0, 0.5))
+        runner._mux(mux('auto'))
+        runner.tick()
+        assert runner.host.started is not None and runner.host.outcome is None
+        runner.mux_at -= runner.mux['mux_state_max_age'] + 0.1  # the mux went silent
+        runner.tick()
+        assert runner.host.outcome == 'PREEMPTED'
+    finally:
+        if runner is not None:
+            runner.destroy_node()
+        rclpy.try_shutdown()
 
 
 def test_human_override_ends_the_task_at_once_and_never_resumes(monkeypatch):
-    """An rc/keyboard/hold owner cancels the goal in the callback and ends the run."""
-    from mhseals_nav.tasks.interface import EXIT_CODES, claim_suspended
-    assert claim_suspended(authority('rc')) and claim_suspended(authority('keyboard'))
-    assert claim_suspended(authority('hold'))
-    for owner in ('agent', 'task', 'none', 'unknown'):
-        assert not claim_suspended(authority(owner))
-    for bad in ('', 'not json', 'null', '[]', '{}'):
-        assert not claim_suspended(bad)
+    """An rc/manual/hold mux input cancels the goal in the callback and ends the run."""
+    from mhseals_nav.tasks.interface import EXIT_CODES
 
     rclpy.init()
     runner = None
@@ -181,19 +239,19 @@ def test_human_override_ends_the_task_at_once_and_never_resumes(monkeypatch):
         return SimpleNamespace(done=False, cancel=lambda: cancels.append(1))
 
     try:
-        runner = TaskRunner('circle_test', dict(CIRCLE))
+        runner = live(TaskRunner('circle_test', dict(CIRCLE)))
         runner.host.objects = [('yellow_buoy', 9.0, 0.0)]
         monkeypatch.setattr(runner.host.navigator, 'ready', lambda: True)
         monkeypatch.setattr(runner.host.navigator, 'send', send)
         monkeypatch.setattr(runner, 'pose', lambda: (1.0, 0.0, 0.5))
         monkeypatch.setattr(runner.host, 'sink', capture(events, details=False))
-        runner._authority(SimpleNamespace(data=authority('none')))
+        runner._mux(mux('auto'))
         runner.tick()
         assert len(goals) == 1 and not cancels
-        runner._authority(SimpleNamespace(data=authority('rc')))  # no tick needed
+        runner._mux(mux('rc'))  # no tick needed
         assert cancels and runner.host.outcome == 'PREEMPTED' and 'task_suspended' in events
         assert EXIT_CODES['PREEMPTED'] == 3
-        runner._authority(SimpleNamespace(data=authority('none')))
+        runner._mux(mux('auto'))
         for _ in range(3):
             runner.tick()
         assert len(goals) == 1 and runner.host.outcome == 'PREEMPTED'
@@ -218,7 +276,7 @@ def test_a_pause_request_ends_the_task_with_its_reason_and_never_resumes(monkeyp
     runner = None
     goals, cancels, events = [], [], []
     try:
-        runner = TaskRunner('circle_test', dict(CIRCLE))
+        runner = live(TaskRunner('circle_test', dict(CIRCLE)))
         runner.host.objects = [('yellow_buoy', 9.0, 0.0)]
         monkeypatch.setattr(runner.host.navigator, 'ready', lambda: True)
         monkeypatch.setattr(runner.host.navigator, 'send', lambda *a, **k: goals.append(a) or
@@ -242,7 +300,7 @@ def test_a_pause_request_ends_the_task_with_its_reason_and_never_resumes(monkeyp
         rclpy.try_shutdown()
 
 
-@pytest.mark.parametrize('owner', ['rc', 'keyboard', 'hold'])
+@pytest.mark.parametrize('owner', ['rc', 'manual', 'hold'])
 def test_a_task_started_while_a_human_has_control_refuses_and_never_starts(
         monkeypatch, owner):
     from mhseals_nav.tasks.interface import EXIT_CODES
@@ -250,18 +308,18 @@ def test_a_task_started_while_a_human_has_control_refuses_and_never_starts(
     runner = None
     goals, events = [], []
     try:
-        runner = TaskRunner('circle_test', dict(CIRCLE))
+        runner = live(TaskRunner('circle_test', dict(CIRCLE)))
         runner.host.objects = [('yellow_buoy', 9.0, 0.0)]
         monkeypatch.setattr(runner.host.navigator, 'ready', lambda: True)
         monkeypatch.setattr(runner.host.navigator, 'send', lambda *a, **k: goals.append(a))
         monkeypatch.setattr(runner, 'pose', lambda: (1.0, 0.0, 0.5))
         monkeypatch.setattr(runner.host, 'sink', capture(events))
-        runner._authority(SimpleNamespace(data=authority(owner)))
+        runner._mux(mux(owner))
         assert runner.host.outcome == 'REFUSED' and EXIT_CODES['REFUSED'] == 4
-        assert ('task_refused', {'owner': owner}) in events
+        assert ('task_refused', {'owner': owner, 'reason': f'{owner} has control'}) in events
         assert f'{owner} has control: not starting' in [
             d.get('reason') for e, d in events if e == 'decision']
-        runner._authority(SimpleNamespace(data=authority('none')))  # released
+        runner._mux(mux('auto'))  # released
         for _ in range(3):
             runner.tick()
         assert runner.host.started is None and not goals
@@ -285,7 +343,7 @@ def test_a_goal_cancelled_by_someone_else_ends_the_run_after_the_tick(monkeypatc
         return goals[-1]
 
     try:
-        runner = TaskRunner('circle_test', dict(CIRCLE))
+        runner = live(TaskRunner('circle_test', dict(CIRCLE)))
         runner.host.objects = [('yellow_buoy', 9.0, 0.0)]
         monkeypatch.setattr(runner.host.navigator, 'ready', lambda: True)
         monkeypatch.setattr(runner.host.navigator, 'send', send)
@@ -328,7 +386,7 @@ def test_a_hold_in_the_tick_a_mandatory_task_fails_skips_the_exit(monkeypatch):
         params = {'tasks': ['nav_channel', 'return_home'], 'timeout': 100.0}
         for name in params['tasks']:
             params[name] = load_params(name)
-        runner = TaskRunner('mission', params)
+        runner = live(TaskRunner('mission', params))
         monkeypatch.setattr(runner.host.navigator, 'ready', lambda: True)
         monkeypatch.setattr(runner.host.navigator, 'send', send)
         monkeypatch.setattr(runner, 'pose', lambda: (0.0, 0.0, 0.0))
@@ -385,7 +443,7 @@ def test_an_override_before_nav2_accepts_cancels_the_goal_on_the_way_out(monkeyp
         return execute
 
     try:
-        runner = TaskRunner('circle_test', dict(CIRCLE))
+        runner = live(TaskRunner('circle_test', dict(CIRCLE)))
         runner.host.objects = [('yellow_buoy', 9.0, 0.0)]
         monkeypatch.setattr(runner, 'pose', lambda: (1.0, 0.0, 0.5))
         runner.host.navigator.backup_wait_s = 0.0  # this fake Nav2 has no backup server
@@ -402,7 +460,7 @@ def test_an_override_before_nav2_accepts_cancels_the_goal_on_the_way_out(monkeyp
             rclpy.spin_once(runner, timeout_sec=0.05)
         goal = runner.host.navigator.goals[0]
         assert goal.handle is None
-        runner._authority(SimpleNamespace(data=authority('rc')))
+        runner._mux(mux('rc'))
         assert runner.host.outcome == 'PREEMPTED'
         executor = MultiThreadedExecutor()
         executor.add_node(server)
@@ -446,7 +504,7 @@ def test_an_override_cancels_a_back_out_in_flight_and_none_goes_out_after(monkey
         return BackUp.Result()
 
     try:
-        runner = TaskRunner('circle_test', dict(CIRCLE))
+        runner = live(TaskRunner('circle_test', dict(CIRCLE)))
         monkeypatch.setattr(runner, 'pose', lambda: None)  # no pose: the tree sends nothing
         runner.host.started = runner.get_clock().now().nanoseconds / 1e9  # the task is under way
         server = rclpy.create_node('fake_behavior_server')
@@ -456,7 +514,7 @@ def test_an_override_cancels_a_back_out_in_flight_and_none_goes_out_after(monkey
         reverse = (1.8, 0.1, 40.0)
         goal = runner.host.navigator.send([(0.0, 0.0, 0.0)], why='back out', reverse=reverse)
         assert goal is not None and goal.handle is None  # Nav2 not spinning: in flight
-        runner._authority(SimpleNamespace(data=authority('rc')))
+        runner._mux(mux('rc'))
         assert runner.host.outcome == 'PREEMPTED'
         assert runner.host.navigator.send([(0.0, 0.0, 0.0)], reverse=reverse) is None
         executor = MultiThreadedExecutor()
@@ -552,7 +610,7 @@ def test_events_carry_their_schema_and_the_fixture_keys(monkeypatch):
     rclpy.init()
     runner = None
     try:
-        runner = TaskRunner('circle_test', dict(CIRCLE))
+        runner = live(TaskRunner('circle_test', dict(CIRCLE)))
         published = []
         monkeypatch.setattr(runner.events, 'publish', lambda m: published.append(
             json.loads(m.data)))
@@ -578,7 +636,7 @@ def test_status_follows_the_mission_and_stale_tracks_expire(monkeypatch):
         from mhseals_nav.tasks.interface import load_params
         for name in params['tasks']:
             params[name] = load_params(name)
-        runner = TaskRunner('mission', params)
+        runner = live(TaskRunner('mission', params))
         published = []
         monkeypatch.setattr(runner.status, 'publish', lambda m: published.append(
             json.loads(m.data)))
@@ -682,7 +740,7 @@ def test_the_runner_holds_station_in_silence_and_stops_at_an_override(monkeypatc
     zeros = []
 
     try:
-        runner = TaskRunner('circle_test', dict(CIRCLE))
+        runner = live(TaskRunner('circle_test', dict(CIRCLE)))
         runner.host.objects = [('yellow_buoy', 9.0, 0.0)]
         navigator = runner.host.navigator
 
@@ -696,7 +754,7 @@ def test_the_runner_holds_station_in_silence_and_stops_at_an_override(monkeypatc
         monkeypatch.setattr(navigator, 'send', send)
         monkeypatch.setattr(navigator.zero, 'publish', zeros.append)
         monkeypatch.setattr(runner, 'pose', lambda: (1.0, 0.0, 0.5))
-        runner._authority(SimpleNamespace(data=authority('none')))
+        runner._mux(mux('auto'))
         navigator._driven(twist(0.3))
         for _ in range(3):
             runner.tick()
@@ -704,7 +762,7 @@ def test_the_runner_holds_station_in_silence_and_stops_at_an_override(monkeypatc
         navigator.driven_at = time.monotonic() - 1.0  # it went quiet: Wait or an abort
         runner.tick()
         assert len(zeros) == 1
-        runner._authority(SimpleNamespace(data=authority('hold')))
+        runner._mux(mux('hold'))
         assert runner.host.outcome == 'PREEMPTED'
         for _ in range(3):
             runner.tick()
@@ -741,7 +799,7 @@ def test_the_node_and_the_bare_host_emit_the_same_events_for_the_same_world(
 
     The kinematic course of test_mission_course drives the day-layout mission twice,
     once through the node (tracks by its callback, pose by TF, Nav2 stubbed by the
-    course, a human owner by the authority topic) and once through the bare host the
+    course, a human by the mux state) and once through the bare host the
     fast sim uses, to each end: success, the run's timeout, a failed mandatory task
     (no channel: the exit still runs), a hold mid-run, and a hold before the start.
     """
@@ -768,12 +826,12 @@ def test_the_node_and_the_bare_host_emit_the_same_events_for_the_same_world(
         through_json(p)), lambda: world.now)
     for tick in range(ticks):
         pose, seen = world.step(t0 + tick * dt)
-        if tick == hold_at:  # what the node does on a human owner (interface._authority)
+        if tick == hold_at:  # what the node does on a mux hold (interface.check_mux)
             host.owner = 'hold'
             if host.started is not None:
-                host.preempt()
+                host.preempt('hold has control')
             else:
-                host.refuse()
+                host.refuse('hold has control')
         if host.tick(pose, seen, world.fov) is not None:
             break
     assert host.outcome == outcome
@@ -783,7 +841,7 @@ def test_the_node_and_the_bare_host_emit_the_same_events_for_the_same_world(
     runner = None
     try:
         world = Course(params, dt=dt, host=False, course=course)
-        runner = TaskRunner('mission', params)
+        runner = live(TaskRunner('mission', params))
         node_events = []
         monkeypatch.setattr(runner.events, 'publish', lambda m: node_events.append(
             json.loads(m.data)))
@@ -797,7 +855,7 @@ def test_the_node_and_the_bare_host_emit_the_same_events_for_the_same_world(
             _, seen = world.step(t0 + tick * dt)
             runner._tracks(SimpleNamespace(tracks=[as_message(t) for t in seen]))
             if tick == hold_at:
-                runner._authority(SimpleNamespace(data=authority('hold')))
+                runner._mux(mux('hold'))
             runner.tick()
             if runner.host.outcome is not None:
                 break

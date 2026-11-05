@@ -11,8 +11,10 @@ Interface the test suite scores and the TUI shows (all reliable, transient local
   exit code         0 succeeded, 1 failed, 2 timed out, 3 stopped by a human override,
                     4 refused: a human had control when it was started
 
-A human override (rc, keyboard, hold) ends the task at once, cancelling its Nav2 goals; it
-never resumes by itself. Started while a human has control, the task refuses to start. A pause
+A human override ends the task at once, cancelling its Nav2 goals; it never resumes by itself.
+The override is command_mux's latched ~/state (watchdogs.yaml mux_state_topic) naming rc,
+manual or hold, or that state missing or older than mux_state_max_age (fails closed). Started
+while a human has control, or with no state within mux_state_max_age, the task refuses. A pause
 request (runner.yaml pause_topic: the fence returning the boat inside) ends or refuses it the
 same way, with the requester's reason, so it never fights the request.
 """
@@ -28,6 +30,7 @@ from builtin_interfaces.msg import Duration
 from diagnostic_msgs.msg import DiagnosticArray
 from geometry_msgs.msg import Point, PoseStamped, Twist, Vector3Stamped
 from mavros_msgs.msg import GPSRAW
+from mhseals_nav.hold_watchdog import mux_defaults, mux_state, OUTRANK_AUTO
 from mhseals_nav.tasks import load_config, tracks
 from mhseals_nav.tasks.conditions import speed as conditions_speed
 # config_path and load_params live in the ROS-free host; kept here for their callers.
@@ -54,24 +57,21 @@ try:  # perception v2 messages (pv2-track); without them only /objects/map is re
 except ImportError:
     TrackArray = None
 
-AUTHORITY_TOPIC = '/mhseals_testing/authority'
 
+def mux_suspends(source, age, limit):
+    """Return why command_mux's ~/state stops a task, '' while auto may drive.
 
-HUMAN_OWNERS = ('rc', 'keyboard', 'hold')
-
-
-def claim_suspended(record):
-    """Tell whether an authority record (JSON text) is owned by a human.
-
-    The arbiter never publishes a task claim: a running task is only a source,
-    so a human owner (rc, keyboard, hold) is what suspends it. A missing or
-    unparsable record, or owner none/unknown, leaves the task free to run so
-    it still works without an arbiter.
+    ``source`` is the state's input (None unreadable), ``age`` its receipt age (None: none
+    yet). Fails closed: an input that outranks auto (rc, manual, hold), and a missing or stale
+    state too, since without a live mux nothing the task sends drives the boat.
     """
-    try:
-        return json.loads(record).get('owner') in HUMAN_OWNERS
-    except (ValueError, AttributeError, TypeError):
-        return False
+    if age is None:
+        return 'no command_mux state'
+    if age > limit:
+        return f'command_mux state older than {limit} s'
+    if source is None:
+        return 'unreadable command_mux state'
+    return f'{source} has control' if source in OUTRANK_AUTO else ''
 
 
 def pause_reason(record):
@@ -330,9 +330,10 @@ class TaskRunner(Node):
                                      self._tracks, 10)
         self.create_subscription(DiagnosticArray, '/perception/status', self._status, 10)
         self.watch_conditions(self.host.conditions)
-        # A human override (rc, keyboard, hold) ends the task the moment it arrives.
-        self.suspended = False
-        self.create_subscription(String, AUTHORITY_TOPIC, self._authority, latched)
+        # A human override (the mux input rc, manual or hold) ends the task the moment it arrives.
+        self.mux = mux_defaults()
+        self.mux_input, self.mux_at, self.born = None, None, time.monotonic()
+        self.create_subscription(String, self.mux['mux_state_topic'], self._mux, latched)
         self.create_subscription(String, self.config['pause_topic'], self._pause, latched)
         self.create_timer(1.0 / float(params.get('tick_hz', 10.0)), self.tick)
 
@@ -394,16 +395,27 @@ class TaskRunner(Node):
             self.host.conditions.tracking(self.velocity['command'], self.velocity['measured'],
                                           self.velocity['effort'], now)
 
-    def _authority(self, message):
-        try:
-            self.host.owner = json.loads(message.data).get('owner')
-        except (ValueError, AttributeError, TypeError):
-            self.host.owner = None
-        self.suspended = claim_suspended(message.data)
-        if self.suspended and self.host.outcome is None and self.host.started is not None:
-            self.preempt()
-        elif self.suspended and self.host.outcome is None:
-            self.refuse()
+    def _mux(self, message):
+        self.mux_input, _ = mux_state(message.data)
+        self.mux_at = time.monotonic()
+        self.check_mux()
+
+    def check_mux(self):
+        """End or refuse the task unless the mux's fresh state lets auto drive (True: stopped).
+
+        Not started yet with no state, it waits up to mux_state_max_age for the latched one.
+        """
+        now, limit = time.monotonic(), self.mux['mux_state_max_age']
+        why = mux_suspends(self.mux_input, None if self.mux_at is None else now - self.mux_at,
+                           limit)
+        if not why or self.host.outcome is not None:
+            return bool(why)
+        self.host.owner = self.mux_input
+        if self.host.started is not None:
+            self.preempt(why)
+        elif self.mux_at is not None or now - self.born > limit:
+            self.refuse(why)
+        return True
 
     def _pause(self, message):
         why = pause_reason(message.data)
@@ -413,8 +425,8 @@ class TaskRunner(Node):
             else:
                 self.host.refuse(why)
 
-    def refuse(self):
-        self.host.refuse()
+    def refuse(self, why=None):
+        self.host.refuse(why)
 
     def preempt(self, why=None):
         self.host.preempt(why)
@@ -442,6 +454,8 @@ class TaskRunner(Node):
 
     def tick(self):
         if self.host.outcome is not None:
+            return
+        if self.check_mux():
             return
         if self.host.started is None and self.now() == 0:  # waiting for /clock
             return
