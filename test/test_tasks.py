@@ -847,7 +847,7 @@ def test_a_task_approach_is_its_own_and_does_not_leak_to_the_next():
 
 
 def test_recognised_task_is_approached_without_a_layout():
-    from mhseals_nav.tasks.behaviours import PlanHypothesis
+    from mhseals_nav.tasks.plans import PlanHypothesis
     world = World('nav_channel', params('nav_channel'))
     world.board.register_key(key='hypotheses', access=py_trees.common.Access.WRITE)
     world.board.hypotheses = [{'type': 'dock', 'state': 'confirmed', 'confidence': 0.9,
@@ -1094,7 +1094,8 @@ def test_offset_gates_get_a_mid_point_so_the_corner_is_not_cut():
 
 
 def test_the_speed_indicator_is_read_between_the_gate_and_the_mark_when_planned():
-    from mhseals_nav.tasks.behaviours import PlanCircle, ReadColour
+    from mhseals_nav.tasks.behaviours import ReadColour
+    from mhseals_nav.tasks.plans import PlanCircle
     from py_trees.composites import Sequence
     py_trees.blackboard.Blackboard.clear()
     board = py_trees.blackboard.Client(name='world')
@@ -1224,7 +1225,7 @@ def test_the_speed_gate_counts_only_inside_its_region_and_not_cleared():
 
 
 def test_the_speed_mark_is_re_placed_by_a_closer_sighting_and_kept_when_unseen():
-    from mhseals_nav.tasks.behaviours import PlanView
+    from mhseals_nav.tasks.plans import PlanView
     from py_trees.decorators import FailureIsSuccess
     board = speed_board(('speed_mark',))
     board.speed_mark = [(30.0, 0.0, 0.0)]  # placed from the start, 30 m off

@@ -1,8 +1,7 @@
 """Commissioning: cross a pole-buoy pair, turn beyond it, and cross back."""
 
-from mhseals_nav.tasks.behaviours import (
-    GateRun, Navigate, PlanGatePass, PlanReturn, Report,
-)
+from mhseals_nav.tasks.behaviours import GateRun, Navigate, Report
+from mhseals_nav.tasks.plans import PlanGatePass, PlanReturn
 from py_trees.composites import Sequence
 
 

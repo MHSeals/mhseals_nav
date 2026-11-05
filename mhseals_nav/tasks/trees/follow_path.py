@@ -6,9 +6,9 @@ species) there were before leaving the task.
 """
 
 from mhseals_nav.tasks.behaviours import (
-    CountObjects, GateRun, Navigate, PlanChainBack, PlanCircle, Remember, ReportCount,
-    ReportObjects, SpeedCap,
+    CountObjects, GateRun, Navigate, Remember, ReportCount, ReportObjects, SpeedCap,
 )
+from mhseals_nav.tasks.plans import PlanChainBack, PlanCircle
 from py_trees.behaviours import Success
 from py_trees.common import ParallelPolicy
 from py_trees.composites import Parallel, Selector, Sequence

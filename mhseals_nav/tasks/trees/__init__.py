@@ -9,7 +9,8 @@ first drives there, so it starts where its objects are in view.
 import math
 
 from mhseals_nav.tasks import search
-from mhseals_nav.tasks.behaviours import Navigate, PlanHypothesis, PlanPose
+from mhseals_nav.tasks.behaviours import Navigate
+from mhseals_nav.tasks.plans import PlanHypothesis, PlanPose
 from mhseals_nav.tasks.trees import (
     circle_test, docking, follow_path, harbor_alert, mission, nav_channel, pair_test,
     return_home, speed_challenge, supply_drop,

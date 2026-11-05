@@ -13,9 +13,9 @@ import math
 
 from mhseals_nav.tasks import layout, search
 from mhseals_nav.tasks.behaviours import (
-    CountObjects, GateRun, Leaf, Navigate, PlanCircle, PlanConcat, PlanGatePass, PlanView,
-    ReadColour, Report, ReportCount, Search,
+    CountObjects, GateRun, Leaf, Navigate, ReadColour, Report, ReportCount, Search,
 )
+from mhseals_nav.tasks.plans import PlanCircle, PlanConcat, PlanGatePass, PlanView
 from py_trees.common import ParallelPolicy, Status
 from py_trees.composites import Parallel, Selector, Sequence
 from py_trees.decorators import FailureIsSuccess
