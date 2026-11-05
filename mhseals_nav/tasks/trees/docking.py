@@ -5,9 +5,8 @@ stage in front, choose again with the bay in view, slide in with the precise goa
 checker, hold, and back out.
 """
 
-from mhseals_nav.tasks.behaviours import (
-    BackOut, Hold, Navigate, PlanBay, PlanLook, PlanSlip, Report,
-)
+from mhseals_nav.tasks.behaviours import BackOut, Hold, Navigate, Report
+from mhseals_nav.tasks.plans import PlanBay, PlanLook, PlanSlip
 from py_trees.composites import Selector, Sequence
 from py_trees.decorators import Retry
 

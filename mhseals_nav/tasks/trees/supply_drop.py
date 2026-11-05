@@ -6,7 +6,8 @@ that is off. Each kind: find a hull, view it from ``standoff``, deliver. The tas
 succeeds once anything was delivered.
 """
 
-from mhseals_nav.tasks.behaviours import Deliver, Leaf, Navigate, PlanView
+from mhseals_nav.tasks.behaviours import Deliver, Leaf, Navigate
+from mhseals_nav.tasks.plans import PlanView
 from py_trees.common import Status
 from py_trees.composites import Sequence
 from py_trees.decorators import FailureIsSuccess

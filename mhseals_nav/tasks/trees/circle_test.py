@@ -1,10 +1,8 @@
 """Commissioning: find a yellow buoy, circle it, and return to the start."""
 
+from mhseals_nav.tasks.behaviours import Navigate, Report, Search
+from mhseals_nav.tasks.plans import PlanCircle, PlanHome
 from py_trees.composites import Sequence
-
-from mhseals_nav.tasks.behaviours import (
-    Navigate, PlanCircle, PlanHome, Report, Search,
-)
 
 
 def build(params):

@@ -5,7 +5,8 @@ entry gates the boat cleared at the start, last first and the other way; if that
 key is empty or the route fails, the gates are found again as red/green pairs.
 """
 
-from mhseals_nav.tasks.behaviours import GateRun, Navigate, PlanChainBack, PlanHome, Report
+from mhseals_nav.tasks.behaviours import GateRun, Navigate, Report
+from mhseals_nav.tasks.plans import PlanChainBack, PlanHome
 from py_trees.composites import Selector, Sequence
 
 
