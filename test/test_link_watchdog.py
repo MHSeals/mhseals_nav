@@ -2,9 +2,8 @@
 
 import json
 import os
-import socket
 
-from mhseals_nav.link_watchdog import LinkWatchdog
+from mhseals_nav.link_watchdog import host_name, LinkWatchdog
 from mhseals_nav.yaml_params import watchdog_config
 import pytest
 
@@ -192,7 +191,7 @@ def test_node_holds_without_the_operator_and_survives_flips():
         status = []
         probe.create_subscription(String, '/link_watchdog/status',
                                   lambda m: status.append(json.loads(m.data)), 10)
-        flip_twice(ex, got, beats(socket.gethostname()), beats(OPERATOR))
+        flip_twice(ex, got, beats(host_name()), beats(OPERATOR))
         assert status and set(status[-1]) == {'ok', 'reason'}   # its liveness beat for the TUI
         assert dog.logic.beat_at is not None
         assert {g['op'] for g in got} == {'hold'}
@@ -200,3 +199,11 @@ def test_node_holds_without_the_operator_and_survives_flips():
         assert {g['by'] for g in got} == {'link_watchdog'} and all(g['token'] for g in got)
     finally:
         rclpy.try_shutdown()
+
+
+def test_never_counts_this_machine_named_by_astro_hostname(monkeypatch):
+    """A container's name is not the machine's: its own beat names ASTRO_HOSTNAME."""
+    monkeypatch.setenv('ASTRO_HOSTNAME', 'Laptop-A.local')
+    dog = LinkWatchdog(dict(CFG, operator_hosts=['laptop-a', OPERATOR]))
+    assert dog.own == host_name() == 'laptop-a'
+    assert not dog.heartbeat(0.0, 'laptop-a') and dog.heartbeat(0.0, OPERATOR)

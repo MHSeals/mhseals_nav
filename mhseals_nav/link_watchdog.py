@@ -11,6 +11,7 @@ a station is taken. Enforced once a heartbeat has arrived this session, or from 
 require_operator is set; never with no operator ever seen otherwise.
 """
 
+import os
 from pathlib import Path
 import socket
 
@@ -24,6 +25,11 @@ NO_STATION = 'no station taken: hw.sh station take'
 def short(host):
     """'Laptop-A.local' -> 'laptop-a'."""
     return str(host).strip().lower().split('.')[0]
+
+
+def host_name():
+    """This machine's short name: ``ASTRO_HOSTNAME`` (a container's machine), else the host name."""
+    return short(os.environ.get('ASTRO_HOSTNAME') or socket.gethostname())
 
 
 class Station:
@@ -68,7 +74,7 @@ class LinkWatchdog(HoldGate):
     def __init__(self, cfg, own_host=None, log=None):
         super().__init__(cfg)
         self.beat_at = None
-        self.own = short(socket.gethostname() if own_host is None else own_host)
+        self.own = host_name() if own_host is None else short(own_host)
         names = {short(h) for h in cfg['operator_hosts']}
         self.literal = names - {STATION, self.own, ''}
         self.station = None

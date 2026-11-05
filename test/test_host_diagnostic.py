@@ -14,7 +14,8 @@ class ExternalShutdownException(Exception):
 
 
 def test_publishes_then_survives_the_launch_shutdown(monkeypatch):
-    monkeypatch.setattr(socket, 'gethostname', lambda: 'camera-host')
+    monkeypatch.delenv('ASTRO_HOSTNAME', raising=False)
+    monkeypatch.setattr(socket, 'gethostname', lambda: 'Camera-Host.local')
     published, timers, seen = [], [], []
     node = SimpleNamespace(
         create_publisher=lambda *a: SimpleNamespace(publish=published.append),

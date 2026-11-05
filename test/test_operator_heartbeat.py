@@ -5,6 +5,7 @@ import sys
 from types import ModuleType
 
 from mhseals_nav import operator_heartbeat as heartbeat
+from mhseals_nav.yaml_params import section_config, WATCHDOGS
 
 
 def test_main_publishes_the_host_name(monkeypatch):
@@ -48,8 +49,14 @@ def _beat(monkeypatch):
     node = Node()
     heartbeat.bind(node)
     node.tick()
-    assert (node.topic, node.period) == ('/operator/heartbeat', 0.5)
+    assert (node.topic, node.period) == ('/operator/heartbeat', 0.5)   # the shipped watchdogs.yaml
     return node.sent.data
+
+
+def test_the_beat_is_link_watchdogs_topic_well_inside_its_max_age():
+    cfg = section_config(WATCHDOGS, 'link_watchdog')
+    topic, period = heartbeat.link()
+    assert topic == cfg['heartbeat_topic'] and period <= cfg['max_age'] / 4
 
 
 def test_the_beat_names_this_machine(monkeypatch):
