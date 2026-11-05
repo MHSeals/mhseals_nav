@@ -56,6 +56,22 @@ def mux_state(state):
     return (source if isinstance(source, str) else None), body
 
 
+def mux_suspends(source, age, limit):
+    """Return why command_mux's ~/state stops a task, '' while auto may drive.
+
+    ``source`` is the state's input (None unreadable), ``age`` its receipt age (None: none
+    yet). Fails closed: an input that outranks auto (rc, manual, hold), and a missing or stale
+    state too, since without a live mux nothing the task sends drives the boat.
+    """
+    if age is None:
+        return 'no command_mux state'
+    if age > limit:
+        return f'command_mux state older than {limit} s'
+    if source is None:
+        return 'unreadable command_mux state'
+    return f'{source} has control' if source in OUTRANK_AUTO else ''
+
+
 def mux_defaults():
     """watchdogs.yaml's mux_state_topic and mux_state_max_age (its defaults), for other readers."""
     from mhseals_nav.layers import load_strict

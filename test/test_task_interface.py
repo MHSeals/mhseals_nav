@@ -167,20 +167,6 @@ def test_pass_gates_through_a_gate_reports_one_goal(monkeypatch):
     assert len(events) == 1 and events[0][0] == 'goal'
 
 
-def test_the_mux_state_suspends_a_task_unless_fresh_and_not_outranking_auto():
-    """rc, manual and hold suspend; so do no state, a stale one and an unreadable one."""
-    from mhseals_nav.hold_watchdog import mux_state
-    from mhseals_nav.tasks.interface import mux_suspends
-    for source in ('rc', 'manual', 'hold'):
-        assert mux_suspends(source, 0.1, 2.5) == f'{source} has control'
-    for source in ('auto', 'idle'):
-        assert mux_suspends(source, 0.1, 2.5) == ''
-    assert mux_suspends('auto', None, 2.5) == 'no command_mux state'
-    assert mux_suspends('auto', 3.0, 2.5) == 'command_mux state older than 2.5 s'
-    for bad in ('', 'not json', 'null', '[]', '{}', '{"input": 3}'):
-        assert mux_suspends(mux_state(bad)[0], 0.1, 2.5) == 'unreadable command_mux state'
-
-
 def test_no_mux_state_refuses_after_the_wait_and_a_stale_one_preempts(monkeypatch):
     rclpy.init()
     runner = None

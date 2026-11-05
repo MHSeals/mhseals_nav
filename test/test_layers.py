@@ -40,6 +40,13 @@ def test_package_files_come_from_the_source_tree_when_running_from_it():
     assert package_setup() == ROOT / 'config/mavros_setup.yaml'
 
 
+def test_the_behavior_trees_are_found_beside_the_module():
+    """The trees install with the Python package: no package_path, right under either install."""
+    from mhseals_nav.startup_projection import bt_paths, PRECISE_TREE
+    assert PRECISE_TREE.is_file()
+    assert all(Path(tree).is_file() for tree in bt_paths().values())
+
+
 def test_a_plain_install_reads_the_share(installed):
     from mhseals_nav import layers
     from mhseals_nav.tasks import params
