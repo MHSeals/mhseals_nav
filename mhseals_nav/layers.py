@@ -16,7 +16,8 @@ def read(selected):
 def resolve(package, deployment='', operator='', *, validate):
     """Merge the selected layers in order, each validated alone by ``validate(layer, label)``.
 
-    An empty selection is skipped. Returns the merged values and one frozen
+    A validate that returns a mapping hands back the layer's normalized form, which is merged
+    instead. An empty selection is skipped. Returns the merged values and one frozen
     {path, sha256, layer} identity per file read.
     """
     values, inputs = {}, []
@@ -26,7 +27,7 @@ def resolve(package, deployment='', operator='', *, validate):
             continue
         path, raw, digest = read(selected)
         layer = load_strict(raw, path)
-        validate(layer, label)
-        deep_merge(values, layer)
+        normalized = validate(layer, label)
+        deep_merge(values, layer if normalized is None else normalized)
         inputs.append(MappingProxyType({'path': str(path), 'sha256': digest, 'layer': label}))
     return values, inputs
