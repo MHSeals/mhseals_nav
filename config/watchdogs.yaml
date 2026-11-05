@@ -93,8 +93,8 @@ fence_watchdog:
 fcu_watchdog:
   cause: fcu_link
   state_topic: /mavros/state            # on every FCU heartbeat, ~1 Hz
-  imu_topic: /mavros/imu/data           # ~50 Hz (mavros_setup message_rates)
-  gps_topic: /mavros/global_position/raw/fix   # ~5 Hz, with or without a fix
+  imu_topic: /mavros/imu/data           # 100 Hz (mavros_setup message_rates)
+  gps_topic: /mavros/global_position/raw/fix   # 10 Hz, with or without a fix
   max_state_age: 3.0
   max_imu_age: 1.0                      # the ODROID stalls past 0.5 s under load
   max_gps_age: 1.5
@@ -103,8 +103,8 @@ fcu_watchdog:
 # /gps/fix relays and the /odom/mavros adapter (in the simulator, the simulator's).
 ekf_input_watchdog:
   cause: ekf_inputs
-  imu_topic: /imu/raw                   # ~25 Hz, field gaps to 0.26 s
-  gps_topic: /gps/fix                   # ~5 Hz (GPS_RAW_INT)
+  imu_topic: /imu/raw                   # 100 Hz (25 Hz at loop 50), field gaps to 0.26 s
+  gps_topic: /gps/fix                   # 10 Hz (GPS_RAW_INT)
   odom_topic: /odom/mavros              # ~20 Hz; ~5 Hz with velocity_source gps
   max_imu_age: 1.0
   max_gps_age: 2.0                      # receiver gaps reach 1.1 s, plus the relay and stalls

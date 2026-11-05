@@ -51,7 +51,7 @@ def expand(**arguments):
 
 def test_jetson_runs_camera_zed_perception_and_the_lidar():
     assert expand(device='jetson') == {
-        'camera.launch.py': (None, {'sim': 'false'}),
+        'camera.launch.py': (None, {'sim': 'false', 'camera_model': 'zed2i'}),
         'objects.launch.py': (None, {'sim': 'false', 'backend': 'zed'}),
         'sensors.launch.py': (None, {'sim': 'false'}),
         'host_diagnostic': (['ros2', 'run', 'mhseals_testing', 'host_diagnostic'], {}),

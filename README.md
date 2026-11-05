@@ -133,7 +133,7 @@ RTABMap should report a live input rate and publish `/map` while the boat moves.
 2. Write on land while disarmed, then reboot.
 3. Snapshot again into `config/fcu/`.
 
-Heading comes from the calibrated external compass (fixed-yaw magcal) with the internal compass disabled. Message rates come from `mavros_setup`, not the `SR*` params.
+Heading comes from the calibrated external compass (fixed-yaw magcal) with the internal compass disabled. Message rates come from `mavros_setup` (`config/mavros_setup.yaml`: ATTITUDE_QUATERNION and RAW_IMU 100 Hz, GPS_RAW_INT 10 Hz, GLOBAL_POSITION_INT 20 Hz), not the `SR*` params; the 100 Hz streams need `SCHED_LOOP_RATE` 200.
 
 | Param | Value | Why |
 | --- | --- | --- |

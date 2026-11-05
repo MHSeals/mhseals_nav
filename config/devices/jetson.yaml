@@ -3,7 +3,9 @@
 requires: [zed, gpu]
 args: {sim: 'false'}
 parts:
-  camera: {launch: camera.launch.py, nodes: [zed_node]}
+  # The vessel's ZED 2i: with its IMU and magnetometer it is a second IMU and a third heading source
+  # (/front/zed_node/imu/data, imu/mag) beside the FCU's.
+  camera: {launch: camera.launch.py, args: {camera_model: zed2i}, nodes: [zed_node]}
   # Backend, tracker and the perception costmap (/perception/costmap).
   objects: {launch: objects.launch.py, args: {backend: zed}, nodes: [zed_backend, object_tracker, costmap]}
   # velodyne_driver runs on the large-data transport, which no other computer discovers; the
