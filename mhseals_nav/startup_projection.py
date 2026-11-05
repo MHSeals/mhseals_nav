@@ -5,7 +5,7 @@ import math
 from pathlib import Path
 from xml.etree import ElementTree
 
-from .endpoint_configuration import boolean
+from .layers import boolean
 from .navigation_config import (load_ceilings, load_overlay, load_strict,
                                 validate_navigation_base,
                                 validated_merge_limits)

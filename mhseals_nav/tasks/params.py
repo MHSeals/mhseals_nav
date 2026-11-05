@@ -6,7 +6,7 @@ The mission host builds its trees from these; a harness that only needs the run 
 
 from pathlib import Path
 
-from mhseals_nav.navigation_config import load_strict
+from mhseals_nav.layers import load_strict
 
 
 def config_path(name):

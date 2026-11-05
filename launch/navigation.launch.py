@@ -75,7 +75,7 @@ def generate_launch_description():
 
 def guard_nodes(context):
     """Hold-only nodes; without a mux nothing would act on their requests."""
-    from mhseals_nav.endpoint_configuration import boolean
+    from mhseals_nav.layers import boolean
 
     def flag(name):
         return boolean(LaunchConfiguration(name).perform(context))

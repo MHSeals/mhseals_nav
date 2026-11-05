@@ -11,7 +11,7 @@ from types import MappingProxyType
 
 
 from . import layers
-from .navigation_config import load_strict
+from .layers import load_strict
 
 ALIASES = {'mavros_odom_rate': (33,), 'mavros_imu_rate': (30, 31),
            'mavros_gps_rate': (24,), 'mavros_rc_rate': (65,)}

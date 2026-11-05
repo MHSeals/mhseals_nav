@@ -5,9 +5,8 @@ from pathlib import Path
 import re
 from types import MappingProxyType
 
-
 from . import layers
-from .navigation_config import deep_merge
+from .layers import boolean, deep_merge  # noqa: F401 (boolean: kept importable here)
 
 CONTEXTS = ('standalone', 'full_robot', 'tui')
 LAYER_ARGUMENTS = ('endpoint_deployment_file', 'endpoint_startup_file')
@@ -43,15 +42,6 @@ def discover_device(strategy, dev_root=Path('/dev')):
     candidates = sorted((*root.glob('ttyACM*'), *root.glob('ttyUSB*')))
     candidates = [path for path in candidates if path.resolve() not in represented]
     return candidates[0] if candidates else None
-
-
-def boolean(value):
-    """Parse a launch boolean, the package's one parser: true/false/1/0 (any case) or a bool."""
-    if type(value) is bool:
-        return value
-    if not isinstance(value, str) or value.strip().lower() not in ('true', 'false', '1', '0'):
-        raise ValueError(f'invalid launch boolean: {value}')
-    return value.strip().lower() in ('true', '1')
 
 
 @dataclass(frozen=True)

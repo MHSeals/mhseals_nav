@@ -17,8 +17,9 @@ from pathlib import Path
 from socket import gethostname
 from time import monotonic
 
+from mhseals_nav.layers import deep_merge, nested
 from mhseals_nav.robot_geometry import quat_matrix
-from mhseals_nav.yaml_params import camera_fov, merge, renamed
+from mhseals_nav.yaml_params import camera_fov, renamed
 import numpy as np
 
 try:
@@ -36,18 +37,6 @@ PHANTOM_ID = 1000  # ZED label_id of phantom i is PHANTOM_ID + i; truth ids are 
 def rz(angle):
     c, s = math.cos(angle), math.sin(angle)
     return np.array([[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]])
-
-
-def nest(flat):
-    """{'a.b': 1} -> {'a': {'b': 1}} (ROS parameter names to the YAML shape)."""
-    out = {}
-    for name, value in flat.items():
-        *parents, leaf = name.split('.')
-        node = out
-        for key in parents:
-            node = node.setdefault(key, {})
-        node[leaf] = value
-    return out
 
 
 def injection(cfg, case, elapsed):
@@ -317,7 +306,7 @@ class SimBackend(Node):
         from mhseals_nav.utils.live_params import LiveParams, finite, one_of, positive
         super().__init__('sim_backend', automatically_declare_parameters_from_overrides=True)
         # The FOV is the camera's (config/camera.yaml backend.fov), parameters on top.
-        self.cfg = merge({'fov': camera_fov()}, nest(renamed(
+        self.cfg = deep_merge({'fov': camera_fov()}, nested(renamed(
             {n: p.value for n, p in self.get_parameters_by_prefix('').items()
              if n != 'use_sim_time'}, self.get_logger().warning)))
         cfg = self.cfg
@@ -377,8 +366,7 @@ class SimBackend(Node):
             self.truth_error = str(error)
 
     def apply(self, values, changed):
-        from mhseals_nav.yaml_params import merge
-        merge(self.cfg, nest(values))     # deep: inject.* keys without live rules stay
+        deep_merge(self.cfg, nested(values))     # deep: inject.* keys without live rules stay
         if 'case' in changed:
             self.case_start = self.now()
         if self.cfg['emulate'] == 'zed' and not self.elements:

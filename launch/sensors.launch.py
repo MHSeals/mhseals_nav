@@ -5,8 +5,8 @@ from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 from mhseals_nav.endpoint_configuration import (
-    boolean, from_launch as endpoint_from_launch, LAYER_ARGUMENTS as ENDPOINT_LAYERS,
-    UNSET_GCS)
+    from_launch as endpoint_from_launch, LAYER_ARGUMENTS as ENDPOINT_LAYERS, UNSET_GCS)
+from mhseals_nav.layers import boolean
 from mhseals_nav.lidar_configuration import resolve_lidar
 
 # Large-data transport for the lidar pair only; see config/fastdds_large_data.xml.

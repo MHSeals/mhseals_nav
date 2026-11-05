@@ -25,7 +25,7 @@ import math
 from pathlib import Path
 import sys
 
-from mhseals_nav.navigation_config import load_strict
+from mhseals_nav.layers import load_strict
 from mhseals_nav.robot_geometry import description_dir, matrix_rpy, quat_matrix, RobotGeometry
 import numpy as np
 

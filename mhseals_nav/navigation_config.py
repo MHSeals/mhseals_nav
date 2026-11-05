@@ -7,56 +7,10 @@ from pathlib import Path
 
 import yaml
 
+# The strict loader and deep merge live in layers (no domain logic); kept importable here.
+from .layers import deep_merge, load_strict, StrictOverlayLoader  # noqa: F401
+
 log = logging.getLogger(__name__)
-
-
-def deep_merge(dst, src):
-    """Recursively copy src onto dst; lists and scalars replace."""
-    for key, value in src.items():
-        if isinstance(value, dict):
-            deep_merge(dst.setdefault(key, {}), value)
-        else:
-            dst[key] = deepcopy(value)
-    return dst
-
-
-class StrictOverlayLoader(yaml.SafeLoader):
-    """Do not discard ambiguous user assignments during dictionary construction."""
-
-    def construct_mapping(self, node, deep=False):
-        result = {}
-        for key_node, value_node in node.value:
-            if key_node.tag == 'tag:yaml.org,2002:merge':
-                raise ValueError(f'Merge keys are unsupported at {key_node.start_mark}')
-            key = self.construct_object(key_node, deep=deep)
-            if key in result:
-                raise ValueError(f'Duplicate key {key!r} at {key_node.start_mark}')
-            result[key] = self.construct_object(value_node, deep=deep)
-        return result
-
-    def compose_node(self, parent, index):
-        if self.check_event(yaml.AliasEvent):
-            raise ValueError('YAML aliases are unsupported in navigation overlays at '
-                             f'{self.peek_event().start_mark}')
-        return super().compose_node(parent, index)
-
-    def construct_yaml_float(self, node):
-        value = super().construct_yaml_float(node)
-        if not isfinite(value):
-            raise ValueError(f'Non-finite number at {node.start_mark}')
-        return value
-
-
-StrictOverlayLoader.add_constructor('tag:yaml.org,2002:float',
-                                    StrictOverlayLoader.construct_yaml_float)
-
-
-def load_strict(raw, path, loader=StrictOverlayLoader):
-    """Strict-load YAML text or bytes; every failure names the file and position."""
-    try:
-        return yaml.load(raw, Loader=loader)
-    except (ValueError, yaml.YAMLError) as error:
-        raise ValueError(f'{path}: {error}') from error
 
 
 def load_overlay(path, *, strict=False):

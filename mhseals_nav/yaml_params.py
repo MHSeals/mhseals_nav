@@ -11,6 +11,8 @@ from pathlib import Path
 
 import yaml
 
+from mhseals_nav.layers import deep_merge, load_strict, nested
+
 WATCHDOGS = 'watchdogs.yaml'
 HULL = 'hull.yaml'
 ROS_PARAMETERS = ('use_sim_time', 'start_type_description_service')   # every node has them
@@ -33,27 +35,6 @@ RENAMED = {'max_age_s': ('max_age', None), 'command_window_s': ('command_window'
            'hfov_deg': ('hfov', math.radians), 'range_m': ('range', None)}
 
 
-def nested(flat):
-    """{'a.b': 1} -> {'a': {'b': 1}}."""
-    out = {}
-    for key, value in flat.items():
-        *parents, leaf = key.split('.')
-        node = out
-        for part in parents:
-            node = node.setdefault(part, {})
-        node[leaf] = value
-    return out
-
-
-def merge(base, over):
-    for key, value in over.items():
-        if isinstance(value, dict) and isinstance(base.get(key), dict):
-            merge(base[key], value)
-        else:
-            base[key] = value
-    return base
-
-
 def node_config(node, filename, base=None):
     """Return ``base`` < share/mhseals_nav/config/<filename> < the node's parameters.
 
@@ -61,9 +42,10 @@ def node_config(node, filename, base=None):
     """
     from ament_index_python.packages import get_package_share_directory
     path = Path(get_package_share_directory('mhseals_nav')) / 'config' / filename
-    cfg = merge(dict(base or {}), yaml.safe_load(path.read_text())['/**']['ros__parameters'])
+    cfg = deep_merge(deep_merge({}, base or {}),
+                     yaml.safe_load(path.read_text())['/**']['ros__parameters'])
     flat = {name: p.value for name, p in node._parameters.items() if name != 'use_sim_time'}
-    return merge(cfg, nested(flat))
+    return deep_merge(cfg, nested(flat))
 
 
 def config_path(filename):
@@ -95,7 +77,6 @@ def hull(path=None):
     The rectangle about base_link (half_length, half_width) and the padding Nav2's costmaps
     add around it.
     """
-    from mhseals_nav.navigation_config import load_strict
     path = Path(path) if path else config_path(HULL)
     return load_strict(path.read_text(), path)
 
@@ -131,18 +112,18 @@ def section_config(filename, name, overrides=None, warn=lambda message: None, pa
     ``overrides`` is flat ({'lidar.rpm': 600}) as ROS parameters are. Strict: the file
     must have the section, and an override must name a key the section has.
     """
-    from mhseals_nav.navigation_config import load_strict
     path = Path(path) if path else config_path(filename)
     doc = load_strict(path.read_text(), path)
     if not isinstance(doc, dict) or not isinstance(doc.get(name), dict):
         raise ValueError(f'{path}: no {name} section')
-    cfg = merge(merge(merge(dict(base or {}), doc.get('defaults') or {}), doc[name]),
-                (doc.get('tune') or {}).get(name) or {})
+    cfg = {}
+    for layer in (base, doc.get('defaults'), doc[name], (doc.get('tune') or {}).get(name)):
+        deep_merge(cfg, layer or {})
     over = nested(renamed(overrides or {}, warn))
     unknown = sorted(set(over) - set(cfg))
     if unknown:
         raise ValueError(f"{path}: {name} has no {', '.join(unknown)}")
-    return merge(cfg, over)
+    return deep_merge(cfg, over)
 
 
 def node_section_config(node, filename, name, base=None):

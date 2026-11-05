@@ -12,7 +12,8 @@ import math
 
 import numpy as np
 
-from mhseals_nav.yaml_params import camera_fov, merge
+from mhseals_nav.layers import deep_merge
+from mhseals_nav.yaml_params import camera_fov
 
 MOTION_UNKNOWN, MOTION_STATIC, MOTION_MOVING = 0, 1, 2
 MOTION_NAMES = ('unknown', 'static', 'moving')
@@ -98,7 +99,7 @@ class TrackFilter:
     """Predict, associate (id pass then global Mahalanobis gate), update, classify, expire."""
 
     def __init__(self, cfg):
-        self.cfg = merge({'fov': camera_fov()}, cfg)   # the camera's FOV, cfg on top
+        self.cfg = deep_merge({'fov': camera_fov()}, cfg)   # the camera's FOV, cfg on top
         self.all = []               # candidates, live and prior tracks
         self.next_id = 1
         self.last_stamp = -math.inf

@@ -19,7 +19,7 @@ from types import MappingProxyType
 import yaml
 
 from . import layers
-from .navigation_config import load_strict, StrictOverlayLoader
+from .layers import load_strict, StrictOverlayLoader
 from .startup_rules import Rule
 
 NODES = ('ekf_local', 'ekf_global', 'navsat_transform')
