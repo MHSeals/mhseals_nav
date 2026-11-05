@@ -24,7 +24,8 @@ tune:
   costmap_watchdog:
     max_age: 1.0                # receipt age; the TUI costmap_age check fails at 1.0
   approach_guard:
-    enforce: false              # false: log approaches, request no hold (sim enforces)
+    enforce: false              # false: log approaches, request no hold; config/devices/sim.yaml
+                                # enforces through navigation.launch.py approach_enforce
     trigger: 4.0                # hull gap watched; S-overtake holds at about 2.7 m
 
 defaults:

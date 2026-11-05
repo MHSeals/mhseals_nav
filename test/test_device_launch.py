@@ -98,6 +98,19 @@ def test_sim_extends_both_computers_without_the_camera():
     assert profile['parts']['objects']['args'] == {'backend': 'sim'}
 
 
+def test_approach_guard_enforces_in_sim_and_only_logs_on_the_boat():
+    """The sim profile is the one place enforce is set; the boat keeps watchdogs.yaml's false."""
+    from mhseals_nav.yaml_params import config_path
+    import yaml
+    sim, boat = (device_profile.load(name) for name in ('sim', 'odroid'))
+    assert device_profile.launch_arguments(sim, sim['parts']['navigation']) == {
+        'sim': 'true', 'command_mux': 'true', 'approach_enforce': 'true'}
+    assert 'approach_enforce' not in device_profile.launch_arguments(
+        boat, boat['parts']['navigation'])
+    tune = yaml.safe_load(config_path('watchdogs.yaml').read_text())['tune']
+    assert tune['approach_guard']['enforce'] is False
+
+
 def test_overrides_are_the_session_layer():
     overrides = '{"parts": {"navigation": {"args": {"limits_file": "/x/nav2.yaml"}}}}'
     parts = expand(device='odroid', only='navigation', overrides=overrides)

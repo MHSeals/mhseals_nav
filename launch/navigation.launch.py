@@ -65,6 +65,9 @@ def generate_launch_description():
         DeclareLaunchArgument('perception', default_value='true',
                               description='A perception costmap feeds Nav2; false skips the '
                                           'stale-costmap watchdog'),
+        DeclareLaunchArgument('approach_enforce', default_value='',
+                              description='approach_guard requests holds; empty keeps '
+                                          'watchdogs.yaml tune.approach_guard.enforce'),
         OpaqueFunction(function=navigation_nodes),
         OpaqueFunction(function=guard_nodes),
     ])
@@ -80,8 +83,10 @@ def guard_nodes(context):
         return []
     clock = {'use_sim_time': flag('sim')}
     nodes = [('costmap_watchdog', clock)] if flag('perception') else []
-    # The approach guard holds when an obstacle closes in on the hull from any side.
-    # Log-only on the boat until water bags replay clean.
-    nodes.append(('approach_guard', dict(clock, enforce=flag('sim'))))
+    # The approach guard holds when an obstacle closes in on the hull from any side
+    # (watchdogs.yaml: log-only until water bags replay clean; the sim profile enforces).
+    enforce = LaunchConfiguration('approach_enforce').perform(context).strip()
+    nodes.append(('approach_guard', dict(clock, **(
+        {'enforce': flag('approach_enforce')} if enforce else {}))))
     return [Node(package='mhseals_nav', executable=name, name=name, output='screen',
                  parameters=[parameters]) for name, parameters in nodes]

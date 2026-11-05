@@ -8,7 +8,7 @@ import numpy
 import pytest
 
 CFG = watchdog_config('approach_guard')
-ENFORCE = {**CFG, 'enforce': True}   # as navigation.launch.py runs it in sim
+ENFORCE = {**CFG, 'enforce': True}   # as the sim profile runs it (approach_enforce)
 RES = 0.15
 DT = 1.0 / CFG['rate']
 
