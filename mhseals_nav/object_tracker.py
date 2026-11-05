@@ -21,7 +21,6 @@ from rclpy.time import Time
 from diagnostic_msgs.msg import DiagnosticArray
 from nav_msgs.msg import OccupancyGrid, Odometry
 from tf2_ros import Buffer, TransformException, TransformListener
-from vision_msgs.msg import Detection3D, Detection3DArray, ObjectHypothesisWithPose
 from visualization_msgs.msg import MarkerArray
 
 from mhseals_nav import course_map, track_grid
@@ -71,7 +70,6 @@ class ObjectTracker(Node):
         self.create_subscription(ObservationArray, cfg['observations_topic'],
                                  self.on_observations, OBSERVATIONS)
         self.tracks_pub = self.create_publisher(TrackArray, '/perception/tracks', RELIABLE)
-        self.objects_pub = self.create_publisher(Detection3DArray, '/objects/map', RELIABLE)
         self.track_markers_pub = self.create_publisher(MarkerArray, '/tracked_objects', RELIABLE)
         self.obs_markers_pub = self.create_publisher(
             MarkerArray, '/perception/detection_markers', RELIABLE)
@@ -188,7 +186,6 @@ class ObjectTracker(Node):
         now_msg, now = self.get_clock().now().to_msg(), self.now()
         array = TrackArray()
         array.header.stamp, array.header.frame_id = now_msg, self.map
-        objects = Detection3DArray(header=array.header)
         for track in self.filter.tracks:
             xyz = R @ np.array([track.x[0], track.x[1], track.z]) + p
             vel = R[:2, :2] @ track.x[2:]
@@ -210,22 +207,8 @@ class ObjectTracker(Node):
             msg.first_seen = Time(nanoseconds=int(track.first_seen * 1e9)).to_msg()
             msg.last_seen = Time(nanoseconds=int(track.last_seen * 1e9)).to_msg()
             array.tracks.append(msg)
-            if track.source == SOURCE_LIVE:
-                objects.detections.append(self.detection(objects.header, msg))
         self.tracks_pub.publish(array)
-        self.objects_pub.publish(objects)
         self.last_tracks = array
-
-    @staticmethod
-    def detection(header, track):
-        det = Detection3D(header=header, id=str(track.id))
-        det.bbox.center = track.pose.pose
-        det.bbox.size = track.size
-        hyp = ObjectHypothesisWithPose()
-        hyp.hypothesis.class_id, hyp.hypothesis.score = track.class_id, float(track.confidence)
-        hyp.pose.pose = track.pose.pose
-        det.results.append(hyp)
-        return det
 
     def publish_grid(self):
         centre = self.latest(self.odom, self.base)

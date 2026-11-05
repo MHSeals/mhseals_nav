@@ -1,4 +1,4 @@
-# Task 1, navigation channel. Labels are the tracker's class ids (/objects/map).
+# Task 1, navigation channel. Labels are the tracker's class ids (/perception/tracks).
 red: red_pole_buoy
 green: green_pole_buoy
 # The side red is on going through a gate (port | starboard | any): the colour order sets
