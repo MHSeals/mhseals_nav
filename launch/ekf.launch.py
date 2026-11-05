@@ -55,7 +55,7 @@ def generate_launch_description():
         *[DeclareLaunchArgument(name, default_value='')
           for name in (*LAYER_ARGUMENTS, *ALIASES) if name != 'ekf_delay'],
         DeclareLaunchArgument('ekf_startup_context', default_value='standalone'),
-        DeclareLaunchArgument('sim', default_value='false', description='Use the simulation clock'),
+        DeclareLaunchArgument('sim', default_value='false', description='Use the sim clock'),
         DeclareLaunchArgument('ekf_delay', default_value='',
                               description='Seconds to hold the EKFs back (odom.launch sets 6 for MAVROS)'),
         DeclareLaunchArgument('ekf_overlay_file', default_value='',
