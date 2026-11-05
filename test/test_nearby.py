@@ -6,7 +6,6 @@ from types import SimpleNamespace
 from mhseals_nav.nearby import Rate, summarize, xyz
 import numpy
 import pytest
-import yaml
 
 HULL = (0.6315, 0.5475)
 

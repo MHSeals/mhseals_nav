@@ -65,7 +65,7 @@ def main():
         for value, axis in ((msg.linear.x, 0), (msg.linear.y, 1), (msg.angular.z, 2)):
             assert low[axis] - 0.001 <= value <= high[axis] + 0.001, msg
 
-    subscription = node.create_subscription(Twist, '/cmd_vel', on_command, 10)
+    node.create_subscription(Twist, '/cmd_vel', on_command, 10)
 
     lag = float(option('--lag', 0.0))
     noise = float(option('--noise', 0.0))
@@ -102,7 +102,7 @@ def main():
                        18 * math.sin(i * math.pi / 36), 0.3) for i in range(72)]
             cloud_pub.publish(create_cloud_xyz32(header, points))
 
-    timer = node.create_timer(0.05, tick)
+    node.create_timer(0.05, tick)
     process = None
 
     def spin_until(predicate, timeout):
