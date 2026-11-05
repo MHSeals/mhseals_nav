@@ -107,7 +107,7 @@ class World:
             travel
         self.cover = search.Coverage(cfg['area'], cfg['cell'], pose, cfg['radius'],
                                      cfg['forget_s'])
-        self.fov = (math.radians(cfg['hfov_deg']), cfg['range_m'])
+        self.fov = search.camera_view()
         self.tree = py_trees.trees.BehaviourTree(root)
         self.tree.setup(navigator=self, report=lambda event, **details: None)
         self.board = py_trees.blackboard.Client(name='world')

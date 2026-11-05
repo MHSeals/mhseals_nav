@@ -4,7 +4,7 @@
   ros__parameters:
     detections_topic: /detections
     truth_odom_topic: /crane/odom          # world-frame truth; twist.angular.z drives heading_lag_s
-    camera_info_topic: /front_camera/camera_info   # box2d projection; image.* + fov.hfov_deg until it arrives
+    camera_info_topic: /front_camera/camera_info   # box2d projection; image.* + fov.hfov until it arrives
     base_frame: base_link
     # Truth ids for emulate zed; without it zed falls back to plain. Relative: under $MHSEALS_DATA,
     # else $ROS_WS/bags, where crane_full_stack's course truth is written. Reloaded when it changes.
@@ -12,7 +12,7 @@
     truth_match_m: 1.0
     max_detection_age: 1.0
     emulate: plain                         # plain | zed (runs zed_backend.convert_objects)
-    fov: {hfov_deg: 110.0, range_m: 20.0}
+    # fov: config/camera.yaml backend.fov (the one camera FOV), read by the node.
     image: {width: 1280, height: 720}
     inject:                                # used while case is none
       heading_bias_deg: 0.0                # estimated heading = truth + bias - lag * yaw rate

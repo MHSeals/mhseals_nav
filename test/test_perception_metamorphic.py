@@ -46,6 +46,7 @@ except ImportError:  # host without the generated messages: duck types with the 
 from mhseals_nav import sim_backend as sb  # noqa: E402, I100
 from mhseals_nav.heading_check import HeadingCheck, OK, WARN  # noqa: E402
 from mhseals_nav.track_filter import MOTION_MOVING, MOTION_STATIC, TrackFilter  # noqa: E402
+from mhseals_nav.yaml_params import camera_fov  # noqa: E402
 
 SEED, RATE, DURATION, T0 = 7, 15.0, 120.0, 1.0   # T0 keeps every TF lookup at t > 0
 SPEED, YAW_RATE, RAMP = 1.5, 0.4, 3.0
@@ -61,13 +62,14 @@ BUOYS = [(label, 11.0 * math.cos(a), 11.0 * math.sin(a)) for label, a in zip(
 ELEMENTS = [{'label': label, 'x': x, 'y': y} for label, x, y in BUOYS]
 BACKEND = yaml.safe_load((ROOT / 'config' / 'sim_backend.yaml').read_text())[
     '/**']['ros__parameters']
-SIM = dict(BACKEND, phantoms={'names': ['boat'], 'boat': {
+FOV = camera_fov()           # both nodes read the camera's
+SIM = dict(BACKEND, fov=FOV, phantoms={'names': ['boat'], 'boat': {
     'label': 'yellow_target_boat', 'centre': [0.0, 0.0], 'radius_m': 6.0, 'speed_mps': 0.8,
     'size': [1.0, 0.5, 0.4]}})
-TRACKER = yaml.safe_load((ROOT / 'config' / 'tracker.yaml').read_text())[
-    '/**']['ros__parameters']
+TRACKER = dict(yaml.safe_load((ROOT / 'config' / 'tracker.yaml').read_text())[
+    '/**']['ros__parameters'], fov=FOV)
 IMAGE = (1280, 720)
-K = sb.pinhole(IMAGE, SIM['fov']['hfov_deg'])
+K = sb.pinhole(IMAGE, SIM['fov']['hfov'])
 
 
 def case(bias=0.0, lag=0.0, ext=0.0, offset=0.0):
