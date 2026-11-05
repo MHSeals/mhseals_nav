@@ -20,10 +20,6 @@ controller_server.FollowPath.vx_std: {type: float, units: m/s, tier: live, doc: 
 controller_server.FollowPath.vy_std: {type: float, units: m/s, tier: live, doc: "Lateral sampling noise; keep below vy_max."}
 controller_server.FollowPath.wz_std: {type: float, units: rad/s, tier: live, doc: "Yaw sampling noise; keep below wz_max."}
 controller_server.FollowPath.prune_distance: {type: float, units: m, tier: live, doc: "Path length kept ahead of the boat; at least vx_max times the horizon."}
-velocity_smoother.max_velocity: {type: list, units: "m/s, m/s, rad/s", tier: live, doc: "Upper velocity limits (x, y, yaw); follow the controller limits."}
-velocity_smoother.min_velocity: {type: list, units: "m/s, m/s, rad/s", tier: live, doc: "Lower velocity limits (x, y, yaw)."}
-velocity_smoother.max_accel: {type: list, units: "m/s^2, m/s^2, rad/s^2", tier: live, doc: "Acceleration limits (x, y, yaw)."}
-velocity_smoother.max_decel: {type: list, units: "m/s^2, m/s^2, rad/s^2", tier: live, doc: "Deceleration limits (x, y, yaw), negative."}
 
 mavros_setup.message_rates: {type: list, units: "ID:Hz", tier: live, doc: "MAVLink message intervals requested on connect and reconnect; 0 resets, -1 disables."}
 mavros_setup.retry_attempts: {type: int, units: count, tier: restart, doc: "Interval requests attempted per connection."}

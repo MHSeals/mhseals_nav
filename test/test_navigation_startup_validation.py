@@ -162,7 +162,10 @@ def test_absent_optional_overlay_preserves_custom_controller_base(base, tmp_path
     assert len(nodes) == 7
     emitted = yaml.safe_load(Path(nodes[0]['parameters'][0]).read_text())
     emitted_controller = emitted['controller_server']['ros__parameters']
-    assert emitted_controller['CustomController'] == controller['CustomController']
+    # Its plugin is the MPPI shim, so it still takes the shim limits from its own wz_max/az_max.
+    custom = controller['CustomController']
+    assert emitted_controller['CustomController'] == {
+        **custom, 'rotate_to_heading_angular_vel': custom['wz_max'], 'max_angular_accel': custom['az_max']}
     assert 'FollowPath' not in emitted['controller_server']['ros__parameters']
     # A real overlay on this selected base must not require a FollowPath mapping.
     merged = validated_merge_limits(base, {'controller_server': {'ros__parameters': {

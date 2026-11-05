@@ -1,9 +1,14 @@
 from pathlib import Path
 
 from mhseals_nav.navigation_config import derived, load_overlay, merge_limits
+import pytest
 import yaml
 
 CONFIG = Path(__file__).parents[1] / 'config'
+# Every FollowPath limit the smoother, shim and behavior server take.
+LIMITS = {'vx_max': .4, 'vx_min': -.1, 'vy_max': .15, 'wz_max': .3,
+          'ax_max': .3, 'ax_min': -.3, 'ay_max': .3, 'az_max': .5}
+SHIM = 'nav2_rotation_shim_controller::RotationShimController'
 
 
 def test_limits_use_current_planner_and_horizon_without_mutating_base():
@@ -21,7 +26,7 @@ def test_limits_use_current_planner_and_horizon_without_mutating_base():
 
 def test_current_reverse_cap_and_shorter_horizon_win_over_old_limits():
     base = {'controller_server': {'ros__parameters': {'FollowPath': {
-                'vx_min': -.1, 'model_dt': .1, 'time_steps': 10, 'prune_distance': 1.}}},
+                **LIMITS, 'vx_min': -.1, 'model_dt': .1, 'time_steps': 10, 'prune_distance': 1.}}},
             'velocity_smoother': {'ros__parameters': {'min_velocity': [-.1, -.5, -.5]}}}
     limits = {'controller_server': {'ros__parameters': {'FollowPath': {
                   'vx_max': 1., 'vx_min': -.2, 'prune_distance': 9.6}}},
@@ -46,7 +51,7 @@ def test_sampling_noise_never_exceeds_a_measured_axis_limit():
 
 def test_derived_ties_smoother_and_model_dt_to_mppi():
     config = {'controller_server': {'ros__parameters': {'controller_frequency': 20., 'FollowPath': {
-                  'model_dt': .1, 'time_steps': 10, 'vx_max': .5, 'vx_min': -.2,
+                  **LIMITS, 'model_dt': .1, 'time_steps': 10, 'vx_max': .5, 'vx_min': -.2,
                   'vy_max': .1, 'wz_max': .3, 'prune_distance': 0.}}},
               'velocity_smoother': {'ros__parameters': {
                   'max_velocity': [9., 9., 9.], 'min_velocity': [-9., -9., -9.]}}}
@@ -97,18 +102,31 @@ def test_non_numeric_or_zero_limits_are_reported_not_raised(caplog):
     assert 'is not a number' in caplog.text and 'must be positive' in caplog.text
 
 
-def test_derived_ties_smoother_accel_to_mppi():
+def test_derived_sets_smoother_accel_and_behavior_rotation_from_mppi():
     config = {'controller_server': {'ros__parameters': {'FollowPath': {
-                  'ax_max': .1, 'ax_min': -.2, 'ay_max': .15, 'az_max': .4}}},
-              'velocity_smoother': {'ros__parameters': {
-                  'max_accel': [.3, .3, .5], 'max_decel': [-.3, -.3, -.5]}}}
-    smoother = derived(config)['velocity_smoother']['ros__parameters']
+                  **LIMITS, 'ax_max': .1, 'ax_min': -.2, 'ay_max': .15, 'az_max': .4}}},
+              'velocity_smoother': {'ros__parameters': {}},
+              'behavior_server': {'ros__parameters': {'min_rotational_vel': .1}}}
+    result = derived(config)
+    smoother = result['velocity_smoother']['ros__parameters']
     assert smoother['max_accel'] == [.1, .15, .4]
     assert smoother['max_decel'] == [-.2, -.15, -.4]
+    assert result['behavior_server']['ros__parameters'] == {
+        'min_rotational_vel': .1, 'max_rotational_vel': .3, 'rotational_acc_lim': .4}
+
+
+def test_derived_refuses_a_missing_follow_path_limit():
+    for section in ('velocity_smoother', 'behavior_server'):
+        config = {'controller_server': {'ros__parameters': {'FollowPath': {
+                      key: value for key, value in LIMITS.items() if key != 'az_max'}}},
+                  section: {'ros__parameters': {}}}
+        with pytest.raises(ValueError, match='FollowPath.az_max'):
+            derived(config)
 
 
 def test_derived_ties_shim_rotation_to_mppi():
-    follow = {'wz_max': .2, 'az_max': .3, 'rotate_to_heading_angular_vel': .3, 'max_angular_accel': .5}
+    follow = {'plugin': SHIM, 'primary_controller': 'nav2_mppi_controller::MPPIController',
+              'wz_max': .2, 'az_max': .3}
     config = {'controller_server': {'ros__parameters': {'FollowPath': follow}}}
     shim = derived(config)['controller_server']['ros__parameters']['FollowPath']
     assert (shim['rotate_to_heading_angular_vel'], shim['max_angular_accel']) == (.2, .3)
@@ -116,7 +134,7 @@ def test_derived_ties_shim_rotation_to_mppi():
 
 def overlay_params(**params):
     base = {'controller_server': {'ros__parameters': {'controller_frequency': 10., 'FollowPath': {
-        'vx_max': .4, 'model_dt': .1, 'time_steps': 40, 'prune_distance': 3.}}},
+        **LIMITS, 'model_dt': .1, 'time_steps': 40, 'prune_distance': 3.}}},
         'velocity_smoother': {'ros__parameters': {'max_velocity': [.4, .15, .3]}}}
     controller = {k: v for k, v in params.items() if k != 'vx_max'}
     follow = {'vx_max': params['vx_max']} if 'vx_max' in params else {}
@@ -166,8 +184,8 @@ def test_integral_float_for_an_integer_key_launches_as_int_and_others_keep_the_b
 
 def test_zero_minimum_forbids_reversing_and_reaches_the_smoother(caplog):
     base = {'controller_server': {'ros__parameters': {'FollowPath': {
-                'vx_min': -.1, 'model_dt': .1, 'time_steps': 10, 'prune_distance': 1.}}},
-            'velocity_smoother': {'ros__parameters': {'min_velocity': [-.1, -.5, -.5]}}}
+                **LIMITS, 'model_dt': .1, 'time_steps': 10, 'prune_distance': 1.}}},
+            'velocity_smoother': {'ros__parameters': {}}}
     for zero in (0, 0.):
         limits = {'controller_server': {'ros__parameters': {'FollowPath': {'vx_min': zero}}}}
         with caplog.at_level('ERROR'):
@@ -195,16 +213,11 @@ def test_overlay_above_the_ceiling_keeps_the_base_and_logs(caplog):
 def test_packaged_ceilings_sit_above_the_base_limits():
     config = yaml.safe_load((CONFIG / 'nav2_params.yaml').read_text())
     ceilings = yaml.safe_load((CONFIG / 'nav2_ceilings.yaml').read_text())
-    sections = {
-        'FollowPath': config['controller_server']['ros__parameters']['FollowPath'],
-        'behavior_server': config['behavior_server']['ros__parameters'],
-    }
+    follow = config['controller_server']['ros__parameters']['FollowPath']
     assert ceilings.keys() == {'vx_max', 'vy_max', 'wz_max', 'ax_max', 'az_max', 'ay_max',
-                               'max_rotational_vel', 'rotational_acc_lim',
                                'vx_min', 'ax_min', 'ay_min'}
     for key, ceiling in ceilings.items():
-        base = abs(next(section[key] for section in sections.values() if key in section))
-        assert base < ceiling <= 2 * base, key
+        assert abs(follow[key]) < ceiling <= 2 * abs(follow[key]), key
 
 
 def test_nav2_params_has_only_node_sections():

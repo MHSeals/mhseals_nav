@@ -7,13 +7,12 @@ import yaml
 
 ROOT = Path(__file__).parents[1]
 SCHEMA = yaml.safe_load((ROOT / 'config/schema.yaml').read_text())
-FILES = {'controller_server': 'nav2_params', 'velocity_smoother': 'nav2_params',
-         'mavros_setup': 'mavros_setup', 'lidar': 'lidar'}
+FILES = {'controller_server': 'nav2_params', 'mavros_setup': 'mavros_setup', 'lidar': 'lidar'}
 WATCHDOGS = ('fence_watchdog',)      # sections of watchdogs.yaml, as the node resolves them
 R2_UNITS = {'s', 'Hz', 'm', 'm/s', 'rad', 'rad/s', 'm/s^2', 'count', 'bool', 'enum', 'frame',
             'topic', 'path', '1'}
 # Not in the R2 list yet; the astro lane owns docs/config-conventions.md.
-PENDING_R2 = {'rad/s^2', 'ID:Hz', 'deg', 'm/s, m/s, rad/s', 'm/s^2, m/s^2, rad/s^2'}
+PENDING_R2 = {'rad/s^2', 'ID:Hz', 'deg'}
 # Settable in a layer, but defaulted outside the package YAML (boat-network.env LIDAR_IP).
 NO_PACKAGE_DEFAULT = {'lidar.driver.endpoint.ip'}
 TYPES = {'float': (int, float), 'int': (int,), 'bool': (bool,), 'str': (str,),
@@ -27,7 +26,7 @@ def lookup(key):
         node, parts = watchdog_config(head, path=ROOT / 'config/watchdogs.yaml'), parts[1:]
     else:
         node = yaml.safe_load((ROOT / 'config' / (FILES[head] + '.yaml')).read_text())
-    if head in ('controller_server', 'velocity_smoother', 'mavros_setup'):
+    if head in ('controller_server', 'mavros_setup'):
         parts = [head, 'ros__parameters', *parts[1:]]
     elif head == 'lidar':
         parts = parts[1:]

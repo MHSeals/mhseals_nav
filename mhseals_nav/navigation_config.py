@@ -146,9 +146,10 @@ def mppi_controller(controller, *, legacy=False):
 def derived(config, original=None):
     """Return config with the values that follow from others recomputed.
 
-    The smoother passes what MPPI may command, the rotation shim turns no faster than it, MPPI advances one model_dt per
-    control cycle, and the plan must reach the whole horizon. original is the
-    current tuning whose prune_distance is a floor.
+    The smoother passes what MPPI may command, the rotation shim and the behavior server turn no faster than it, MPPI
+    advances one model_dt per control cycle, and the plan must reach the whole horizon. original is the
+    current tuning whose prune_distance is a floor. Raises ValueError when a FollowPath limit those sections take is
+    missing.
     """
     result = deepcopy(config)
     controller = result.get('controller_server', {}).get('ros__parameters', {})
@@ -168,20 +169,31 @@ def derived(config, original=None):
     if all(key in follow for key in ('vx_max', 'time_steps', 'model_dt')):
         follow['prune_distance'] = max(original.get('prune_distance', 0.), round(
             1.2 * follow['vx_max'] * follow['time_steps'] * follow['model_dt'], 2))
-    # The shim's look-ahead and closed-loop accel assume the rates MPPI is held to.
-    for shim, limit in (('rotate_to_heading_angular_vel', 'wz_max'), ('max_angular_accel', 'az_max')):
-        if shim in follow and limit in follow:
-            follow[shim] = follow[limit]
+    # FollowPath is the one velocity source: the shim, the smoother and the behavior server
+    # are held to the rates MPPI is held to, and the base YAML carries no copy of them.
+    targets = []
+    if follow.get('plugin') == 'nav2_rotation_shim_controller::RotationShimController':
+        targets += [(follow, 'rotate_to_heading_angular_vel', 'wz_max'),
+                    (follow, 'max_angular_accel', 'az_max')]
     smoother = result.get('velocity_smoother', {}).get('ros__parameters')
     if smoother is not None:
-        for key, limits in (('max_velocity', ('vx_max', 'vy_max', 'wz_max')),
-                            ('min_velocity', ('vx_min', '-vy_max', '-wz_max')),
-                            ('max_accel', ('ax_max', 'ay_max', 'az_max')),
-                            ('max_decel', ('ax_min', '-ay_max', '-az_max'))):
-            for index, name in enumerate(limits):
-                sign, name = (-1, name[1:]) if name[0] == '-' else (1, name)
-                if name in follow and key in smoother:
-                    smoother[key][index] = sign * follow[name]
+        targets += [(smoother, 'max_velocity', ('vx_max', 'vy_max', 'wz_max')),
+                    (smoother, 'min_velocity', ('vx_min', '-vy_max', '-wz_max')),
+                    (smoother, 'max_accel', ('ax_max', 'ay_max', 'az_max')),
+                    (smoother, 'max_decel', ('ax_min', '-ay_max', '-az_max'))]
+    behavior = result.get('behavior_server', {}).get('ros__parameters')
+    if behavior is not None:
+        targets += [(behavior, 'max_rotational_vel', 'wz_max'),
+                    (behavior, 'rotational_acc_lim', 'az_max')]
+
+    def limit(name):
+        sign, name = (-1, name[1:]) if name[0] == '-' else (1, name)
+        value = follow.get(name)
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(f'FollowPath.{name}: required number, the derived limits follow it')
+        return sign * value
+    for section, key, source in targets:
+        section[key] = [limit(name) for name in source] if isinstance(source, tuple) else limit(source)
     return result
 
 
@@ -411,8 +423,9 @@ def lower_navigation(base, explicit):
     Pure canonical lowering; explicit derived assignments must agree.
 
     Optional smoother sections and plugin maps retain the selected base shape.
-    Only the supported FollowPath closure is bound; unrelated plugin maps and
-    behavior-server rotational limits are independent inputs.
+    Only the supported FollowPath closure is bound; unrelated plugin maps are
+    independent inputs. The smoother, shim and behavior-server rotational
+    limits are absent from the base, so the overlay validation refuses them.
     """
     result = merge_limits(base, explicit, {})     # explicit is already within the ceilings
     controller = explicit.get('controller_server', {}).get('ros__parameters', {})
@@ -420,16 +433,10 @@ def lower_navigation(base, explicit):
     name = mppi_controller(output_controller, legacy=True)
     follow = controller.get(name, {})
     lowered = output_controller.get(name, {})
-    bound = ('model_dt', 'vx_std', 'vy_std', 'wz_std', 'prune_distance',
-             'rotate_to_heading_angular_vel', 'max_angular_accel')
+    bound = ('model_dt', 'vx_std', 'vy_std', 'wz_std', 'prune_distance')
     for key in bound:
         if key in follow and follow[key] != lowered.get(key):
             raise ValueError(f'FollowPath.{key}: conflicts with canonical lowering')
-    smoother = explicit.get('velocity_smoother', {}).get('ros__parameters', {})
-    output = result.get('velocity_smoother', {}).get('ros__parameters', {})
-    for key in ('max_velocity', 'min_velocity', 'max_accel', 'max_decel'):
-        if key in smoother and smoother[key] != output.get(key):
-            raise ValueError(f'velocity_smoother.{key}: conflicts with canonical lowering')
     return result
 
 

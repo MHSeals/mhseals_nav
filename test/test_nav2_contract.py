@@ -28,17 +28,10 @@ def test_omni_mppi_and_command_limits():
     # Below ~1.6 the shim re-engages mid-route and near the goal (stop-and-turn cycles).
     assert 1.6 <= mppi['angular_dist_threshold'] <= 2.2
     assert mppi['rotate_to_heading_once'] is True
-    assert mppi['rotate_to_heading_angular_vel'] <= mppi['wz_max']
-    assert mppi['max_angular_accel'] <= mppi['az_max']
     # Inside the active goal checker's xy tolerance the shim turns to the goal yaw; nothing
     # else steers to it. Jazzy copies that tolerance into position_checker each cycle.
     assert mppi['rotate_to_goal_heading'] is True
-    smoother = config['velocity_smoother']['ros__parameters']
-    # The smoother passes everything MPPI may command, sway included, and no more.
-    assert smoother['max_velocity'] == [mppi['vx_max'], mppi['vy_max'], mppi['wz_max']]
-    assert smoother['min_velocity'] == [mppi['vx_min'], -mppi['vy_max'], -mppi['wz_max']]
-    assert smoother['velocity_timeout'] > 0
-    assert smoother['max_decel'][1] == mppi['ay_min']
+    assert config['velocity_smoother']['ros__parameters']['velocity_timeout'] > 0
     assert mppi['TwirlingCritic']['cost_weight'] > 0
     assert all(mppi[f'{axis}_std'] <= mppi[f'{axis}_max'] for axis in ('vx', 'vy', 'wz'))
     # Nav2's 20 ms default timed out acknowledging compute_path_to_pose in the field.
@@ -47,6 +40,32 @@ def test_omni_mppi_and_command_limits():
     assert controller['precise_goal_checker']['plugin'] == 'nav2_controller::StoppedGoalChecker'
     assert (controller['precise_goal_checker']['xy_goal_tolerance']
             < controller['general_goal_checker']['xy_goal_tolerance'])
+
+
+DERIVED = {'velocity_smoother': ('max_velocity', 'min_velocity', 'max_accel', 'max_decel'),
+           'behavior_server': ('max_rotational_vel', 'rotational_acc_lim')}
+
+
+def test_follow_path_is_the_one_velocity_source():
+    """The base carries no copy of a derived limit; the compiled params take each from FollowPath."""
+    config = yaml.safe_load((ROOT / 'config/nav2_params.yaml').read_text())
+    mppi = config['controller_server']['ros__parameters']['FollowPath']
+    assert not {'rotate_to_heading_angular_vel', 'max_angular_accel'} & mppi.keys()
+    for node, keys in DERIVED.items():
+        assert not set(keys) & config[node]['ros__parameters'].keys(), node
+    ceilings = yaml.safe_load((ROOT / 'config/nav2_ceilings.yaml').read_text())
+    assert not set(DERIVED['behavior_server']) & ceilings.keys()
+    out = compiled()
+    mppi = out['controller_server']['ros__parameters']['FollowPath']
+    assert (mppi['rotate_to_heading_angular_vel'], mppi['max_angular_accel']) == (mppi['wz_max'], mppi['az_max'])
+    smoother = out['velocity_smoother']['ros__parameters']
+    # The smoother passes everything MPPI may command, sway included, and no more.
+    assert smoother['max_velocity'] == [mppi['vx_max'], mppi['vy_max'], mppi['wz_max']]
+    assert smoother['min_velocity'] == [mppi['vx_min'], -mppi['vy_max'], -mppi['wz_max']]
+    assert smoother['max_accel'] == [mppi['ax_max'], mppi['ay_max'], mppi['az_max']]
+    assert smoother['max_decel'] == [mppi['ax_min'], -mppi['ay_max'], -mppi['az_max']]
+    behavior = out['behavior_server']['ros__parameters']
+    assert (behavior['max_rotational_vel'], behavior['rotational_acc_lim']) == (mppi['wz_max'], mppi['az_max'])
 
 
 def compiled():
@@ -160,7 +179,13 @@ def test_behavior_trees_reload_for_each_goal():
 def test_packaged_params_are_already_consistent_with_derived():
     from mhseals_nav.navigation_config import derived
     config = yaml.safe_load((ROOT / 'config/nav2_params.yaml').read_text())
-    assert derived(config) == config
+    result = derived(config)
+    del result['controller_server']['ros__parameters']['FollowPath']['rotate_to_heading_angular_vel']
+    del result['controller_server']['ros__parameters']['FollowPath']['max_angular_accel']
+    for node, keys in DERIVED.items():
+        for key in keys:
+            del result[node]['ros__parameters'][key]
+    assert result == config      # derived() only adds the limits that follow FollowPath
 
 
 def _plugin_strings(node):
