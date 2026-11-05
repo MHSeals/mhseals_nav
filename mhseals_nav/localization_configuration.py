@@ -13,12 +13,12 @@ Fusion arrays replace whole arrays and need exactly 15 booleans. The clock selec
 comes from the ``sim`` argument only.
 """
 from dataclasses import dataclass
-from hashlib import sha256
 from pathlib import Path
 from types import MappingProxyType
 
 import yaml
 
+from . import layers
 from .navigation_config import load_strict, StrictOverlayLoader
 from .startup_rules import Rule
 
@@ -137,12 +137,10 @@ def compile_localization(base_paths, overlay_selection='', use_sim_time=False):
     nodes, inputs = {}, []
 
     def read(path, kind, explicit=True):
-        selection = str(path)
-        path = Path(path).expanduser().resolve(strict=True)
-        raw = path.read_bytes()
+        resolved, raw, digest = layers.read(path)
         inputs.append(MappingProxyType({
-            'path': str(path), 'sha256': sha256(raw).hexdigest(),
-            'kind': kind, 'explicit': explicit, 'selection': selection}))
+            'path': str(resolved), 'sha256': digest,
+            'kind': kind, 'explicit': explicit, 'selection': str(path)}))
         return raw
 
     for name in NODES:
