@@ -65,6 +65,16 @@ Other arguments and defaults are listed by `--show-args`. Lidar reaches Nav2 onl
 | SLAM (optional) | `/points`, `odom → base_link` TF, synchronized clocks |
 | Simulation | `/clock` plus the inputs of the enabled components |
 
+#### Python interface
+
+`mhseals_testing` (harness, fastsim adapter, replay, fusion tools) imports these pure cores rather than copying them. `test/test_public_api.py` pins each name it uses, so a rename fails here first; everything else is internal.
+
+- `fence`: course-area geometry (`polygon`, `problem`, `project`, `inside`, `closest`)
+- `tasks`: `host.MissionHost`, `tracks.Track`/`from_track_array`, `params` (`load_params`, `overlay`, `config_path`, `timeslot`)
+- `track_filter.TrackFilter`, `robot_geometry.RobotGeometry`, `lidar_fusion` frame and calibration helpers
+- startup compilers: `navigation_config`, `startup_projection`, `localization_configuration`, `odometry_configuration`, `endpoint_configuration`, `lidar_configuration`, `mavros_configuration`, `device_profile.load`, `boat_network`
+- messages: `msg.ObservationArray`, `msg.TrackArray`
+
 #### TF ownership
 
 - `map → odom`: global EKF
