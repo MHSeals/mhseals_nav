@@ -5,8 +5,6 @@ import re
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-# Not listed: its mode check compares an unquoted name (PythonExpression), so it cannot run.
-UNLISTED = {'log.launch.py'}
 COMMANDS = yaml.safe_load((ROOT / 'help.yaml').read_text())['commands']
 
 
@@ -27,7 +25,7 @@ def choices(name):
 
 def test_every_launch_file_is_listed():
     files = {path.name for path in (ROOT / 'launch').glob('*.launch.py')}
-    assert set(launches()) == files - UNLISTED
+    assert set(launches()) == files
 
 
 def test_listed_arguments_are_declared_by_their_launch():
