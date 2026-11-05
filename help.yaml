@@ -85,23 +85,24 @@ commands:
     params:
       - {name: sim, type: bool, default: false, description: Use simulation time.}
       - {name: require_operator, type: bool, description: link_watchdog holds before the first heartbeat; empty keeps YAML.}
-      - {name: fence_frame, choices: [latlon, map], description: Fence vertex frame; empty keeps YAML.}
-      - {name: fence_points, description: 'Flat [a, b, ...] vertex list; replaces fence_file.'}
+      - {name: fence_file, description: 'The fence file (relative: in config/); empty keeps YAML.'}
       - {name: fcu_watchdog, type: bool, default: true, description: Hold on a stale or disconnected MAVROS.}
 
   - name: fence
-    run: ros2 param set /fence_watchdog on_exit return
-    summary: The geofence's live keys - the course area and what leaving it does; /fence/status reports both.
+    run: ros2 topic echo /fence/status
+    summary: The geofence is fence_watchdog's fence_file alone, read again on every change; /fence/status reports it.
     notes: >-
-      Restart keys in config/watchdogs.yaml (tune.fence_watchdog): margin (m), return_inset (m inside
-      the nearest edge), return_speed (m/s, Nav2's speed limit while returning), return_timeout (s back
-      inside, else it holds); a return holds once over until the operator or an agent releases it.
+      The TUI's course popup and boat_agent fence write it (course: {corners, on_exit}); a missing or
+      invalid file holds. Restart keys in config/watchdogs.yaml (tune.fence_watchdog): margin (m),
+      return_inset (m inside the nearest edge), return_speed (m/s, Nav2's speed limit while returning),
+      return_timeout (s back inside, else it holds); a return holds once over until released.
     params:
-      - {name: course.corners, description: 'Course area [lat1, lon1, ...], >= 3 corners of a simple polygon; replaced whole or refused.'}
+      - {name: frame, choices: [latlon, map], description: 'The points frame (course: corners are latlon).'}
+      - {name: points, description: 'Flat [a, b, ...], >= 3 corners of a simple polygon.'}
       - {name: on_exit, choices: [alert, return], description: 'Outside under autonomy: alert holds; return drives one slow goal back inside first.'}
     examples:
-      - "ros2 param set /fence_watchdog course.corners '[42.000, -71.000, 42.000, -70.999, 42.001, -70.999]'"
-      - ros2 topic echo /fence/status
+      - boat_agent fence corners LAT,LON LAT,LON LAT,LON
+      - boat_agent fence on_exit return
 
   - name: navigation.launch
     run: ros2 launch mhseals_nav navigation.launch.py
