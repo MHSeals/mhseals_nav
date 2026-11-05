@@ -110,13 +110,9 @@ def test_fixed_discovery_equivalence(tmp_path):
     assert discover_device('tui_stable_hints', tmp_path) == cube
 
 
-def test_installed_share_from_unrelated_cwd(tmp_path, monkeypatch):
-    share = tmp_path / 'installed/share/mhseals_nav'
-    (share / 'config').mkdir(parents=True)
+def test_installed_share_from_unrelated_cwd(tmp_path, monkeypatch, installed):
+    share = installed
     (share / 'config/endpoint_startup.yaml').write_bytes(BASE.read_bytes())
-    packages = ModuleType('ament_index_python.packages')
-    packages.get_package_share_directory = lambda name: str(share)
-    monkeypatch.setitem(sys.modules, 'ament_index_python.packages', packages)
     monkeypatch.chdir(tmp_path)
     assert resolve_endpoints().inputs[0]['path'] == str(share / 'config/endpoint_startup.yaml')
     with pytest.raises(FileNotFoundError):
@@ -125,9 +121,6 @@ def test_installed_share_from_unrelated_cwd(tmp_path, monkeypatch):
 
 def test_actual_launch_adapter_preserves_explicit_alias_provenance(tmp_path, monkeypatch):
     from mhseals_nav.endpoint_configuration import from_launch
-    package = ModuleType('ament_index_python.packages')
-    package.get_package_share_directory = lambda name: str(ROOT)
-    monkeypatch.setitem(sys.modules, 'ament_index_python.packages', package)
     substitutions = ModuleType('launch.substitutions')
 
     class Configuration:

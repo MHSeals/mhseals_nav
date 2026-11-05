@@ -11,7 +11,7 @@ from functools import lru_cache
 
 
 def load_config(name, overrides=None):
-    """config/tasks/``name``.yaml (params.config_path: the share, else this source tree) with
+    """config/tasks/``name``.yaml (params.config_path: the source tree, else the share) with
     ``overrides``, read once per process by the package's one strict loader; callers get copies.
     """
     return {**deepcopy(_parsed(name)), **(overrides or {})}

@@ -51,3 +51,20 @@ def propagating_module_loggers():
     yield
     for logger, propagate in zip(loggers, saved):
         logger.propagate = propagate
+
+
+@pytest.fixture
+def installed(tmp_path, monkeypatch):
+    """Run as a plain install: layers.package_path answers from a fake share (returned)."""
+    import sys
+    from types import ModuleType
+    from mhseals_nav import layers
+    share = tmp_path / 'installed/share/mhseals_nav'
+    (share / 'config').mkdir(parents=True)
+    monkeypatch.setattr(layers, 'SOURCE', tmp_path / 'site-packages')
+    package, packages = ModuleType('ament_index_python'), ModuleType('ament_index_python.packages')
+    packages.get_package_share_directory = {'mhseals_nav': str(share)}.__getitem__
+    package.packages = packages
+    monkeypatch.setitem(sys.modules, 'ament_index_python', package)
+    monkeypatch.setitem(sys.modules, 'ament_index_python.packages', packages)
+    return share

@@ -26,3 +26,30 @@ def test_the_generic_helpers_are_written_once():
                   [*ROOT.glob('mhseals_nav/**/*.py'), *ROOT.glob('launch/*.py')]
                   if pattern.search(path.read_text()))
     assert hits == ['mhseals_nav/layers.py']
+
+
+def test_package_files_come_from_the_source_tree_when_running_from_it():
+    from mhseals_nav import device_profile, layers, robot_geometry, yaml_params
+    from mhseals_nav.mavros_configuration import package_setup
+    from mhseals_nav.tasks import params
+    assert layers.package_path() == ROOT
+    assert yaml_params.config_path('hull.yaml') == ROOT / 'config/hull.yaml'
+    assert params.config_path('mission.yaml') == str(ROOT / 'config/tasks/mission.yaml')
+    assert device_profile.share() == ROOT
+    assert robot_geometry.description_dir() == ROOT / 'description'
+    assert package_setup() == ROOT / 'config/mavros_setup.yaml'
+
+
+def test_a_plain_install_reads_the_share(installed):
+    from mhseals_nav import layers
+    from mhseals_nav.tasks import params
+    assert layers.config_path('hull.yaml') == installed / 'config/hull.yaml'
+    assert params.config_path('mission.yaml') == str(installed / 'config/tasks/mission.yaml')
+
+
+def test_only_package_path_asks_ament_for_this_package():
+    share = re.compile(r'get_package_share_directory\(\s*[\'"]mhseals_nav[\'"]')
+    hits = sorted(str(path.relative_to(ROOT)) for path in
+                  [*ROOT.glob('mhseals_nav/**/*.py'), *ROOT.glob('launch/*.py')]
+                  if share.search(path.read_text()))
+    assert hits == ['mhseals_nav/layers.py']

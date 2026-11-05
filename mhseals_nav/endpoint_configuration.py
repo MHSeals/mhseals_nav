@@ -176,9 +176,7 @@ def resolve_endpoints(package_file=None, deployment_file='', operator_file='', a
     if context not in CONTEXTS:
         raise ValueError('endpoint context must be standalone, full_robot or tui')
     if package_file is None:
-        from ament_index_python.packages import get_package_share_directory
-        package_file = (Path(get_package_share_directory('mhseals_nav')) /
-                        'config/endpoint_startup.yaml')
+        package_file = layers.config_path('endpoint_startup.yaml')
     if not package_file:
         raise ValueError('package endpoint authority must select a file')
     values, inputs = layers.resolve(package_file, deployment_file, operator_file,

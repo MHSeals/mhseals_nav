@@ -1,4 +1,4 @@
-"""A node's YAML from the installed share as defaults, with launch overrides on top.
+"""A node's YAML from the package config/ (layers.config_path) as defaults, with launch overrides on top.
 
 ``section_config`` reads one node's section of a subsystem file (watchdogs.yaml, camera.yaml):
 its defaults, the section and its tune: entries, then overrides, strictly (an unknown key is an
@@ -11,7 +11,7 @@ from pathlib import Path
 
 import yaml
 
-from mhseals_nav.layers import deep_merge, load_strict, nested
+from mhseals_nav.layers import config_path, deep_merge, load_strict, nested
 
 WATCHDOGS = 'watchdogs.yaml'
 HULL = 'hull.yaml'
@@ -36,25 +36,15 @@ RENAMED = {'max_age_s': ('max_age', None), 'command_window_s': ('command_window'
 
 
 def node_config(node, filename, base=None):
-    """Return ``base`` < share/mhseals_nav/config/<filename> < the node's parameters.
+    """Return ``base`` < config/<filename> < the node's parameters.
 
     The node must be built with ``automatically_declare_parameters_from_overrides=True``.
     """
-    from ament_index_python.packages import get_package_share_directory
-    path = Path(get_package_share_directory('mhseals_nav')) / 'config' / filename
+    path = config_path(filename)
     cfg = deep_merge(deep_merge({}, base or {}),
                      yaml.safe_load(path.read_text())['/**']['ros__parameters'])
     flat = {name: p.value for name, p in node._parameters.items() if name != 'use_sim_time'}
     return deep_merge(cfg, nested(flat))
-
-
-def config_path(filename):
-    """config/<filename> of this source tree, else of the installed share."""
-    path = Path(__file__).resolve().parents[1] / 'config' / filename
-    if not path.exists():
-        from ament_index_python.packages import get_package_share_directory
-        path = Path(get_package_share_directory('mhseals_nav')) / 'config' / filename
-    return path
 
 
 def renamed(flat, warn=lambda message: None):

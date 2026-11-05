@@ -32,16 +32,12 @@ def test_integer_policy_launch_and_worker_project_as_double(tmp_path, monkeypatc
         assert type(projected[integer]) is int
 
 
-def test_integer_package_defaults_declare_doubles(tmp_path, monkeypatch):
+def test_integer_package_defaults_declare_doubles(installed, monkeypatch):
     """Direct node declaration defaults normalize package integer spellings too."""
-    from ament_index_python import packages
     data = yaml.safe_load((ROOT / 'config/mavros_setup.yaml').read_text())
     for key in DOUBLES:
         data['mavros_setup']['ros__parameters'][key] = 1
-    config = tmp_path / 'config'
-    config.mkdir()
-    (config / 'mavros_setup.yaml').write_text(yaml.safe_dump(data))
-    monkeypatch.setattr(packages, 'get_package_share_directory', lambda name: str(tmp_path))
+    (installed / 'config/mavros_setup.yaml').write_text(yaml.safe_dump(data))
     defaults = installed_setup_defaults()
     seen = inert_main(monkeypatch)
     for key in DOUBLES:

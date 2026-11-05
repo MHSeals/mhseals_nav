@@ -1,6 +1,5 @@
 """Pure, startup-only odometry layers; identities describe inputs, never live state."""
 from dataclasses import dataclass
-from pathlib import Path
 from types import MappingProxyType
 
 
@@ -73,9 +72,7 @@ def resolve_odometry(package_file=None, deployment_file='', operator_file='',
     if context not in ('standalone', 'included'):
         raise ValueError('EKF startup context must be standalone or included')
     if package_file is None:
-        from ament_index_python.packages import get_package_share_directory
-        package_file = (Path(get_package_share_directory('mhseals_nav')) /
-                        'config/odometry_startup.yaml')
+        package_file = layers.config_path('odometry_startup.yaml')
     values, inputs = layers.resolve(package_file, deployment_file, operator_file,
                                     validate=validate_package)
     for key, raw in (aliases or {}).items():
