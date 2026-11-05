@@ -204,7 +204,7 @@ MPPI plans as if its command were the velocity. Tuning measures what sits in bet
 
 | Measure | How | Parameter: rule |
 | --- | --- | --- |
-| Dead time `L` | Characterize yaw onsets, first-order-plus-dead-time fit | `wz_max`, `rotate_to_heading_angular_vel`: `yaw_tol / (2 T_yaw)`; fix latency first if `L` > 0.3 s |
+| Dead time `L` | Characterize yaw onsets, first-order-plus-dead-time fit | `wz_max` (the shim rate and behavior limit follow it): `yaw_tol / (2 T_yaw)`; fix latency first if `L` > 0.3 s |
 | Lag `tau` per axis | Controller steps, rise time / ln 9 | `vx_max`, `vy_max`: `D / (T (k/2 + 1))`, stop within `D` = 1 m; accelerations `v / (k T)`, `k` = 3 |
 | Neutral velocity SD `sigma` | Characterize neutral phase (wave floor) | stopped velocities at least `2 sigma`; velocity `kp` at most `0.0625 / (2 sigma)` (hardware owner) |
 | Odometry noise in the plan | `/cmd_vel_nav` sign changes | `temperature` up, `*_std` down, each std under its axis limit |
