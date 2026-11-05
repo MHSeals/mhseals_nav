@@ -51,9 +51,9 @@ Other arguments and defaults are listed by `--show-args`. Lidar reaches Nav2 onl
 - Sensors: MAVROS (FCU odometry, IMU, GPS), the VLP16 LiDAR and the ZED camera.
 - Localization: a local EKF (`odom → base_link`) and a global EKF with navsat (`map → odom`).
 - Navigation: Nav2 with MPPI (Omni model, 10 Hz) and rolling LiDAR costmaps. Camera tracks never become obstacle geometry.
-- Perception: ZED detections → `/detections` → tracker → `/objects/map` (tasks) and `/tracked_objects` (RViz).
-- Tasks: py_trees trees consume `/objects/map` and the map pose, and send Nav2 goals.
-- One ROS domain for the whole boat; consumers bind only to the canonical names (`/detections`, `/front_camera/*`), never `/front/zed_node/*`.
+- Perception: camera backend → `/perception/observations` → tracker → `/perception/tracks` (tasks) and `/tracked_objects` (RViz).
+- Tasks: py_trees trees consume `/perception/tracks` and the map pose, and send Nav2 goals.
+- One ROS domain for the whole boat; consumers bind only to the canonical names (`/perception/*`, `/front_camera/*`), never `/front/zed_node/*`.
 
 #### Interfaces
 
@@ -61,7 +61,7 @@ Other arguments and defaults are listed by `--show-args`. Lidar reaches Nav2 onl
 | --- | --- |
 | Localization | `/odom/mavros` (`Odometry`, body velocity), `/imu/raw` (`Imu`, FCU-fused MAVROS `/imu/data`), `/gps/fix` |
 | Navigation | `/odom/local`, `/perception/costmap`, action goals in `map` |
-| Object tracking | `/detections` (`Detection3DArray`, metres, acquisition timestamps, labels in `results[].hypothesis.class_id`) |
+| Object tracking | `/perception/observations` (`mhseals_nav/ObservationArray`, metres, acquisition timestamps) |
 | SLAM (optional) | `/points`, `odom → base_link` TF, synchronized clocks |
 | Simulation | `/clock` plus the inputs of the enabled components |
 
@@ -75,7 +75,7 @@ Preserve frame IDs and timestamps, and synchronize clocks across hosts.
 
 #### Perception
 
-- Canonical outputs: `/detections`, `/objects/map`, `/tracked_objects`, `/detections/markers`, `/front_camera/camera_info`, `/front_camera/preview/compressed`.
+- Canonical outputs: `/perception/observations`, `/perception/tracks`, `/tracked_objects`, `/perception/detection_markers`, `/front_camera/camera_info`, `/front_camera/preview/compressed`.
 - Orin path: the ZED wrapper (`config/zed_boat.yaml`) runs YOLO-like custom detection on the GPU with object tracking (GEN_1 positional tracking whose pose is never published), and `zed_backend` turns `/front/zed_node/obj_det/objects` into `/perception/observations`, one array per frame, dropping predicted objects and repeated, reordered or over-1 s-old frames. If tracking misses 12 Hz or costs over 5 ms, set `pos_tracking_enabled` and `enable_tracking` false in `zed_boat.yaml`.
 - The tracker transforms boxes into `odom` at acquisition time, and confirmed tracks expire after 30 s without observations.
 
@@ -85,27 +85,11 @@ The JetPack 5 / Foxy camera host lives on the `legacy/jp5-foxy` branch.
 
 - `sensors.launch.py` also starts `lidar_relay`, which downsamples the cloud and republishes `/points` with one reliable writer for Nav2 and RViz. Stop older viewer relays to avoid duplicates.
 - In sim, `tune.smear: true` in `config/lidar.yaml` smears crane's instantaneous scans over a 0.1 s VLP16 sweep with the true motion (`lidar_smear`), so the relay's deskew can be checked.
-- Use RViz's `MarkerArray` display for `/detections/markers`; it shows outlines and confidence in `map`.
+- Use RViz's `MarkerArray` display for `/perception/detection_markers`; it shows outlines and confidence in `map`.
 
 ### Mapping and rates
 
-| Stream | Rate | Set in |
-| --- | --- | --- |
-| `GLOBAL_POSITION_INT` | 20 Hz | `config/mavros_setup.yaml` |
-| `ATTITUDE`, `ATTITUDE_QUATERNION` | 50 Hz | `config/mavros_setup.yaml` |
-| `RC_CHANNELS` | 25 Hz | `config/mavros_setup.yaml` |
-| `RAW_IMU` | 10 Hz | `config/mavros_setup.yaml` |
-| `GPS_RAW_INT` | 5 Hz (10 Hz once the Here4 node runs `config/fcu/blastoise_gnss_proposal.param`) | `config/mavros_setup.yaml` |
-| `SYS_STATUS`, `EKF_STATUS_REPORT` | 2 Hz | `config/mavros_setup.yaml` |
-| Local EKF | 30 Hz | `config/ekf_local.yaml` |
-| Global EKF | 20 Hz | `config/ekf_global.yaml` |
-| VLP16 scans | 10 Hz (600 RPM) | the vessel profile (`lidar.rpm`) |
-| Local costmap | 10 Hz | `config/nav2_params.yaml` |
-| Global costmap | 2 Hz (published 1 Hz) | `config/nav2_params.yaml` |
-| Planner | 1 Hz | `config/nav2_params.yaml` |
-| Controller | 10 Hz | `config/nav2_params.yaml` |
-
-Rates are requested again whenever the FCU reconnects. Restart `navigation.launch.py` after changing Nav2 parameters.
+Rates are set in `config/mavros_setup.yaml` (FCU streams), `config/ekf_*.yaml` (EKFs) and `config/nav2_params.yaml` (costmaps, planner, controller); the VLP16 scan rate is the vessel profile's `lidar.rpm`. Rates are requested again whenever the FCU reconnects. Restart `navigation.launch.py` after changing Nav2 parameters.
 
 **Heading:** ROS ENU yaw = 90° − compass heading (195° bow heading is −105°). Never hide a heading error with the URDF or `navsat_transform.yaw_offset`; fix the FCU.
 
@@ -130,7 +114,7 @@ RTABMap should report a live input rate and publish `/map` while the boat moves.
 2. Write on land while disarmed, then reboot.
 3. Snapshot again into `config/fcu/`.
 
-Heading comes from the calibrated external compass (fixed-yaw magcal) with the internal compass disabled. Message rates come from `mavros_setup` (`config/mavros_setup.yaml`: ATTITUDE_QUATERNION and RAW_IMU 100 Hz, GPS_RAW_INT 10 Hz, GLOBAL_POSITION_INT 20 Hz), not the `SR*` params; the 100 Hz streams need `SCHED_LOOP_RATE` 200.
+Heading comes from the calibrated external compass (fixed-yaw magcal) with the internal compass disabled. Message rates come from `mavros_setup` (`config/mavros_setup.yaml`), not the `SR*` params; its 100 Hz streams need `SCHED_LOOP_RATE` 200.
 
 | Param | Value | Why |
 | --- | --- | --- |
@@ -150,7 +134,7 @@ Heading comes from the calibrated external compass (fixed-yaw magcal) with the i
 
 ### Tasks
 
-RoboBoat tasks are [py_trees](https://py-trees.readthedocs.io) behaviour trees in `mhseals_nav/tasks/`, layered on Nav2: Nav2's XML trees decide *how to drive* (plan, follow, recover), the task trees decide *what to do* (which gates, which beacon, when to report). Leaves are plain Python over a blackboard of tracked objects (`/objects/map`), the boat's map pose and the time, so they are testable without ROS.
+RoboBoat tasks are [py_trees](https://py-trees.readthedocs.io) behaviour trees in `mhseals_nav/tasks/`, layered on Nav2: Nav2's XML trees decide *how to drive* (plan, follow, recover), the task trees decide *what to do* (which gates, which beacon, when to report). Leaves are plain Python over a blackboard of tracked objects (`/perception/tracks`), the boat's map pose and the time, so they are testable without ROS.
 
 ```bash
 ros2 launch mhseals_nav task.launch.py task:=nav_channel   # or follow_path, docking, speed_challenge, return_home
@@ -170,7 +154,7 @@ The RoboBoat 2025 tasks (handbook section 3.2; task 5, the deliveries, is not at
 
 A task with `approach: [x, y, yaw]` first drives to that map pose, taken from the day's course layout; without one it drives to where the recogniser has seen that task, if anywhere. Counts are reported as an event for the operator display, or with `report: spin` as one turn per object.
 
-When a task's objects are not in sight, it searches rather than waits (`tasks/search.py`, `config/tasks/search.yaml`): it looks at course-map priors and low-confidence tracks first, then turns the camera toward the least-seen bearing ahead, then picks next views by information gain over a coverage grid of where the camera has looked, and finally sweeps the course area. `tasks/tracks.py` reads `/objects/map` today and `/perception/tracks` (with priors and covariance) when it is published. `tasks/recognition.py` infers which task stands where from object configurations (`config/tasks/recognition.yaml`).
+When a task's objects are not in sight, it searches rather than waits (`tasks/search.py`, `config/tasks/search.yaml`): it looks at course-map priors and low-confidence tracks first, then turns the camera toward the least-seen bearing ahead, then picks next views by information gain over a coverage grid of where the camera has looked, and finally sweeps the course area. `tasks/tracks.py` reads `/perception/tracks` (with priors and covariance). `tasks/recognition.py` infers which task stands where from object configurations (`config/tasks/recognition.yaml`).
 
 Parameters (class labels, distances, routes, timeouts) are in `config/tasks/<task>.yaml`. Each run publishes:
 - `/task/events`: JSON `mhseals.task_events/1`, one per event; `decision` events carry a short reason for the operator.

@@ -32,6 +32,7 @@ from geometry_msgs.msg import Point, PoseStamped, Twist, Vector3Stamped
 from mavros_msgs.msg import GPSRAW
 from mhseals_nav import robot_geometry
 from mhseals_nav.hold_watchdog import mux_defaults, mux_state, OUTRANK_AUTO
+from mhseals_nav.msg import TrackArray
 from mhseals_nav.tasks import load_config, tracks
 from mhseals_nav.tasks.conditions import speed as conditions_speed
 # config_path and load_params live in the ROS-free host; kept here for their callers.
@@ -51,12 +52,6 @@ from rclpy.signals import SignalHandlerOptions
 from rclpy.time import Time
 from std_msgs.msg import String
 from tf2_ros import Buffer, TransformException, TransformListener
-from vision_msgs.msg import Detection3DArray
-
-try:  # perception v2 messages (pv2-track); without them only /objects/map is read
-    from mhseals_nav.msg import TrackArray
-except ImportError:
-    TrackArray = None
 
 
 def mux_suspends(source, age, limit):
@@ -303,7 +298,6 @@ class TaskRunner(Node):
         self.task = task
         self.config = load_config('runner', params.get('runner'))
         self.frame = params.get('map_frame', 'map')
-        self.v2_at = None  # last /perception/tracks message: it supersedes /objects/map
         self.tf = Buffer()
         self.listener = TransformListener(self.tf, self)
         latched = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL,
@@ -324,11 +318,8 @@ class TaskRunner(Node):
             hypotheses_sink=lambda message: self.hypotheses.publish(
                 String(data=json.dumps(message))),
             on_tick=self._tracking)
-        self.create_subscription(Detection3DArray, params.get('objects_topic', '/objects/map'),
-                                 self._objects, 10)
-        if TrackArray is not None:
-            self.create_subscription(TrackArray, params.get('tracks_topic', '/perception/tracks'),
-                                     self._tracks, 10)
+        self.create_subscription(TrackArray, params.get('tracks_topic', '/perception/tracks'),
+                                 self._tracks, 10)
         self.create_subscription(DiagnosticArray, '/perception/status', self._status, 10)
         self.watch_conditions(self.host.conditions)
         # A human override (the mux input rc, manual or hold) ends the task the moment it arrives.
@@ -344,14 +335,7 @@ class TaskRunner(Node):
                    if k not in ('schema', 'task', 'event', 'time', 'elapsed')}
         self.get_logger().info(f"{payload['event']} {details}")
 
-    def _objects(self, message):
-        # Remembered for a few seconds, so a track that drops out briefly does not
-        # make a sighting flicker. Superseded while perception v2 tracks arrive.
-        if self.v2_at is None or self.now() - self.v2_at > self.config['tracks_supersede_s']:
-            self.host.remember(tracks.from_detections(message), priors=False)
-
     def _tracks(self, message):
-        self.v2_at = self.now()
         self.host.remember(tracks.from_track_array(message))  # as MissionHost.tick does
 
     def _status(self, message):

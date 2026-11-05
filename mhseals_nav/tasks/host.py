@@ -96,14 +96,12 @@ class MissionHost:
 
     # World memory -------------------------------------------------------------------
 
-    def remember(self, seen, priors=True):
+    def remember(self, seen):
         """Remember one tracker message's tracks, seen now.
 
-        Its course-map priors (``prior`` true) replace the remembered ones, unless
-        ``priors`` is false (a source that carries none, such as /objects/map).
+        Its course-map priors (``prior`` true) replace the remembered ones.
         """
-        if priors:
-            self.priors = [track for track in seen if track.prior]  # republished while held
+        self.priors = [track for track in seen if track.prior]  # republished while held
         self.heard_at = self.clock()
         self.memory = track_memory.remember(self.memory, seen, self.clock(),
                                             self.memory_horizon, horizons=self.landmarks,

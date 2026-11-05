@@ -1,36 +1,22 @@
-"""Thin adapter from either tracker interface to one track tuple the tasks read.
+"""Thin adapter from the tracker's ``/perception/tracks`` to the track tuple the tasks read.
 
-Today's main publishes ``/objects/map`` (vision_msgs Detection3DArray); perception v2
-adds ``/perception/tracks`` (mhseals_nav/msg/TrackArray) with covariance, motion and
-course-map priors. Both become ``Track`` tuples, so leaves never see a message type.
-The functions take duck-typed messages, so they are testable without ROS.
+TrackArray (mhseals_nav/msg) carries covariance, motion and course-map priors; each track
+becomes a ``Track`` tuple, so leaves never see a message type. The functions take
+duck-typed messages, so they are testable without ROS.
 """
 
 from collections import namedtuple
 import math
 
 # sigma: 1-sigma position uncertainty in m (None when the source gives none).
-# prior: loaded from the course map and not yet seen this run (v2 only).
+# prior: loaded from the course map and not yet seen this run.
 Track = namedtuple('Track', 'label x y confidence sigma static prior id')
 
 MOTION_STATIC, SOURCE_PRIOR = 1, 1  # mhseals_nav/msg/Track constants
 
 
-def from_detections(message):
-    """Tracks from a ``/objects/map`` Detection3DArray (live tracks only, no covariance)."""
-    tracks = []
-    for d in message.detections:
-        if not d.results:
-            continue
-        hypothesis = d.results[0].hypothesis
-        tracks.append(Track(hypothesis.class_id, d.bbox.center.position.x,
-                            d.bbox.center.position.y, float(hypothesis.score) or 1.0,
-                            None, True, False, str(d.id)))
-    return tracks
-
-
 def from_track_array(message):
-    """Tracks from a v2 ``/perception/tracks`` TrackArray, priors included."""
+    """Tracks from a ``/perception/tracks`` TrackArray, priors included."""
     tracks = []
     for t in message.tracks:
         cov = t.pose.covariance

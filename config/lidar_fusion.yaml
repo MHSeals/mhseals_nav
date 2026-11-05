@@ -4,6 +4,8 @@
 # Class radii and the stereo model (depth_k, min_sigma_m, range_frac) come from tracker.yaml.
 /**:
   ros__parameters:
+    # Off: fails its own criteria (held-observation NEES > 2 in 14/30 cells, more fused than raw id switches,
+    # injection alerts never firing); first measure image_time_offset_s on the mast (lidar-fusion-design.md).
     enabled: false
     observations_topic: /perception/observations
     output_topic: /perception/observations_fused
