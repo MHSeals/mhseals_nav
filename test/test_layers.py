@@ -49,9 +49,13 @@ def test_the_behavior_trees_are_found_beside_the_module():
 
 def test_a_plain_install_reads_the_share(installed):
     from mhseals_nav import layers
+    from mhseals_nav.startup_projection import camera_path, ceilings_path, hull_path
     from mhseals_nav.tasks import params
     assert layers.config_path('hull.yaml') == installed / 'config/hull.yaml'
     assert params.config_path('mission.yaml') == str(installed / 'config/tasks/mission.yaml')
+    assert hull_path() == installed / 'config/hull.yaml'
+    assert ceilings_path() == installed / 'config/nav2_ceilings.yaml'
+    assert camera_path() == installed / 'config/camera.yaml'
 
 
 def test_only_package_path_asks_ament_for_this_package():
@@ -59,4 +63,13 @@ def test_only_package_path_asks_ament_for_this_package():
     hits = sorted(str(path.relative_to(ROOT)) for path in
                   [*ROOT.glob('mhseals_nav/**/*.py'), *ROOT.glob('launch/*.py')]
                   if share.search(path.read_text()))
+    assert hits == ['mhseals_nav/layers.py']
+
+
+def test_only_layers_looks_beside_the_module_for_package_files():
+    """A plain install has no config/ beside the module: files come from layers.package_path."""
+    beside = re.compile(r'parents\[1\]')
+    hits = sorted(str(path.relative_to(ROOT)) for path in
+                  [*ROOT.glob('mhseals_nav/**/*.py'), *ROOT.glob('launch/*.py')]
+                  if beside.search(path.read_text()))
     assert hits == ['mhseals_nav/layers.py']

@@ -15,11 +15,10 @@ SIM_FUSION = {'points_transport': 'direct', 'camera_axes': 'body',
 
 
 def fusion_config():
-    """config/lidar_fusion.yaml beside this launch directory (source tree or share)."""
-    import yaml
-    from pathlib import Path
-    path = Path(__file__).resolve().parents[1] / 'config/lidar_fusion.yaml'
-    return yaml.safe_load(path.read_text())['/**']['ros__parameters']
+    """config/lidar_fusion.yaml of this package (``layers.config_path``), read strictly."""
+    from mhseals_nav import layers
+    path = layers.config_path('lidar_fusion.yaml')
+    return layers.load_strict(path.read_bytes(), path)['/**']['ros__parameters']
 
 
 def nodes(context):

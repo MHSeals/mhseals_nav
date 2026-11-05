@@ -5,6 +5,7 @@ import math
 from pathlib import Path
 from xml.etree import ElementTree
 
+from . import layers
 from .layers import boolean
 from .navigation_config import (load_ceilings, load_overlay, load_strict,
                                 validate_navigation_base,
@@ -32,20 +33,24 @@ def bt_paths(share=None):
     return {key: str(trees / name) for key, name in BT_FILES.items()}
 
 
+def config_file(name, share=None):
+    """config/<name> of the given share, else of this package (``layers.config_path``)."""
+    return Path(share) / 'config' / name if share else layers.config_path(name)
+
+
 def ceilings_path(share=None):
-    """Return the overlay ceilings of the installed package, or of the source tree."""
-    root = Path(share) if share else Path(__file__).parents[1]
-    return root / 'config' / 'nav2_ceilings.yaml'
+    """The overlay ceilings, config/nav2_ceilings.yaml (``config_file``)."""
+    return config_file('nav2_ceilings.yaml', share)
 
 
 def hull_path(share=None):
-    """config/hull.yaml of the installed package, or of the source tree."""
-    return (Path(share) if share else Path(__file__).parents[1]) / 'config' / HULL
+    """config/hull.yaml (``config_file``)."""
+    return config_file(HULL, share)
 
 
 def camera_path(share=None):
-    """config/camera.yaml of the installed package, or of the source tree."""
-    return (Path(share) if share else Path(__file__).parents[1]) / 'config' / 'camera.yaml'
+    """config/camera.yaml (``config_file``)."""
+    return config_file('camera.yaml', share)
 
 
 def compile_navigation(params_file, limits_file, *, sim, share=None):
@@ -100,8 +105,7 @@ def effective_limits(params_file=None, limits_file='', *, sim='true', share=None
     shim, the through-poses tree's passed-goal radius, the footprint (hull.yaml) and the
     camera's field of view (camera.yaml), with the sha256 of every file they came from.
     """
-    root = Path(share) if share else Path(__file__).parents[1]
-    params_file = params_file or root / 'config' / 'nav2_params.yaml'
+    params_file = params_file or config_file('nav2_params.yaml', share)
     nav = compile_navigation(params_file, limits_file, sim=sim, share=share)
     controller = nav['controller_server']['ros__parameters']
     smoother = nav['velocity_smoother']['ros__parameters']
