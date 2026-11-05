@@ -39,7 +39,7 @@ While a task runs, the runner sends zero velocity to `/cmd_vel_nav` whenever Nav
 | `enable_slam` | `robot` | `false`; include `slam.launch.py` for lidar-cloud RTABMap mapping from `/points`. It leaves TF ownership with the EKFs and does not change Nav2 localization |
 | `fcu` | `robot`, `odom` | `true`; start MAVROS and its relays. `false` when a simulator (crane_ml `--crane-roboboat-contract`) publishes `/odom/mavros`, `/imu/raw` and `/gps/fix` itself, so simulation needs no ArduPilot |
 | `fcu_url` | `robot`, `odom` | Empty selects SITL TCP in simulation or the Cube's `/dev/serial/by-id/usb-CubePilot_CubeOrange+_*-if00` on hardware |
-| `camera_name` | `robot`, `camera`, `odom`, `slam` | `front`; camera namespace and topic prefix |
+| `camera_name` | `robot`, `camera`, `slam` | `front`; camera namespace and topic prefix |
 | `camera_model`, `slam` | `camera` | `zed2i`, `false`; `slam:=true` also relays raw RGB and depth |
 | `backend` | `objects` | `sim`; `zed` reads `config/camera.yaml` (`backend:`), `sim` reads `config/sim_backend.yaml` |
 
@@ -234,6 +234,6 @@ ros2 topic hz /points
 ros2 run tf2_ros tf2_echo map base_link
 ```
 
-`setup.py` registers `console_scripts` for `ros2 run mhseals_nav <executable>` and installs launch files, configurations, robot descriptions, and behavior trees. Register new runnable nodes there, declare dependencies in `package.xml`, and rebuild/source after installed assets change. Tuning lives in `config/`, physical frames in `description/`, and navigation behavior in `mhseals_nav/behavior_trees/`.
+`CMakeLists.txt` generates the `ros2 run mhseals_nav <executable>` scripts and installs launch files, configurations, robot descriptions, and behavior trees. Register new runnable nodes there, declare dependencies in `package.xml`, and rebuild/source after installed assets change. Tuning lives in `config/`, physical frames in `description/`, and navigation behavior in `mhseals_nav/behavior_trees/`.
 
 Keep changes lean and scoped; update this README when usage or architecture changes.
