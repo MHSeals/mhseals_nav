@@ -39,7 +39,7 @@ def test_pose_composes_rotations_in_urdf_order():
 
 
 def test_matrix_quaternion_round_trips_through_lidar_fusion():
-    from mhseals_nav.lidar_fusion import quat_matrix
+    from mhseals_nav.robot_geometry import quat_matrix
     for angles in [(0.1, -0.2, 0.3), (3.0, 0.4, -2.5), (0.0, 0.0, math.pi)]:
         R = rg.rpy_matrix(*angles)
         assert np.allclose(quat_matrix(*rg.matrix_quaternion(R)), R)

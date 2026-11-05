@@ -355,7 +355,7 @@ def test_a_hold_in_the_tick_a_mandatory_task_fails_skips_the_exit(monkeypatch):
     The failed mandatory task would hand over to the exit; a human has the boat now,
     so the run ends there: no exit, no goal after the tick.
     """
-    from mhseals_nav.tasks.interface import load_params
+    from mhseals_nav.tasks.params import load_params
     from mhseals_nav.tasks.tracks import Track
     rclpy.init()
     runner = None
@@ -589,7 +589,7 @@ def test_cancel_before_acceptance_still_cancels():
 
 def test_events_carry_their_schema_and_the_fixture_keys(monkeypatch):
     from pathlib import Path
-    from mhseals_nav.tasks.interface import EVENTS_SCHEMA
+    from mhseals_nav.tasks.host import EVENTS_SCHEMA
     fixture = json.loads((Path(__file__).parent / 'fixtures/task_events.json').read_text())
     assert {e['schema'] for e in fixture} == {EVENTS_SCHEMA}
     decision = next(e for e in fixture if e['event'] == 'decision')
@@ -619,7 +619,7 @@ def test_status_follows_the_mission_and_stale_tracks_expire(monkeypatch):
     runner = None
     try:
         params = {'tasks': ['nav_channel', 'return_home'], 'timeout': 100.0}
-        from mhseals_nav.tasks.interface import load_params
+        from mhseals_nav.tasks.params import load_params
         for name in params['tasks']:
             params[name] = load_params(name)
         runner = live(TaskRunner('mission', params))
@@ -790,7 +790,8 @@ def test_the_node_and_the_bare_host_emit_the_same_events_for_the_same_world(
     (no channel: the exit still runs), a hold mid-run, and a hold before the start.
     """
     import py_trees
-    from mhseals_nav.tasks.host import config_path, load_params, MissionHost
+    from mhseals_nav.tasks.host import MissionHost
+    from mhseals_nav.tasks.params import config_path, load_params
     from test_mission_course import COURSE, Course
 
     params = load_params('mission', config_path('mission_crane.yaml'))

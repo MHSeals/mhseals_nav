@@ -7,8 +7,7 @@ from pathlib import Path
 
 import yaml
 
-# The strict loader and deep merge live in layers (no domain logic); kept importable here.
-from .layers import deep_merge, load_strict, StrictOverlayLoader  # noqa: F401
+from .layers import deep_merge, StrictOverlayLoader
 
 log = logging.getLogger(__name__)
 

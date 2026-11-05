@@ -19,7 +19,7 @@ import time
 import numpy as np
 
 from mhseals_nav import classes
-from mhseals_nav.robot_geometry import matrix_rpy, quat_matrix, rpy_matrix  # noqa: F401 (tests)
+from mhseals_nav.robot_geometry import matrix_rpy, quat_matrix, rpy_matrix
 
 DEG = math.pi / 180
 UP = np.array([0.0, -1.0, 0.0])                  # optical axes
