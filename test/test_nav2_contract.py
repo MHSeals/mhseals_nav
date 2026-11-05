@@ -49,8 +49,14 @@ def test_omni_mppi_and_command_limits():
             < controller['general_goal_checker']['xy_goal_tolerance'])
 
 
+def compiled():
+    """nav2_params.yaml as Nav2 gets it: the footprint comes from config/hull.yaml."""
+    from mhseals_nav.startup_projection import compile_navigation
+    return compile_navigation(ROOT / 'config/nav2_params.yaml', '', sim='true')
+
+
 def test_inflation_leaves_a_six_foot_gate_open():
-    config = yaml.safe_load((ROOT / 'config/nav2_params.yaml').read_text())
+    config = compiled()
     gate = 6 * 0.3048
     for name in ['local_costmap', 'global_costmap']:
         params = config[name][name]['ros__parameters']
@@ -71,7 +77,7 @@ def test_inflation_leaves_a_six_foot_gate_open():
 
 
 def test_costmaps_do_not_require_slam_and_check_sensor_freshness():
-    config = yaml.safe_load((ROOT / 'config/nav2_params.yaml').read_text())
+    config = compiled()
     for name in ['local_costmap', 'global_costmap']:
         params = config[name][name]['ros__parameters']
         assert params['rolling_window']

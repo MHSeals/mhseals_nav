@@ -137,6 +137,20 @@ def test_missing_params_file_names_the_path(tmp_path):
         compile_navigation(missing, '', sim='true')
 
 
+def test_both_costmaps_get_the_hull_footprint_with_its_padding():
+    """config/hull.yaml is the one hull: the compile writes it into both Nav2 costmaps."""
+    root = Path(__file__).resolve().parents[1]
+    hull = yaml.safe_load((root / 'config/hull.yaml').read_text())['/**']['ros__parameters']
+    x, y = hull['half_length'], hull['half_width']
+    nav = compile_navigation(root / 'config/nav2_params.yaml', '', sim='true')
+    for name in ('local_costmap', 'global_costmap'):
+        params = nav[name][name]['ros__parameters']
+        assert yaml.safe_load(params['footprint']) == [[x, y], [x, -y], [-x, -y], [-x, y]]
+        assert params['footprint_padding'] == hull['padding']
+    raw = yaml.safe_load((root / 'config/nav2_params.yaml').read_text())
+    assert 'footprint' not in raw['local_costmap']['local_costmap']['ros__parameters']
+
+
 def test_effective_limits_are_what_the_launch_resolves(tmp_path):
     """The fast sim's limits: the launch's own compile, the overlay and ceilings applied."""
     from mhseals_nav.startup_projection import effective_limits
@@ -162,8 +176,14 @@ def test_effective_limits_are_what_the_launch_resolves(tmp_path):
                                          'precise_goal_checker': {'xy': 0.3, 'yaw': 0.25}}
     assert resolved['progress'] == {'radius': 0.1, 'time': 20.0}
     assert resolved['passed_goal_radius'] == 1.0
-    assert len(resolved['footprint']) == 4 and resolved['camera']['hfov_deg'] == 110.0
+    hull = yaml.safe_load((root / 'config/hull.yaml').read_text())['/**']['ros__parameters']
+    assert {(abs(x), abs(y)) for x, y in resolved['footprint']} == {
+        (hull['half_length'], hull['half_width'])}
+    camera = yaml.safe_load((root / 'config/camera.yaml').read_text())['backend']['fov']
+    assert resolved['camera'] == {'hfov_deg': pytest.approx(110.0), 'range_m': camera['range']}
     assert str(limits) in resolved['sources'] and str(params) in resolved['sources']
+    assert {str(root / 'config/hull.yaml'), str(root / 'config/camera.yaml')} <= set(
+        resolved['sources'])
     limits.write_text('controller_server: {ros__parameters: {FollowPath: {vy_max: 9.0}}}\n')
     with pytest.raises(ValueError, match='ceiling'):
         effective_limits(params, limits)

@@ -1,6 +1,7 @@
 """Compile the Nav2 launch parameters: validated merge, then session projection."""
 from copy import deepcopy
 import hashlib
+import math
 from pathlib import Path
 from xml.etree import ElementTree
 
@@ -8,6 +9,7 @@ from .endpoint_configuration import boolean
 from .navigation_config import (load_ceilings, load_overlay, load_strict,
                                 validate_navigation_base,
                                 validated_merge_limits)
+from .yaml_params import camera_fov, footprint, HULL, hull
 
 SERVERS = (
     ('nav2_controller', 'controller_server'),
@@ -33,6 +35,16 @@ def ceilings_path(share=None):
     return root / 'config' / 'nav2_ceilings.yaml'
 
 
+def hull_path(share=None):
+    """config/hull.yaml of the installed package, or of the source tree."""
+    return (Path(share) if share else Path(__file__).parents[1]) / 'config' / HULL
+
+
+def camera_path(share=None):
+    """config/camera.yaml of the installed package, or of the source tree."""
+    return (Path(share) if share else Path(__file__).parents[1]) / 'config' / 'camera.yaml'
+
+
 def compile_navigation(params_file, limits_file, *, sim, share=None):
     """
     Strictly load the base and optional operator limits, validate, bound and project them.
@@ -45,8 +57,13 @@ def compile_navigation(params_file, limits_file, *, sim, share=None):
     validate_navigation_base(base)
     limits = load_overlay(limits_file, strict=True) if limits_file else {}
     ceilings = load_ceilings(ceilings_path(share))
-    return project_launch(validated_merge_limits(base, limits, ceilings),
-                          {'sim': boolean(sim)}, bt_paths(share))
+    result = project_launch(validated_merge_limits(base, limits, ceilings),
+                            {'sim': boolean(sim)}, bt_paths(share))
+    rectangle = hull(hull_path(share))
+    for name in ('local_costmap', 'global_costmap'):
+        result[name][name]['ros__parameters'].update(
+            footprint=footprint(rectangle), footprint_padding=rectangle['padding'])
+    return result
 
 
 def project_launch(parameters, invocation, bt_files):
@@ -77,8 +94,8 @@ def effective_limits(params_file=None, limits_file='', *, sim='true', share=None
     For a model of the boat (the fast sim) that must not interpret Nav2's fields itself:
     the velocity smoother's velocity [vx, vy, wz] and acceleration bounds, the MPPI
     sampling limits, both goal checkers' tolerances, the progress checker, the rotation
-    shim, the through-poses tree's passed-goal radius, the footprint and the camera's
-    field of view (sim backend), with the sha256 of every file they came from.
+    shim, the through-poses tree's passed-goal radius, the footprint (hull.yaml) and the
+    camera's field of view (camera.yaml), with the sha256 of every file they came from.
     """
     root = Path(share) if share else Path(__file__).parents[1]
     params_file = params_file or root / 'config' / 'nav2_params.yaml'
@@ -92,10 +109,10 @@ def effective_limits(params_file=None, limits_file='', *, sim='true', share=None
     progress = controller[controller['progress_checker_plugins'][0]]
     tree = nav['bt_navigator']['ros__parameters']['default_nav_through_poses_bt_xml']
     passed = ElementTree.parse(tree).find('.//RemovePassedGoals')
-    footprint = nav['local_costmap']['local_costmap']['ros__parameters']['footprint']
-    camera = root / 'config' / 'sim_backend.yaml'
-    fov = load_overlay(camera, strict=True)['/**']['ros__parameters']['fov']
-    sources = [params_file, ceilings_path(share), tree, camera] + (
+    shape = nav['local_costmap']['local_costmap']['ros__parameters']['footprint']
+    camera = camera_path(share)
+    fov = camera_fov(camera)
+    sources = [params_file, ceilings_path(share), tree, hull_path(share), camera] + (
         [limits_file] if limits_file else [])
     return {
         'velocity': {'max': smoother['max_velocity'], 'min': smoother['min_velocity']},
@@ -109,8 +126,9 @@ def effective_limits(params_file=None, limits_file='', *, sim='true', share=None
         'rotation_shim': {key: shim[key] for key in (
             'angular_dist_threshold', 'rotate_to_heading_angular_vel', 'max_angular_accel')},
         'passed_goal_radius': float(passed.get('radius')),
-        'footprint': [[float(v) for v in point] for point in load_strict(footprint, 'footprint')],
-        'camera': {'hfov_deg': fov['hfov_deg'], 'range_m': fov['range_m']},
+        'footprint': [[float(v) for v in point] for point in load_strict(shape, 'footprint')],
+        # Degrees and metres for the fast sim's cone (mhseals_testing fastsim adapter).
+        'camera': {'hfov_deg': math.degrees(fov['hfov']), 'range_m': fov['range']},
         'sources': {str(Path(path).expanduser()): hashlib.sha256(
             Path(path).expanduser().read_bytes()).hexdigest() for path in sources},
     }

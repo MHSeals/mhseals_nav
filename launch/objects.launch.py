@@ -24,6 +24,7 @@ def fusion_config():
 
 def nodes(context):
     from mhseals_nav.endpoint_configuration import boolean
+    from mhseals_nav.yaml_params import footprint, hull
     sim = boolean(LaunchConfiguration('sim').perform(context))
     backend = LaunchConfiguration('backend').perform(context)
     if backend not in BACKENDS:
@@ -33,6 +34,8 @@ def nodes(context):
     def config(name):
         return PathJoinSubstitution([FindPackageShare('mhseals_nav'), 'config', name])
 
+    rectangle = hull()
+    footprinted = {'footprint': footprint(rectangle), 'footprint_padding': rectangle['padding']}
     executable, backend_file = BACKENDS[backend]
     fusion = fusion_config()
     tracker = [config('tracker.yaml'), clock]
@@ -54,7 +57,7 @@ def nodes(context):
         # Costmap2DROS never creates a bond, so the manager must not wait for one.
         Node(package='nav2_costmap_2d', executable='nav2_costmap_2d', name='costmap',
              namespace='perception', output='screen',
-             parameters=[config('perception_costmap.yaml'), clock]),
+             parameters=[config('perception_costmap.yaml'), footprinted, clock]),
         Node(package='nav2_lifecycle_manager', executable='lifecycle_manager',
              name='lifecycle_manager_perception', namespace='perception', output='screen',
              parameters=[{'autostart': True, 'node_names': ['costmap'],

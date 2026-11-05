@@ -12,6 +12,7 @@ from pathlib import Path
 import yaml
 
 WATCHDOGS = 'watchdogs.yaml'
+HULL = 'hull.yaml'
 ROS_PARAMETERS = ('use_sim_time', 'start_type_description_service')   # every node has them
 # Old override key -> (new key, conversion); dropped after one release.
 RENAMED = {'max_age_s': ('max_age', None), 'command_window_s': ('command_window', None),
@@ -53,16 +54,16 @@ def merge(base, over):
     return base
 
 
-def node_config(node, filename):
-    """Defaults from share/mhseals_nav/config/<filename>, then the node's parameters.
+def node_config(node, filename, base=None):
+    """Return ``base`` < share/mhseals_nav/config/<filename> < the node's parameters.
 
     The node must be built with ``automatically_declare_parameters_from_overrides=True``.
     """
     from ament_index_python.packages import get_package_share_directory
     path = Path(get_package_share_directory('mhseals_nav')) / 'config' / filename
-    base = yaml.safe_load(path.read_text())['/**']['ros__parameters']
+    cfg = merge(dict(base or {}), yaml.safe_load(path.read_text())['/**']['ros__parameters'])
     flat = {name: p.value for name, p in node._parameters.items() if name != 'use_sim_time'}
-    return merge(base, nested(flat))
+    return merge(cfg, nested(flat))
 
 
 def config_path(filename):
@@ -88,13 +89,38 @@ def renamed(flat, warn=lambda message: None):
     return out
 
 
-def watchdog_config(name, overrides=None, warn=lambda message: None, path=None):
+def hull(path=None):
+    """Return config/hull.yaml, the one statement of the hull's size.
+
+    The rectangle about base_link (half_length, half_width) and the padding Nav2's costmaps
+    add around it.
+    """
+    from mhseals_nav.navigation_config import load_strict
+    path = Path(path) if path else config_path(HULL)
+    return load_strict(path.read_text(), path)['/**']['ros__parameters']
+
+
+def footprint(rectangle):
+    """Nav2's footprint string of a hull rectangle (unpadded)."""
+    x, y = rectangle['half_length'], rectangle['half_width']
+    return str([[x, y], [x, -y], [-x, -y], [-x, y]])
+
+
+def camera_fov(path=None):
+    """config/camera.yaml backend.fov: {hfov (rad), range (m)}, the one camera FOV."""
+    return section_config('camera.yaml', 'backend', path=path)['fov']
+
+
+def watchdog_config(name, overrides=None, warn=lambda message: None, path=None, base=None):
     """The watchdog ``name``'s section of config/watchdogs.yaml (see ``section_config``)."""
-    return section_config(WATCHDOGS, name, overrides, warn, path)
+    return section_config(WATCHDOGS, name, overrides, warn, path, base)
 
 
-def section_config(filename, name, overrides=None, warn=lambda message: None, path=None):
-    """Section ``name`` of config/<filename>: defaults < the section < tune.<name> < overrides.
+def section_config(filename, name, overrides=None, warn=lambda message: None, path=None,
+                   base=None):
+    """Return section ``name`` of config/<filename>, ``base`` under its defaults.
+
+    base < defaults < the section < tune.<name> < overrides.
 
     ``overrides`` is flat ({'lidar.rpm': 600}) as ROS parameters are. Strict: the file
     must have the section, and an override must name a key the section has.
@@ -104,7 +130,7 @@ def section_config(filename, name, overrides=None, warn=lambda message: None, pa
     doc = load_strict(path.read_text(), path)
     if not isinstance(doc, dict) or not isinstance(doc.get(name), dict):
         raise ValueError(f'{path}: no {name} section')
-    cfg = merge(merge(dict(doc.get('defaults') or {}), doc[name]),
+    cfg = merge(merge(merge(dict(base or {}), doc.get('defaults') or {}), doc[name]),
                 (doc.get('tune') or {}).get(name) or {})
     over = nested(renamed(overrides or {}, warn))
     unknown = sorted(set(over) - set(cfg))
@@ -113,12 +139,12 @@ def section_config(filename, name, overrides=None, warn=lambda message: None, pa
     return merge(cfg, over)
 
 
-def node_section_config(node, filename, name):
+def node_section_config(node, filename, name, base=None):
     """``section_config`` with the node's parameters (built with automatically_declare...)."""
     flat = {key: p.value for key, p in node._parameters.items()
             if key not in ROS_PARAMETERS and not key.startswith('qos_overrides.')}
-    return section_config(filename, name, flat, node.get_logger().warning)
+    return section_config(filename, name, flat, node.get_logger().warning, base=base)
 
 
-def node_watchdog_config(node, name):
-    return node_section_config(node, WATCHDOGS, name)
+def node_watchdog_config(node, name, base=None):
+    return node_section_config(node, WATCHDOGS, name, base)

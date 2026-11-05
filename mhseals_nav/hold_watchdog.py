@@ -193,10 +193,10 @@ class HoldGate:
         return True
 
 
-def node_class(name, logic, subscribe):
+def node_class(name, logic, subscribe, base=None):
     """Build a watchdog node: ``logic(cfg)`` decides, ``subscribe(node)`` feeds ``node.logic``.
 
-    ``cfg`` is the node's section of config/watchdogs.yaml with its parameters on top.
+    ``cfg`` is ``base`` < the node's section of config/watchdogs.yaml < its parameters.
 
     Built lazily so the decision logic imports without rclpy. Keyword arguments of the
     returned class go to rclpy's Node (tests pass parameter_overrides).
@@ -212,7 +212,7 @@ def node_class(name, logic, subscribe):
         def __init__(self, **kwargs):
             super().__init__(name, automatically_declare_parameters_from_overrides=True,
                              **kwargs)
-            self.cfg = cfg = node_watchdog_config(self, name)
+            self.cfg = cfg = node_watchdog_config(self, name, base)
             missing = [key for key in MUX_KEYS if cfg.get(key) is None]
             if missing:
                 raise ValueError(f"watchdogs.yaml {name}: missing {', '.join(missing)}")

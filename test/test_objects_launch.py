@@ -67,7 +67,12 @@ def test_backend_tracker_and_perception_costmap(sim, backend, executable):
     costmap, manager, nearest = nodes[2:]
     assert nearest['parameters'] == ['mhseals_nav/config/nearest_obstacle.yaml', clock]
     assert (costmap['namespace'], costmap['name']) == ('perception', 'costmap')
-    assert costmap['parameters'] == ['mhseals_nav/config/perception_costmap.yaml', clock]
+    hull = yaml.safe_load((Path(__file__).parents[1] / 'config/hull.yaml').read_text())[
+        '/**']['ros__parameters']
+    x, y = hull['half_length'], hull['half_width']
+    assert costmap['parameters'] == ['mhseals_nav/config/perception_costmap.yaml', {
+        'footprint': str([[x, y], [x, -y], [-x, -y], [-x, y]]),
+        'footprint_padding': hull['padding']}, clock]
     assert (manager['namespace'], manager['name']) == ('perception',
                                                        'lifecycle_manager_perception')
     assert manager['parameters'] == [{'autostart': True, 'node_names': ['costmap'],

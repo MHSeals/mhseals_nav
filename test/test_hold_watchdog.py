@@ -10,12 +10,13 @@ import json
 from mhseals_nav.approach_guard import Guard
 from mhseals_nav.fence_watchdog import FenceWatchdog
 from mhseals_nav.link_watchdog import LinkWatchdog
-from mhseals_nav.yaml_params import watchdog_config
+from mhseals_nav.yaml_params import hull, watchdog_config
 import pytest
 
 
 def config(name):
-    return watchdog_config(name)
+    """As the node reads it: approach_guard takes config/hull.yaml under its section."""
+    return watchdog_config(name, base=hull() if name == 'approach_guard' else None)
 
 
 LINK = config('link_watchdog')
