@@ -30,6 +30,7 @@ from builtin_interfaces.msg import Duration
 from diagnostic_msgs.msg import DiagnosticArray
 from geometry_msgs.msg import Point, PoseStamped, Twist, Vector3Stamped
 from mavros_msgs.msg import GPSRAW
+from mhseals_nav import robot_geometry
 from mhseals_nav.hold_watchdog import mux_defaults, mux_state, OUTRANK_AUTO
 from mhseals_nav.tasks import load_config, tracks
 from mhseals_nav.tasks.conditions import speed as conditions_speed
@@ -450,7 +451,7 @@ class TaskRunner(Node):
             return None
         q = t.rotation
         return (t.translation.x, t.translation.y,
-                math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z)))
+                robot_geometry.yaw(q))
 
     def tick(self):
         if self.host.outcome is not None:

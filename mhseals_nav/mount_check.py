@@ -26,7 +26,7 @@ from pathlib import Path
 import sys
 
 from mhseals_nav.navigation_config import load_strict
-from mhseals_nav.robot_geometry import description_dir, quat_matrix, RobotGeometry
+from mhseals_nav.robot_geometry import description_dir, matrix_rpy, quat_matrix, RobotGeometry
 import numpy as np
 
 OK, WARN, ERROR, UNOBSERVABLE = 'OK', 'WARN', 'ERROR', 'UNOBSERVABLE'
@@ -351,10 +351,7 @@ def _mirror_correlation(image, mid, half):
 
 def hull_attitude(q):
     """FCU attitude quaternion (x, y, z, w) -> (roll, pitch) rad."""
-    x, y, z, w = q
-    roll = math.atan2(2 * (w * x + y * z), 1 - 2 * (x * x + y * y))
-    pitch = math.asin(max(-1., min(1., 2 * (w * y - z * x))))
-    return roll, pitch
+    return matrix_rpy(quat_matrix(*q))[:2]
 
 
 def attitude_at(stamps, attitudes, t, max_dt):

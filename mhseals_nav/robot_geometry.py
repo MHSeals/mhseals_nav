@@ -46,12 +46,25 @@ def quat_matrix(x, y, z, w):
 
 
 def rpy_matrix(roll, pitch, yaw):
-    """URDF fixed-axis roll, pitch, yaw: R = Rz(yaw) Ry(pitch) Rx(roll)."""
-    cr, sr, cp, sp = math.cos(roll), math.sin(roll), math.cos(pitch), math.sin(pitch)
-    cy, sy = math.cos(yaw), math.sin(yaw)
-    return np.array([[cy * cp, cy * sp * sr - sy * cr, cy * sp * cr + sy * sr],
-                     [sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr],
-                     [-sp, cp * sr, cp * cr]])
+    """URDF fixed-axis roll, pitch, yaw: Rz(yaw) Ry(pitch) Rx(roll), broadcast to (..., 3, 3)."""
+    roll, pitch, yaw = np.broadcast_arrays(*(np.asarray(a, float) for a in (roll, pitch, yaw)))
+    cr, sr, cp, sp, cy, sy = (f(a) for a in (roll, pitch, yaw) for f in (np.cos, np.sin))
+    R = np.empty(roll.shape + (3, 3))
+    R[..., 0, :] = np.stack([cy * cp, cy * sp * sr - sy * cr, cy * sp * cr + sy * sr], -1)
+    R[..., 1, :] = np.stack([sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr], -1)
+    R[..., 2, :] = np.stack([-sp, cp * sr, cp * cr], -1)
+    return R
+
+
+def matrix_rpy(R):
+    """Rotation matrix -> (roll, pitch, yaw), the inverse of rpy_matrix."""
+    return (math.atan2(R[2][1], R[2][2]), -math.asin(max(-1.0, min(1.0, R[2][0]))),
+            math.atan2(R[1][0], R[0][0]))
+
+
+def yaw(q):
+    """Heading of a quaternion with x, y, z, w attributes (a TF rotation, a pose orientation)."""
+    return math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z))
 
 
 def matrix_quaternion(R):

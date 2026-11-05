@@ -43,3 +43,12 @@ def test_matrix_quaternion_round_trips_through_lidar_fusion():
     for angles in [(0.1, -0.2, 0.3), (3.0, 0.4, -2.5), (0.0, 0.0, math.pi)]:
         R = rg.rpy_matrix(*angles)
         assert np.allclose(quat_matrix(*rg.matrix_quaternion(R)), R)
+
+
+def test_yaw_and_matrix_rpy_invert_rpy_matrix():
+    from types import SimpleNamespace
+    for angles in [(0.1, -0.2, 0.3), (3.0, 0.4, -2.5), (0.0, 0.0, 3.1)]:
+        R = rg.rpy_matrix(*angles)
+        assert rg.matrix_rpy(R) == pytest.approx(angles)
+        x, y, z, w = rg.matrix_quaternion(R)
+        assert rg.yaw(SimpleNamespace(x=x, y=y, z=z, w=w)) == pytest.approx(angles[2])

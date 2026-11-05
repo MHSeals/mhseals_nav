@@ -27,6 +27,7 @@ status_rate and on every change.
 
 import math
 
+from mhseals_nav import robot_geometry
 from mhseals_nav.fence import (closest, FenceFile, inside, moved, ON_EXIT, outline,  # noqa: F401
                                polygon, problem, project, reference)
 from mhseals_nav.hold_watchdog import fresh, HoldGate, node_class as watchdog_class, run
@@ -484,7 +485,7 @@ def node_class():
 
         def on_odom(msg):
             q = msg.pose.pose.orientation
-            yaw = math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z))
+            yaw = robot_geometry.yaw(q)
             now = time.monotonic()
             dog.motion(now, yaw, msg.twist.twist.linear.x, msg.twist.twist.linear.y)
             dog.map_position(now, msg.pose.pose.position.x, msg.pose.pose.position.y)
