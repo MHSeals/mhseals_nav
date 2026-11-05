@@ -13,12 +13,15 @@ SCHEMA = 'mhseals.course_map/1'
 
 
 def data_root():
-    """``$MHSEALS_DATA``, else ``$ROS_WS/bags``, else ``~/astro_dock/bags`` (data_layout)."""
+    """Return the one data root: ``$MHSEALS_DATA``, else ``$ROS_WS/bags``.
+
+    Neither set is an error: no guessed path, and never the working directory.
+    """
     if os.environ.get('MHSEALS_DATA'):
         return Path(os.environ['MHSEALS_DATA'])
     if os.environ.get('ROS_WS'):
         return Path(os.environ['ROS_WS']) / 'bags'
-    return Path.home() / 'astro_dock' / 'bags'
+    raise RuntimeError('no data root: set MHSEALS_DATA or ROS_WS')
 
 
 def path(name, root=None):

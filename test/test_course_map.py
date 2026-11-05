@@ -2,9 +2,10 @@
 
 from datetime import datetime, timedelta, timezone
 
-from tracker_fixtures import CFG
 from mhseals_nav import course_map
 from mhseals_nav.track_filter import MOTION_STATIC, SOURCE_PRIOR, TrackFilter
+import pytest
+from tracker_fixtures import CFG
 
 ORIGIN = (42.0, -71.0)
 M_PER_DEG = 111_320.0
@@ -16,6 +17,17 @@ def to_ll(x, y):
 
 def from_ll(lat, lon):
     return (lon - ORIGIN[1]) * M_PER_DEG, (lat - ORIGIN[0]) * M_PER_DEG
+
+
+def test_the_data_root_is_mhseals_data_else_ros_ws_else_an_error(tmp_path, monkeypatch):
+    monkeypatch.delenv('MHSEALS_DATA', raising=False)
+    monkeypatch.delenv('ROS_WS', raising=False)
+    with pytest.raises(RuntimeError, match='MHSEALS_DATA or ROS_WS'):
+        course_map.data_root()
+    monkeypatch.setenv('ROS_WS', str(tmp_path))
+    assert course_map.data_root() == tmp_path / 'bags'
+    monkeypatch.setenv('MHSEALS_DATA', str(tmp_path / 'data'))
+    assert course_map.data_root() == tmp_path / 'data'
 
 
 def test_round_trip_through_lat_lon(tmp_path, monkeypatch):
