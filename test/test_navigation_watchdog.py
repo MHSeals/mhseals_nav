@@ -42,7 +42,12 @@ def test_invalid_flag_raises():
 
 
 @pytest.mark.parametrize('sim', ['true', 'false'])
-def test_approach_guard_enforces_in_sim_and_only_logs_on_the_boat(sim):
+def test_sim_sets_only_the_clock_and_the_yaml_keeps_enforce(sim):
     guard = guards(command_mux='true', sim=sim)['approach_guard']
-    assert guard['enforce'] is (sim == 'true')
-    assert guard['use_sim_time'] is (sim == 'true')
+    assert guard == {'use_sim_time': sim == 'true'}
+
+
+@pytest.mark.parametrize('enforce,value', [('true', True), ('0', False)])
+def test_approach_enforce_overrides_the_yaml(enforce, value):
+    guard = guards(command_mux='true', approach_enforce=enforce)['approach_guard']
+    assert guard['enforce'] is value

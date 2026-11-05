@@ -92,7 +92,9 @@ commands:
     summary: Nav2 alone, with the measured-limits overlay.
     params:
       - {name: sim, type: bool, default: false, description: Use simulation time.}
-      - {name: command_mux, type: bool, default: false, description: 'A command_mux arbitrates /cmd_vel; adds the costmap watchdog.'}
+      - {name: command_mux, type: bool, default: false, description: 'A command_mux arbitrates /cmd_vel; adds the costmap watchdog and approach guard.'}
+      - {name: perception, type: bool, default: true, description: 'false skips the costmap watchdog (Nav2 without a perception costmap).'}
+      - {name: approach_enforce, description: 'approach_guard holds on approaches; empty keeps watchdogs.yaml (log-only); the sim profile sets true.'}
 
   - name: slam.launch
     run: ros2 launch mhseals_nav slam.launch.py
