@@ -1,37 +1,34 @@
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import LaunchConfiguration
 
 from launch_ros.actions import Node
-from launch_ros.substitutions import FindPackageShare
 from mhseals_nav.endpoint_configuration import (
     from_launch as endpoint_from_launch, LAYER_ARGUMENTS as ENDPOINT_LAYERS, UNSET_GCS)
+from mhseals_nav.layers import boolean
 from mhseals_nav.lidar_configuration import resolve_lidar
 
+
+
+def config_file(name):
+    """config/<name> of this package (layers.config_path), as a launch string."""
+    # Imported here: tests exec this file's functions without its module-level imports.
+    from mhseals_nav.layers import config_path
+    return str(config_path(name))
+
+
 # Large-data transport for the lidar pair only; see config/fastdds_large_data.xml.
-LARGE_DATA_PROFILE = PathJoinSubstitution(
-    [FindPackageShare('mhseals_nav'), 'config', 'fastdds_large_data.xml'])
+LARGE_DATA_PROFILE = config_file('fastdds_large_data.xml')
 large_data_env = {'FASTRTPS_DEFAULT_PROFILES_FILE': LARGE_DATA_PROFILE,
                   'FASTDDS_DEFAULT_PROFILES_FILE': LARGE_DATA_PROFILE}
-
-def launch_boolean(value):
-    """ROS launch boolean vocabulary, validated before constructing nodes."""
-    normalized = value.strip().lower()
-    if normalized not in ('true', '1', 'false', '0'):
-        raise ValueError(f'Invalid sim boolean: {value!r}')
-    return normalized in ('true', '1')
 
 
 def lidar_smear_enabled():
     """Read the sim lidar smear switch, config/lidar.yaml tune.smear (default off)."""
     # Imported here: tests exec this file's functions without its module-level imports.
-    import os
-
-    from ament_index_python.packages import get_package_share_directory
-    import yaml
-    path = os.path.join(get_package_share_directory('mhseals_nav'), 'config', 'lidar.yaml')
-    with open(path) as f:
-        return bool(yaml.safe_load(f)['tune']['smear'])
+    from mhseals_nav.layers import config_path, load_strict
+    path = config_path('lidar.yaml')
+    return bool(load_strict(path.read_text(), path)['tune']['smear'])
 
 
 def nearby_node(sim):
@@ -42,7 +39,7 @@ def nearby_node(sim):
 
 def sensor_nodes(context):
     endpoints = endpoint_from_launch(context)
-    sim = launch_boolean(LaunchConfiguration('sim').perform(context))
+    sim = boolean(LaunchConfiguration('sim').perform(context))
     ignored = LaunchConfiguration('sensors_ignore').perform(context).split(',')
     if sim:
         smear = lidar_smear_enabled()
@@ -90,7 +87,7 @@ def sensor_nodes(context):
 
 def generate_launch_description():
     launch_args = [
-        ('sim', 'true', 'Run in simulation mode'),
+        ('sim', 'false', 'Run in simulation mode'),
         ('lidar_params_file', '', 'Optional selected lidar YAML over package/deployment defaults'),
         ('lidar_deployment_file', '', 'Optional deployment lidar YAML layer'),
         ('lidar_required_frame', '', 'Internal full-robot fixed frame contract'),

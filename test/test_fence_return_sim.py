@@ -25,7 +25,7 @@ STATION = (106.0, 25.0)          # the procedure's point, outside the east edge
 SPEED, RATE = 2.0, 20.0
 
 
-def test_node_fence_return_pauses_station_keeping_then_holds_until_released():
+def test_node_fence_return_pauses_station_keeping_then_holds_until_released(tmp_path):
     rclpy = pytest.importorskip('rclpy')
     from geometry_msgs.msg import PoseStamped, Twist
     from nav2_msgs.action import NavigateToPose
@@ -46,16 +46,17 @@ def test_node_fence_return_pauses_station_keeping_then_holds_until_released():
     ex = MultiThreadedExecutor(num_threads=8)   # each running goal holds one
     active = {'handle': None, 'on': True}
     try:
+        fence = tmp_path / 'fence.yaml'        # the fence is its file alone
+        fence.write_text(json.dumps({'frame': 'map', 'points': BOX, 'on_exit': 'return'}))
         dog = node_class()(parameter_overrides=[
-            Parameter('fence_file', value=''), Parameter('fence_frame', value='map'),
-            Parameter('fence_points', value=BOX), Parameter('on_exit', value='return'),
+            Parameter('fence_file', value=str(fence)),
             *(Parameter(key, value=topic) for key, topic in OWN.items())])
         world = rclpy.create_node('fence_sim_world')
         group = ReentrantCallbackGroup()
         lock = threading.Lock()
         boat = {'x': 104.0, 'y': 25.0, 'yaw': 0.0, 'cmd': (0.0, 0.0)}
         mux = {'holds': set(), 'released': False}
-        log = {'procedure_goals': [], 'pauses': [], 'max_x_after_return': None}
+        log = {'procedure_goals': [], 'pauses': [], 'goals': []}
 
         cmd_vel = world.create_publisher(Twist, CFG['command_topic'], 10)
         odom = world.create_publisher(Odometry, CFG['odom_topic'], 10)
@@ -95,6 +96,7 @@ def test_node_fence_return_pauses_station_keeping_then_holds_until_released():
         def execute(handle):        # Nav2: drive at SPEED to the goal; a newer goal aborts this
             active['handle'] = handle
             goal = handle.request.pose.pose.position
+            log['goals'].append((goal.x, goal.y))
             while active['on']:
                 if active['handle'] is not handle:
                     handle.abort()
@@ -183,6 +185,9 @@ def test_node_fence_return_pauses_station_keeping_then_holds_until_released():
         held_x = boat['x']
         time.sleep(1.0)
         assert boat['x'] == held_x and log['procedure_goals'][-1] < returned_at
+        # One return goal, return_inset inside the nearest (east) edge, whatever else was sent.
+        returns = [g for g in log['goals'] if g != STATION]
+        assert returns == [pytest.approx((100.0 - CFG['return_inset'], 25.0))], log['goals']
 
         # The operator (U) or an agent releases the hold: the pause lifts, the procedure resumes.
         with lock:

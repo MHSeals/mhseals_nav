@@ -2,7 +2,7 @@
 # hold a line through a gate or into a dock, but it prefers facing along the
 # path because the camera looks forward. Velocity limits are overwritten from
 # the characterization (thrust_characterize --nav2-overlay). The hull footprint
-# is simulation-derived and needs hardware validation; see the workspace
+# (config/hull.yaml) is simulation-derived and needs hardware validation; see the workspace
 # README before connecting any actuator.
 controller_server:
   ros__parameters:
@@ -48,8 +48,6 @@ controller_server:
       angular_dist_threshold: 1.8           # rad between boat heading and path heading
       rotate_to_heading_once: true
       forward_sampling_distance: 0.5
-      rotate_to_heading_angular_vel: 0.3    # = wz_max
-      max_angular_accel: 0.5                # = az_max
       simulate_ahead_time: 1.0
       # Inside the active goal checker's xy tolerance (Jazzy 1.3.13 copies it into the shim's
       # position_checker every cycle; its stateful latch clears on each 1 Hz replan) the shim
@@ -67,6 +65,10 @@ controller_server:
       temperature: 0.3
       gamma: 0.015
       # Field-proven limits; sampling noise stays below each axis limit so samples are not clipped.
+      # These limits (vx_max .. az_max) are the one velocity source: the launch derives the rotation
+      # shim's rate and accel, the velocity smoother's vectors and the behavior server's rotational
+      # limits from them (navigation_config.derived). nav2_ceilings.yaml caps them, the limits_file
+      # overlay (the TUI's nav2.yaml) overrides them, and a change applies on the next Nav2 restart.
       vx_std: 0.1
       vy_std: 0.07
       wz_std: 0.15
@@ -155,10 +157,7 @@ local_costmap:
       width: 12
       height: 12
       resolution: 0.05
-      # Padding covers buoy range noise the tracker discs (max_extra_m 0.1) do not: ZED depth
-      # error is about 0.25 m at 5 m, so 0.05 would leave ~1 sigma.
-      footprint: "[[0.5315, 0.4475], [0.5315, -0.4475], [-0.5315, -0.4475], [-0.5315, 0.4475]]"
-      footprint_padding: 0.1
+      # footprint and footprint_padding: config/hull.yaml, written in by startup_projection.
       # StaticLayer reads these from the costmap, not from its own namespace.
       trinary_costmap: false     # keep the Orin's graded costs
       use_maximum: false
@@ -225,10 +224,7 @@ global_costmap:
       width: 100
       height: 100
       resolution: 0.20
-      # Padding covers buoy range noise the tracker discs (max_extra_m 0.1) do not: ZED depth
-      # error is about 0.25 m at 5 m, so 0.05 would leave ~1 sigma.
-      footprint: "[[0.5315, 0.4475], [0.5315, -0.4475], [-0.5315, -0.4475], [-0.5315, 0.4475]]"
-      footprint_padding: 0.1
+      # footprint and footprint_padding: config/hull.yaml, written in by startup_projection.
       # StaticLayer reads these from the costmap, not from its own namespace.
       trinary_costmap: false     # keep the Orin's graded costs
       use_maximum: false
@@ -271,9 +267,7 @@ behavior_server:
     robot_base_frame: base_link
     transform_tolerance: 0.2
     simulate_ahead_time: 2.0
-    max_rotational_vel: 0.3
     min_rotational_vel: 0.1
-    rotational_acc_lim: 0.5
 
 bt_navigator:
   ros__parameters:
@@ -309,10 +303,6 @@ velocity_smoother:
     smoothing_frequency: 20.0
     scale_velocities: true
     feedback: OPEN_LOOP
-    max_velocity: [0.4, 0.15, 0.3]
-    min_velocity: [-0.1, -0.15, -0.3]
-    max_accel: [0.3, 0.3, 0.5]
-    max_decel: [-0.3, -0.3, -0.5]
     odom_topic: /odom/local
     odom_duration: 0.1
     deadband_velocity: [0.0, 0.0, 0.0]

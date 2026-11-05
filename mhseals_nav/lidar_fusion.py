@@ -19,6 +19,8 @@ import time
 import numpy as np
 
 from mhseals_nav import classes
+from mhseals_nav.robot_geometry import matrix_rpy, quat_matrix, rpy_matrix
+from mhseals_nav.yaml_params import params_file
 
 DEG = math.pi / 180
 UP = np.array([0.0, -1.0, 0.0])                  # optical axes
@@ -27,29 +29,6 @@ SOURCES = ('lidar', 'split', 'lidar_ray', 'held', 'stereo', 'pass')
 
 
 # ------------------------------------------------------------------ geometry
-def quat_matrix(x, y, z, w):
-    return np.array([
-        [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
-        [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
-        [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)]])
-
-
-def rpy_matrix(roll, pitch, yaw):
-    """Rz(yaw) Ry(pitch) Rx(roll); arrays broadcast to (..., 3, 3)."""
-    roll, pitch, yaw = np.broadcast_arrays(*(np.asarray(a, float) for a in (roll, pitch, yaw)))
-    cr, sr, cp, sp, cy, sy = (f(a) for a in (roll, pitch, yaw) for f in (np.cos, np.sin))
-    R = np.empty(roll.shape + (3, 3))
-    R[..., 0, :] = np.stack([cy * cp, cy * sp * sr - sy * cr, cy * sp * cr + sy * sr], -1)
-    R[..., 1, :] = np.stack([sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr], -1)
-    R[..., 2, :] = np.stack([-sp, cp * sr, cp * cr], -1)
-    return R
-
-
-def matrix_rpy(R):
-    return (math.atan2(R[2][1], R[2][2]), -math.asin(max(-1.0, min(1.0, R[2][0]))),
-            math.atan2(R[1][0], R[0][0]))
-
-
 def small_rotation(w):
     """Rotation of the vector w (rad), Rodrigues."""
     w = np.asarray(w, float)
@@ -897,12 +876,7 @@ except ImportError:  # host pytest exercises only the pure functions
     Node = object
 
 
-def load_yaml(name):
-    from pathlib import Path
-    import yaml
-    from ament_index_python.packages import get_package_share_directory
-    path = Path(get_package_share_directory('mhseals_nav')) / 'config' / name
-    return yaml.safe_load(path.read_text())['/**']['ros__parameters']
+load_yaml = params_file  # pinned: mhseals_testing's fusion calib reads nav configs through it
 
 
 class LidarFusion(Node):
@@ -916,7 +890,7 @@ class LidarFusion(Node):
         from mhseals_nav.yaml_params import node_config
         super().__init__('lidar_fusion', automatically_declare_parameters_from_overrides=True)
         self.cfg = cfg = node_config(self, 'lidar_fusion.yaml')
-        self.tracker = classes.with_radius(load_yaml('tracker.yaml'))
+        self.tracker = classes.with_radius(params_file('tracker.yaml'))
         self.tf = Buffer()
         self.tf_listener = TransformListener(self.tf, self)
         self.K = self.image = None
@@ -969,12 +943,11 @@ class LidarFusion(Node):
         import multiprocessing
         import os
         import threading
-        from ament_index_python.packages import get_package_share_directory
         from rclpy.serialization import deserialize_message
         from sensor_msgs.msg import PointCloud2
         from mhseals_nav import lidar_relay
-        profile = os.path.join(get_package_share_directory('mhseals_nav'), 'config',
-                               'fastdds_large_data.xml')
+        from mhseals_nav.layers import config_path
+        profile = str(config_path('fastdds_large_data.xml'))
         context = multiprocessing.get_context('spawn')
         reader, writer = context.Pipe(duplex=False)
         self.child = context.Process(target=lidar_relay.receive, daemon=True,

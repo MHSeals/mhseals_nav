@@ -33,7 +33,7 @@ def test_late_invalid_base_or_masked_graph_constructs_nothing(tmp_path, name, ba
     assert calls == []  # both Node and TimerAction use this collector
 
 
-@pytest.mark.parametrize('clock', ['garbage', '1', 'yes', ''])
+@pytest.mark.parametrize('clock', ['garbage', 'yes', ''])
 def test_invalid_clock_before_construction(clock):
     calls = []
     with pytest.raises(ValueError):
@@ -57,30 +57,6 @@ def test_factory_parameters_are_validated_copies_and_fresh_changes_propagate(tmp
     launch(calls)['ekf_nodes'](supplied)
     assert next(c for c in calls if c.get('name') == 'ekf_global')[
         'parameters'][0]['frequency'] == 43.
-
-
-def test_full_robot_forwards_empty_default_and_selected_inputs(tmp_path):
-    calls = []
-    robot = factories('robot.launch.py', lambda: None, calls)
-    declared = {}
-    robot.update(LaunchDescription=lambda x: x,
-                 DeclareLaunchArgument=lambda name, **kw: declared.update(
-                     {name: kw['default_value']}),
-                 persistent_limits_path=lambda: '')
-    robot['generate_launch_description']()
-    assert declared['ekf_overlay_file'] == ''
-    odom = next(dict(c['launch_arguments']) for c in calls if 'launch_arguments' in c
-                and 'urdf_file' in dict(c['launch_arguments']))
-    supplied = context()
-    overlay = tmp_path / 'robot.yaml'
-    overlay.write_text('navsat_transform: {delay: 4}')
-    supplied['ekf_overlay_file'] = str(overlay)
-    forwarded = {key: value.perform(supplied) for key, value in odom.items()
-                 if key in supplied}
-    calls = []
-    launch(calls)['ekf_nodes'](dict(supplied, **forwarded))
-    assert next(c for c in calls if c.get('name') == 'navsat_transform')[
-        'parameters'][0]['delay'] == 4.
 
 
 def test_installed_share_defaults_outside_cwd(tmp_path, monkeypatch):
@@ -112,7 +88,8 @@ def test_installed_share_defaults_outside_cwd(tmp_path, monkeypatch):
     calls.clear()
     factory['ekf_nodes'](supplied)
     assert len([c for c in calls if 'parameters' in c]) == 3
-    assert all(c['parameters'][0]['use_sim_time'] is True for c in calls if 'parameters' in c)
+    # sim defaults to false: a forgotten argument on the boat never waits for /clock.
+    assert all(c['parameters'][0]['use_sim_time'] is False for c in calls if 'parameters' in c)
 
 
 @pytest.mark.parametrize('field', ['odom0_queue_size', 'imu0_queue_size'])

@@ -26,22 +26,10 @@ boat is slow, and stopping keeps it from turning across what only its lidar sees
 giving anything new the authority to move it.
 """
 
-import math
-
 from mhseals_nav.hold_watchdog import HoldGate, node_class as watchdog_class, run
+from mhseals_nav.nearest_obstacle import Grid, grid_pose, hull_gap, lethal_points
+from mhseals_nav.yaml_params import rectangle
 import numpy
-
-
-def lethal_points(cells, resolution, origin, centre, radius, lethal=100):
-    """World (x, y) of the lethal cells within ``radius`` of ``centre``, as an (N, 2) array."""
-    x, y = centre
-    cols = slice(max(0, int((x - radius - origin[0]) / resolution)),
-                 max(0, int(math.ceil((x + radius - origin[0]) / resolution))))
-    rows = slice(max(0, int((y - radius - origin[1]) / resolution)),
-                 max(0, int(math.ceil((y + radius - origin[1]) / resolution))))
-    ys, xs = numpy.nonzero(cells[rows, cols] >= lethal)
-    return numpy.column_stack((origin[0] + (xs + cols.start + 0.5) * resolution,
-                               origin[1] + (ys + rows.start + 0.5) * resolution))
 
 
 def clusters(points, link, size):
@@ -66,15 +54,6 @@ def clusters(points, link, size):
         if member.sum() >= size:
             keep |= member
     return keep
-
-
-def hull_gap(points, pose, half):
-    """Distance from the hull rectangle at ``pose`` (x, y, yaw) to each world point."""
-    c, s = math.cos(pose[2]), math.sin(pose[2])
-    dx, dy = points[:, 0] - pose[0], points[:, 1] - pose[1]
-    bx, by = c * dx + s * dy, -s * dx + c * dy
-    return numpy.hypot(bx - numpy.clip(bx, -half[0], half[0]),
-                       by - numpy.clip(by, -half[1], half[1]))
 
 
 class Guard(HoldGate):
@@ -206,11 +185,8 @@ def node_class():
     from map_msgs.msg import OccupancyGridUpdate
     from nav_msgs.msg import OccupancyGrid
     from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy
-    from rclpy.time import Time
     from std_msgs.msg import String
-    from tf2_ros import Buffer, TransformException, TransformListener
-
-    from mhseals_nav.nearest_obstacle import Grid
+    from tf2_ros import Buffer, TransformListener
 
     def subscribe(node):
         cfg, guard, grid = node.cfg, node.logic, Grid()
@@ -223,22 +199,9 @@ def node_class():
         node.create_subscription(OccupancyGridUpdate, cfg['updates_topic'],
                                  lambda m: grid.update(m, time.monotonic()), 10)
 
-        def pose():
-            if grid.cells is None or time.monotonic() - grid.received > cfg['max_costmap_age']:
-                return None
-            try:
-                tf = node.tf.lookup_transform(grid.frame, cfg['base_frame'], Time())
-            except TransformException:
-                return None
-            stamp = Time.from_msg(tf.header.stamp, clock_type=node.get_clock().clock_type)
-            if (node.get_clock().now() - stamp).nanoseconds * 1e-9 > cfg['max_tf_age']:
-                return None
-            t, q = tf.transform.translation, tf.transform.rotation
-            return t.x, t.y, math.atan2(2.0 * (q.w * q.z + q.x * q.y),
-                                        1.0 - 2.0 * (q.y * q.y + q.z * q.z))
-
         def observe():
-            at = pose()
+            at = grid_pose(node, node.tf, grid, cfg['base_frame'], cfg['max_costmap_age'],
+                           cfg['max_tf_age'])
             if at is None:
                 guard.blind()   # stale inputs are costmap_watchdog's to hold on
                 return
@@ -258,7 +221,7 @@ def node_class():
 
         node.create_timer(cfg['repeat'], publish_report)
 
-    return watchdog_class('approach_guard', Guard, subscribe)
+    return watchdog_class('approach_guard', Guard, subscribe, rectangle())   # config/hull.yaml
 
 
 def main(args=None):

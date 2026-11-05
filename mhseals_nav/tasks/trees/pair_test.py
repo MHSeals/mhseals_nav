@@ -1,16 +1,16 @@
 """Commissioning: cross a pole-buoy pair, turn beyond it, and cross back."""
 
-from mhseals_nav.tasks.behaviours import (
-    GateRun, Navigate, PlanGatePass, PlanReturn, Report,
-)
+from mhseals_nav.tasks.behaviours import GateRun, Navigate, Report
+from mhseals_nav.tasks.geometry import gate_exit
+from mhseals_nav.tasks.plans import PlanGatePass, PlanReturn
 from py_trees.composites import Sequence
 
 
 def build(params):
     """Remember one pair, accepting either colour order, for both crossings."""
     from mhseals_nav.tasks.trees import gate_options
-    if params['clearance'] < 1.1:
-        raise ValueError('clearance must be at least 1.1 m to clear the hull')
+    if params['clearance'] < gate_exit(params['gate_margin']):
+        raise ValueError('clearance must be at least the gate exit to clear the hull')
     return Sequence('pair test', memory=True, children=[
         GateRun('find and cross the pair', 'pair_gate',
                 params['red'], params['green'], gates=1,

@@ -6,25 +6,13 @@ The mission host builds its trees from these; a harness that only needs the run 
 
 from pathlib import Path
 
-from mhseals_nav.navigation_config import load_strict
+from mhseals_nav import layers
+from mhseals_nav.layers import load_strict
 
 
 def config_path(name):
-    """Return a task YAML's path in the installed share, else in this source tree."""
-    path = None
-    try:
-        from ament_index_python.packages import (get_package_share_directory,
-                                                 PackageNotFoundError)
-    except ImportError:  # no ROS on this host: the source tree only
-        pass
-    else:
-        try:
-            path = Path(get_package_share_directory('mhseals_nav')) / 'config/tasks' / name
-        except PackageNotFoundError:
-            pass
-    if path is None or not path.exists():
-        path = Path(__file__).resolve().parents[2] / 'config/tasks' / name
-    return str(path)
+    """Return config/tasks/<name>'s path (layers.config_path: the source tree, else the share)."""
+    return str(layers.config_path('tasks', name))
 
 
 def load_params(task, path=None, profile=None):

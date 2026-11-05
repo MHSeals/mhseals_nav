@@ -28,17 +28,10 @@ def test_omni_mppi_and_command_limits():
     # Below ~1.6 the shim re-engages mid-route and near the goal (stop-and-turn cycles).
     assert 1.6 <= mppi['angular_dist_threshold'] <= 2.2
     assert mppi['rotate_to_heading_once'] is True
-    assert mppi['rotate_to_heading_angular_vel'] <= mppi['wz_max']
-    assert mppi['max_angular_accel'] <= mppi['az_max']
     # Inside the active goal checker's xy tolerance the shim turns to the goal yaw; nothing
     # else steers to it. Jazzy copies that tolerance into position_checker each cycle.
     assert mppi['rotate_to_goal_heading'] is True
-    smoother = config['velocity_smoother']['ros__parameters']
-    # The smoother passes everything MPPI may command, sway included, and no more.
-    assert smoother['max_velocity'] == [mppi['vx_max'], mppi['vy_max'], mppi['wz_max']]
-    assert smoother['min_velocity'] == [mppi['vx_min'], -mppi['vy_max'], -mppi['wz_max']]
-    assert smoother['velocity_timeout'] > 0
-    assert smoother['max_decel'][1] == mppi['ay_min']
+    assert config['velocity_smoother']['ros__parameters']['velocity_timeout'] > 0
     assert mppi['TwirlingCritic']['cost_weight'] > 0
     assert all(mppi[f'{axis}_std'] <= mppi[f'{axis}_max'] for axis in ('vx', 'vy', 'wz'))
     # Nav2's 20 ms default timed out acknowledging compute_path_to_pose in the field.
@@ -49,8 +42,40 @@ def test_omni_mppi_and_command_limits():
             < controller['general_goal_checker']['xy_goal_tolerance'])
 
 
-def test_inflation_leaves_a_six_foot_gate_open():
+DERIVED = {'velocity_smoother': ('max_velocity', 'min_velocity', 'max_accel', 'max_decel'),
+           'behavior_server': ('max_rotational_vel', 'rotational_acc_lim')}
+
+
+def test_follow_path_is_the_one_velocity_source():
+    """The base carries no copy of a derived limit; the compiled params take each from FollowPath."""
     config = yaml.safe_load((ROOT / 'config/nav2_params.yaml').read_text())
+    mppi = config['controller_server']['ros__parameters']['FollowPath']
+    assert not {'rotate_to_heading_angular_vel', 'max_angular_accel'} & mppi.keys()
+    for node, keys in DERIVED.items():
+        assert not set(keys) & config[node]['ros__parameters'].keys(), node
+    ceilings = yaml.safe_load((ROOT / 'config/nav2_ceilings.yaml').read_text())
+    assert not set(DERIVED['behavior_server']) & ceilings.keys()
+    out = compiled()
+    mppi = out['controller_server']['ros__parameters']['FollowPath']
+    assert (mppi['rotate_to_heading_angular_vel'], mppi['max_angular_accel']) == (mppi['wz_max'], mppi['az_max'])
+    smoother = out['velocity_smoother']['ros__parameters']
+    # The smoother passes everything MPPI may command, sway included, and no more.
+    assert smoother['max_velocity'] == [mppi['vx_max'], mppi['vy_max'], mppi['wz_max']]
+    assert smoother['min_velocity'] == [mppi['vx_min'], -mppi['vy_max'], -mppi['wz_max']]
+    assert smoother['max_accel'] == [mppi['ax_max'], mppi['ay_max'], mppi['az_max']]
+    assert smoother['max_decel'] == [mppi['ax_min'], -mppi['ay_max'], -mppi['az_max']]
+    behavior = out['behavior_server']['ros__parameters']
+    assert (behavior['max_rotational_vel'], behavior['rotational_acc_lim']) == (mppi['wz_max'], mppi['az_max'])
+
+
+def compiled():
+    """nav2_params.yaml as Nav2 gets it: the footprint comes from config/hull.yaml."""
+    from mhseals_nav.startup_projection import compile_navigation
+    return compile_navigation(ROOT / 'config/nav2_params.yaml', '', sim='true')
+
+
+def test_inflation_leaves_a_six_foot_gate_open():
+    config = compiled()
     gate = 6 * 0.3048
     for name in ['local_costmap', 'global_costmap']:
         params = config[name][name]['ros__parameters']
@@ -71,7 +96,7 @@ def test_inflation_leaves_a_six_foot_gate_open():
 
 
 def test_costmaps_do_not_require_slam_and_check_sensor_freshness():
-    config = yaml.safe_load((ROOT / 'config/nav2_params.yaml').read_text())
+    config = compiled()
     for name in ['local_costmap', 'global_costmap']:
         params = config[name][name]['ros__parameters']
         assert params['rolling_window']
@@ -117,9 +142,8 @@ def test_launch_responsibilities_and_velocity_output():
     launch = (ROOT / 'launch/navigation.launch.py').read_text()
     assert "('cmd_vel_smoothed', 'cmd_vel')" in launch
     assert "('cmd_vel', 'cmd_vel_nav')" in launch
-    assert "twist_converter" not in launch
     assert "enable_mavros_velocity" not in launch
-    assert "LaunchConfiguration('use_lidar')" in launch
+    assert 'use_lidar' not in launch   # lidar reaches Nav2 only in /perception/costmap
     assert "('received_global_plan', 'local_plan')" in launch
     assert "'object_tracker'" not in (ROOT / 'launch/odom.launch.py').read_text()
     assert "'object_tracker'" not in launch
@@ -127,9 +151,7 @@ def test_launch_responsibilities_and_velocity_output():
     slam = (ROOT / 'launch/slam.launch.py').read_text()
     assert "package='rtabmap_slam'" in slam
     assert 'navigation.launch.py' not in slam
-    robot = (ROOT / 'launch/robot.launch.py').read_text()
-    for child in ('navigation', 'slam', 'objects'):
-        assert f"'{child}.launch.py'" in robot
+    assert not (ROOT / 'launch/robot.launch.py').exists()   # device.launch.py device:=sim
 
 
 def test_rtabmap_uses_the_live_lidar_contract():
@@ -157,7 +179,13 @@ def test_behavior_trees_reload_for_each_goal():
 def test_packaged_params_are_already_consistent_with_derived():
     from mhseals_nav.navigation_config import derived
     config = yaml.safe_load((ROOT / 'config/nav2_params.yaml').read_text())
-    assert derived(config) == config
+    result = derived(config)
+    del result['controller_server']['ros__parameters']['FollowPath']['rotate_to_heading_angular_vel']
+    del result['controller_server']['ros__parameters']['FollowPath']['max_angular_accel']
+    for node, keys in DERIVED.items():
+        for key in keys:
+            del result[node]['ros__parameters'][key]
+    assert result == config      # derived() only adds the limits that follow FollowPath
 
 
 def _plugin_strings(node):
@@ -199,22 +227,21 @@ def test_package_xml_depends_on_rotation_shim():
     assert '<exec_depend>nav2_rotation_shim_controller</exec_depend>' in xml
 
 
-@pytest.mark.parametrize('use_lidar', [True, False])
-def test_factory_emits_installed_behavior_trees_and_lidar(use_lidar):
+def test_factory_emits_installed_behavior_trees_and_perception_costmap():
+    from mhseals_nav.startup_projection import TREES
     from test_navigation_startup_validation import inert_navigation_factory
 
     factory = inert_navigation_factory()
     nodes = factory['navigation_nodes']({
         'params_file': str(ROOT / 'config/nav2_params.yaml'), 'limits_file': '',
-        'sim': 'false', 'use_lidar': str(use_lidar).lower()})
+        'sim': 'false'})
     emitted = yaml.safe_load(Path(nodes[0]['parameters'][0]).read_text())
     navigator = emitted['bt_navigator']['ros__parameters']
     expected = {'default_nav_to_pose_bt_xml': 'nav_to_pose.xml',
                 'default_nav_through_poses_bt_xml': 'nav_replan_recov.xml'}
     for key, name in expected.items():
         artifact = Path(navigator[key])
-        assert artifact == factory['share'] / 'behavior_trees' / name
-        assert artifact.read_bytes() == (ROOT / 'mhseals_nav/behavior_trees' / name).read_bytes()
+        assert artifact == TREES / name   # the module's trees, as run_task's precise tree
         tree = ET.fromstring(artifact.read_bytes())
         assert not any(node.tag in ['Spin', 'BackUp', 'ClearEntireCostmap']
                        for node in tree.iter())

@@ -47,15 +47,9 @@ def test_explicit_missing_and_boolean_alias_rejected(tmp_path):
         resolve_odometry(BASE, aliases={'ekf_delay': True})
 
 
-def test_installed_share_lookup_from_unrelated_directory(tmp_path, monkeypatch):
-    import sys
-    import types
-    share = tmp_path / 'installed/share/mhseals_nav'
-    (share / 'config').mkdir(parents=True)
+def test_installed_share_lookup_from_unrelated_directory(tmp_path, monkeypatch, installed):
+    share = installed
     (share / 'config/odometry_startup.yaml').write_bytes(BASE.read_bytes())
-    package = types.ModuleType('ament_index_python.packages')
-    package.get_package_share_directory = lambda name: str(share)
-    monkeypatch.setitem(sys.modules, 'ament_index_python.packages', package)
     monkeypatch.chdir(tmp_path)
     assert resolve_odometry().inputs[0]['path'] == str(share / 'config/odometry_startup.yaml')
 

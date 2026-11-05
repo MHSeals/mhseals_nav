@@ -15,8 +15,9 @@ taking control (the run is over) or a thruster no-go (the exit's own gate) stops
 import math
 
 from mhseals_nav.tasks import budget
-from mhseals_nav.tasks.behaviours import Deadline, Leaf, Navigate, PlanLook, Report
+from mhseals_nav.tasks.behaviours import Deadline, Leaf, Navigate, Report
 from mhseals_nav.tasks.conditions import Gate, Watch
+from mhseals_nav.tasks.plans import PlanLook
 from mhseals_nav.tasks.search import course_side
 from py_trees.common import ParallelPolicy, Status
 from py_trees.composites import Parallel, Selector, Sequence

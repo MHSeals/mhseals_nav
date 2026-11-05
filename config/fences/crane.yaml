@@ -1,0 +1,6 @@
+# The crane world's fence (crane_ml's Unity course): the measured world x [-8, 42], y [-28, 20]
+# in map (the start pose) plus fence_watchdog's 5 m margin, so holds fall at the world's edge.
+# config/devices/sim.yaml passes it as fence_file; mission_crane.yaml's search area lies inside.
+frame: map
+points: [-13, -33, 47, -33, 47, 25, -13, 25]
+on_exit: alert

@@ -7,56 +7,9 @@ from pathlib import Path
 
 import yaml
 
+from .layers import deep_merge, StrictOverlayLoader
+
 log = logging.getLogger(__name__)
-
-
-def deep_merge(dst, src):
-    """Recursively copy src onto dst; lists and scalars replace."""
-    for key, value in src.items():
-        if isinstance(value, dict):
-            deep_merge(dst.setdefault(key, {}), value)
-        else:
-            dst[key] = deepcopy(value)
-    return dst
-
-
-class StrictOverlayLoader(yaml.SafeLoader):
-    """Do not discard ambiguous user assignments during dictionary construction."""
-
-    def construct_mapping(self, node, deep=False):
-        result = {}
-        for key_node, value_node in node.value:
-            if key_node.tag == 'tag:yaml.org,2002:merge':
-                raise ValueError(f'Merge keys are unsupported at {key_node.start_mark}')
-            key = self.construct_object(key_node, deep=deep)
-            if key in result:
-                raise ValueError(f'Duplicate key {key!r} at {key_node.start_mark}')
-            result[key] = self.construct_object(value_node, deep=deep)
-        return result
-
-    def compose_node(self, parent, index):
-        if self.check_event(yaml.AliasEvent):
-            raise ValueError('YAML aliases are unsupported in navigation overlays at '
-                             f'{self.peek_event().start_mark}')
-        return super().compose_node(parent, index)
-
-    def construct_yaml_float(self, node):
-        value = super().construct_yaml_float(node)
-        if not isfinite(value):
-            raise ValueError(f'Non-finite number at {node.start_mark}')
-        return value
-
-
-StrictOverlayLoader.add_constructor('tag:yaml.org,2002:float',
-                                    StrictOverlayLoader.construct_yaml_float)
-
-
-def load_strict(raw, path, loader=StrictOverlayLoader):
-    """Strict-load YAML text or bytes; every failure names the file and position."""
-    try:
-        return yaml.load(raw, Loader=loader)
-    except (ValueError, yaml.YAMLError) as error:
-        raise ValueError(f'{path}: {error}') from error
 
 
 def load_overlay(path, *, strict=False):
@@ -81,40 +34,17 @@ def load_overlay(path, *, strict=False):
     return data
 
 
-EKF_NODES = {'ekf_local', 'ekf_global', 'navsat_transform'}
-
-
-def ekf_overlay(path, node, base_path=None):
-    """Strict compatibility projection; missing explicit selections now refuse."""
-    from .localization_configuration import NODES, parse_base, parse_overlay
-    if node not in NODES:
-        raise ValueError('unsupported localization node: ' + node)
-    if base_path is not None:
-        parse_base(Path(base_path).expanduser().read_bytes(), node, base_path)
-    selected = Path(path).expanduser() if path else Path.home() / '.config/mhseals/ekf.yaml'
-    try:
-        raw = selected.read_bytes()
-    except FileNotFoundError:
-        if path or selected.is_symlink():
-            raise
-        raw = b''
-    return parse_overlay(raw, selected).get(node, {})
-
-
 def valid_numbers(controller, follow):
-    """True when the values derived() computes from are numbers and the frequency is positive."""
+    """Raise ValueError unless the values derived() computes from are numbers and the frequency is positive."""
     values = {'controller_frequency': controller.get('controller_frequency', 1)}
     for key in ('vx_max', 'time_steps', 'model_dt', 'vx_std', 'vy_std', 'wz_std', 'vy_max', 'wz_max'):
         if key in follow:
             values[key] = follow[key]
     for key, value in values.items():
         if isinstance(value, bool) or not isinstance(value, (int, float)):
-            log.error('Not deriving navigation limits: %s = %r is not a number', key, value)
-            return False
+            raise ValueError(f'{key} = {value!r}: not a number, the derived limits follow it')
     if values['controller_frequency'] <= 0:
-        log.error('Not deriving navigation limits: controller_frequency must be positive')
-        return False
-    return True
+        raise ValueError('controller_frequency must be positive, the derived limits follow it')
 
 
 def mppi_controller(controller, *, legacy=False):
@@ -146,9 +76,10 @@ def mppi_controller(controller, *, legacy=False):
 def derived(config, original=None):
     """Return config with the values that follow from others recomputed.
 
-    The smoother passes what MPPI may command, the rotation shim turns no faster than it, MPPI advances one model_dt per
-    control cycle, and the plan must reach the whole horizon. original is the
-    current tuning whose prune_distance is a floor.
+    The smoother passes what MPPI may command, the rotation shim and the behavior server turn no faster than it, MPPI
+    advances one model_dt per control cycle, and the plan must reach the whole horizon. original is the
+    current tuning whose prune_distance is a floor. Raises ValueError when a FollowPath limit those sections take is
+    missing or a value they follow is not a number.
     """
     result = deepcopy(config)
     controller = result.get('controller_server', {}).get('ros__parameters', {})
@@ -157,8 +88,7 @@ def derived(config, original=None):
         return result
     follow = controller[name]
     original = (original or config)['controller_server']['ros__parameters'][name]
-    if not valid_numbers(controller, follow):
-        return result
+    valid_numbers(controller, follow)
     if 'controller_frequency' in controller:
         follow['model_dt'] = round(1 / controller['controller_frequency'], 6)
     # Sampling noise above an axis limit would clip most samples.
@@ -168,20 +98,31 @@ def derived(config, original=None):
     if all(key in follow for key in ('vx_max', 'time_steps', 'model_dt')):
         follow['prune_distance'] = max(original.get('prune_distance', 0.), round(
             1.2 * follow['vx_max'] * follow['time_steps'] * follow['model_dt'], 2))
-    # The shim's look-ahead and closed-loop accel assume the rates MPPI is held to.
-    for shim, limit in (('rotate_to_heading_angular_vel', 'wz_max'), ('max_angular_accel', 'az_max')):
-        if shim in follow and limit in follow:
-            follow[shim] = follow[limit]
+    # FollowPath is the one velocity source: the shim, the smoother and the behavior server
+    # are held to the rates MPPI is held to, and the base YAML carries no copy of them.
+    targets = []
+    if follow.get('plugin') == 'nav2_rotation_shim_controller::RotationShimController':
+        targets += [(follow, 'rotate_to_heading_angular_vel', 'wz_max'),
+                    (follow, 'max_angular_accel', 'az_max')]
     smoother = result.get('velocity_smoother', {}).get('ros__parameters')
     if smoother is not None:
-        for key, limits in (('max_velocity', ('vx_max', 'vy_max', 'wz_max')),
-                            ('min_velocity', ('vx_min', '-vy_max', '-wz_max')),
-                            ('max_accel', ('ax_max', 'ay_max', 'az_max')),
-                            ('max_decel', ('ax_min', '-ay_max', '-az_max'))):
-            for index, name in enumerate(limits):
-                sign, name = (-1, name[1:]) if name[0] == '-' else (1, name)
-                if name in follow and key in smoother:
-                    smoother[key][index] = sign * follow[name]
+        targets += [(smoother, 'max_velocity', ('vx_max', 'vy_max', 'wz_max')),
+                    (smoother, 'min_velocity', ('vx_min', '-vy_max', '-wz_max')),
+                    (smoother, 'max_accel', ('ax_max', 'ay_max', 'az_max')),
+                    (smoother, 'max_decel', ('ax_min', '-ay_max', '-az_max'))]
+    behavior = result.get('behavior_server', {}).get('ros__parameters')
+    if behavior is not None:
+        targets += [(behavior, 'max_rotational_vel', 'wz_max'),
+                    (behavior, 'rotational_acc_lim', 'az_max')]
+
+    def limit(name):
+        sign, name = (-1, name[1:]) if name[0] == '-' else (1, name)
+        value = follow.get(name)
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(f'FollowPath.{name}: required number, the derived limits follow it')
+        return sign * value
+    for section, key, source in targets:
+        section[key] = [limit(name) for name in source] if isinstance(source, tuple) else limit(source)
     return result
 
 
@@ -411,8 +352,9 @@ def lower_navigation(base, explicit):
     Pure canonical lowering; explicit derived assignments must agree.
 
     Optional smoother sections and plugin maps retain the selected base shape.
-    Only the supported FollowPath closure is bound; unrelated plugin maps and
-    behavior-server rotational limits are independent inputs.
+    Only the supported FollowPath closure is bound; unrelated plugin maps are
+    independent inputs. The smoother, shim and behavior-server rotational
+    limits are absent from the base, so the overlay validation refuses them.
     """
     result = merge_limits(base, explicit, {})     # explicit is already within the ceilings
     controller = explicit.get('controller_server', {}).get('ros__parameters', {})
@@ -420,16 +362,10 @@ def lower_navigation(base, explicit):
     name = mppi_controller(output_controller, legacy=True)
     follow = controller.get(name, {})
     lowered = output_controller.get(name, {})
-    bound = ('model_dt', 'vx_std', 'vy_std', 'wz_std', 'prune_distance',
-             'rotate_to_heading_angular_vel', 'max_angular_accel')
+    bound = ('model_dt', 'vx_std', 'vy_std', 'wz_std', 'prune_distance')
     for key in bound:
         if key in follow and follow[key] != lowered.get(key):
             raise ValueError(f'FollowPath.{key}: conflicts with canonical lowering')
-    smoother = explicit.get('velocity_smoother', {}).get('ros__parameters', {})
-    output = result.get('velocity_smoother', {}).get('ros__parameters', {})
-    for key in ('max_velocity', 'min_velocity', 'max_accel', 'max_decel'):
-        if key in smoother and smoother[key] != output.get(key):
-            raise ValueError(f'velocity_smoother.{key}: conflicts with canonical lowering')
     return result
 
 

@@ -67,10 +67,12 @@ def inert_main(monkeypatch, overrides=None):
     main = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'main')
     main.body = [n for n in main.body if not isinstance(n, (ast.Import, ast.ImportFrom))]
     active = iter([True, False])
+    inert = NS(Event=Event, Thread=thread, Lock=threading.Lock)
+    monkeypatch.setattr(setup, 'threading', inert)   # RateKeeper's wake event, too
     ns = dict(vars(setup), Node=Node, installed_setup_defaults=lambda: resolve_setup(
         ROOT / 'config/mavros_setup.yaml'),
         rclpy=NS(init=lambda **kw: None, ok=lambda: next(active), try_shutdown=lambda: None),
-        threading=NS(Event=Event, Thread=thread, Lock=threading.Lock),
+        threading=inert,
         time=NS(monotonic=lambda: seen.now),
         MessageInterval=NS(Request=lambda **kw: NS(**kw)), DiagnosticStatus=NS,
         KeyValue=NS, Mavlink=NS, RCIn=NS, State=NS, qos_profile_sensor_data=None,

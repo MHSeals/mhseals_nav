@@ -5,13 +5,9 @@ from pathlib import Path
 import pytest
 
 
-@pytest.mark.parametrize('filename,function', [
-    ('odom.launch.py', 'create_rtabmap_odom_node'),
-    ('slam.launch.py', 'create_rtabmap_slam_node'),
-])
 @pytest.mark.parametrize('sim', ['false', 'true'])
-def test_sim_clock_is_boolean(filename, function, sim):
-    source = Path(__file__).parents[1] / 'launch' / filename
+def test_sim_clock_is_boolean(sim):
+    source = Path(__file__).parents[1] / 'launch' / 'slam.launch.py'
     tree = ast.parse(source.read_text())
     # Select the factory containing RTABMap parameters, independent of name.
     factory = next(node for node in tree.body if isinstance(node, ast.FunctionDef)
@@ -31,6 +27,28 @@ def test_sim_clock_is_boolean(filename, function, sim):
     assert nodes[0]['parameters'][1]['use_sim_time'] is (sim == 'true')
 
 
+@pytest.mark.parametrize('text, value', [('1', True), ('True', True), ('0', False),
+                                         ('false', False)])
+def test_one_strict_parser(text, value):
+    from mhseals_nav.layers import boolean
+    assert boolean(text) is value
+
+
+@pytest.mark.parametrize('text', ['yes', '', 'on', None])
+def test_one_strict_parser_rejects(text):
+    from mhseals_nav.layers import boolean
+    with pytest.raises(ValueError, match='invalid launch boolean'):
+        boolean(text)
+
+
+def test_no_other_launch_boolean_parser():
+    root = Path(__file__).parents[1]
+    for path in [*root.glob('launch/*.py'), *root.glob('mhseals_nav/*.py')]:
+        text = path.read_text()
+        assert "== 'true'" not in text and 'def launch_boolean' not in text, path
+    assert 'def boolean' not in (root / 'mhseals_nav/startup_projection.py').read_text()
+
+
 def test_velodyne_driver_and_transform_use_same_model(tmp_path):
     from mhseals_nav.lidar_configuration import resolve_lidar
     from test_lidar_configuration import share as calibration_share
@@ -46,8 +64,3 @@ def test_velodyne_driver_and_transform_use_same_model(tmp_path):
     assert driver['model'] == transform['model'] == 'VLP16'
     assert driver['frame_id'] == transform['frame_id'] == 'lidar_link'
 
-
-def test_imu_filter_is_opt_in():
-    source = (Path(__file__).parents[1] / 'launch' / 'odom.launch.py').read_text()
-    assert "('use_imu_filter', 'false'" in source
-    assert "condition=IfCondition(launch_configurations['use_imu_filter'])" in source

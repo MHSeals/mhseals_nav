@@ -9,8 +9,8 @@ import yaml
 
 from mhseals_nav.classes import with_radius
 
-CFG = with_radius(yaml.safe_load((Path(__file__).parents[1] / 'config/tracker.yaml').read_text())[
-    '/**']['ros__parameters'])
+CFG = with_radius(yaml.safe_load(   # as the node reads it; TrackFilter adds the camera's FOV
+    (Path(__file__).parents[1] / 'config/tracker.yaml').read_text())['/**']['ros__parameters'])
 
 
 def ob(cls, x, y, backend_id='', score=0.9, velocity=None):

@@ -12,6 +12,9 @@ import math
 
 import numpy as np
 
+from mhseals_nav.layers import deep_merge
+from mhseals_nav.yaml_params import camera_fov
+
 MOTION_UNKNOWN, MOTION_STATIC, MOTION_MOVING = 0, 1, 2
 MOTION_NAMES = ('unknown', 'static', 'moving')
 SOURCE_LIVE, SOURCE_PRIOR = 0, 1
@@ -96,7 +99,7 @@ class TrackFilter:
     """Predict, associate (id pass then global Mahalanobis gate), update, classify, expire."""
 
     def __init__(self, cfg):
-        self.cfg = cfg
+        self.cfg = deep_merge({'fov': camera_fov()}, cfg)   # the camera's FOV, cfg on top
         self.all = []               # candidates, live and prior tracks
         self.next_id = 1
         self.last_stamp = -math.inf
@@ -511,10 +514,10 @@ class TrackFilter:
         forward = R[:, 2] if 'optical' in frame else R[:, 0]
         offset = np.asarray(xy) - p[:2]
         rho = float(np.hypot(*offset))
-        if rho > fov['range_m'] or rho < 1e-3 or not np.any(forward[:2]):
+        if rho > fov['range'] or rho < 1e-3 or not np.any(forward[:2]):
             return False
         bearing = wrap(math.atan2(offset[1], offset[0]) - math.atan2(forward[1], forward[0]))
-        return abs(bearing) <= math.radians(fov['hfov_deg']) / 2
+        return abs(bearing) <= fov['hfov'] / 2
 
     def _miss_in_fov(self, R, p, frame, live, matched, t):
         """Negative evidence: a STATIC track in view that nobody sees for a while is gone."""

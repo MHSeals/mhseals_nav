@@ -3,16 +3,15 @@ from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDesc
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
-from launch_ros.substitutions import FindPackageShare
-from launch.conditions import IfCondition, UnlessCondition
+from launch.conditions import IfCondition
 
 import os
 
 from mhseals_nav.robot_geometry import description_xml
 
 from mhseals_nav.endpoint_configuration import (
-    boolean as endpoint_boolean,
     from_launch as endpoint_from_launch, LAYER_ARGUMENTS as ENDPOINT_LAYERS, UNSET_GCS)
+from mhseals_nav.layers import boolean as endpoint_boolean
 
 from mhseals_nav.odometry_configuration import ALIASES, from_launch, LAYER_ARGUMENTS
 
@@ -74,32 +73,14 @@ def create_mavros_setup_node(context):
         output='screen'
     )]
 
-def create_rtabmap_odom_node(context):
-    sim = LaunchConfiguration('sim').perform(context).lower() == 'true'
-    rtabmap_params_file = LaunchConfiguration('rtabmap_params_file').perform(context)
-    camera_name = LaunchConfiguration('camera_name').perform(context)
-
-    return [Node(
-        package='rtabmap_odom',
-        executable='rgbd_odometry',
-        name='rgbd_odometry',
-        output='screen',
-        parameters=[rtabmap_params_file, {'use_sim_time': sim}],
-        remappings=[
-            ("/rgb/image",f"/{camera_name}_camera/rgb/image"),
-            ("/depth/image", f"/{camera_name}_camera/depth/image"),
-            ("/rgb/camera_info", f"/{camera_name}_camera/camera_info")
-        ]
-    )]
-
 def generate_launch_description():
-    mhseals_nav_dir = FindPackageShare('mhseals_nav')
+    from mhseals_nav.layers import package_path   # tests exec this function alone
+    mhseals_nav_dir = str(package_path())
 
     launch_args = [
-        ('sim', 'true', 'Run in simulation mode'),
+        ('sim', 'false', 'Run in simulation mode'),
         ('fcu', 'true', 'Start MAVROS and its relays; false when a simulator publishes '
                         '/odom/mavros, /imu/raw and /gps/fix directly'),
-        ('use_imu_filter', 'false', 'Start imu_filter_madgwick (/imu/filtered); nothing consumes it'),
         ('robot_state_publish_frequency', '', 'Rate at which robot state is published'),
         ('fcu_url', '', 'Flight control unit connection URL'),
         ('gcs_url', UNSET_GCS, 'Ground control service connection URL'),
@@ -115,15 +96,12 @@ def generate_launch_description():
         ('mavros_imu_rate', '', 'Requested MAVROS IMU rate'),
         ('mavros_gps_rate', '', 'Requested MAVROS GPS rate'),
         ('mavros_rc_rate', '', 'Requested MAVROS RC_CHANNELS rate'),
-        ('rtabmap_params_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'rtabmap.yaml']), 'Path to RTABMap params'),
         ('start_ekf', 'true', 'Start the EKFs and navsat_transform (false when ekf.launch.py runs on its own)'),
         ('ekf_overlay_file', '', 'Empty inherits optional standard overlay; explicit path must exist'),
         ('navsat_transform_config_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'navsat_transform.yaml']), 'Path to navsat_transform params'),
         ('ekf_local_config_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'ekf_local.yaml']), 'Path to local EKF config'),
         ('ekf_global_config_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'ekf_global.yaml']), 'Path to global EKF config'),
-        ('dlio_params_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'dlio.yaml']), 'Path to DLIO params'),
         ('urdf_file', PathJoinSubstitution([mhseals_nav_dir, 'description', 'blastoise', 'blastoise.xacro']), 'Path to robot URDF/XACRO'),
-        ('camera_name', 'front', 'Name of camera')
     ]
 
     launch_args += [(name, '', 'Explicit startup override; empty inherits YAML')
@@ -152,51 +130,12 @@ def odometry_nodes(context):
     endpoint_from_launch(context)
     endpoint_boolean(LaunchConfiguration('sim').perform(context))
     endpoint_boolean(LaunchConfiguration('fcu').perform(context))
-    mhseals_nav_dir = FindPackageShare('mhseals_nav')
+    from mhseals_nav.layers import package_path   # tests exec this function alone
+    mhseals_nav_dir = str(package_path())
     launch_configurations = {name: LaunchConfiguration(name) for name in (
-        'sim', 'fcu', 'use_imu_filter', 'start_ekf', 'dlio_params_file',
+        'sim', 'fcu', 'start_ekf',
         'navsat_transform_config_file', 'ekf_local_config_file', 'ekf_global_config_file',
         'ekf_overlay_file', *LAYER_ARGUMENTS, *ALIASES, 'ekf_startup_context')}
-    dlio_odom_node = Node(
-        package='direct_lidar_inertial_odometry',
-        executable='dlio_odom_node',
-        output='screen',
-        parameters=[launch_configurations['dlio_params_file'], {'use_sim_time': launch_configurations['sim']}],
-        remappings=[
-            ('pointcloud', '/points'),
-            ('imu', '/imu/filtered'),
-            ('odom', '/odom/dlio'),
-            ('pose', '/dlio/pose'),
-            ('path', '/dlio/path'),
-            ('kf_pose', '/dlio/keyframes/pose'),
-            ('kf_cloud', '/dlio/keyframes/cloud'),
-            ('deskewed', '/dlio/deskewed')
-        ],
-    )
-
-    dlio_map_node = Node(
-        package='direct_lidar_inertial_odometry',
-        executable='dlio_map_node',
-        output='screen',
-        parameters=[launch_configurations['dlio_params_file'], {'use_sim_time': launch_configurations['sim']}],
-        remappings=[('keyframes', '/dlio/pointcloud/keyframe')],
-    )
-
-    rtabmap_odom_node = OpaqueFunction(function=create_rtabmap_odom_node)
-
-    imu_filter_node = Node(
-        package="imu_filter_madgwick",
-        executable="imu_filter_madgwick_node",
-        name="imu_filter_madgwick",
-        condition=IfCondition(launch_configurations['use_imu_filter']),
-        output="screen",
-        parameters=[{"use_mag": False, "publish_tf": False, "use_sim_time": launch_configurations['sim']}],
-        remappings=[
-            ("imu/data_raw", "/imu/raw"),
-            ("imu/data", "/imu/filtered")
-        ],
-    )
-
     mavros_node = OpaqueFunction(function=create_mavros_node)
 
     # MAVROS plugins are dynamically-created nodes and do not inherit the
@@ -250,4 +189,4 @@ def odometry_nodes(context):
         condition=IfCondition(launch_configurations['fcu']),
         actions=[mavros_node, *mavros_topic_relays, set_mavros_message_rate])
 
-    return [flight_controller, imu_filter_node, ekf, robot_state_publisher_node]
+    return [flight_controller, ekf, robot_state_publisher_node]

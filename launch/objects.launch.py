@@ -2,9 +2,8 @@
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
-from launch_ros.substitutions import FindPackageShare
 
 # backend -> (executable, its parameter file; None: it reads its section of a subsystem file)
 BACKENDS = {'zed': ('zed_backend', None), 'sim': ('sim_backend', 'sim_backend.yaml')}
@@ -14,28 +13,22 @@ SIM_FUSION = {'points_transport': 'direct', 'camera_axes': 'body',
               'camera_info_topic': '/front_camera/camera_info', 'attitude_min_hz': 15.0}
 
 
-def fusion_config():
-    """config/lidar_fusion.yaml beside this launch directory (source tree or share)."""
-    import yaml
-    from pathlib import Path
-    path = Path(__file__).resolve().parents[1] / 'config/lidar_fusion.yaml'
-    return yaml.safe_load(path.read_text())['/**']['ros__parameters']
-
-
 def nodes(context):
-    sim = LaunchConfiguration('sim').perform(context).lower()
-    if sim not in ('true', 'false'):
-        raise ValueError('sim must be true or false')
+    from mhseals_nav.layers import boolean, config_path
+    from mhseals_nav.yaml_params import footprint, hull, params_file
+    sim = boolean(LaunchConfiguration('sim').perform(context))
     backend = LaunchConfiguration('backend').perform(context)
     if backend not in BACKENDS:
         raise ValueError(f'backend must be one of {sorted(BACKENDS)}')
-    clock = {'use_sim_time': sim == 'true'}
+    clock = {'use_sim_time': sim}
 
     def config(name):
-        return PathJoinSubstitution([FindPackageShare('mhseals_nav'), 'config', name])
+        return str(config_path(name))
 
+    rectangle = hull()
+    footprinted = {'footprint': footprint(rectangle), 'footprint_padding': rectangle['padding']}
     executable, backend_file = BACKENDS[backend]
-    fusion = fusion_config()
+    fusion = params_file('lidar_fusion.yaml')
     tracker = [config('tracker.yaml'), clock]
     fused = []
     if fusion['enabled']:
@@ -44,7 +37,7 @@ def nodes(context):
         fused = [Node(package='mhseals_nav', executable='lidar_fusion', output='screen',
                       respawn=True, respawn_delay=1.0,
                       parameters=[config('lidar_fusion.yaml'), clock,
-                                  *([SIM_FUSION] if sim == 'true' else [])])]
+                                  *([SIM_FUSION] if sim else [])])]
     return [
         Node(package='mhseals_nav', executable=executable, output='screen',
              parameters=[*([config(backend_file)] if backend_file else []), clock]),
@@ -55,7 +48,7 @@ def nodes(context):
         # Costmap2DROS never creates a bond, so the manager must not wait for one.
         Node(package='nav2_costmap_2d', executable='nav2_costmap_2d', name='costmap',
              namespace='perception', output='screen',
-             parameters=[config('perception_costmap.yaml'), clock]),
+             parameters=[config('perception_costmap.yaml'), footprinted, clock]),
         Node(package='nav2_lifecycle_manager', executable='lifecycle_manager',
              name='lifecycle_manager_perception', namespace='perception', output='screen',
              parameters=[{'autostart': True, 'node_names': ['costmap'],
@@ -68,7 +61,7 @@ def nodes(context):
 
 def generate_launch_description():
     return LaunchDescription([
-        DeclareLaunchArgument('sim', default_value='true', description='Use /clock'),
+        DeclareLaunchArgument('sim', default_value='false', description='Use /clock'),
         DeclareLaunchArgument('backend', default_value='sim',
                               description='Camera backend: zed or sim'),
         OpaqueFunction(function=nodes),

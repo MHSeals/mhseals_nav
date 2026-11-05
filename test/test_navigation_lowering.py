@@ -32,13 +32,11 @@ def test_nondefault_complete_consumer_fixture(base):
     smoother = result['velocity_smoother']['ros__parameters']
     assert smoother['max_velocity'] == [.6, .12, .2]
     assert smoother['min_velocity'] == [-.1, -.12, -.2]
-    assert result['behavior_server'] == base['behavior_server']
     assert result['planner_server'] == base['planner_server']
     assert base == before
 
 
 @pytest.mark.parametrize('key,value', [('model_dt', .1), ('wz_std', .3),
-                                       ('rotate_to_heading_angular_vel', .4),
                                        ('prune_distance', 9.)])
 def test_conflicting_explicit_derived_value_refused(base, key, value):
     explicit = patch()
@@ -47,33 +45,39 @@ def test_conflicting_explicit_derived_value_refused(base, key, value):
         validated_merge_limits(base, explicit, {})
 
 
-def test_smoother_conflict_and_optional_absence(base):
+@pytest.mark.parametrize('section,key', [
+    ('velocity_smoother', 'max_velocity'), ('behavior_server', 'max_rotational_vel'),
+    ('controller_server', 'rotate_to_heading_angular_vel')])
+def test_derived_limit_in_an_overlay_is_refused(base, section, key):
     explicit = patch()
-    explicit['velocity_smoother'] = {'ros__parameters': {
-        'max_velocity': [.2, .1, .1]}}
-    with pytest.raises(ValueError, match='conflicts with canonical lowering'):
+    params = explicit.setdefault(section, {}).setdefault('ros__parameters', {})
+    (params.setdefault('FollowPath', {}) if section == 'controller_server' else params)[key] = .1
+    with pytest.raises(ValueError, match='unknown parameter'):
         validated_merge_limits(base, explicit, {})
+
+
+def test_smoother_optional_absence(base):
     del base['velocity_smoother']
     result = validated_merge_limits(base, patch(), {})
     assert 'velocity_smoother' not in result
 
 
-def test_plugin_map_and_behavior_limit_are_independent(base):
-    base['behavior_server']['ros__parameters']['max_rotational_vel'] = .7
+def test_follow_path_change_reaches_every_derived_limit(base):
     result = validated_merge_limits(base, patch(), {})
-    assert result['behavior_server']['ros__parameters']['max_rotational_vel'] == .7
-    controller = base['controller_server']['ros__parameters']
-    controller['Custom'] = controller.pop('FollowPath')
-    controller['controller_plugins'] = ['Custom']
-    result = validated_merge_limits(base, {}, {})
-    assert result['controller_server'] == base['controller_server']
+    behavior = result['behavior_server']['ros__parameters']
+    assert (behavior['max_rotational_vel'], behavior['rotational_acc_lim']) == (.2, .5)
+    for key in ('vx_max', 'ax_max', 'az_max'):
+        missing = deepcopy(base)
+        del missing['controller_server']['ros__parameters']['FollowPath'][key]
+        with pytest.raises(ValueError, match=f'FollowPath.{key}: required'):
+            validated_merge_limits(missing, {}, {})
 
 
 def test_required_base_is_checked_without_an_overlay(tmp_path):
     path = tmp_path / 'bad.yaml'
     path.write_text('controller_server: []')
     with pytest.raises(ValueError, match='required mapping'):
-        compile_navigation(path, '', sim='true', use_lidar='true')
+        compile_navigation(path, '', sim='true')
 
 
 @pytest.mark.parametrize('name', ['FollowPath', 'Custom'])
@@ -86,7 +90,7 @@ def test_selected_non_mppi_plugin_does_not_receive_mppi_fields(base, tmp_path, n
     controller['controller_plugins'] = [name]
     path = tmp_path / 'custom.yaml'
     path.write_text(yaml.safe_dump(base))
-    selected = compile_navigation(path, '', sim='true', use_lidar='true')
+    selected = compile_navigation(path, '', sim='true')
     assert selected['controller_server']['ros__parameters'][name] == custom
     assert 'model_dt' not in selected['controller_server']['ros__parameters'][name]
 
@@ -116,7 +120,7 @@ def _compile_text(tmp_path, text):
 def test_strict_loader_names_file_and_line(tmp_path, text, message):
     path = _compile_text(tmp_path, text)
     for call in (lambda: load_overlay(path, strict=True),
-                 lambda: compile_navigation(path, '', sim='true', use_lidar='true')):
+                 lambda: compile_navigation(path, '', sim='true')):
         with pytest.raises(ValueError, match=message) as error:
             call()
         assert str(path) in str(error.value) and 'line ' in str(error.value)
@@ -127,14 +131,38 @@ def test_limits_file_errors_name_the_limits_path(base, tmp_path):
     limits = tmp_path / 'limits.yaml'
     limits.write_text('a: 1\na: 2\n')
     with pytest.raises(ValueError, match='Duplicate key') as error:
-        compile_navigation(params, limits, sim='true', use_lidar='true')
+        compile_navigation(params, limits, sim='true')
     assert str(limits) in str(error.value)
 
 
 def test_missing_params_file_names_the_path(tmp_path):
     missing = tmp_path / 'absent.yaml'
     with pytest.raises(FileNotFoundError, match='absent.yaml'):
-        compile_navigation(missing, '', sim='true', use_lidar='true')
+        compile_navigation(missing, '', sim='true')
+
+
+def test_both_costmaps_get_the_hull_footprint_with_its_padding():
+    """config/hull.yaml is the one hull: the compile writes it into both Nav2 costmaps."""
+    root = Path(__file__).resolve().parents[1]
+    hull = yaml.safe_load((root / 'config/hull.yaml').read_text())
+    x, y = hull['half_length'], hull['half_width']
+    nav = compile_navigation(root / 'config/nav2_params.yaml', '', sim='true')
+    for name in ('local_costmap', 'global_costmap'):
+        params = nav[name][name]['ros__parameters']
+        assert yaml.safe_load(params['footprint']) == [[x, y], [x, -y], [-x, -y], [-x, y]]
+        assert params['footprint_padding'] == hull['padding']
+    raw = yaml.safe_load((root / 'config/nav2_params.yaml').read_text())
+    assert 'footprint' not in raw['local_costmap']['local_costmap']['ros__parameters']
+
+
+def test_an_operator_limits_footprint_is_refused(tmp_path):
+    """The footprint is hull.yaml's alone: an overlay naming one fails, never silently replaced."""
+    root = Path(__file__).resolve().parents[1]
+    limits = tmp_path / 'limits.yaml'
+    limits.write_text(yaml.safe_dump({'local_costmap': {'local_costmap': {'ros__parameters': {
+        'footprint': '[[1.0, 1.0], [1.0, -1.0], [-1.0, -1.0], [-1.0, 1.0]]'}}}}))
+    with pytest.raises(ValueError, match='footprint: unknown parameter'):
+        compile_navigation(root / 'config/nav2_params.yaml', limits, sim='true')
 
 
 def test_effective_limits_are_what_the_launch_resolves(tmp_path):
@@ -146,7 +174,7 @@ def test_effective_limits_are_what_the_launch_resolves(tmp_path):
     limits.write_text(yaml.safe_dump({'controller_server': {'ros__parameters': {
         'FollowPath': {'vx_max': 0.5, 'vy_max': 0.3, 'wz_max': 0.4, 'ay_max': 0.2}}}}))
     resolved = effective_limits(params, limits)
-    launched = compile_navigation(params, limits, sim='true', use_lidar='true',
+    launched = compile_navigation(params, limits, sim='true',
                                   share=None)
     follow = launched['controller_server']['ros__parameters']['FollowPath']
     smoother = launched['velocity_smoother']['ros__parameters']
@@ -162,8 +190,14 @@ def test_effective_limits_are_what_the_launch_resolves(tmp_path):
                                          'precise_goal_checker': {'xy': 0.3, 'yaw': 0.25}}
     assert resolved['progress'] == {'radius': 0.1, 'time': 20.0}
     assert resolved['passed_goal_radius'] == 1.0
-    assert len(resolved['footprint']) == 4 and resolved['camera']['hfov_deg'] == 110.0
+    hull = yaml.safe_load((root / 'config/hull.yaml').read_text())
+    assert {(abs(x), abs(y)) for x, y in resolved['footprint']} == {
+        (hull['half_length'], hull['half_width'])}
+    camera = yaml.safe_load((root / 'config/camera.yaml').read_text())['backend']['fov']
+    assert resolved['camera'] == {'hfov_deg': pytest.approx(110.0), 'range_m': camera['range']}
     assert str(limits) in resolved['sources'] and str(params) in resolved['sources']
+    assert {str(root / 'config/hull.yaml'), str(root / 'config/camera.yaml')} <= set(
+        resolved['sources'])
     limits.write_text('controller_server: {ros__parameters: {FollowPath: {vy_max: 9.0}}}\n')
     with pytest.raises(ValueError, match='ceiling'):
         effective_limits(params, limits)

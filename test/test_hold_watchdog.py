@@ -10,17 +10,19 @@ import json
 from mhseals_nav.approach_guard import Guard
 from mhseals_nav.fence_watchdog import FenceWatchdog
 from mhseals_nav.link_watchdog import LinkWatchdog
-from mhseals_nav.yaml_params import watchdog_config
+from mhseals_nav.yaml_params import rectangle, watchdog_config
 import pytest
 
 
 def config(name):
-    return watchdog_config(name)
+    """As the node reads it: approach_guard takes config/hull.yaml under its section."""
+    return watchdog_config(name, base=rectangle() if name == 'approach_guard' else None)
 
 
 LINK = config('link_watchdog')
-FENCE = dict(config('fence_watchdog'), fence_frame='map',
-             fence_points=[0.0, 0.0, 100.0, 0.0, 100.0, 50.0, 0.0, 50.0])
+FENCE = config('fence_watchdog')
+BOX = {'frame': 'map', 'points': [0.0, 0.0, 100.0, 0.0, 100.0, 50.0, 0.0, 50.0],
+       'on_exit': 'alert'}
 WINDOW = LINK['command_window']
 
 
@@ -31,11 +33,31 @@ def link(cfg=LINK):
 
 def fence():
     """Odometry and position missing: the condition is bad from the start."""
-    return FenceWatchdog(FENCE)
+    return FenceWatchdog(FENCE, BOX)
 
 
 def mux(dog, now, source):
     dog.mux(now, json.dumps({'input': source, 'holds': []}))
+
+
+def test_a_restarted_watchdog_reuses_its_token_so_it_can_release_its_own_hold(
+        tmp_path, monkeypatch):
+    """The token lives as long as command_mux's held holds: the runtime dir, per domain."""
+    import os
+    from mhseals_nav.hold_watchdog import token
+    monkeypatch.setenv('XDG_RUNTIME_DIR', str(tmp_path))
+    monkeypatch.setenv('ROS_DOMAIN_ID', '7')
+    first = token('link_watchdog')                  # the watchdog that placed the hold
+    assert token('link_watchdog') == first          # restarted: the same token releases it
+    assert token('fence_watchdog') != first
+    path = tmp_path / 'mhseals' / 'watchdog_link_watchdog_7.token'
+    assert path.read_text() == first and os.stat(path).st_mode & 0o777 == 0o600
+    assert sorted(p.suffix for p in path.parent.iterdir()) == ['.token', '.token']  # no temps
+    monkeypatch.setenv('ROS_DOMAIN_ID', '8')
+    assert token('link_watchdog') != first
+    path.write_text('')                             # a torn or emptied file gets a new token
+    monkeypatch.setenv('ROS_DOMAIN_ID', '7')
+    assert token('link_watchdog') not in ('', first)
 
 
 def test_every_config_names_the_mux_state():
@@ -44,6 +66,19 @@ def test_every_config_names_the_mux_state():
         cfg = config(name)
         assert cfg['mux_state_topic'] == '/command_mux/state'
         assert cfg['mux_state_max_age'] > 1.0     # the mux republishes at least 1 Hz
+
+
+def test_the_mux_state_suspends_a_task_unless_fresh_and_not_outranking_auto():
+    """rc, manual and hold suspend; so do no state, a stale one and an unreadable one."""
+    from mhseals_nav.hold_watchdog import mux_state, mux_suspends
+    for source in ('rc', 'manual', 'hold'):
+        assert mux_suspends(source, 0.1, 2.5) == f'{source} has control'
+    for source in ('auto', 'idle'):
+        assert mux_suspends(source, 0.1, 2.5) == ''
+    assert mux_suspends('auto', None, 2.5) == 'no command_mux state'
+    assert mux_suspends('auto', 3.0, 2.5) == 'command_mux state older than 2.5 s'
+    for bad in ('', 'not json', 'null', '[]', '{}', '{"input": 3}'):
+        assert mux_suspends(mux_state(bad)[0], 0.1, 2.5) == 'unreadable command_mux state'
 
 
 @pytest.mark.parametrize('make', [link, fence])

@@ -25,6 +25,7 @@ from sensor_msgs_py.point_cloud2 import create_cloud_xyz32
 from sensor_msgs.msg import PointCloud2
 from std_msgs.msg import Header
 from tf2_ros import TransformBroadcaster, StaticTransformBroadcaster
+from mhseals_nav.navigation_config import derived
 import yaml
 
 
@@ -35,7 +36,7 @@ def option(name, default):
 def main():
     assert os.environ.get('ROS_DOMAIN_ID') == '231', 'Isolate the synthetic test'
     root = Path(__file__).resolve().parents[1]
-    config = yaml.safe_load((root / 'config/nav2_params.yaml').read_text())
+    config = derived(yaml.safe_load((root / 'config/nav2_params.yaml').read_text()))  # FollowPath sets the smoother
     bt = config['bt_navigator']['ros__parameters']
     for key, filename in [('default_nav_to_pose_bt_xml', 'nav_to_pose.xml'),
                           ('default_nav_through_poses_bt_xml', 'nav_replan_recov.xml')]:
@@ -53,8 +54,7 @@ def main():
     state = [0.0, 0.0, 0.0]
     command = Twist()
     received = []
-    lidar_required = '--no-lidar' not in sys.argv
-    lidar_enabled = lidar_required
+    lidar_enabled = True
     limits = config['velocity_smoother']['ros__parameters']
     high, low = limits['max_velocity'], limits['min_velocity']
 
@@ -65,7 +65,7 @@ def main():
         for value, axis in ((msg.linear.x, 0), (msg.linear.y, 1), (msg.angular.z, 2)):
             assert low[axis] - 0.001 <= value <= high[axis] + 0.001, msg
 
-    subscription = node.create_subscription(Twist, '/cmd_vel', on_command, 10)
+    node.create_subscription(Twist, '/cmd_vel', on_command, 10)
 
     lag = float(option('--lag', 0.0))
     noise = float(option('--noise', 0.0))
@@ -102,7 +102,7 @@ def main():
                        18 * math.sin(i * math.pi / 36), 0.3) for i in range(72)]
             cloud_pub.publish(create_cloud_xyz32(header, points))
 
-    timer = node.create_timer(0.05, tick)
+    node.create_timer(0.05, tick)
     process = None
 
     def spin_until(predicate, timeout):
@@ -130,7 +130,6 @@ def main():
             if '--installed-launch' in sys.argv:
                 launch_command = ['ros2', 'launch', 'mhseals_nav', 'navigation.launch.py',
                                   'params_file:=' + str(params), 'sim:=false']
-            launch_command.append('use_lidar:=' + str(lidar_required).lower())
             process = subprocess.Popen(launch_command,
                 stdout=log, stderr=log, start_new_session=True)
             try:
@@ -174,15 +173,11 @@ def main():
                 spin_until(lambda: time.monotonic() - loss > 4.0, 6)
                 recent = [(v, w) for t, v, w in received if t > loss + 3.0]
                 # The smoother publishes a terminal zero then stops publishing.
-                if lidar_required:
-                    assert any(t > loss and abs(v) < 0.001 and abs(w) < 0.001
-                               for t, v, w in received), 'No terminal stop command'
-                    assert abs(command.linear.x) < 0.001 and abs(command.angular.z) < 0.001
-                    assert all(abs(v) < 0.001 and abs(w) < 0.001 for v, w in recent), recent
-                    print('PASS NavigateThroughPoses + stale lidar stops commands', flush=True)
-                else:
-                    assert any(v > 0.05 for v, _ in recent), recent
-                    print('PASS explicit no-lidar mode navigates without /points', flush=True)
+                assert any(t > loss and abs(v) < 0.001 and abs(w) < 0.001
+                           for t, v, w in received), 'No terminal stop command'
+                assert abs(command.linear.x) < 0.001 and abs(command.angular.z) < 0.001
+                assert all(abs(v) < 0.001 and abs(w) < 0.001 for v, w in recent), recent
+                print('PASS NavigateThroughPoses + stale lidar stops commands', flush=True)
                 handle2.cancel_goal_async()
             finally:
                 if process.poll() is None:

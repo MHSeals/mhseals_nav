@@ -11,6 +11,7 @@ import time
 from types import SimpleNamespace
 
 from mhseals_nav.lidar_relay import decimate
+import pytest
 from ros_domain import require_isolated_domain
 
 ROOT = Path(__file__).parents[1]
@@ -172,6 +173,7 @@ def test_deskew_leaves_clouds_without_point_times_alone():
 
 def test_installed_entry_point_survives_spawned_workers(tmp_path):
     """Run the relay through the wrapper CMake installs; spawn re-runs that file as __mp_main__."""
+    pytest.importorskip('rclpy')      # the relay runs in a child process
     require_isolated_domain()
     template = re.search(r'CONTENT "(.*?)"\n', (ROOT / 'CMakeLists.txt').read_text()).group(1)
     wrapper = tmp_path / 'lib' / 'mhseals_nav' / 'lidar_relay'

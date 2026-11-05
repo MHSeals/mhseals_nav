@@ -54,7 +54,7 @@ def test_jetson_runs_camera_zed_perception_and_the_lidar():
         'camera.launch.py': (None, {'sim': 'false', 'camera_model': 'zed2i'}),
         'objects.launch.py': (None, {'sim': 'false', 'backend': 'zed'}),
         'sensors.launch.py': (None, {'sim': 'false'}),
-        'host_diagnostic': (['ros2', 'run', 'mhseals_testing', 'host_diagnostic'], {}),
+        'host_diagnostic': (['ros2', 'run', 'mhseals_nav', 'host_diagnostic'], {}),
     }
 
 
@@ -85,7 +85,7 @@ def test_the_sim_starts_odometry_without_its_watchdogs():
 def test_a_run_part_is_one_ros2_run():
     assert expand(device='operator') == {
         'rtk_base': (['ros2', 'run', 'mhseals_testing', 'rtk_base'], {}),
-        'operator_heartbeat': (['ros2', 'run', 'mhseals_testing', 'operator_heartbeat'], {})}
+        'operator_heartbeat': (['ros2', 'run', 'mhseals_nav', 'operator_heartbeat'], {})}
 
 
 def test_sim_extends_both_computers_without_the_camera():
@@ -96,6 +96,19 @@ def test_sim_extends_both_computers_without_the_camera():
     assert device_profile.launch_arguments(profile, profile['parts']['odometry']) == {
         'sim': 'true', 'fcu': 'false', 'start_ekf': 'false'}
     assert profile['parts']['objects']['args'] == {'backend': 'sim'}
+
+
+def test_approach_guard_enforces_in_sim_and_only_logs_on_the_boat():
+    """The sim profile is the one place enforce is set; the boat keeps watchdogs.yaml's false."""
+    from mhseals_nav.yaml_params import config_path
+    import yaml
+    sim, boat = (device_profile.load(name) for name in ('sim', 'odroid'))
+    assert device_profile.launch_arguments(sim, sim['parts']['navigation']) == {
+        'sim': 'true', 'command_mux': 'true', 'approach_enforce': 'true'}
+    assert 'approach_enforce' not in device_profile.launch_arguments(
+        boat, boat['parts']['navigation'])
+    tune = yaml.safe_load(config_path('watchdogs.yaml').read_text())['tune']
+    assert tune['approach_guard']['enforce'] is False
 
 
 def test_overrides_are_the_session_layer():
@@ -115,6 +128,17 @@ def test_deployment_and_operator_layers_apply_in_order(source_tree):
     assert device_profile.load('jetson')['parts']['objects']['args'] == {'backend': 'two'}
     assert device_profile.load('jetson', overrides={'parts': {'camera': {'enabled': False}}})[
         'parts']['camera']['enabled'] is False
+
+
+def test_a_layer_replaces_launch_with_run_and_merges_args_per_key():
+    base = {'requires': ['a'], 'args': {'x': 1},
+            'parts': {'p': {'launch': 'odom.launch.py', 'args': {'k': 1, 'j': 2}}}}
+    run = device_profile.merge(base, {'parts': {'p': {'run': ['pkg', 'exe']}}})
+    assert run['parts']['p'] == {'run': ['pkg', 'exe'], 'args': {'k': 1, 'j': 2}}
+    args = device_profile.merge(base, {'args': {'y': 2}, 'parts': {'p': {'args': {'k': 3}}}})
+    assert args == {'requires': ['a'], 'args': {'x': 1, 'y': 2},
+                    'parts': {'p': {'launch': 'odom.launch.py', 'args': {'k': 3, 'j': 2}}}}
+    assert base['parts']['p'] == {'launch': 'odom.launch.py', 'args': {'k': 1, 'j': 2}}
 
 
 def test_every_shipped_profile_loads():
@@ -141,6 +165,8 @@ def test_no_launch_file_here_starts_the_thruster_driver_or_the_mux():
     ({'parts': {'pwm': {'run': ['mhseals_hardware', 'thruster_pwm_node']}}}, 'with arming'),
     ({'parts': {'mux': {'run': ['mhseals_hardware', 'command_mux']}}}, 'start with arming'),
     ({'parts': {'odd': {'nodes': ['x']}}}, 'exactly one of launch or run'),
+    ({'parts': {'beat': {'run': ['mhseals_testing', 'operator_heartbeat']}}}, "another package's"),
+    ({'parts': {'gps': {'run': ['some_driver', 'rtk_base']}}}, "another package's"),
     ({'parts': {'ekf': {'enabled': 'no'}}}, 'true or false'),
     ({'parts': {'ekf': {'colour': 'red'}}}, 'keys from'),
     ({'extends': ['jetson']}, 'keys from'),
@@ -154,6 +180,11 @@ def test_no_launch_file_here_starts_the_thruster_driver_or_the_mux():
 def test_bad_profiles_are_refused(overrides, message):
     with pytest.raises(ValueError, match=message):
         device_profile.load('odroid', overrides=overrides)
+
+
+def test_check_refuses_a_one_element_run_of_another_package():
+    with pytest.raises(ValueError, match="another package's"):
+        device_profile.check({'parts': {'x': {'run': ['some_driver']}}}, 'p')
 
 
 def test_only_refuses_unknown_and_disabled_parts():
@@ -189,8 +220,7 @@ def watchdog_nodes(**arguments):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     context = LaunchContext()
-    defaults = {'sim': 'false', 'require_operator': '', 'fence_frame': '', 'fence_points': '',
-                'fcu_watchdog': 'true'}
+    defaults = {'sim': 'false', 'require_operator': '', 'fence_file': '', 'fcu_watchdog': 'true'}
     context.launch_configurations.update({**defaults, **arguments})
     assert len(module.watchdogs(context)) in (3, 4)          # the launch builds the nodes
     return dict(module.watchdog_parameters(lambda name: {**defaults, **arguments}[name]))
@@ -212,18 +242,16 @@ def test_the_sim_watchdogs_need_no_operator_or_fcu_and_fence_a_map_box():
     assert nodes['ekf_input_watchdog'] == {'use_sim_time': True}
     assert nodes['link_watchdog'] == {'use_sim_time': True, 'require_operator': False}
     fence = nodes['fence_watchdog']
-    # An operator file cannot move it.
-    assert fence['fence_frame'] == 'map' and fence['fence_file'] == ''
-    from mhseals_nav.fence_watchdog import inside, polygon
-    box = polygon('map', fence['fence_points'])
+    # The package's crane box, never the operator's file.
+    assert fence == {'use_sim_time': True, 'fence_file': 'fences/crane.yaml'}
+    from mhseals_nav.fence import inside, load_fence, polygon
+    box = polygon('map', load_fence(fence['fence_file'])[0]['points'])
     assert inside((0.0, 0.0), box) and inside((12.0, -14.0), box)
     assert not inside((-77.0, -76.0), box)
     assert 'host_diagnostic' not in dict(device_profile.select(device_profile.load('sim')))
 
 
 @pytest.mark.parametrize('arguments, message', [
-    ({'fence_points': '[1, 2, x'}, 'fence_points: not a list'),
-    ({'fence_points': '[1, true]'}, 'flat list of numbers'),
     ({'require_operator': 'maybe'}, 'require_operator: invalid launch boolean: maybe'),
 ])
 def test_bad_watchdog_arguments_are_refused(arguments, message):

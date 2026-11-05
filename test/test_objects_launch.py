@@ -2,16 +2,22 @@
 
 import ast
 from pathlib import Path
+from unittest import mock
 
 import pytest
 import yaml
+
+from mhseals_nav import yaml_params
+from mhseals_nav.layers import config_path
+
+CONFIG = str(config_path())   # layers' lookup: the source tree here, the share when installed
 
 
 def object_nodes(sim, backend, fusion=None):
     source = Path(__file__).parents[1] / 'launch/objects.launch.py'
     tree = ast.parse(source.read_text())
     body = [node for node in tree.body
-            if (isinstance(node, ast.FunctionDef) and node.name in ('nodes', 'fusion_config'))
+            if (isinstance(node, ast.FunctionDef) and node.name == 'nodes')
             or (isinstance(node, ast.Assign)
                 and node.targets[0].id in ('BACKENDS', 'SIM_FUSION'))]
     values = dict(sim=sim, backend=backend)
@@ -24,13 +30,13 @@ def object_nodes(sim, backend, fusion=None):
             return values[self.name]
 
     namespace = dict(LaunchConfiguration=Configuration, Node=lambda **kwargs: kwargs,
-                     PathJoinSubstitution=lambda parts: '/'.join(map(str, parts)),
-                     FindPackageShare=lambda package: package, __file__=str(source))
+                     __file__=str(source))
     exec(compile(ast.Module(body=body, type_ignores=[]), str(source), 'exec'), namespace)
-    if fusion is not None:
-        loaded = namespace['fusion_config']()
-        namespace['fusion_config'] = lambda: {**loaded, **fusion}
-    return namespace['nodes'](None)
+    read = yaml_params.params_file
+    overlay = {'lidar_fusion.yaml': fusion or {}}
+    with mock.patch.object(yaml_params, 'params_file',
+                           lambda name: {**read(name), **overlay.get(name, {})}):
+        return namespace['nodes'](None)
 
 
 @pytest.mark.parametrize('sim', ['true', 'false'])
@@ -61,13 +67,17 @@ def test_backend_tracker_and_perception_costmap(sim, backend, executable):
         executable, 'object_tracker', 'nav2_costmap_2d', 'lifecycle_manager',
         'nearest_obstacle']
     clock = {'use_sim_time': sim == 'true'}
-    own = [] if executable == 'zed_backend' else [f'mhseals_nav/config/{executable}.yaml']
+    own = [] if executable == 'zed_backend' else [CONFIG + f'/{executable}.yaml']
     assert nodes[0]['parameters'] == [*own, clock]    # zed_backend: camera.yaml backend:
-    assert nodes[1]['parameters'] == ['mhseals_nav/config/tracker.yaml', clock]
+    assert nodes[1]['parameters'] == [CONFIG + '/tracker.yaml', clock]
     costmap, manager, nearest = nodes[2:]
-    assert nearest['parameters'] == ['mhseals_nav/config/nearest_obstacle.yaml', clock]
+    assert nearest['parameters'] == [CONFIG + '/nearest_obstacle.yaml', clock]
     assert (costmap['namespace'], costmap['name']) == ('perception', 'costmap')
-    assert costmap['parameters'] == ['mhseals_nav/config/perception_costmap.yaml', clock]
+    hull = yaml.safe_load((Path(__file__).parents[1] / 'config/hull.yaml').read_text())
+    x, y = hull['half_length'], hull['half_width']
+    assert costmap['parameters'] == [CONFIG + '/perception_costmap.yaml', {
+        'footprint': str([[x, y], [x, -y], [-x, -y], [-x, y]]),
+        'footprint_padding': hull['padding']}, clock]
     assert (manager['namespace'], manager['name']) == ('perception',
                                                        'lifecycle_manager_perception')
     assert manager['parameters'] == [{'autostart': True, 'node_names': ['costmap'],

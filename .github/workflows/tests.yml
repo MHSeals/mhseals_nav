@@ -1,0 +1,20 @@
+name: Tests
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  # The smoke tier (./smoke.sh), then the whole suite without ROS: config parse and the
+  # pure-python units. The ROS tests run in the container suite (heavy-guarded), not here.
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install pytest PyYAML numpy py_trees flake8
+      # pyflakes only (unused imports and names, undefined names): runs without ROS, no style churn.
+      - run: flake8 --select=F mhseals_nav launch test
+      - run: ./smoke.sh
+      # Every ROS-free test, not only the smoke list; a test needing ROS skips (test/conftest.py).
+      - run: python3 -m pytest -q -p no:cacheprovider -m 'not linter' -k 'not test_node' test/

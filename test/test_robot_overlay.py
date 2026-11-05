@@ -1,53 +1,13 @@
-"""Run the actual robot factory and compare the optional TUI source contract."""
+"""Compare the optional TUI source contract with the persistent Nav2 overlay and endpoints."""
 import ast
 import os
 from pathlib import Path
 from types import SimpleNamespace
 
-from mhseals_nav.endpoint_configuration import LAYER_ARGUMENTS as ENDPOINT_LAYERS, UNSET_GCS
 from mhseals_nav.navigation_config import persistent_limits_path
-from mhseals_nav.odometry_configuration import ALIASES, LAYER_ARGUMENTS
 import pytest
 
 ROOT = Path(__file__).parents[1]
-
-
-def robot_factory():
-    source = Path(__file__).parents[1] / 'launch/robot.launch.py'
-    tree = ast.parse(source.read_text())
-    function = next(n for n in tree.body if isinstance(n, ast.FunctionDef))
-
-    class Configuration:
-        def __init__(self, name): self.name = name
-        def perform(self, context): return context[self.name]
-
-    def record(*args, **kwargs): return SimpleNamespace(args=args, **kwargs)
-    ns = {name: record for name in (
-        'DeclareLaunchArgument', 'IncludeLaunchDescription', 'TimerAction', 'OpaqueFunction',
-        'PythonLaunchDescriptionSource', 'IfCondition')}
-    ns.update(LaunchConfiguration=Configuration, LaunchDescription=lambda x: x,
-              PathJoinSubstitution=lambda x: '/'.join(map(str, x)),
-              FindPackageShare=lambda x: x, persistent_limits_path=persistent_limits_path,
-              ALIASES=ALIASES, LAYER_ARGUMENTS=LAYER_ARGUMENTS,
-              ENDPOINT_LAYERS=ENDPOINT_LAYERS, UNSET_GCS=UNSET_GCS,
-              endpoint_preflight=lambda context: [])
-    exec(compile(ast.Module(body=[function], type_ignores=[]), str(source), 'exec'), ns)
-    return ns['generate_launch_description']()
-
-
-@pytest.mark.parametrize('explicit', [None, '/tmp/nondefault limits.yaml', ''])
-def test_robot_declares_and_forwards_overlay(monkeypatch, explicit):
-    monkeypatch.setenv('MHSEALS_NAV2', '/tmp/persistent.yaml')
-    entities = robot_factory()
-    declared = {e.args[0]: e.default_value for e in entities if hasattr(e, 'default_value')}
-    assert declared['limits_file'] == '/tmp/persistent.yaml'
-    timer = next(e for e in entities if getattr(e, 'period', None) == 5.0)
-    include = timer.actions[0]
-    args = dict(include.launch_arguments)
-    context = dict(declared)
-    if explicit is not None:
-        context['limits_file'] = explicit
-    assert args['limits_file'].perform(context) == context['limits_file']
 
 
 @pytest.mark.parametrize('override,xdg', [
@@ -106,28 +66,3 @@ def test_tui_actual_path_and_component_argv(monkeypatch, override, xdg, tmp_path
         assert requested.values['contexts'] == authority.values['contexts']
         assert requested.inputs[0] == authority.inputs[0]
         assert requested.inputs[-1]['path'] == str(selected)
-
-
-def test_hardware_robot_leaves_sensors_and_perception_to_the_orin():
-    """sim:=false runs neither; sim:=true runs objects with the sim backend."""
-    includes = {}
-    for entity in robot_factory():
-        source = (getattr(entity, 'args', ()) or (None,))[0]
-        path = str((getattr(source, 'args', ()) or ('',))[0])
-        for name in ('sensors', 'objects'):
-            if f'{name}.launch.py' in path:
-                includes[name] = entity
-    assert set(includes) == {'sensors', 'objects'}
-    for include in includes.values():
-        assert include.condition.args[0].name == 'sim'
-    assert dict(includes['objects'].launch_arguments) == {'sim': 'true', 'backend': 'sim'}
-
-
-def test_command_mux_reaches_navigation_which_owns_the_watchdog():
-    entities = robot_factory()
-    declared = {e.args[0]: e.default_value for e in entities if hasattr(e, 'default_value')}
-    assert declared['command_mux'] == 'false'
-    timer = next(e for e in entities if getattr(e, 'period', None) == 5.0)
-    assert len(timer.actions) == 1
-    assert dict(timer.actions[0].launch_arguments)['command_mux'].name == 'command_mux'
-    assert 'costmap_watchdog' not in (ROOT / 'launch/robot.launch.py').read_text()

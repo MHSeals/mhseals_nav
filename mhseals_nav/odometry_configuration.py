@@ -1,11 +1,9 @@
 """Pure, startup-only odometry layers; identities describe inputs, never live state."""
 from dataclasses import dataclass
-from hashlib import sha256
-from pathlib import Path
 from types import MappingProxyType
 
 
-from .navigation_config import load_strict
+from . import layers
 from .startup_rules import Rule
 
 ALIASES = ('robot_state_publish_frequency', 'mavros_velocity_source',
@@ -61,29 +59,22 @@ def validate(values):
         field_rule(key).check(value)
 
 
+def validate_package(layer, label):
+    """Validate a layer; the package one must state every field."""
+    validate(layer)
+    if label == 'package' and set(layer) != KEYS:
+        raise ValueError('package odometry startup mapping must be complete')
+
+
 def resolve_odometry(package_file=None, deployment_file='', operator_file='',
                      aliases=None, context='standalone'):
     """Resolve package < deployment < operator < explicitly supplied aliases."""
     if context not in ('standalone', 'included'):
         raise ValueError('EKF startup context must be standalone or included')
     if package_file is None:
-        from ament_index_python.packages import get_package_share_directory
-        package_file = (Path(get_package_share_directory('mhseals_nav')) /
-                        'config/odometry_startup.yaml')
-    values, inputs = {}, []
-    for label, selected in (('package', package_file), ('deployment', deployment_file),
-                            ('operator', operator_file)):
-        if not selected:
-            continue
-        path = Path(selected).expanduser().resolve(strict=True)
-        raw = path.read_bytes()
-        layer = load_strict(raw, path)
-        validate(layer)
-        if label == 'package' and set(layer) != KEYS:
-            raise ValueError('package odometry startup mapping must be complete')
-        values.update(layer)
-        inputs.append(MappingProxyType({
-            'path': str(path), 'sha256': sha256(raw).hexdigest(), 'layer': label}))
+        package_file = layers.config_path('odometry_startup.yaml')
+    values, inputs = layers.resolve(package_file, deployment_file, operator_file,
+                                    validate=validate_package)
     for key, raw in (aliases or {}).items():
         if key not in ALIASES:
             raise ValueError(f'unknown odometry alias: {key}')

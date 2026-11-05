@@ -21,13 +21,13 @@ from rclpy.time import Time
 from diagnostic_msgs.msg import DiagnosticArray
 from nav_msgs.msg import OccupancyGrid, Odometry
 from tf2_ros import Buffer, TransformException, TransformListener
-from vision_msgs.msg import Detection3D, Detection3DArray, ObjectHypothesisWithPose
 from visualization_msgs.msg import MarkerArray
 
 from mhseals_nav import course_map, track_grid
 from mhseals_nav.heading_check import HeadingCheck
 from mhseals_nav.msg import ObservationArray, Track, TrackArray
 from mhseals_nav.perception_status import StageClock, status
+from mhseals_nav.robot_geometry import quat_matrix
 from mhseals_nav.track_filter import (
     MOTION_NAMES, MOTION_STATIC, SOURCE_LIVE, SOURCE_PRIOR, TrackFilter, stamp_of)
 from mhseals_nav.tracker_markers import observation_markers, track_markers
@@ -40,17 +40,10 @@ LATCHED = QoSProfile(depth=1, reliability=QoSReliabilityPolicy.RELIABLE,
 OBSERVATIONS = QoSProfile(depth=5, reliability=QoSReliabilityPolicy.BEST_EFFORT)
 
 
-def matrix(q):
-    x, y, z, w = q.x, q.y, q.z, q.w
-    return np.array([
-        [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
-        [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
-        [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)]])
-
-
 def unpack(transform):
     t = transform.transform
-    return matrix(t.rotation), np.array([t.translation.x, t.translation.y, t.translation.z])
+    r, p = t.rotation, t.translation
+    return quat_matrix(r.x, r.y, r.z, r.w), np.array([p.x, p.y, p.z])
 
 
 class ObjectTracker(Node):
@@ -77,7 +70,6 @@ class ObjectTracker(Node):
         self.create_subscription(ObservationArray, cfg['observations_topic'],
                                  self.on_observations, OBSERVATIONS)
         self.tracks_pub = self.create_publisher(TrackArray, '/perception/tracks', RELIABLE)
-        self.objects_pub = self.create_publisher(Detection3DArray, '/objects/map', RELIABLE)
         self.track_markers_pub = self.create_publisher(MarkerArray, '/tracked_objects', RELIABLE)
         self.obs_markers_pub = self.create_publisher(
             MarkerArray, '/perception/detection_markers', RELIABLE)
@@ -194,7 +186,6 @@ class ObjectTracker(Node):
         now_msg, now = self.get_clock().now().to_msg(), self.now()
         array = TrackArray()
         array.header.stamp, array.header.frame_id = now_msg, self.map
-        objects = Detection3DArray(header=array.header)
         for track in self.filter.tracks:
             xyz = R @ np.array([track.x[0], track.x[1], track.z]) + p
             vel = R[:2, :2] @ track.x[2:]
@@ -216,22 +207,8 @@ class ObjectTracker(Node):
             msg.first_seen = Time(nanoseconds=int(track.first_seen * 1e9)).to_msg()
             msg.last_seen = Time(nanoseconds=int(track.last_seen * 1e9)).to_msg()
             array.tracks.append(msg)
-            if track.source == SOURCE_LIVE:
-                objects.detections.append(self.detection(objects.header, msg))
         self.tracks_pub.publish(array)
-        self.objects_pub.publish(objects)
         self.last_tracks = array
-
-    @staticmethod
-    def detection(header, track):
-        det = Detection3D(header=header, id=str(track.id))
-        det.bbox.center = track.pose.pose
-        det.bbox.size = track.size
-        hyp = ObjectHypothesisWithPose()
-        hyp.hypothesis.class_id, hyp.hypothesis.score = track.class_id, float(track.confidence)
-        hyp.pose.pose = track.pose.pose
-        det.results.append(hyp)
-        return det
 
     def publish_grid(self):
         centre = self.latest(self.odom, self.base)

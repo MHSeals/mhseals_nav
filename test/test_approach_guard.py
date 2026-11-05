@@ -3,12 +3,12 @@ import json
 import time
 
 from mhseals_nav.approach_guard import Guard, hull_gap, lethal_points
-from mhseals_nav.yaml_params import watchdog_config
+from mhseals_nav.yaml_params import rectangle, watchdog_config
 import numpy
 import pytest
 
-CFG = watchdog_config('approach_guard')
-ENFORCE = {**CFG, 'enforce': True}   # as navigation.launch.py runs it in sim
+CFG = watchdog_config('approach_guard', base=rectangle())   # as the node reads it
+ENFORCE = {**CFG, 'enforce': True}   # as the sim profile runs it (approach_enforce)
 RES = 0.15
 DT = 1.0 / CFG['rate']
 

@@ -2,6 +2,7 @@
 import ast
 from pathlib import Path
 
+from mhseals_nav.startup_projection import TREES
 from mhseals_nav.navigation_config import load_overlay, validated_merge_limits
 import pytest
 import yaml
@@ -107,7 +108,7 @@ def inert_navigation_factory():
     class Configuration:
         def __init__(self, name): self.name = name
         def perform(self, context):
-            defaults = {'sim': 'true', 'use_lidar': 'true'}
+            defaults = {'sim': 'true'}
             return context.get(self.name, defaults.get(self.name))
     import os
     import tempfile
@@ -118,18 +119,17 @@ def inert_navigation_factory():
     events = types.ModuleType('launch.event_handlers')
     events.OnShutdown = lambda **kw: None
     import shutil
-    from types import SimpleNamespace
+    from mhseals_nav import layers
+    # A package tree (package.xml beside config/) that layers.package_path answers with.
     share = Path(tempfile.mkdtemp())
-    shutil.copytree(ROOT / 'mhseals_nav/behavior_trees', share / 'behavior_trees')
+    (share / 'package.xml').touch()
     (share / 'config').mkdir()
-    shutil.copyfile(ROOT / 'config/nav2_ceilings.yaml', share / 'config/nav2_ceilings.yaml')
-    (share / 'launch').mkdir()
-    shutil.copyfile(ROOT / 'launch/navigation.launch.py', share / 'launch/navigation.launch.py')
+    for name in ('nav2_ceilings.yaml', 'hull.yaml', 'camera.yaml'):
+        shutil.copyfile(ROOT / 'config' / name, share / 'config' / name)
     ns = {'LaunchConfiguration': Configuration,
           'os': os,
           'yaml': yaml,
           'tempfile': tempfile,
-          'FindPackageShare': lambda name: SimpleNamespace(perform=lambda _: str(share)),
           'PathJoinSubstitution': lambda parts: parts,
           'RewrittenYaml': lambda **kw: kw,
           'ParameterValue': lambda *a, **kw: a,
@@ -141,7 +141,8 @@ def inert_navigation_factory():
 
     def run(context):
         with patch.dict(sys.modules, {
-                'launch.actions': actions, 'launch.event_handlers': events}):
+                'launch.actions': actions, 'launch.event_handlers': events}), \
+                patch.object(layers, 'SOURCE', share):
             return factory(context)
 
     ns['share'] = share
@@ -161,7 +162,10 @@ def test_absent_optional_overlay_preserves_custom_controller_base(base, tmp_path
     assert len(nodes) == 7
     emitted = yaml.safe_load(Path(nodes[0]['parameters'][0]).read_text())
     emitted_controller = emitted['controller_server']['ros__parameters']
-    assert emitted_controller['CustomController'] == controller['CustomController']
+    # Its plugin is the MPPI shim, so it still takes the shim limits from its own wz_max/az_max.
+    custom = controller['CustomController']
+    assert emitted_controller['CustomController'] == {
+        **custom, 'rotate_to_heading_angular_vel': custom['wz_max'], 'max_angular_accel': custom['az_max']}
     assert 'FollowPath' not in emitted['controller_server']['ros__parameters']
     # A real overlay on this selected base must not require a FollowPath mapping.
     merged = validated_merge_limits(base, {'controller_server': {'ros__parameters': {
@@ -204,8 +208,7 @@ def test_actual_factory_consumes_final_projection(base, tmp_path):
     base['bt_navigator']['ros__parameters']['default_nav_to_pose_bt_xml'] = '/chosen/tree.xml'
     path = tmp_path / 'base.yaml'
     path.write_text(yaml.safe_dump(base))
-    context = {'params_file': str(path), 'limits_file': '', 'sim': 'true',
-               'use_lidar': 'false'}
+    context = {'params_file': str(path), 'limits_file': '', 'sim': 'true'}
     ns = inert_navigation_factory()
     nodes = ns['navigation_nodes'](context)
     effective = yaml.safe_load(Path(nodes[0]['parameters'][0]).read_text())
@@ -218,7 +221,7 @@ def test_actual_factory_consumes_final_projection(base, tmp_path):
         costmap = effective[name][name]['ros__parameters']
         assert costmap['use_sim_time'] is True
         assert 'obstacle_layer' not in costmap
-    tree = ns['share'] / 'behavior_trees/nav_to_pose.xml'
+    tree = TREES / 'nav_to_pose.xml'   # beside the module, as run_task's precise tree
     assert effective['bt_navigator']['ros__parameters']['default_nav_to_pose_bt_xml'] == str(tree)
     assert effective['lifecycle_manager_navigation']['ros__parameters']['use_sim_time'] is True
 
@@ -236,7 +239,7 @@ def test_factory_accepts_an_overlay_within_the_ceilings(base, tmp_path):
     from mhseals_nav.startup_projection import compile_navigation
     ns = inert_navigation_factory()
     assert ns['navigation_nodes']({'params_file': str(base_path), 'limits_file': str(overlay)})
-    result = compile_navigation(base_path, overlay, sim='true', use_lidar='true',
+    result = compile_navigation(base_path, overlay, sim='true',
                                 share=ns['share'])
     follow = result['controller_server']['ros__parameters']['FollowPath']
     assert follow['wz_max'] == 0.5 and follow['vx_min'] == -0.05

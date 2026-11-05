@@ -17,9 +17,16 @@ from mhseals_nav.tasks import geometry, layout, load_config as load_task_config
 from mhseals_nav.tasks.behaviours import Driver, Leaf
 from mhseals_nav.tasks.geometry import wrap
 from mhseals_nav.tasks.tracks import Track
+from mhseals_nav.yaml_params import camera_fov
 import numpy as np
 import py_trees
 from py_trees.common import Status
+
+
+def camera_view():
+    """(hfov rad, range m) of config/camera.yaml: the fallback until the backend reports."""
+    fov = camera_fov()
+    return fov['hfov'], fov['range']
 
 
 class Coverage:
@@ -316,7 +323,7 @@ class SearchLeaf(Driver):
 
     def fov(self):
         fov = self.get('fov')
-        return fov or (math.radians(self.cfg['hfov_deg']), self.cfg['range_m'])
+        return fov or camera_view()
 
     def coverage(self):
         """Return the runner's coverage, else a private one this leaf keeps up itself."""

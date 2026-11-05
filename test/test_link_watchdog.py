@@ -2,9 +2,8 @@
 
 import json
 import os
-import socket
 
-from mhseals_nav.link_watchdog import LinkWatchdog
+from mhseals_nav.link_watchdog import host_name, LinkWatchdog
 from mhseals_nav.yaml_params import watchdog_config
 import pytest
 
@@ -36,11 +35,21 @@ def take(path, operator, mtime):
     os.utime(path, ns=(mtime, mtime))     # an mtime change, however fast the writes
 
 
-def test_no_station_file_accepts_any_host_but_the_boat_and_warns_once(tmp_path):
+def test_no_station_file_counts_nobody_holds_with_the_reason_and_warns_once(tmp_path):
     dog, _, logs = station_dog(tmp_path)
-    assert dog.heartbeat(0.0, 'laptop-a') and dog.heartbeat(0.5, 'laptop-b')
-    assert not dog.heartbeat(1.0, 'Blastoise.local') and not dog.heartbeat(1.0, '')
+    for host in ('laptop-a', 'laptop-b', 'Blastoise.local', ''):
+        assert not dog.heartbeat(0.0, host)
+    assert dog.reason(0.0) == 'no station taken: hw.sh station take'
+    dog.command(0.1)
+    assert dog.tick(0.1)
     assert [bad for bad, _ in logs] == [True] and 'no station file' in logs[0][1]
+
+
+def test_without_require_operator_no_station_never_holds(tmp_path):
+    dog, _, _ = station_dog(tmp_path)
+    dog.cfg['require_operator'] = False
+    dog.command(0.1)
+    assert dog.reason(0.1) == '' and not dog.tick(0.1)
 
 
 def test_the_station_file_names_the_operator_and_is_re_read_on_change(tmp_path):
@@ -51,30 +60,31 @@ def test_the_station_file_names_the_operator_and_is_re_read_on_change(tmp_path):
     assert dog.heartbeat(1.0, 'laptop-b') and not dog.heartbeat(1.0, 'laptop-a')
     assert [msg for bad, msg in logs if not bad] == ['operator station: laptop-a',
                                                      'operator station: laptop-b']
-    path.unlink()
-    assert dog.heartbeat(2.0, 'laptop-a')
+    path.unlink()                          # released: the last beat goes stale, then holds
+    assert not dog.heartbeat(2.0, 'laptop-b')
     assert logs[-1][0] and 'no station file' in logs[-1][1]
+    assert dog.reason(2.0 + dog.cfg['max_age'] + 1) == 'no station taken: hw.sh station take'
 
 
 @pytest.mark.parametrize('text', ['operator:\n', '[a, b]\n', 'operator: [\n', 'since: x\n'])
-def test_a_station_file_without_an_operator_accepts_any_host(tmp_path, text):
+def test_a_station_file_without_an_operator_counts_nobody(tmp_path, text):
     dog, path, logs = station_dog(tmp_path)
     path.write_text(text)
-    assert dog.heartbeat(0.0, 'laptop-a') and not dog.heartbeat(0.0, 'blastoise')
+    assert not dog.heartbeat(0.0, 'laptop-a') and not dog.heartbeat(0.0, 'blastoise')
     assert len(logs) == 1 and logs[0][0]
 
 
-def test_a_station_file_of_bad_bytes_accepts_any_host_without_crashing(tmp_path):
+def test_a_station_file_of_bad_bytes_counts_nobody_without_crashing(tmp_path):
     dog, path, logs = station_dog(tmp_path)
     path.write_bytes(b'operator: \xff\xfe\n')
-    assert dog.heartbeat(0.0, 'laptop-a') and len(logs) == 1 and logs[0][0]
+    assert not dog.heartbeat(0.0, 'laptop-a') and len(logs) == 1 and logs[0][0]
 
 
 def test_a_write_in_the_same_mtime_tick_as_the_truncate_is_read(tmp_path):
     dog, path, _ = station_dog(tmp_path)
     path.write_text('')
     os.utime(path, ns=(1, 1))
-    assert dog.heartbeat(0.0, 'laptop-b')  # empty: any host
+    assert not dog.heartbeat(0.0, 'laptop-b')  # empty: nobody
     take(path, 'laptop-a', 1)              # same mtime, new size
     assert not dog.heartbeat(0.5, 'laptop-b') and dog.heartbeat(0.5, 'laptop-a')
 
@@ -181,7 +191,7 @@ def test_node_holds_without_the_operator_and_survives_flips():
         status = []
         probe.create_subscription(String, '/link_watchdog/status',
                                   lambda m: status.append(json.loads(m.data)), 10)
-        flip_twice(ex, got, beats(socket.gethostname()), beats(OPERATOR))
+        flip_twice(ex, got, beats(host_name()), beats(OPERATOR))
         assert status and set(status[-1]) == {'ok', 'reason'}   # its liveness beat for the TUI
         assert dog.logic.beat_at is not None
         assert {g['op'] for g in got} == {'hold'}
@@ -189,3 +199,11 @@ def test_node_holds_without_the_operator_and_survives_flips():
         assert {g['by'] for g in got} == {'link_watchdog'} and all(g['token'] for g in got)
     finally:
         rclpy.try_shutdown()
+
+
+def test_never_counts_this_machine_named_by_astro_hostname(monkeypatch):
+    """A container's name is not the machine's: its own beat names ASTRO_HOSTNAME."""
+    monkeypatch.setenv('ASTRO_HOSTNAME', 'Laptop-A.local')
+    dog = LinkWatchdog(dict(CFG, operator_hosts=['laptop-a', OPERATOR]))
+    assert dog.own == host_name() == 'laptop-a'
+    assert not dog.heartbeat(0.0, 'laptop-a') and dog.heartbeat(0.0, OPERATOR)

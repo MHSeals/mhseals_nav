@@ -20,17 +20,14 @@ Optional: ``actuators`` {capability: actuator} (tasks/actuators.py; only those t
 thruster-health check from it).
 """
 
-import math
 
 from mhseals_nav.tasks import load_config, speed, tracks as track_memory
 from mhseals_nav.tasks.actuators import fitted
 from mhseals_nav.tasks.behaviours import SpeedCap
 from mhseals_nav.tasks.conditions import Conditions
 from mhseals_nav.tasks.layout import Layout
-# The parameters live in the py_trees-free params module; kept here for their callers.
-from mhseals_nav.tasks.params import config_path, load_params  # noqa: F401
 from mhseals_nav.tasks.recognition import Recogniser
-from mhseals_nav.tasks.search import Coverage, load_config as load_search
+from mhseals_nav.tasks.search import camera_view, Coverage, load_config as load_search
 from mhseals_nav.tasks.trees import KINDS, TREES
 import py_trees
 
@@ -61,7 +58,7 @@ class MissionHost:
         self.exclusive = {label for p in configs for label in p.get('indicators') or ()}
         search = load_search(params.get('search'))
         self.coverage_config = search
-        self.fov = (math.radians(float(search['hfov_deg'])), float(search['range_m']))
+        self.fov = camera_view()   # until /perception/status reports the backend's
         self.conditions = Conditions(params.get('conditions') or {})
         self.recogniser = Recogniser(load_config('recognition'))
         self.status_at, self.status_last, self.hypotheses_at = None, None, None
@@ -97,14 +94,12 @@ class MissionHost:
 
     # World memory -------------------------------------------------------------------
 
-    def remember(self, seen, priors=True):
+    def remember(self, seen):
         """Remember one tracker message's tracks, seen now.
 
-        Its course-map priors (``prior`` true) replace the remembered ones, unless
-        ``priors`` is false (a source that carries none, such as /objects/map).
+        Its course-map priors (``prior`` true) replace the remembered ones.
         """
-        if priors:
-            self.priors = [track for track in seen if track.prior]  # republished while held
+        self.priors = [track for track in seen if track.prior]  # republished while held
         self.heard_at = self.clock()
         self.memory = track_memory.remember(self.memory, seen, self.clock(),
                                             self.memory_horizon, horizons=self.landmarks,

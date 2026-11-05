@@ -23,7 +23,6 @@ def test_tracker_publishes_every_output(ros):
     from nav_msgs.msg import OccupancyGrid
     from rclpy.executors import SingleThreadedExecutor
     from tf2_ros import TransformBroadcaster
-    from vision_msgs.msg import Detection3DArray
     from visualization_msgs.msg import MarkerArray
 
     from mhseals_nav.msg import Observation, ObservationArray, Track, TrackArray
@@ -37,7 +36,6 @@ def test_tracker_publishes_every_output(ros):
     def keep(name):
         return lambda msg: got.__setitem__(name, msg)
     probe.create_subscription(TrackArray, '/perception/tracks', keep('tracks'), RELIABLE)
-    probe.create_subscription(Detection3DArray, '/objects/map', keep('objects'), RELIABLE)
     probe.create_subscription(OccupancyGrid, '/perception/track_grid', keep('grid'), LATCHED)
     probe.create_subscription(DiagnosticArray, '/perception/status', keep('status'), RELIABLE)
     probe.create_subscription(MarkerArray, '/tracked_objects', keep('markers'), RELIABLE)
@@ -82,8 +80,6 @@ def test_tracker_publishes_every_output(ros):
     assert track.class_id == 'red_buoy' and track.source == Track.SOURCE_LIVE
     assert track.motion == Track.MOTION_STATIC
     assert track.pose.pose.position.x == pytest.approx(15.5, abs=0.2)   # 10 + 1 + 0.5 + 4
-    (det,) = got['objects'].detections
-    assert det.results[0].hypothesis.class_id == 'red_buoy'
     grid = got['grid']
     assert grid.header.frame_id == 'odom' and grid.info.width == 160
     assert max(grid.data) == 100 and min(grid.data) == 0

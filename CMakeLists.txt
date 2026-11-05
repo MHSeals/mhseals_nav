@@ -25,9 +25,7 @@ install(DIRECTORY ${PROJECT_NAME}/ DESTINATION ${PYTHON_INSTALL_DIR}/${PROJECT_N
   PATTERN "__pycache__" EXCLUDE PATTERN "*.pyc" EXCLUDE)
 
 set(ENTRY_POINTS
-  twist_converter=twist_converter
   object_tracker=object_tracker
-  thruster_allocation=thruster_allocation
   zed_backend=zed_backend
   sim_backend=sim_backend
   lidar_relay=lidar_relay
@@ -44,6 +42,8 @@ set(ENTRY_POINTS
   fence_watchdog=fence_watchdog
   fcu_watchdog=fcu_watchdog
   ekf_input_watchdog=ekf_input_watchdog
+  operator_heartbeat=operator_heartbeat
+  host_diagnostic=host_diagnostic
 )
 foreach(entry ${ENTRY_POINTS})
   string(REPLACE "=" ";" entry "${entry}")

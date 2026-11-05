@@ -5,8 +5,6 @@ import re
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-# Not listed: its mode check compares an unquoted name (PythonExpression), so it cannot run.
-UNLISTED = {'log.launch.py'}
 COMMANDS = yaml.safe_load((ROOT / 'help.yaml').read_text())['commands']
 
 
@@ -27,7 +25,7 @@ def choices(name):
 
 def test_every_launch_file_is_listed():
     files = {path.name for path in (ROOT / 'launch').glob('*.launch.py')}
-    assert set(launches()) == files - UNLISTED
+    assert set(launches()) == files
 
 
 def test_listed_arguments_are_declared_by_their_launch():
@@ -48,10 +46,12 @@ def test_choices_match_the_code():
             for p in c['params']}['--profile'] == {p.stem for p in profiles.glob('*.yaml')}
 
 
-def test_fence_lists_its_live_keys():
-    from mhseals_nav.fence_watchdog import ON_EXIT
-    assert choices('fence') == set(ON_EXIT)
-    source = (ROOT / 'mhseals_nav/fence_watchdog.py').read_text()
+def test_fence_lists_its_file_keys():
+    from mhseals_nav.fence import ON_EXIT
     fence = next(c for c in COMMANDS if c['name'] == 'fence')
-    for param in fence['params']:
-        assert f"'{param['name']}'" in source, param['name']
+    params = {p['name']: p for p in fence['params']}
+    assert set(params['on_exit']['choices']) == set(ON_EXIT)
+    assert set(params['frame']['choices']) == {'latlon', 'map'}
+    source = (ROOT / 'mhseals_nav/fence.py').read_text()
+    for name in params:
+        assert f"'{name}'" in source, name

@@ -6,27 +6,25 @@ lowest first: the package profile (and its ``extends``), ``$ROS_WS/config/device
 (deployment), ``~/.config/mhseals/devices/<name>.yaml`` (operator), then the session's
 ``overrides``. The thruster driver and command_mux are never parts: they start with arming.
 """
+from copy import deepcopy
 import json
 import os
 from pathlib import Path
 
-from .navigation_config import load_strict
+from .layers import deep_merge, load_strict, package_path
 
 KEYS = {'extends', 'requires', 'args', 'parts'}
 OVERLAY_KEYS = KEYS - {'extends'}
 PART_KEYS = {'launch', 'run', 'args', 'nodes', 'enabled', 'kind', 'with'}
 KINDS = ('sensing', 'commander')
-COMMANDER_LAUNCHES = {'navigation.launch.py', 'task.launch.py', 'robot.launch.py'}
+COMMANDER_LAUNCHES = {'navigation.launch.py', 'task.launch.py'}
 DRIVERS = {'thruster_pwm_node', 'command_mux'}
+OTHER_PACKAGE_RUNS = {('mhseals_testing', 'rtk_base')}   # operator tooling with no home here
 
 
 def share():
-    """Return the installed share directory, else the source tree."""
-    try:
-        from ament_index_python.packages import get_package_share_directory
-        return Path(get_package_share_directory('mhseals_nav'))
-    except (ImportError, LookupError):
-        return Path(__file__).resolve().parents[1]
+    """Return this package's directory (layers.package_path: the source tree, else the share)."""
+    return package_path()
 
 
 def available():
@@ -81,20 +79,17 @@ def validate_layer(layer, where, keys=KEYS):
 
 
 def merge(base, layer):
-    """Overlay ``layer``: requires replaces, args per key, parts per part and per field."""
-    out = {'requires': list(layer.get('requires', base.get('requires', []))),
-           'args': {**base.get('args', {}), **layer.get('args', {})},
-           'parts': {name: dict(spec) for name, spec in base.get('parts', {}).items()}}
+    """Overlay ``layer`` (deep_merge: requires replaces, args, parts and fields per key).
+
+    A part's ``launch`` and ``run`` replace each other.
+    """
+    out = deepcopy({'requires': [], 'args': {}, 'parts': {}, **base})
     for name, spec in layer.get('parts', {}).items():
-        part = out['parts'].setdefault(name, {})
-        if 'args' in spec:
-            spec = dict(spec, args={**part.get('args', {}), **spec['args']})
-        if 'launch' in spec:
-            part.pop('run', None)
-        if 'run' in spec:
-            part.pop('launch', None)
-        part.update(spec)
-    return out
+        part = out['parts'].get(name, {})
+        for given, other in (('launch', 'run'), ('run', 'launch')):
+            if given in spec:
+                part.pop(other, None)
+    return deep_merge(out, {key: layer[key] for key in OVERLAY_KEYS if key in layer})
 
 
 def _read(path, keys):
@@ -149,7 +144,8 @@ def load(name, deployment_file='', startup_file='', overrides=None):
 
 
 def check(profile, name):
-    """Each part runs one launch file of this package or one executable; drivers never.
+    """Each part runs one launch file or executable of this package (or the operator's rtk_base);
+    drivers never.
 
     A part's ``with`` names other sensing parts of the profile that start beside it.
     """
@@ -171,6 +167,9 @@ def check(profile, name):
                                  'arming in the TUI, never as a device part')
             if spec.get('args'):
                 raise ValueError(f'{here}.args: give a run part its arguments in run')
+            if spec['run'][0] != 'mhseals_nav' and tuple(spec['run'][:2]) not in OTHER_PACKAGE_RUNS:
+                raise ValueError(f'{here}.run: {" ".join(spec["run"][:2])} is another package\'s; '
+                                 'a device part runs mhseals_nav executables')
             continue
         if not (launches / spec['launch']).is_file():
             raise ValueError(f'{here}.launch: no {spec["launch"]} in mhseals_nav/launch')

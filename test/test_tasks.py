@@ -13,6 +13,7 @@ if importlib.util.find_spec('py_trees') is not None:
     import py_trees
     from mhseals_nav.tasks.trees import TREES
 
+EXIT = geometry.gate_exit(0.57)   # the task YAMLs' gate_margin past half the hull (hull.yaml)
 NO_SEARCH = {'priors': False, 'scan': False, 'next_view': False, 'sweep': False}
 
 
@@ -62,7 +63,19 @@ def test_next_gate_is_ahead_and_not_cleared():
     # Behind the direction of travel, or past the horizon, is not next.
     assert geometry.next_gate(gates, (13, 0, 0), [(5, 0, 0), (12, 1, 0)]) is None
     assert geometry.next_gate([(40, 0, 0)], (0, 0, 0), []) is None
-    assert geometry.through((5, 0, 0)) == [(3.5, 0, 0), (6.1, 0, 0)]
+    assert geometry.through((5, 0, 0), after=1.1) == [(3.5, 0, 0), (6.1, 0, 0)]
+
+
+def test_a_gate_exit_lies_half_the_hull_and_the_margin_past_the_line(tmp_path):
+    from mhseals_nav.yaml_params import rectangle
+    half = rectangle()['half_length']
+    assert geometry.gate_exit(0.57) == pytest.approx(half + 0.57)
+    hull = tmp_path / 'hull.yaml'
+    hull.write_text('half_length: 1.0\nhalf_width: 0.5\npadding: 0.1\n')
+    out = geometry.through((5, 0, 0), after=geometry.gate_exit(0.57, hull))[-1]
+    assert out == pytest.approx((6.57, 0, 0))
+    for name in ('nav_channel', 'speed_challenge', 'return_home', 'pair_test', 'follow_path'):
+        assert 'gate_exit' not in load_config(name) and load_config(name)['gate_margin'] > 0
 
 
 def test_crossed_means_past_the_line_near_the_middle():
@@ -260,7 +273,8 @@ def test_nav_channel_crosses_both_gates():
     # One flowing route through both gates: no stop between them.
     assert len(world.goals) == 1
     route = [p[:2] for p in world.goals[0].route]
-    assert route == [(5.5, 0.0), (8.1, 0.0), (11.5, 0.0), (14.1, 0.0)]
+    assert route == [pytest.approx(p)
+                     for p in [(5.5, 0.0), (7 + EXIT, 0.0), (11.5, 0.0), (13 + EXIT, 0.0)]]
 
 
 def test_nav_channel_searches_ahead_for_the_second_gate():
@@ -273,7 +287,7 @@ def test_nav_channel_searches_ahead_for_the_second_gate():
 
     assert world.run(script=appear) == 'SUCCESS'
     assert world.goals[1].cancelled  # the search leg was preempted by the sighting
-    assert world.goals[-1].route[-1][:2] == pytest.approx((21.1, 0))
+    assert world.goals[-1].route[-1][:2] == pytest.approx((20 + EXIT, 0))
 
 
 def test_follow_path_runs_every_gate_and_reports_the_species_count():
@@ -509,7 +523,7 @@ def test_return_home_finds_the_black_gate_by_home():
                               ('black_buoy', 10, 12.6), ('black_buoy', 14, 9.4)]
     assert world.run() == 'SUCCESS'
     assert world.goals[0].route == [pytest.approx((6, 0, math.pi))]
-    assert world.goals[-1].route[-1][:2] == pytest.approx((-3.6, 0))
+    assert world.goals[-1].route[-1][:2] == pytest.approx((-2.5 - EXIT, 0))
     assert world.names() == ['gate_cleared', 'returned_home']
 
 
@@ -607,7 +621,8 @@ def test_pair_test_crosses_both_ways_and_turns_beyond_the_pair(swapped, yaw):
     assert world.run() == 'SUCCESS'
     assert world.names() == ['gate_cleared', 'pair_turned', 'pair_returned']
     outward, clearance, turn, back = [goal.route for goal in world.goals]
-    assert outward == [pytest.approx(p) for p in geometry.through(centre)]
+    assert outward == [pytest.approx(p) for p in geometry.through(
+        centre, after=geometry.gate_exit(settings['gate_margin']))]
     far = geometry.forward(centre, settings['clearance'])
     assert clearance == [pytest.approx(far)]
     assert turn[0][:2] == pytest.approx(far[:2])
@@ -743,7 +758,7 @@ def test_gate_run_retries_an_aborted_gate_and_keeps_a_lost_gate():
     assert world.run(script=trouble) == 'SUCCESS'
     assert world.names() == ['gate_cleared', 'gate_cleared']
     assert ('decision', {'kind': 'retry', 'reason': 'gate 1 aborted: retry'}) in world.events
-    assert world.goals[1].route[-1][:2] == pytest.approx((14.1, 0))
+    assert world.goals[1].route[-1][:2] == pytest.approx((13 + EXIT, 0))
 
 
 def test_gate_run_gives_up_after_its_retries():
@@ -847,7 +862,7 @@ def test_a_task_approach_is_its_own_and_does_not_leak_to_the_next():
 
 
 def test_recognised_task_is_approached_without_a_layout():
-    from mhseals_nav.tasks.behaviours import PlanHypothesis
+    from mhseals_nav.tasks.plans import PlanHypothesis
     world = World('nav_channel', params('nav_channel'))
     world.board.register_key(key='hypotheses', access=py_trees.common.Access.WRITE)
     world.board.hypotheses = [{'type': 'dock', 'state': 'confirmed', 'confidence': 0.9,
@@ -863,7 +878,7 @@ def test_a_replanned_gate_route_never_turns_back_to_a_passed_lead_in():
     world = World('nav_channel', params('nav_channel'))
     world.state.update(pose=(6.5, 0.0, 0.0), objects=gate(7, 0, 3) + gate(13, 0, 3))
     world.run(ticks=1)
-    assert world.goals[0].route[0][:2] == pytest.approx((8.1, 0))  # not back to 5.5
+    assert world.goals[0].route[0][:2] == pytest.approx((7 + EXIT, 0))  # not back to 5.5
 
 
 def test_conditions_gate_precise_tasks_and_catch_a_weak_thruster():
@@ -1094,7 +1109,8 @@ def test_offset_gates_get_a_mid_point_so_the_corner_is_not_cut():
 
 
 def test_the_speed_indicator_is_read_between_the_gate_and_the_mark_when_planned():
-    from mhseals_nav.tasks.behaviours import PlanCircle, ReadColour
+    from mhseals_nav.tasks.behaviours import ReadColour
+    from mhseals_nav.tasks.plans import PlanCircle
     from py_trees.composites import Sequence
     py_trees.blackboard.Blackboard.clear()
     board = py_trees.blackboard.Client(name='world')
@@ -1224,7 +1240,7 @@ def test_the_speed_gate_counts_only_inside_its_region_and_not_cleared():
 
 
 def test_the_speed_mark_is_re_placed_by_a_closer_sighting_and_kept_when_unseen():
-    from mhseals_nav.tasks.behaviours import PlanView
+    from mhseals_nav.tasks.plans import PlanView
     from py_trees.decorators import FailureIsSuccess
     board = speed_board(('speed_mark',))
     board.speed_mark = [(30.0, 0.0, 0.0)]  # placed from the start, 30 m off
@@ -1313,7 +1329,7 @@ def test_a_gate_search_with_no_unexplored_bearing_ends_instead_of_raising():
 
     world = World('nav_channel', params('nav_channel'))
     world.use(GateRun('channel', 'channel', 'red_pole_buoy', 'green_pole_buoy', gates=2,
-                      search=10.0, step=5.0, first_radius=10.0))
+                      search=10.0, step=5.0, first_radius=10.0, exit_after=1.1))
     world.board.coverage = Seen()
     # Looks and legs both count against the search distance: once it is spent with a
     # coverage look still owed, the run ends (it raised AttributeError on int.pop).

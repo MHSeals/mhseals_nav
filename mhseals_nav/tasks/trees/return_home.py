@@ -5,7 +5,9 @@ entry gates the boat cleared at the start, last first and the other way; if that
 key is empty or the route fails, the gates are found again as red/green pairs.
 """
 
-from mhseals_nav.tasks.behaviours import GateRun, Navigate, PlanChainBack, PlanHome, Report
+from mhseals_nav.tasks.behaviours import GateRun, Navigate, Report
+from mhseals_nav.tasks.geometry import gate_exit
+from mhseals_nav.tasks.plans import PlanChainBack, PlanHome
 from py_trees.composites import Selector, Sequence
 
 
@@ -25,7 +27,7 @@ def build(params):
         way = Selector('way out', memory=True, children=[
             Sequence('back the way in', memory=True, children=[
                 PlanChainBack('plan the way out', 'exit_route', params['exit_source'],
-                              params['corner_side'], params['gate_exit']),
+                              params['corner_side'], gate_exit(params['gate_margin'])),
                 Navigate('out through the entry gates', 'exit_route', retries=2,
                          why='out through the entry gates'),
             ]),

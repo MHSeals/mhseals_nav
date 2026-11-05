@@ -7,15 +7,15 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction, TimerAction
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
-from launch_ros.substitutions import FindPackageShare
 
-from mhseals_nav.localization_configuration import compile_localization, simulation_clock
+from mhseals_nav.layers import boolean as endpoint_boolean
+from mhseals_nav.localization_configuration import compile_localization
 from mhseals_nav.odometry_configuration import ALIASES, from_launch, LAYER_ARGUMENTS
 
 
 def ekf_nodes(context):
     settings = from_launch(context)
-    sim = simulation_clock(LaunchConfiguration('sim').perform(context))
+    sim = endpoint_boolean(LaunchConfiguration('sim').perform(context))
     overlay = LaunchConfiguration('ekf_overlay_file').perform(context)
 
     bases = {name: LaunchConfiguration(argument).perform(context) for name, argument in (
@@ -49,12 +49,13 @@ def ekf_nodes(context):
 
 
 def generate_launch_description():
-    config = PathJoinSubstitution([FindPackageShare('mhseals_nav'), 'config'])
+    from mhseals_nav.layers import config_path   # tests exec this function alone
+    config = str(config_path())
     return LaunchDescription([
         *[DeclareLaunchArgument(name, default_value='')
           for name in (*LAYER_ARGUMENTS, *ALIASES) if name != 'ekf_delay'],
         DeclareLaunchArgument('ekf_startup_context', default_value='standalone'),
-        DeclareLaunchArgument('sim', default_value='true', description='Use the simulation clock'),
+        DeclareLaunchArgument('sim', default_value='false', description='Use the sim clock'),
         DeclareLaunchArgument('ekf_delay', default_value='',
                               description='Seconds to hold the EKFs back (odom.launch sets 6 for MAVROS)'),
         DeclareLaunchArgument('ekf_overlay_file', default_value='',

@@ -1,12 +1,10 @@
 """Actual endpoint factories and robot forwarding with inert constructor collectors."""
-import ast
 from pathlib import Path
 
 from mhseals_nav import endpoint_configuration as endpoint
 from mhseals_nav.odometry_configuration import resolve_odometry
 import pytest
 from test_odometry_startup_launch import factories
-from test_robot_overlay import robot_factory
 from test_sensor_startup import factory as sensor_factory
 import yaml
 
@@ -97,7 +95,7 @@ def test_unity_yaml_reaches_actual_typed_node(tmp_path, data, expected):
 
 @pytest.mark.parametrize('filename,function', [
     ('odom.launch.py', 'odometry_nodes'), ('odom.launch.py', 'create_mavros_node'),
-    ('sensors.launch.py', 'sensor_nodes'), ('robot.launch.py', 'endpoint_preflight')])
+    ('sensors.launch.py', 'sensor_nodes')])
 def test_invalid_late_endpoint_fails_before_constructor(tmp_path, filename, function):
     """Even an unrelated late Unity field blocks the relevant endpoint closure."""
     selected = tmp_path / 'selected.yaml'
@@ -120,39 +118,11 @@ def test_invalid_clock_precedes_node(clock):
     assert calls == []
 
 
-def test_robot_forwards_layers_context_aliases_and_preflights_first():
-    """Actual full robot includes carry one endpoint selection to odom and sensors."""
-    entities = robot_factory()
-    defaults = {item.args[0]: item.default_value for item in entities
-                if hasattr(item, 'default_value')}
-    assert defaults['endpoint_context'] == 'full_robot'
-    assert defaults['fcu_url'] == defaults['ros_ip'] == defaults['ros_port'] == ''
-    assert defaults['gcs_url'] == endpoint.UNSET_GCS
-    selected = dict(defaults, endpoint_startup_file='/operator.yaml',
-                    endpoint_deployment_file='/deployment.yaml')
-    includes = [item for item in entities if hasattr(item, 'launch_arguments')]
-    timer = next(item for item in entities if getattr(item, 'period', None) == 2.)
-    includes.append(timer.actions[0])
-    for include in includes:
-        forwarded = dict(include.launch_arguments)
-        if 'fcu_url' not in forwarded:
-            continue
-        for name in (*endpoint.LAYER_ARGUMENTS, 'endpoint_context', *endpoint.ALIASES):
-            assert forwarded[name].perform(selected) == selected[name]
-    # The first executable action is the gate, before includes and their child factories.
-    first = next(item for item in entities if not hasattr(item, 'default_value'))
-    assert first.function(None) == []  # inert fixture binds gate; real gate tested above
-    source = ast.parse((ROOT / 'launch/robot.launch.py').read_text())
-    gate = next(node for node in ast.walk(source) if isinstance(node, ast.Call)
-                and getattr(node.func, 'id', '') == 'OpaqueFunction')
-    assert gate.keywords[0].value.id == 'endpoint_preflight'
-
-
 @pytest.mark.parametrize('url', [
     'tcp://host:１２３４', 'serial:///dev/ttyACM0:５７６００',
     'udp://@host:14550/?ids=１,２'])
 @pytest.mark.parametrize('filename,function', [
-    ('odom.launch.py', 'create_mavros_node'), ('robot.launch.py', 'endpoint_preflight')])
+    ('odom.launch.py', 'create_mavros_node')])
 def test_unicode_uri_layer_preflight_precedes_constructors(tmp_path, url, filename, function):
     """Reject invalid numeric bytes before actual MAVROS construction or robot includes."""
     selected = tmp_path / 'selected.yaml'

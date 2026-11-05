@@ -20,10 +20,6 @@ controller_server.FollowPath.vx_std: {type: float, units: m/s, tier: live, doc: 
 controller_server.FollowPath.vy_std: {type: float, units: m/s, tier: live, doc: "Lateral sampling noise; keep below vy_max."}
 controller_server.FollowPath.wz_std: {type: float, units: rad/s, tier: live, doc: "Yaw sampling noise; keep below wz_max."}
 controller_server.FollowPath.prune_distance: {type: float, units: m, tier: live, doc: "Path length kept ahead of the boat; at least vx_max times the horizon."}
-velocity_smoother.max_velocity: {type: list, units: "m/s, m/s, rad/s", tier: live, doc: "Upper velocity limits (x, y, yaw); follow the controller limits."}
-velocity_smoother.min_velocity: {type: list, units: "m/s, m/s, rad/s", tier: live, doc: "Lower velocity limits (x, y, yaw)."}
-velocity_smoother.max_accel: {type: list, units: "m/s^2, m/s^2, rad/s^2", tier: live, doc: "Acceleration limits (x, y, yaw)."}
-velocity_smoother.max_decel: {type: list, units: "m/s^2, m/s^2, rad/s^2", tier: live, doc: "Deceleration limits (x, y, yaw), negative."}
 
 mavros_setup.message_rates: {type: list, units: "ID:Hz", tier: live, doc: "MAVLink message intervals requested on connect and reconnect; 0 resets, -1 disables."}
 mavros_setup.retry_attempts: {type: int, units: count, tier: restart, doc: "Interval requests attempted per connection."}
@@ -46,9 +42,7 @@ lidar.driver.frame: {type: str, units: frame, tier: restart, doc: "Lidar TF fram
 lidar.driver.endpoint.ip: {type: str, units: "1", tier: restart, doc: "Device IPv4 address; the vessel profile's unless a layer or velodyne_ip sets it."}
 lidar.driver.endpoint.port: {type: int, units: "1", range: [1, 65535], tier: restart, doc: "Device UDP port."}
 
-fence_watchdog.course.corners: {type: list, units: deg, tier: live, doc: "Course area [lat1, lon1, ...]: at least 3 corners of a simple polygon; replaces the fence whole or is refused with the reason."}
 fence_watchdog.margin: {type: float, units: m, tier: restart, doc: "Edge band where heading or moving outward already holds; covers the coast after a hold."}
-fence_watchdog.on_exit: {type: str, units: enum, tier: live, doc: "Outside under autonomy: alert holds; return pauses the runners, sends one slow Nav2 goal back inside, then holds until the operator or an agent releases it."}
 fence_watchdog.return_inset: {type: float, units: m, tier: restart, doc: "How far inside the nearest edge the return goal lies."}
 fence_watchdog.return_speed: {type: float, units: m/s, tier: restart, doc: "Nav2 speed limit while returning; lifted when the return ends."}
 fence_watchdog.return_timeout: {type: float, units: s, tier: restart, doc: "Time to get back inside before the return holds as alert does."}

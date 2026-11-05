@@ -6,10 +6,12 @@ on heartbeat_topic at about 2 Hz. Only beats naming one of operator_hosts count,
 one naming the boat itself: a TUI on the boat over SSH is not the operator. The name
 ``station`` in operator_hosts stands for whichever computer last took the station
 (``hw.sh station take`` writes its name to station_file on every boat host); with no such
-file, any host but the boat counts. Enforced once a heartbeat has arrived this session, or
-from the start when require_operator is set; never with no operator ever seen otherwise.
+file, or one naming nobody, it stands for nobody, so with require_operator the boat holds until
+a station is taken. Enforced once a heartbeat has arrived this session, or from the start when
+require_operator is set; never with no operator ever seen otherwise.
 """
 
+import os
 from pathlib import Path
 import socket
 
@@ -17,11 +19,17 @@ from mhseals_nav.hold_watchdog import fresh, HoldGate, node_class as watchdog_cl
 import yaml
 
 STATION = 'station'   # the operator_hosts entry resolved from station_file
+NO_STATION = 'no station taken: hw.sh station take'
 
 
 def short(host):
     """'Laptop-A.local' -> 'laptop-a'."""
     return str(host).strip().lower().split('.')[0]
+
+
+def host_name():
+    """This machine's short name: ``ASTRO_HOSTNAME`` (a container's machine), else the host name."""
+    return short(os.environ.get('ASTRO_HOSTNAME') or socket.gethostname())
 
 
 class Station:
@@ -34,7 +42,7 @@ class Station:
         self.operator = None
 
     def current(self):
-        """Return the operator's short name, or None (no usable file: accept any host)."""
+        """Return the operator's short name, or None (no usable file: no station)."""
         try:
             info = self.path.stat()
             # Size too: a write right after the truncate can share the coarse mtime tick.
@@ -45,8 +53,7 @@ class Station:
             self.stamp = stamp
             self.operator = self.read() if stamp is not None else None
             if stamp is None:
-                self.log(f'no station file at {self.path}: accepting a heartbeat from any '
-                         'host but this one until a station is taken', True)
+                self.log(f'no station file at {self.path}: {NO_STATION}', True)
         return self.operator
 
     def read(self):
@@ -57,8 +64,7 @@ class Station:
         else:
             why = 'names no operator'
         if not name:
-            self.log(f'{self.path} {why}: accepting a heartbeat from any host but this one',
-                     True)
+            self.log(f'{self.path} {why}: {NO_STATION}', True)
             return None
         self.log(f'operator station: {name}', False)
         return name
@@ -68,7 +74,7 @@ class LinkWatchdog(HoldGate):
     def __init__(self, cfg, own_host=None, log=None):
         super().__init__(cfg)
         self.beat_at = None
-        self.own = short(socket.gethostname() if own_host is None else own_host)
+        self.own = host_name() if own_host is None else short(own_host)
         names = {short(h) for h in cfg['operator_hosts']}
         self.literal = names - {STATION, self.own, ''}
         self.station = None
@@ -76,26 +82,26 @@ class LinkWatchdog(HoldGate):
             self.station = Station(cfg['station_file'], log or (lambda _msg, _bad: None))
 
     def hosts(self):
-        """The host names that count, or None for any host but the boat itself."""
-        if self.station is None:
-            return self.literal
-        operator = self.station.current()
-        return None if operator is None else self.literal | ({operator} - {self.own})
+        """Return the host names that count: never the boat, nobody for an untaken station."""
+        operator = self.station.current() if self.station is not None else None
+        return self.literal | ({operator} - {self.own, None})
 
     def heartbeat(self, now, host):
         """Count a beat named after an operator host; return whether it counted."""
-        name, hosts = short(host), self.hosts()
-        if name in ('', self.own) or (hosts is not None and name not in hosts):
+        if short(host) not in self.hosts():
             return False
         self.beat_at = now
         return True
 
     def reason(self, now):
+        if fresh(self.beat_at, now, self.cfg['max_age']) or (
+                self.beat_at is None and not self.cfg['require_operator']):
+            return ''
+        if self.station is not None and self.station.current() is None:
+            return NO_STATION
         if self.beat_at is None:
-            return 'no operator heartbeat yet' if self.cfg['require_operator'] else ''
-        if not fresh(self.beat_at, now, self.cfg['max_age']):
-            return f"operator heartbeat older than {self.cfg['max_age']} s"
-        return ''
+            return 'no operator heartbeat yet'
+        return f"operator heartbeat older than {self.cfg['max_age']} s"
 
 
 def node_class():
@@ -124,7 +130,7 @@ def node_class():
                 ignored.add(msg.data)
                 node.get_logger().warning(
                     f'ignoring heartbeat from {msg.data!r}: not one of '
-                    f'{sorted(node.logic.hosts() or ())} (and never this host)')
+                    f'{sorted(node.logic.hosts())} (and never this host)')
 
         node.create_subscription(String, node.cfg['heartbeat_topic'], on_beat,
                                  qos_profile_sensor_data)

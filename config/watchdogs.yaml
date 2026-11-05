@@ -11,13 +11,12 @@ tune:
     # Sim and bench set it false (config/devices/sim.yaml through watchdogs.launch.py).
     require_operator: true
   fence_watchdog:
-    # Outside under autonomy, alert holds; return pauses the procedure and task runners
-    # (pause_topic), then after return_lead sends Nav2 one goal return_inset inside the
-    # nearest edge at return_speed (Nav2's speed limit), sent again up to return_tries times
-    # while Nav2 refuses it. However the return ends (back inside, not within return_timeout,
-    # the mux leaving auto, the goal ending) it holds and stays paused until the operator (U)
-    # or an agent (boat_agent release) releases the hold. Live: ros2 param set on_exit.
-    on_exit: alert
+    # fence_file's on_exit: alert holds outside under autonomy; return pauses the procedure
+    # and task runners (pause_topic), then after return_lead sends Nav2 one goal return_inset
+    # inside the nearest edge at return_speed (Nav2's speed limit), sent again up to
+    # return_tries times while Nav2 refuses it. However the return ends (back inside, not
+    # within return_timeout, the mux leaving auto, the goal ending) it holds and stays paused
+    # until the operator (U) or an agent (boat_agent release) releases the hold.
     margin: 5.0                 # covers the coast after a neutral-thrust hold
     return_inset: 10.0
     return_speed: 0.5
@@ -25,7 +24,8 @@ tune:
   costmap_watchdog:
     max_age: 1.0                # receipt age; the TUI costmap_age check fails at 1.0
   approach_guard:
-    enforce: false              # false: log approaches, request no hold (sim enforces)
+    enforce: false              # false: log approaches, request no hold; config/devices/sim.yaml
+                                # enforces through navigation.launch.py approach_enforce
     trigger: 4.0                # hull gap watched; S-overtake holds at about 2.7 m
 
 defaults:
@@ -45,22 +45,19 @@ link_watchdog:
   cause: operator_link
   heartbeat_topic: /operator/heartbeat
   operator_hosts: [station]             # host names; station = the one named in station_file
-  station_file: ~/.config/mhseals/station.yaml  # hw.sh station take; absent: any host counts
+  station_file: ~/.config/mhseals/station.yaml  # hw.sh station take; absent: no station
   release_after: 3.0
 
 # Autonomy stays inside the day's course area (FCU FENCE_ENABLE=0, and the FCU does not drive
 # the thrusters): outside, or within margin of an edge moving outward faster than outward_speed
 # or facing within outward_angle of the outward normal, it holds; so do no valid fence and a
-# position or odometry older than max_age. fence_file is the day's course area (plain YAML; it
-# overrides fence_frame and fence_points), e.g. fence_frame: latlon and fence_points: [lat1,
-# lon1, ...] (>= 3 pairs; map: [x, y] m, whose origin is wherever the boat started). The TUI
-# saves course: {corners: [...], on_exit: alert|return} there; that on_exit wins at startup.
+# position or odometry older than max_age. The fence is fence_file alone, read again whenever
+# it changes: {frame: latlon|map, points: [a, b, ...], on_exit: alert|return} (>= 3 pairs; map
+# is [x, y] m from wherever the boat started; on_exit defaults to alert), or the TUI's course:
+# {corners: [lat1, lon1, ...], on_exit}. A relative path is in this package's config/.
 fence_watchdog:
   cause: geofence
   fence_file: ~/.config/mhseals/fence.yaml
-  fence_frame: latlon
-  fence_points: []                      # a launch may pass them (sim: a map-frame box)
-  course: {corners: null}               # live: ros2 param set course.corners [lat1, lon1, ...]
   odom_topic: /odom/global              # EKF (map): heading and velocity; position for map fences
   gps_topic: /gps/filtered              # navsat_transform's lat/lon of /odom/global
   outward_speed: 0.1
@@ -134,8 +131,6 @@ approach_guard:
   updates_topic: /perception/costmap_updates
   report_topic: /approach_guard/approach   # JSON {gap_m, at, enforce}, <= 1 / repeat
   base_frame: base_link
-  half_length: 0.5315                   # the hull, as nav2_params' footprint without padding
-  half_width: 0.4475
   lethal: 100                           # OccupancyGrid value of a lethal cell
   move: 0.6                             # 4 cells of the 0.15 m costmap: edge flicker stays under
   min_age: 1.0                          # so a hull moving at >= 0.6 m/s is seen

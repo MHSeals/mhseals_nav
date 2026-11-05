@@ -13,13 +13,13 @@ Fusion arrays replace whole arrays and need exactly 15 booleans. The clock selec
 comes from the ``sim`` argument only.
 """
 from dataclasses import dataclass
-from hashlib import sha256
 from pathlib import Path
 from types import MappingProxyType
 
 import yaml
 
-from .navigation_config import load_strict, StrictOverlayLoader
+from . import layers
+from .layers import load_strict, StrictOverlayLoader
 from .startup_rules import Rule
 
 NODES = ('ekf_local', 'ekf_global', 'navsat_transform')
@@ -130,13 +130,6 @@ class LocalizationConfiguration:
                      for k, v in self.nodes[name].items()}, use_sim_time=self.use_sim_time)
 
 
-def simulation_clock(value):
-    """No unknown clock spelling silently selects wall time."""
-    if type(value) is str and value.lower() in ('true', 'false'):
-        return value.lower() == 'true'
-    raise ValueError('sim must be true or false')
-
-
 def compile_localization(base_paths, overlay_selection='', use_sim_time=False):
     """Compile the complete closure before any launch object is constructed."""
     if type(use_sim_time) is not bool or set(base_paths) != set(NODES):
@@ -144,12 +137,10 @@ def compile_localization(base_paths, overlay_selection='', use_sim_time=False):
     nodes, inputs = {}, []
 
     def read(path, kind, explicit=True):
-        selection = str(path)
-        path = Path(path).expanduser().resolve(strict=True)
-        raw = path.read_bytes()
+        resolved, raw, digest = layers.read(path)
         inputs.append(MappingProxyType({
-            'path': str(path), 'sha256': sha256(raw).hexdigest(),
-            'kind': kind, 'explicit': explicit, 'selection': selection}))
+            'path': str(resolved), 'sha256': digest,
+            'kind': kind, 'explicit': explicit, 'selection': str(path)}))
         return raw
 
     for name in NODES:

@@ -4,11 +4,13 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
-from launch_ros.substitutions import FindPackageShare
+
+from mhseals_nav.layers import package_path
 
 
 def create_rtabmap_slam_node(context):
-    sim = LaunchConfiguration('sim').perform(context).lower() == 'true'
+    from mhseals_nav.layers import boolean
+    sim = boolean(LaunchConfiguration('sim').perform(context))
     rtabmap_params_file = LaunchConfiguration('rtabmap_params_file').perform(context)
     camera_name = LaunchConfiguration('camera_name').perform(context)
 
@@ -28,9 +30,9 @@ def create_rtabmap_slam_node(context):
 
 
 def generate_launch_description():
-    share = FindPackageShare('mhseals_nav')
+    share = str(package_path())
     return LaunchDescription([
-        DeclareLaunchArgument('sim', default_value='true'),
+        DeclareLaunchArgument('sim', default_value='false'),
         DeclareLaunchArgument('camera_name', default_value='front'),
         DeclareLaunchArgument('rtabmap_params_file', default_value=PathJoinSubstitution(
             [share, 'config', 'rtabmap.yaml'])),

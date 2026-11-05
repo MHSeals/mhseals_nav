@@ -1,7 +1,6 @@
 """Static measurement contracts: do not fuse fields a sensor cannot measure."""
 from pathlib import Path
 
-import pytest
 import yaml
 
 ROOT = Path(__file__).parents[1]
@@ -83,7 +82,7 @@ def test_mavros_relays_preserve_sensor_abstraction_at_safe_rates(tmp_path):
     rates = {int(message_id): float(hz)
              for message_id, hz in (entry.split(':') for entry in parameters['message_rates'])}
     # 31 feeds /imu/raw at 100 Hz once SCHED_LOOP_RATE is 200; 30 is the 25 Hz fallback.
-    assert rates == {33: 20., 30: 25., 31: 100., 24: 5., 27: 10., 1: 2., 193: 2., 65: 25.}
+    assert rates == {33: 20., 30: 25., 31: 100., 24: 10., 27: 100., 1: 2., 193: 2., 65: 25.}
     assert 127 not in rates and 128 not in rates  # a Here4 never emits GPS_RTK
     assert ALIASES == {'mavros_odom_rate': (33,), 'mavros_imu_rate': (30, 31),
                        'mavros_gps_rate': (24,), 'mavros_rc_rate': (65,)}
@@ -134,24 +133,6 @@ def test_ekfs_launch_on_their_own_and_odom_includes_them_unless_disabled():
     assert 'ekf_node' not in odom and 'navsat_transform_node' not in odom
 
 
-def test_overlay_overrides_one_node_and_a_missing_file_is_no_overlay(tmp_path):
-    from mhseals_nav.navigation_config import ekf_overlay
-    path = tmp_path / 'ekf.yaml'
-    path.write_text('ekf_local:\n  frequency: 40.0\nekf_global:\n  ros__parameters:\n    two_d_mode: false\n')
-    assert ekf_overlay(str(path), 'ekf_local') == {'frequency': 40.0}
-    assert ekf_overlay(str(path), 'ekf_global') == {'two_d_mode': False}
-    assert ekf_overlay(str(path), 'navsat_transform') == {}
-    with pytest.raises(FileNotFoundError):
-        ekf_overlay(str(tmp_path / 'none.yaml'), 'ekf_local')
-
-
-def test_bad_overlay_refuses_instead_of_falling_back(tmp_path):
-    from mhseals_nav.navigation_config import ekf_overlay
-    for text in ('ekf_local: [unclosed', '- a\n- b\n', 'ekf_local: 5\n', 'ekf_local:\n  ros__parameters: 3\n'):
-        path = tmp_path / 'ekf.yaml'
-        path.write_text(text)
-        with pytest.raises((ValueError, yaml.YAMLError)):
-            ekf_overlay(str(path), 'ekf_local')
 
 
 def test_ekf_delay_is_zero_standalone_and_six_seconds_from_odom():
@@ -165,24 +146,3 @@ def test_ekf_delay_is_zero_standalone_and_six_seconds_from_odom():
     assert 'period=6.0' not in ekf
     assert "('ekf_startup_context', 'included'" in odom
     assert "'ekf_delay': '6.0'" not in odom
-
-
-def test_wildcard_overlay_refuses_instead_of_silently_applying_nothing(tmp_path):
-    from mhseals_nav.navigation_config import ekf_overlay
-    path = tmp_path / 'ekf.yaml'
-    path.write_text('/**:\n  ros__parameters:\n    frequency: 40.0\n')
-    with pytest.raises(ValueError):
-        ekf_overlay(str(path), 'ekf_local')
-
-
-def test_overlay_normalizes_doubles_and_refuses_invalid_values(tmp_path):
-    from mhseals_nav.navigation_config import ekf_overlay
-    base = ROOT / 'config/ekf_local.yaml'
-    path = tmp_path / 'ekf.yaml'
-    path.write_text('ekf_local:\n  frequency: 30\n  sensor_timeout: .nan\n  transform_time_offset: -0.1\n')
-    with pytest.raises(ValueError):
-        ekf_overlay(str(path), 'ekf_local', str(base))
-    path.write_text('ekf_local: {frequency: 30, transform_time_offset: -0.1}')
-    params = ekf_overlay(str(path), 'ekf_local', str(base))
-    assert params == {'frequency': 30.0, 'transform_time_offset': -0.1}
-    assert isinstance(params['frequency'], float)

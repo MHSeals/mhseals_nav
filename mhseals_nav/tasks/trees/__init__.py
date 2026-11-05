@@ -9,7 +9,9 @@ first drives there, so it starts where its objects are in view.
 import math
 
 from mhseals_nav.tasks import search
-from mhseals_nav.tasks.behaviours import Navigate, PlanHypothesis, PlanPose
+from mhseals_nav.tasks.behaviours import Navigate
+from mhseals_nav.tasks.geometry import gate_exit
+from mhseals_nav.tasks.plans import PlanHypothesis, PlanPose
 from mhseals_nav.tasks.trees import (
     circle_test, docking, follow_path, harbor_alert, mission, nav_channel, pair_test,
     return_home, speed_challenge, supply_drop,
@@ -33,7 +35,7 @@ def gate_options(params):
     """Return GateRun's YAML: the first gate's reach, its look (Scan's spread), corners."""
     spread = search.load_config(params.get('search'))['scan_spread_deg']
     return {'first_radius': params['first_gate_radius'], 'spread': math.radians(spread),
-            'corner_side': params['corner_side'], 'exit_after': params['gate_exit'],
+            'corner_side': params['corner_side'], 'exit_after': gate_exit(params['gate_margin']),
             'retry_past': params['gate_retry_past']}
 
 

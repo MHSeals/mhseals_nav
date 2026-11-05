@@ -8,24 +8,16 @@ boat's pose and the time, so each one is testable without ROS.
 
 from copy import deepcopy
 from functools import lru_cache
-from pathlib import Path
 
 
 def load_config(name, overrides=None):
-    """config/tasks/``name``.yaml (this source tree, else the share) with ``overrides``.
-
-    Read by the package's one strict loader: a duplicate key or a non-finite number is
-    an error naming the file and line.
+    """config/tasks/``name``.yaml (params.config_path: the source tree, else the share) with
+    ``overrides``, read once per process by the package's one strict loader; callers get copies.
     """
     return {**deepcopy(_parsed(name)), **(overrides or {})}
 
 
 @lru_cache(maxsize=None)
 def _parsed(name):
-    """Parse a task YAML once per process (a run builds trees from many); callers get copies."""
-    from mhseals_nav.navigation_config import load_strict  # only the runner and tests
-    path = Path(__file__).resolve().parents[2] / 'config/tasks' / f'{name}.yaml'
-    if not path.exists():
-        from ament_index_python.packages import get_package_share_directory
-        path = Path(get_package_share_directory('mhseals_nav')) / 'config/tasks' / path.name
-    return load_strict(path.read_text(encoding='utf-8'), path) or {}
+    from mhseals_nav.tasks import params  # only the runner and tests
+    return params.read(params.config_path(f'{name}.yaml'))

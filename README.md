@@ -8,22 +8,20 @@ This package serves as the core navigation system for the ASV, interacting with 
 
 Launch files separate the main responsibilities:
 
-- `robot.launch.py` composes sensors, localization, navigation, and objects. `enable_slam:=true` additionally starts the lidar-cloud RTABMap mapper; navigation and EKF localization run either way. Generally used for simulation; on the boat, launch components on their respective hosts.
 - `sensors.launch.py` starts the Velodyne driver and lidar relay with `sim:=false`, or the ROS TCP endpoint with `sim:=true`. It never starts the camera.
-- `device.launch.py device:=<profile>` is how any computer starts its share of the stack. A device profile in `config/devices/` lists its parts, each an include of a launch file here with arguments, or one `ros2 run`. The profiles are `odroid` (the boat computer, with the hold-only link, fence and FCU watchdogs of `watchdogs.launch.py`, which a part's `with: [watchdogs]` starts beside odometry on the boat itself), `jetson` (camera, `objects.launch.py backend:=zed`, the lidar and mhseals_testing's `host_diagnostic`), `operator` (the RTK base and the operator heartbeat) and `sim` (both computers on one machine; the watchdogs need no operator or FCU and fence a map-frame box). `only:=a,b` starts a subset, and `overrides:='<json>'` is the session layer over `$ROS_WS/config/devices/<profile>.yaml` and `~/.config/mhseals/devices/<profile>.yaml`. The profiles are the only place a part is assigned to a computer; mhseals_testing derives which host runs what from them. Start it in the container (`docker exec roboboat_dev bash -c 'ros2 launch mhseals_nav device.launch.py device:=jetson'`) so `ASTRO_DDS_ADDRESS` pins the camera's DDS profile; the TUI does this on demand. The thruster driver and `command_mux` are never parts: they start with arming in the TUI.
+- `device.launch.py device:=<profile>` is how any computer starts its share of the stack. A device profile in `config/devices/` lists its parts, each an include of a launch file here with arguments, or one `ros2 run`. The profiles are `odroid` (the boat computer, with the hold-only link, fence and FCU watchdogs of `watchdogs.launch.py`, which a part's `with: [watchdogs]` starts beside odometry on the boat itself), `jetson` (camera, `objects.launch.py backend:=zed`, the lidar and `host_diagnostic`), `operator` (mhseals_testing's RTK base, the one part another package runs, and the operator heartbeat link_watchdog listens for) and `sim` (both computers on one machine against the simulator, the one-machine bring-up; the watchdogs need no operator or FCU and fence a map-frame box). `only:=a,b` starts a subset, and `overrides:='<json>'` is the session layer over `$ROS_WS/config/devices/<profile>.yaml` and `~/.config/mhseals/devices/<profile>.yaml`. The profiles are the only place a part is assigned to a computer; mhseals_testing derives which host runs what from them. Start it in the container (`docker exec roboboat_dev bash -c 'ros2 launch mhseals_nav device.launch.py device:=jetson'`) so `ASTRO_DDS_ADDRESS` pins the camera's DDS profile; the TUI does this on demand. The thruster driver and `command_mux` are never parts: they start with arming in the TUI.
 - `camera.launch.py` starts the ZED wrapper with `config/zed_boat.yaml` and `config/custom_object_detection.yaml`, plus lazy `/front_camera/camera_info` and a 2 Hz preview; `slam:=true` adds raw RGB and depth.
 - `odom.launch.py` starts MAVROS and measurement relays (`fcu:=true`), robot TF, and `ekf.launch.py` (dual EKFs and Navsat; `start_ekf:=false` leaves them to a separate launch, and `~/.config/mhseals/ekf.yaml` overrides parameters per node).
-- `navigation.launch.py` starts Nav2 servers and lifecycle management. SLAM is optional.
+- `navigation.launch.py` starts Nav2 servers and lifecycle management. SLAM is optional. With `command_mux:=true` it adds the stale-costmap watchdog (unless `perception:=false`, for Nav2 without a perception costmap) and the approach guard.
 - `slam.launch.py` starts RTABMap mapping, leaving localization TF with the EKFs.
-- `objects.launch.py` starts one camera backend (`backend:=zed|sim`), the tracker and the perception costmap. With `sim:=false`, `robot.launch.py` starts neither sensors nor perception; the Orin runs them.
+- `objects.launch.py` starts one camera backend (`backend:=zed|sim`), the tracker and the perception costmap. On the boat the Orin runs them.
 
 ```bash
 ros2 launch mhseals_nav <launch_name>.launch.py param1:=value1 param2:=value2
-ros2 launch mhseals_nav robot.launch.py --show-args
-ros2 launch mhseals_nav robot.launch.py sim:=true
+ros2 launch mhseals_nav device.launch.py device:=sim
 ```
 
-Start each component once. `robot` includes navigation, so running it also starts Nav2. `sim:=true` requires the simulator's `/clock`; use `sim:=false` on the boat.
+Start each component once. `sim` defaults to `false` in every launch file; the `sim` profile sets it, and `sim:=true` requires the simulator's `/clock`.
 
 `/cmd_vel` is the final smoothed navigation output. Nav2 commands are velocity targets; the hardware PWM driver interprets Twist as effort, so autonomous propulsion requires a calibrated velocity controller.
 
@@ -33,17 +31,16 @@ While a task runs, the runner sends zero velocity to `/cmd_vel_nav` whenever Nav
 
 | Parameter | Launch files | Default / purpose |
 | --- | --- | --- |
-| `sim` | `robot`, `sensors`, `odom`, `navigation`, `slam`, `objects` | `true`; simulation time requires `/clock`. In `objects`, also selects simulated detections rather than ZED input |
-| `use_lidar` | `robot`, `navigation` | `true`; require `/points` for obstacle avoidance. `false` disables both obstacle layers for supervised testing; cameras do not replace them |
-| `sensors_ignore` | `robot`, `sensors` | Empty; comma-separated local drivers to skip, e.g. `lidar`. Does not disable Nav2 obstacle layers |
-| `enable_slam` | `robot` | `false`; include `slam.launch.py` for lidar-cloud RTABMap mapping from `/points`. It leaves TF ownership with the EKFs and does not change Nav2 localization |
-| `fcu` | `robot`, `odom` | `true`; start MAVROS and its relays. `false` when a simulator (crane_ml `--crane-roboboat-contract`) publishes `/odom/mavros`, `/imu/raw` and `/gps/fix` itself, so simulation needs no ArduPilot |
-| `fcu_url` | `robot`, `odom` | Empty selects SITL TCP in simulation or the Cube's `/dev/serial/by-id/usb-CubePilot_CubeOrange+_*-if00` on hardware |
-| `camera_name` | `robot`, `camera`, `odom`, `slam` | `front`; camera namespace and topic prefix |
+| `sim` | `sensors`, `odom`, `ekf`, `navigation`, `slam`, `objects`, `task`, `watchdogs` | `false`; simulation time requires `/clock`. In `objects`, also selects the sim lidar-fusion settings |
+| `perception` | `navigation` | `true`; `false` skips the stale-costmap watchdog for Nav2 without a perception costmap |
+| `sensors_ignore` | `sensors` | Empty; comma-separated local drivers to skip, e.g. `lidar` |
+| `fcu` | `odom` | `true`; start MAVROS and its relays. `false` when a simulator (crane_ml `--crane-roboboat-contract`) publishes `/odom/mavros`, `/imu/raw` and `/gps/fix` itself, so simulation needs no ArduPilot |
+| `fcu_url` | `odom` | Empty selects SITL TCP in simulation or the Cube's `/dev/serial/by-id/usb-CubePilot_CubeOrange+_*-if00` on hardware |
+| `camera_name` | `camera`, `slam` | `front`; camera namespace and topic prefix |
 | `camera_model`, `slam` | `camera` | `zed2i`, `false`; `slam:=true` also relays raw RGB and depth |
 | `backend` | `objects` | `sim`; `zed` reads `config/camera.yaml` (`backend:`), `sim` reads `config/sim_backend.yaml` |
 
-Other arguments and defaults are listed by `--show-args`. Keeping `use_lidar:=true` while skipping the local driver lets another host or simulator supply `/points`; stale data never triggers a fallback.
+Other arguments and defaults are listed by `--show-args`. Lidar reaches Nav2 only inside `/perception/costmap`; a no-lidar run is a perception-side choice (`perception_costmap.yaml` lidar_layer), not a Nav2 argument.
 
 ### Architecture
 
@@ -54,19 +51,29 @@ Other arguments and defaults are listed by `--show-args`. Keeping `use_lidar:=tr
 - Sensors: MAVROS (FCU odometry, IMU, GPS), the VLP16 LiDAR and the ZED camera.
 - Localization: a local EKF (`odom → base_link`) and a global EKF with navsat (`map → odom`).
 - Navigation: Nav2 with MPPI (Omni model, 10 Hz) and rolling LiDAR costmaps. Camera tracks never become obstacle geometry.
-- Perception: ZED detections → `/detections` → tracker → `/objects/map` (tasks) and `/tracked_objects` (RViz).
-- Tasks: py_trees trees consume `/objects/map` and the map pose, and send Nav2 goals.
-- One ROS domain for the whole boat; consumers bind only to the canonical names (`/detections`, `/front_camera/*`), never `/front/zed_node/*`.
+- Perception: camera backend → `/perception/observations` → tracker → `/perception/tracks` (tasks) and `/tracked_objects` (RViz).
+- Tasks: py_trees trees consume `/perception/tracks` and the map pose, and send Nav2 goals.
+- One ROS domain for the whole boat; consumers bind only to the canonical names (`/perception/*`, `/front_camera/*`), never `/front/zed_node/*`.
 
 #### Interfaces
 
 | Consumer | Required topics |
 | --- | --- |
 | Localization | `/odom/mavros` (`Odometry`, body velocity), `/imu/raw` (`Imu`, FCU-fused MAVROS `/imu/data`), `/gps/fix` |
-| Navigation | `/odom/local`, `/points` (when `use_lidar:=true`), action goals in `map` |
-| Object tracking | `/detections` (`Detection3DArray`, metres, acquisition timestamps, labels in `results[].hypothesis.class_id`) |
+| Navigation | `/odom/local`, `/perception/costmap`, action goals in `map` |
+| Object tracking | `/perception/observations` (`mhseals_nav/ObservationArray`, metres, acquisition timestamps) |
 | SLAM (optional) | `/points`, `odom → base_link` TF, synchronized clocks |
 | Simulation | `/clock` plus the inputs of the enabled components |
+
+#### Python interface
+
+`mhseals_testing` (harness, fastsim adapter, replay, fusion tools) imports these pure cores rather than copying them. `test/test_public_api.py` pins each name it uses, so a rename fails here first; everything else is internal.
+
+- `fence`: course-area geometry (`polygon`, `problem`, `project`, `inside`, `closest`)
+- `tasks`: `host.MissionHost`, `tracks.Track`/`from_track_array`, `params` (`load_params`, `overlay`, `config_path`, `timeslot`)
+- `track_filter.TrackFilter`, `robot_geometry.RobotGeometry`, `lidar_fusion` frame and calibration helpers
+- startup compilers: `navigation_config`, `startup_projection`, `localization_configuration`, `odometry_configuration`, `endpoint_configuration`, `lidar_configuration`, `mavros_configuration`, `device_profile.load`, `boat_network`
+- messages: `msg.ObservationArray`, `msg.TrackArray`
 
 #### TF ownership
 
@@ -78,7 +85,7 @@ Preserve frame IDs and timestamps, and synchronize clocks across hosts.
 
 #### Perception
 
-- Canonical outputs: `/detections`, `/objects/map`, `/tracked_objects`, `/detections/markers`, `/front_camera/camera_info`, `/front_camera/preview/compressed`.
+- Canonical outputs: `/perception/observations`, `/perception/tracks`, `/tracked_objects`, `/perception/detection_markers`, `/front_camera/camera_info`, `/front_camera/preview/compressed`.
 - Orin path: the ZED wrapper (`config/zed_boat.yaml`) runs YOLO-like custom detection on the GPU with object tracking (GEN_1 positional tracking whose pose is never published), and `zed_backend` turns `/front/zed_node/obj_det/objects` into `/perception/observations`, one array per frame, dropping predicted objects and repeated, reordered or over-1 s-old frames. If tracking misses 12 Hz or costs over 5 ms, set `pos_tracking_enabled` and `enable_tracking` false in `zed_boat.yaml`.
 - The tracker transforms boxes into `odom` at acquisition time, and confirmed tracks expire after 30 s without observations.
 
@@ -88,27 +95,11 @@ The JetPack 5 / Foxy camera host lives on the `legacy/jp5-foxy` branch.
 
 - `sensors.launch.py` also starts `lidar_relay`, which downsamples the cloud and republishes `/points` with one reliable writer for Nav2 and RViz. Stop older viewer relays to avoid duplicates.
 - In sim, `tune.smear: true` in `config/lidar.yaml` smears crane's instantaneous scans over a 0.1 s VLP16 sweep with the true motion (`lidar_smear`), so the relay's deskew can be checked.
-- Use RViz's `MarkerArray` display for `/detections/markers`; it shows outlines and confidence in `map`.
+- Use RViz's `MarkerArray` display for `/perception/detection_markers`; it shows outlines and confidence in `map`.
 
 ### Mapping and rates
 
-| Stream | Rate | Set in |
-| --- | --- | --- |
-| `GLOBAL_POSITION_INT` | 20 Hz | `config/mavros_setup.yaml` |
-| `ATTITUDE`, `ATTITUDE_QUATERNION` | 50 Hz | `config/mavros_setup.yaml` |
-| `RC_CHANNELS` | 25 Hz | `config/mavros_setup.yaml` |
-| `RAW_IMU` | 10 Hz | `config/mavros_setup.yaml` |
-| `GPS_RAW_INT` | 5 Hz (10 Hz once the Here4 node runs `config/fcu/blastoise_gnss_proposal.param`) | `config/mavros_setup.yaml` |
-| `SYS_STATUS`, `EKF_STATUS_REPORT` | 2 Hz | `config/mavros_setup.yaml` |
-| Local EKF | 30 Hz | `config/ekf_local.yaml` |
-| Global EKF | 20 Hz | `config/ekf_global.yaml` |
-| VLP16 scans | 10 Hz (600 RPM) | the vessel profile (`lidar.rpm`) |
-| Local costmap | 10 Hz | `config/nav2_params.yaml` |
-| Global costmap | 2 Hz (published 1 Hz) | `config/nav2_params.yaml` |
-| Planner | 1 Hz | `config/nav2_params.yaml` |
-| Controller | 10 Hz | `config/nav2_params.yaml` |
-
-Rates are requested again whenever the FCU reconnects. Restart `navigation.launch.py` after changing Nav2 parameters.
+Rates are set in `config/mavros_setup.yaml` (FCU streams), `config/ekf_*.yaml` (EKFs) and `config/nav2_params.yaml` (costmaps, planner, controller); the VLP16 scan rate is the vessel profile's `lidar.rpm`. Rates are requested again whenever the FCU reconnects. Restart `navigation.launch.py` after changing Nav2 parameters.
 
 **Heading:** ROS ENU yaw = 90° − compass heading (195° bow heading is −105°). Never hide a heading error with the URDF or `navsat_transform.yaw_offset`; fix the FCU.
 
@@ -133,7 +124,7 @@ RTABMap should report a live input rate and publish `/map` while the boat moves.
 2. Write on land while disarmed, then reboot.
 3. Snapshot again into `config/fcu/`.
 
-Heading comes from the calibrated external compass (fixed-yaw magcal) with the internal compass disabled. Message rates come from `mavros_setup` (`config/mavros_setup.yaml`: ATTITUDE_QUATERNION and RAW_IMU 100 Hz, GPS_RAW_INT 10 Hz, GLOBAL_POSITION_INT 20 Hz), not the `SR*` params; the 100 Hz streams need `SCHED_LOOP_RATE` 200.
+Heading comes from the calibrated external compass (fixed-yaw magcal) with the internal compass disabled. Message rates come from `mavros_setup` (`config/mavros_setup.yaml`), not the `SR*` params; its 100 Hz streams need `SCHED_LOOP_RATE` 200.
 
 | Param | Value | Why |
 | --- | --- | --- |
@@ -153,7 +144,7 @@ Heading comes from the calibrated external compass (fixed-yaw magcal) with the i
 
 ### Tasks
 
-RoboBoat tasks are [py_trees](https://py-trees.readthedocs.io) behaviour trees in `mhseals_nav/tasks/`, layered on Nav2: Nav2's XML trees decide *how to drive* (plan, follow, recover), the task trees decide *what to do* (which gates, which beacon, when to report). Leaves are plain Python over a blackboard of tracked objects (`/objects/map`), the boat's map pose and the time, so they are testable without ROS.
+RoboBoat tasks are [py_trees](https://py-trees.readthedocs.io) behaviour trees in `mhseals_nav/tasks/`, layered on Nav2: Nav2's XML trees decide *how to drive* (plan, follow, recover), the task trees decide *what to do* (which gates, which beacon, when to report). Leaves are plain Python over a blackboard of tracked objects (`/perception/tracks`), the boat's map pose and the time, so they are testable without ROS. `tasks/behaviours.py` holds the driving leaves and decorators, `tasks/plans.py` the `Plan*` leaves that only write routes.
 
 ```bash
 ros2 launch mhseals_nav task.launch.py task:=nav_channel   # or follow_path, docking, speed_challenge, return_home
@@ -173,14 +164,14 @@ The RoboBoat 2025 tasks (handbook section 3.2; task 5, the deliveries, is not at
 
 A task with `approach: [x, y, yaw]` first drives to that map pose, taken from the day's course layout; without one it drives to where the recogniser has seen that task, if anywhere. Counts are reported as an event for the operator display, or with `report: spin` as one turn per object.
 
-When a task's objects are not in sight, it searches rather than waits (`tasks/search.py`, `config/tasks/search.yaml`): it looks at course-map priors and low-confidence tracks first, then turns the camera toward the least-seen bearing ahead, then picks next views by information gain over a coverage grid of where the camera has looked, and finally sweeps the course area. `tasks/tracks.py` reads `/objects/map` today and `/perception/tracks` (with priors and covariance) when it is published. `tasks/recognition.py` infers which task stands where from object configurations (`config/tasks/recognition.yaml`).
+When a task's objects are not in sight, it searches rather than waits (`tasks/search.py`, `config/tasks/search.yaml`): it looks at course-map priors and low-confidence tracks first, then turns the camera toward the least-seen bearing ahead, then picks next views by information gain over a coverage grid of where the camera has looked, and finally sweeps the course area. `tasks/tracks.py` reads `/perception/tracks` (with priors and covariance). `tasks/recognition.py` infers which task stands where from object configurations (`config/tasks/recognition.yaml`).
 
 Parameters (class labels, distances, routes, timeouts) are in `config/tasks/<task>.yaml`. Each run publishes:
 - `/task/events`: JSON `mhseals.task_events/1`, one per event; `decision` events carry a short reason for the operator.
 - `/task/status`: latched JSON `mhseals.mission_status/1` with the stage, phase, goal and why, and per-stage attempts.
 - `/task/hypotheses`: latched JSON `mhseals.task_hypotheses/1` (fixtures in `test/fixtures/`).
 
-It exits 0 on success, 1 on failure, 2 on timeout and 3 when a human override (rc, keyboard, hold) stopped it; a Nav2 goal cancelled by anyone but the task counts as an override. A task never resumes after an override, and one started while a human has control refuses to start (exit 4, "human has control"). On exit it waits up to `exit_settle_s` (`config/tasks/runner.yaml`) until Nav2 holds none of its goals. `mhseals_testing`'s mission rehearsal launches these and scores the events.
+It exits 0 on success, 1 on failure, 2 on timeout and 3 when a human override (command_mux's state naming rc, manual or hold, or no fresh state) stopped it; a Nav2 goal cancelled by anyone but the task counts as an override. A task never resumes after an override, and one started while a human has control refuses to start (exit 4, "human has control"). On exit it waits up to `exit_settle_s` (`config/tasks/runner.yaml`) until Nav2 holds none of its goals. `mhseals_testing`'s mission rehearsal launches these and scores the events.
 
 Two commissioning tasks use the same stack; start localization, object tracking and Nav2 first:
 
@@ -207,7 +198,7 @@ MPPI plans as if its command were the velocity. Tuning measures what sits in bet
 
 | Measure | How | Parameter: rule |
 | --- | --- | --- |
-| Dead time `L` | Characterize yaw onsets, first-order-plus-dead-time fit | `wz_max`, `rotate_to_heading_angular_vel`: `yaw_tol / (2 T_yaw)`; fix latency first if `L` > 0.3 s |
+| Dead time `L` | Characterize yaw onsets, first-order-plus-dead-time fit | `wz_max` (the shim rate and behavior limit follow it): `yaw_tol / (2 T_yaw)`; fix latency first if `L` > 0.3 s |
 | Lag `tau` per axis | Controller steps, rise time / ln 9 | `vx_max`, `vy_max`: `D / (T (k/2 + 1))`, stop within `D` = 1 m; accelerations `v / (k T)`, `k` = 3 |
 | Neutral velocity SD `sigma` | Characterize neutral phase (wave floor) | stopped velocities at least `2 sigma`; velocity `kp` at most `0.0625 / (2 sigma)` (hardware owner) |
 | Odometry noise in the plan | `/cmd_vel_nav` sign changes | `temperature` up, `*_std` down, each std under its axis limit |
@@ -234,6 +225,6 @@ ros2 topic hz /points
 ros2 run tf2_ros tf2_echo map base_link
 ```
 
-`setup.py` registers `console_scripts` for `ros2 run mhseals_nav <executable>` and installs launch files, configurations, robot descriptions, and behavior trees. Register new runnable nodes there, declare dependencies in `package.xml`, and rebuild/source after installed assets change. Tuning lives in `config/`, physical frames in `description/`, and navigation behavior in `mhseals_nav/behavior_trees/`.
+`CMakeLists.txt` generates the `ros2 run mhseals_nav <executable>` scripts and installs launch files, configurations, robot descriptions, and behavior trees. Register new runnable nodes there, declare dependencies in `package.xml`, and rebuild/source after installed assets change. Tuning lives in `config/`, physical frames in `description/`, and navigation behavior in `mhseals_nav/behavior_trees/`.
 
 Keep changes lean and scoped; update this README when usage or architecture changes.

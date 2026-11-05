@@ -1,4 +1,4 @@
-# Task 1, navigation channel. Labels are the tracker's class ids (/objects/map).
+# Task 1, navigation channel. Labels are the tracker's class ids (/perception/tracks).
 red: red_pole_buoy
 green: green_pole_buoy
 # The side red is on going through a gate (port | starboard | any): the colour order sets
@@ -11,7 +11,7 @@ search_distance: 10.0   # m driven ahead while looking for the next gate
 next_gate_search: 50.0  # m searched on past gate 1 for gate 2 (it may stand past camera range)
 first_gate_radius: 30.0 # m; the task's first gate is the nearest within this, any way
 corner_side: 1.0        # m the next gate lies to the side before the route gets a mid-point
-gate_exit: 1.1          # m past each gate: half the hull (0.53) and a margin
+gate_margin: 0.57       # m the exit lies past each gate beyond half the hull (hull.yaml)
 gate_retry_past: 1.0     # m further past the gate per retry when Nav2 ends the route short of the crossing
 time_limit: 180.0       # s, within the mission
 timeout: 180.0          # s, when run alone

@@ -4,7 +4,7 @@ from pathlib import Path
 
 from mhseals_nav.endpoint_configuration import (
     boolean as endpoint_boolean, LAYER_ARGUMENTS as ENDPOINT_LAYERS, resolve_endpoints, UNSET_GCS)
-from mhseals_nav.localization_configuration import compile_localization, simulation_clock
+from mhseals_nav.localization_configuration import compile_localization
 from mhseals_nav.odometry_configuration import ALIASES, LAYER_ARGUMENTS, resolve_odometry
 import pytest
 
@@ -40,7 +40,6 @@ def factories(filename, settings, calls):
         'IfCondition': lambda x: x,
         'from_launch': lambda context: settings(),
         'compile_localization': compile_localization,
-        'simulation_clock': simulation_clock,
         'ALIASES': ALIASES,
         'LAYER_ARGUMENTS': LAYER_ARGUMENTS,
         'ENDPOINT_LAYERS': ENDPOINT_LAYERS, 'UNSET_GCS': UNSET_GCS,
@@ -128,21 +127,6 @@ def test_robot_state_frequency(tmp_path):
     namespace['os'] = os
     result = namespace['load_urdf']({**context(), 'urdf_file': str(urdf)})
     assert result[0]['parameters'][0]['publish_frequency'] == 42.
-
-
-def test_full_robot_forwards_startup_and_localization_selections():
-    calls = []
-    namespace = factories('robot.launch.py', lambda: None, calls)
-    namespace.update(LaunchDescription=lambda x: x,
-                     DeclareLaunchArgument=lambda *args, **kwargs: None,
-                     persistent_limits_path=lambda: '')
-    namespace['generate_launch_description']()
-    # Identify the odom include by its complete localization forwarding surface.
-    candidates = [dict(x['launch_arguments']) for x in calls if 'launch_arguments' in x]
-    selected = next(x for x in candidates if 'urdf_file' in x and 'fcu_url' in x)
-    required = (*ALIASES, *LAYER_ARGUMENTS, 'ekf_startup_context', 'ekf_overlay_file',
-                'navsat_transform_config_file', 'ekf_local_config_file', 'ekf_global_config_file')
-    assert all(selected[name].name == name for name in required)
 
 
 @pytest.mark.parametrize('alias', [False, True])

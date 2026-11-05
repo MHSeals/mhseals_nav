@@ -93,22 +93,19 @@ def test_invalid_masked_layer_never_constructs_or_creates_dds(tmp_path, monkeypa
 @pytest.mark.parametrize('name', ['front', 'rear'])
 @pytest.mark.parametrize('sim', ['true', 'false'])
 def test_relay_destinations_match_actual_rgbd_consumer_remaps(name, sim):
-    """Check wiring only; this does not activate dormant RGB-D odometry."""
     calls = []
     namespace = factory(lambda context: None, calls)
     produced = {node['name']: node['arguments'][-1]
                 for node in namespace['relays'](name, True, 2.)}
-    for filename, function in [('odom.launch.py', 'create_rtabmap_odom_node'),
-                               ('slam.launch.py', 'create_rtabmap_slam_node')]:
-        source = ROOT / 'launch' / filename
-        node = next(item for item in ast.parse(source.read_text()).body
-                    if isinstance(item, ast.FunctionDef) and item.name == function)
-        exec(compile(ast.Module(body=[node], type_ignores=[]), str(source), 'exec'), namespace)
-        consumer = namespace[function]({'sim': sim, 'camera_name': name,
-                                       'rtabmap_params_file': '/selected/rtabmap.yaml'})[0]
-        targets = dict(consumer['remappings'])
-        assert targets['/rgb/camera_info'] == produced[f'{name}_info_relay']
-        assert targets['/rgb/image'] == produced[f'{name}_rgb_relay']
-        assert targets['/depth/image'] == produced[f'{name}_depth_relay']
-        assert consumer['parameters'][1]['use_sim_time'] is (sim == 'true')
+    source = ROOT / 'launch' / 'slam.launch.py'
+    node = next(item for item in ast.parse(source.read_text()).body
+                if isinstance(item, ast.FunctionDef) and item.name == 'create_rtabmap_slam_node')
+    exec(compile(ast.Module(body=[node], type_ignores=[]), str(source), 'exec'), namespace)
+    consumer = namespace['create_rtabmap_slam_node']({'sim': sim, 'camera_name': name,
+                                                      'rtabmap_params_file': '/selected/rtabmap.yaml'})[0]
+    targets = dict(consumer['remappings'])
+    assert targets['/rgb/camera_info'] == produced[f'{name}_info_relay']
+    assert targets['/rgb/image'] == produced[f'{name}_rgb_relay']
+    assert targets['/depth/image'] == produced[f'{name}_depth_relay']
+    assert consumer['parameters'][1]['use_sim_time'] is (sim == 'true')
     assert len(namespace['relays'](name, False, 2.)) == 2

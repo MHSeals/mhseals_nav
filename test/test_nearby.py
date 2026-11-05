@@ -6,7 +6,6 @@ from types import SimpleNamespace
 from mhseals_nav.nearby import Rate, summarize, xyz
 import numpy
 import pytest
-import yaml
 
 HULL = (0.6315, 0.5475)
 
@@ -82,8 +81,9 @@ def test_rate_counts_arrivals_in_the_window():
 
 def test_config_section_has_the_node_keys():
     from pathlib import Path
-    from mhseals_nav.yaml_params import section_config
-    near = section_config('lidar.yaml', 'costmap', path=Path(__file__).parents[1] / 'config/lidar.yaml')
+    from mhseals_nav.yaml_params import rectangle, section_config
+    near = section_config('lidar.yaml', 'costmap',
+                          path=Path(__file__).parents[1] / 'config/lidar.yaml', base=rectangle())
     assert set(near) == {'cloud_topic', 'topic', 'base_frame', 'sectors', 'rate', 'min_height',
                          'max_height', 'half_length', 'half_width', 'hull_margin'}
     assert near['topic'] == '/perception/nearby' and near['sectors'] == 16
@@ -94,9 +94,9 @@ def test_the_node_reads_only_its_section():
     import re
     from pathlib import Path
     from mhseals_nav import nearby
-    from mhseals_nav.yaml_params import section_config
+    from mhseals_nav.yaml_params import rectangle, section_config
     near = section_config('lidar.yaml', 'costmap',
-                          path=Path(__file__).parents[1] / 'config/lidar.yaml')
+                          path=Path(__file__).parents[1] / 'config/lidar.yaml', base=rectangle())
     source = Path(nearby.__file__).read_text()
     assert 'self.cfg' not in source
     assert set(re.findall(r"(?:self\.near|cfg)\['(\w+)'\]", source)) <= set(near)

@@ -8,17 +8,14 @@ overrides) and the velodyne_ip/velodyne_port aliases go on top. The model and rp
 profile's alone: a layer that still sets them is used only without a profile, with a warning.
 """
 from collections.abc import Mapping
-from hashlib import sha256
 from ipaddress import IPv4Address
 import logging
 import math
 from pathlib import Path
 import string
 
-import yaml
-
-from . import boat_network
-from .navigation_config import load_strict
+from . import boat_network, layers
+from .layers import load_strict
 
 log = logging.getLogger(__name__)
 SECTIONS = {'tune', 'driver', 'costmap', 'fusion'}      # config/lidar.yaml
@@ -125,10 +122,8 @@ def parse_lidar(raw, path='<lidar>'):
 
 
 def _layer(path):
-    path = Path(path).expanduser().resolve(strict=True)
-    raw = path.read_bytes()
-    values = parse_lidar(raw, path)
-    return values, {'path': str(path), 'sha256': sha256(raw).hexdigest()}
+    path, raw, digest = layers.read(path)
+    return parse_lidar(raw, path), {'path': str(path), 'sha256': digest}
 
 
 def validate_reference(reference):
@@ -154,10 +149,9 @@ def _calibration(reference, source, share):
         path = Path(reference['file']).expanduser()
         if not path.is_absolute():
             path = Path(source).parent / path
-    path = path.resolve(strict=True)
-    raw = path.read_bytes()
+    path, raw, digest = layers.read(path)
     validate_calibration(raw, path)
-    return {'path': str(path), 'sha256': sha256(raw).hexdigest()}
+    return {'path': str(path), 'sha256': digest}
 
 
 def profile_facts(network_env=None):
@@ -165,19 +159,20 @@ def profile_facts(network_env=None):
 
     The vessel's directory holds its network env (``boat_network.path()``). From the profile it
     ``extends`` down to the vessel, each profile's lidar.yaml and then its profile.yaml ``lidar:``
-    lay over the facts so far.
+    lay over the facts so far. Every file is read strictly and each profile.yaml in the chain must
+    exist (as mhseals_hardware's vessel.section): a broken vessel refuses, never reads as defaults.
     """
     env = Path(network_env) if network_env else boat_network.path()
     if env is None or not env.is_file():
         return {}, None
-    chain, here = [], env.parent
+    chain, here = [], env.resolve().parent
     while here is not None and len(chain) < 8 and here not in [d for d, _ in chain]:
-        profile = _mapping(here / 'profile.yaml')
+        profile = _profile(here / 'profile.yaml', required=True)
         chain.insert(0, (here, profile))
         here = here.parent / profile['extends'] if profile.get('extends') else None
     facts = {}
     for directory, profile in chain:
-        facts.update(_mapping(directory / 'lidar.yaml'))
+        facts.update(_profile(directory / 'lidar.yaml'))
         facts.update(profile.get('lidar') or {})
     return facts, env
 
@@ -223,13 +218,18 @@ def profile_mount(network_env=None):
     return properties
 
 
-def _mapping(path):
-    """A profile file's mapping, {} when it is missing or not one."""
-    try:
-        data = yaml.safe_load(path.read_text())
-    except (OSError, yaml.YAMLError):
+def _profile(path, required=False):
+    """A vessel profile file's mapping, read strictly; {} when an optional file is missing."""
+    if not path.is_file():
+        if required:
+            raise ValueError(f'vessel profile {path} is missing')
         return {}
-    return data if isinstance(data, dict) else {}
+    data = load_strict(path.read_bytes(), path)
+    if data is None:
+        return {}
+    if not isinstance(data, dict):
+        raise ValueError(f'{path}: must be a mapping')
+    return data
 
 
 def resolve_lidar(selected='', deployment='', overrides=None, *, share=package_share,
@@ -241,7 +241,7 @@ def resolve_lidar(selected='', deployment='', overrides=None, *, share=package_s
     """
     profile = profile_lidar() if profile is None else dict(profile)
     validate_present(profile)
-    paths = [Path(share('mhseals_nav')) / 'config/lidar.yaml']
+    paths = [layers.config_path('lidar.yaml')]
     paths += [path for path in (deployment, selected) if path != '']
     values, origins, sources = dict(profile), dict.fromkeys(profile, 'vessel profile'), []
     for path in paths:

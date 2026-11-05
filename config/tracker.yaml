@@ -92,7 +92,7 @@
     tau: {static: 300.0, moving: 2.0, unknown: 5.0}
     timeout: {static: 900.0, moving: 3.0, unknown: 10.0}
     miss_in_fov_s: 5.0
-    fov: {hfov_deg: 110.0, range_m: 20.0}   # mirrors the backend YAML
+    # fov (miss_in_fov_s): config/camera.yaml backend.fov, read by the node.
     # Disc radius per class: config/classes.yaml (the one class list).
     grid:
       topic: /perception/track_grid
