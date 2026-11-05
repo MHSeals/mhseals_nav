@@ -25,6 +25,7 @@ from sensor_msgs_py.point_cloud2 import create_cloud_xyz32
 from sensor_msgs.msg import PointCloud2
 from std_msgs.msg import Header
 from tf2_ros import TransformBroadcaster, StaticTransformBroadcaster
+from mhseals_nav.navigation_config import derived
 import yaml
 
 
@@ -35,7 +36,7 @@ def option(name, default):
 def main():
     assert os.environ.get('ROS_DOMAIN_ID') == '231', 'Isolate the synthetic test'
     root = Path(__file__).resolve().parents[1]
-    config = yaml.safe_load((root / 'config/nav2_params.yaml').read_text())
+    config = derived(yaml.safe_load((root / 'config/nav2_params.yaml').read_text()))  # FollowPath sets the smoother
     bt = config['bt_navigator']['ros__parameters']
     for key, filename in [('default_nav_to_pose_bt_xml', 'nav_to_pose.xml'),
                           ('default_nav_through_poses_bt_xml', 'nav_replan_recov.xml')]:

@@ -32,13 +32,11 @@ def test_nondefault_complete_consumer_fixture(base):
     smoother = result['velocity_smoother']['ros__parameters']
     assert smoother['max_velocity'] == [.6, .12, .2]
     assert smoother['min_velocity'] == [-.1, -.12, -.2]
-    assert result['behavior_server'] == base['behavior_server']
     assert result['planner_server'] == base['planner_server']
     assert base == before
 
 
 @pytest.mark.parametrize('key,value', [('model_dt', .1), ('wz_std', .3),
-                                       ('rotate_to_heading_angular_vel', .4),
                                        ('prune_distance', 9.)])
 def test_conflicting_explicit_derived_value_refused(base, key, value):
     explicit = patch()
@@ -47,26 +45,32 @@ def test_conflicting_explicit_derived_value_refused(base, key, value):
         validated_merge_limits(base, explicit, {})
 
 
-def test_smoother_conflict_and_optional_absence(base):
+@pytest.mark.parametrize('section,key', [
+    ('velocity_smoother', 'max_velocity'), ('behavior_server', 'max_rotational_vel'),
+    ('controller_server', 'rotate_to_heading_angular_vel')])
+def test_derived_limit_in_an_overlay_is_refused(base, section, key):
     explicit = patch()
-    explicit['velocity_smoother'] = {'ros__parameters': {
-        'max_velocity': [.2, .1, .1]}}
-    with pytest.raises(ValueError, match='conflicts with canonical lowering'):
+    params = explicit.setdefault(section, {}).setdefault('ros__parameters', {})
+    (params.setdefault('FollowPath', {}) if section == 'controller_server' else params)[key] = .1
+    with pytest.raises(ValueError, match='unknown parameter'):
         validated_merge_limits(base, explicit, {})
+
+
+def test_smoother_optional_absence(base):
     del base['velocity_smoother']
     result = validated_merge_limits(base, patch(), {})
     assert 'velocity_smoother' not in result
 
 
-def test_plugin_map_and_behavior_limit_are_independent(base):
-    base['behavior_server']['ros__parameters']['max_rotational_vel'] = .7
+def test_follow_path_change_reaches_every_derived_limit(base):
     result = validated_merge_limits(base, patch(), {})
-    assert result['behavior_server']['ros__parameters']['max_rotational_vel'] == .7
-    controller = base['controller_server']['ros__parameters']
-    controller['Custom'] = controller.pop('FollowPath')
-    controller['controller_plugins'] = ['Custom']
-    result = validated_merge_limits(base, {}, {})
-    assert result['controller_server'] == base['controller_server']
+    behavior = result['behavior_server']['ros__parameters']
+    assert (behavior['max_rotational_vel'], behavior['rotational_acc_lim']) == (.2, .5)
+    for key in ('vx_max', 'ax_max', 'az_max'):
+        missing = deepcopy(base)
+        del missing['controller_server']['ros__parameters']['FollowPath'][key]
+        with pytest.raises(ValueError, match=f'FollowPath.{key}: required'):
+            validated_merge_limits(missing, {}, {})
 
 
 def test_required_base_is_checked_without_an_overlay(tmp_path):
