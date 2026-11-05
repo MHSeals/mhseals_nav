@@ -6,9 +6,6 @@ jobs:
   # The smoke tier (./smoke.sh): config parse and the pure-python units, no ROS.
   smoke:
     runs-on: ubuntu-latest
-    env:
-      # No mhseals_agents beside the checkout: no tcache skip, no quarantine plugin (until #107/#145).
-      MHSEALS_AGENTS: /nonexistent
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

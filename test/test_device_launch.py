@@ -182,6 +182,11 @@ def test_bad_profiles_are_refused(overrides, message):
         device_profile.load('odroid', overrides=overrides)
 
 
+def test_check_refuses_a_one_element_run_of_another_package():
+    with pytest.raises(ValueError, match="another package's"):
+        device_profile.check({'parts': {'x': {'run': ['some_driver']}}}, 'p')
+
+
 def test_only_refuses_unknown_and_disabled_parts():
     profile = device_profile.load('sim')
     with pytest.raises(ValueError, match="no part 'ghost'"):
