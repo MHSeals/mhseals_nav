@@ -94,14 +94,6 @@ def test_overlay_values_the_merge_overrides_are_warned_about(caplog):
     assert 'FollowPath.vx_max' not in caplog.text
 
 
-def test_non_numeric_or_zero_limits_are_reported_not_raised(caplog):
-    for follow, controller in (({'vx_max': '0.4'}, {}), ({'vx_max': .4}, {'controller_frequency': 0})):
-        config = {'controller_server': {'ros__parameters': {'FollowPath': follow, **controller}}}
-        with caplog.at_level('ERROR'):
-            assert derived(config) == config
-    assert 'is not a number' in caplog.text and 'must be positive' in caplog.text
-
-
 def test_derived_sets_smoother_accel_and_behavior_rotation_from_mppi():
     config = {'controller_server': {'ros__parameters': {'FollowPath': {
                   **LIMITS, 'ax_max': .1, 'ax_min': -.2, 'ay_max': .15, 'az_max': .4}}},
@@ -122,6 +114,16 @@ def test_derived_refuses_a_missing_follow_path_limit():
                   section: {'ros__parameters': {}}}
         with pytest.raises(ValueError, match='FollowPath.az_max'):
             derived(config)
+
+
+@pytest.mark.parametrize('controller, follow, match', [
+    ({}, {'vx_max': '0.4'}, 'vx_max'),
+    ({'controller_frequency': 0}, {}, 'controller_frequency')])
+def test_derived_refuses_a_bad_base_value(controller, follow, match):
+    config = {'controller_server': {'ros__parameters': {**controller, 'FollowPath': {**LIMITS, **follow}}},
+              'velocity_smoother': {'ros__parameters': {}}}
+    with pytest.raises(ValueError, match=match):
+        derived(config)
 
 
 def test_derived_ties_shim_rotation_to_mppi():
