@@ -8,7 +8,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
-from mhseals_nav.startup_projection import boolean
+from mhseals_nav.endpoint_configuration import boolean
 
 
 def truth(name, text):

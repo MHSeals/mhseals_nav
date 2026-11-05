@@ -33,7 +33,7 @@ def test_late_invalid_base_or_masked_graph_constructs_nothing(tmp_path, name, ba
     assert calls == []  # both Node and TimerAction use this collector
 
 
-@pytest.mark.parametrize('clock', ['garbage', '1', 'yes', ''])
+@pytest.mark.parametrize('clock', ['garbage', 'yes', ''])
 def test_invalid_clock_before_construction(clock):
     calls = []
     with pytest.raises(ValueError):

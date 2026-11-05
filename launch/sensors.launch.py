@@ -5,7 +5,7 @@ from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 from mhseals_nav.endpoint_configuration import (
-    from_launch as endpoint_from_launch, LAYER_ARGUMENTS as ENDPOINT_LAYERS, UNSET_GCS)
+    boolean, from_launch as endpoint_from_launch, LAYER_ARGUMENTS as ENDPOINT_LAYERS, UNSET_GCS)
 from mhseals_nav.lidar_configuration import resolve_lidar
 
 # Large-data transport for the lidar pair only; see config/fastdds_large_data.xml.
@@ -13,13 +13,6 @@ LARGE_DATA_PROFILE = PathJoinSubstitution(
     [FindPackageShare('mhseals_nav'), 'config', 'fastdds_large_data.xml'])
 large_data_env = {'FASTRTPS_DEFAULT_PROFILES_FILE': LARGE_DATA_PROFILE,
                   'FASTDDS_DEFAULT_PROFILES_FILE': LARGE_DATA_PROFILE}
-
-def launch_boolean(value):
-    """ROS launch boolean vocabulary, validated before constructing nodes."""
-    normalized = value.strip().lower()
-    if normalized not in ('true', '1', 'false', '0'):
-        raise ValueError(f'Invalid sim boolean: {value!r}')
-    return normalized in ('true', '1')
 
 
 def lidar_smear_enabled():
@@ -42,7 +35,7 @@ def nearby_node(sim):
 
 def sensor_nodes(context):
     endpoints = endpoint_from_launch(context)
-    sim = launch_boolean(LaunchConfiguration('sim').perform(context))
+    sim = boolean(LaunchConfiguration('sim').perform(context))
     ignored = LaunchConfiguration('sensors_ignore').perform(context).split(',')
     if sim:
         smear = lidar_smear_enabled()

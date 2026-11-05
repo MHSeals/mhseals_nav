@@ -11,7 +11,8 @@ def task_node(context):
     params_file = LaunchConfiguration('params_file').perform(context)
     if params_file:
         arguments += ['--params', params_file]
-    sim = LaunchConfiguration('sim').perform(context).lower() == 'true'
+    from mhseals_nav.endpoint_configuration import boolean
+    sim = boolean(LaunchConfiguration('sim').perform(context))
     return [Node(package='mhseals_nav', executable='run_task', output='screen',
                  arguments=arguments, parameters=[{'use_sim_time': sim}])]
 

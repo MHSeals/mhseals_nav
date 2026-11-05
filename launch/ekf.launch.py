@@ -9,13 +9,14 @@ from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
-from mhseals_nav.localization_configuration import compile_localization, simulation_clock
+from mhseals_nav.endpoint_configuration import boolean as endpoint_boolean
+from mhseals_nav.localization_configuration import compile_localization
 from mhseals_nav.odometry_configuration import ALIASES, from_launch, LAYER_ARGUMENTS
 
 
 def ekf_nodes(context):
     settings = from_launch(context)
-    sim = simulation_clock(LaunchConfiguration('sim').perform(context))
+    sim = endpoint_boolean(LaunchConfiguration('sim').perform(context))
     overlay = LaunchConfiguration('ekf_overlay_file').perform(context)
 
     bases = {name: LaunchConfiguration(argument).perform(context) for name, argument in (

@@ -27,6 +27,28 @@ def test_sim_clock_is_boolean(sim):
     assert nodes[0]['parameters'][1]['use_sim_time'] is (sim == 'true')
 
 
+@pytest.mark.parametrize('text, value', [('1', True), ('True', True), ('0', False),
+                                         ('false', False)])
+def test_one_strict_parser(text, value):
+    from mhseals_nav.endpoint_configuration import boolean
+    assert boolean(text) is value
+
+
+@pytest.mark.parametrize('text', ['yes', '', 'on', None])
+def test_one_strict_parser_rejects(text):
+    from mhseals_nav.endpoint_configuration import boolean
+    with pytest.raises(ValueError, match='invalid launch boolean'):
+        boolean(text)
+
+
+def test_no_other_launch_boolean_parser():
+    root = Path(__file__).parents[1]
+    for path in [*root.glob('launch/*.py'), *root.glob('mhseals_nav/*.py')]:
+        text = path.read_text()
+        assert "== 'true'" not in text and 'def launch_boolean' not in text, path
+    assert 'def boolean' not in (root / 'mhseals_nav/startup_projection.py').read_text()
+
+
 def test_velodyne_driver_and_transform_use_same_model(tmp_path):
     from mhseals_nav.lidar_configuration import resolve_lidar
     from test_lidar_configuration import share as calibration_share

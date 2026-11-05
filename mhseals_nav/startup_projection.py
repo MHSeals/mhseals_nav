@@ -4,6 +4,7 @@ import hashlib
 from pathlib import Path
 from xml.etree import ElementTree
 
+from .endpoint_configuration import boolean
 from .navigation_config import (load_ceilings, load_overlay, load_strict,
                                 validate_navigation_base,
                                 validated_merge_limits)
@@ -18,13 +19,6 @@ SERVERS = (
 )
 BT_FILES = {'default_nav_to_pose_bt_xml': 'nav_to_pose.xml',
             'default_nav_through_poses_bt_xml': 'nav_replan_recov.xml'}
-
-
-def boolean(value):
-    value = str(value).strip().lower()
-    if value not in ('true', '1', 'false', '0'):
-        raise ValueError('invalid launch boolean: ' + value)
-    return value in ('true', '1')
 
 
 def bt_paths(share=None):
