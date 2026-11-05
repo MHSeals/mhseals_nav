@@ -67,7 +67,7 @@ def nodes(context):
 
 def generate_launch_description():
     return LaunchDescription([
-        DeclareLaunchArgument('sim', default_value='true', description='Use /clock'),
+        DeclareLaunchArgument('sim', default_value='false', description='Use /clock'),
         DeclareLaunchArgument('backend', default_value='sim',
                               description='Camera backend: zed or sim'),
         OpaqueFunction(function=nodes),

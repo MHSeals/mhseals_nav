@@ -20,27 +20,11 @@ commands:
       - ros2 launch mhseals_nav device.launch.py device:=sim
       - docker exec roboboat_dev bash -c 'ros2 launch mhseals_nav device.launch.py device:=jetson'
 
-  - name: robot.launch
-    run: ros2 launch mhseals_nav robot.launch.py
-    summary: Sensors, localization, objects and Nav2 on one machine (simulation); sim:=false starts no sensors or perception.
-    notes: 'On the boat each computer runs device.launch instead. Every option: ros2 launch mhseals_nav robot.launch.py --show-args'
-    params:
-      - {name: sim, type: bool, default: true, description: Use simulation time.}
-      - {name: fcu_url, description: 'FCU connection URL, e.g. serial:///dev/ttyACM0:57600; empty inherits the endpoint YAML.'}
-      - {name: sensors_ignore, description: 'Comma-separated local drivers to skip, e.g. camera,lidar.'}
-      - {name: enable_slam, type: bool, default: false, description: Optional RTAB-Map lidar-cloud mapping.}
-      - {name: fcu, type: bool, default: true, description: Start MAVROS; false when the simulator publishes the FCU topics.}
-      - {name: camera_name, default: front, description: ZED camera namespace.}
-      - {name: command_mux, type: bool, default: false, description: 'A command_mux arbitrates /cmd_vel; adds the costmap watchdog and approach guard.'}
-    examples:
-      - ros2 launch mhseals_nav robot.launch.py sim:=true
-      - ros2 launch mhseals_nav robot.launch.py sim:=true fcu:=false
-
   - name: sensors.launch
     run: ros2 launch mhseals_nav sensors.launch.py
     summary: Velodyne driver and lidar relay (sim:=false), or the Unity ROS TCP endpoint (sim:=true).
     params:
-      - {name: sim, type: bool, default: true, description: Run in simulation mode.}
+      - {name: sim, type: bool, default: false, description: Run in simulation mode.}
       - {name: sensors_ignore, description: 'Comma-separated sensors to ignore, e.g. lidar.'}
       - {name: velodyne_ip, description: 'Device IP override; empty inherits YAML, then the vessel profile.'}
 
@@ -58,7 +42,7 @@ commands:
     run: ros2 launch mhseals_nav odom.launch.py
     summary: MAVROS and its relays, robot TF and the EKFs (ekf.launch).
     params:
-      - {name: sim, type: bool, default: true, description: Use simulation time.}
+      - {name: sim, type: bool, default: false, description: Use simulation time.}
       - {name: fcu, type: bool, default: true, description: Start MAVROS; false when the simulator publishes the FCU topics.}
       - {name: fcu_url, description: 'FCU connection URL; empty inherits the endpoint YAML.'}
       - {name: start_ekf, type: bool, default: true, description: Start the EKFs; false leaves them to ekf.launch.}
@@ -67,7 +51,7 @@ commands:
     run: ros2 launch mhseals_nav ekf.launch.py
     summary: The local and global EKFs and Navsat alone; ~/.config/mhseals/ekf.yaml overrides per node.
     params:
-      - {name: sim, type: bool, default: true, description: Use simulation time.}
+      - {name: sim, type: bool, default: false, description: Use simulation time.}
       - {name: ekf_overlay_file, type: path, description: Overlay YAML; empty inherits ~/.config/mhseals/ekf.yaml.}
 
   - name: objects.launch
@@ -75,7 +59,7 @@ commands:
     summary: One camera backend, the object tracker and the perception costmap.
     params:
       - {name: backend, default: sim, choices: [sim, zed], description: Camera backend.}
-      - {name: sim, type: bool, default: true, description: Use simulation time.}
+      - {name: sim, type: bool, default: false, description: Use simulation time.}
 
   - name: watchdogs.launch
     run: ros2 launch mhseals_nav watchdogs.launch.py
@@ -107,14 +91,14 @@ commands:
     run: ros2 launch mhseals_nav navigation.launch.py
     summary: Nav2 alone, with the measured-limits overlay.
     params:
-      - {name: sim, type: bool, default: true, description: Use simulation time.}
+      - {name: sim, type: bool, default: false, description: Use simulation time.}
       - {name: command_mux, type: bool, default: false, description: 'A command_mux arbitrates /cmd_vel; adds the costmap watchdog.'}
 
   - name: slam.launch
     run: ros2 launch mhseals_nav slam.launch.py
     summary: RTAB-Map mapping from the lidar cloud and camera.
     params:
-      - {name: sim, type: bool, default: true, description: Use simulation time.}
+      - {name: sim, type: bool, default: false, description: Use simulation time.}
 
   - name: task.launch
     run: ros2 launch mhseals_nav task.launch.py

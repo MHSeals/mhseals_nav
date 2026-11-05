@@ -16,7 +16,7 @@ KEYS = {'extends', 'requires', 'args', 'parts'}
 OVERLAY_KEYS = KEYS - {'extends'}
 PART_KEYS = {'launch', 'run', 'args', 'nodes', 'enabled', 'kind', 'with'}
 KINDS = ('sensing', 'commander')
-COMMANDER_LAUNCHES = {'navigation.launch.py', 'task.launch.py', 'robot.launch.py'}
+COMMANDER_LAUNCHES = {'navigation.launch.py', 'task.launch.py'}
 DRIVERS = {'thruster_pwm_node', 'command_mux'}
 
 

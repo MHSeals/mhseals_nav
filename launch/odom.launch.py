@@ -78,7 +78,7 @@ def generate_launch_description():
     mhseals_nav_dir = FindPackageShare('mhseals_nav')
 
     launch_args = [
-        ('sim', 'true', 'Run in simulation mode'),
+        ('sim', 'false', 'Run in simulation mode'),
         ('fcu', 'true', 'Start MAVROS and its relays; false when a simulator publishes '
                         '/odom/mavros, /imu/raw and /gps/fix directly'),
         ('robot_state_publish_frequency', '', 'Rate at which robot state is published'),
