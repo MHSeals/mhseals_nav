@@ -58,8 +58,13 @@
   <exec_depend>nav_msgs</exec_depend>
   <exec_depend>nav2_costmap_2d</exec_depend>
   <exec_depend>robot_localization</exec_depend>
-  <!-- Orin only; zed_backend imports it lazily so other hosts need not install it. -->
-  <exec_depend>zed_msgs</exec_depend>
+  <exec_depend>robot_state_publisher</exec_depend>
+  <exec_depend>rtabmap_slam</exec_depend>
+  <exec_depend>ros_tcp_endpoint</exec_depend>
+  <exec_depend>velodyne_driver</exec_depend>
+  <exec_depend>velodyne_pointcloud</exec_depend>
+  <!-- zed_wrapper and zed_msgs come with the host's zed capability (the jetson profile's
+       requires); test_launch_packages checks that only such a profile starts them. -->
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>
