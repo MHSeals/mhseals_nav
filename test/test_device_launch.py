@@ -130,6 +130,17 @@ def test_deployment_and_operator_layers_apply_in_order(source_tree):
         'parts']['camera']['enabled'] is False
 
 
+def test_a_layer_replaces_launch_with_run_and_merges_args_per_key():
+    base = {'requires': ['a'], 'args': {'x': 1},
+            'parts': {'p': {'launch': 'odom.launch.py', 'args': {'k': 1, 'j': 2}}}}
+    run = device_profile.merge(base, {'parts': {'p': {'run': ['pkg', 'exe']}}})
+    assert run['parts']['p'] == {'run': ['pkg', 'exe'], 'args': {'k': 1, 'j': 2}}
+    args = device_profile.merge(base, {'args': {'y': 2}, 'parts': {'p': {'args': {'k': 3}}}})
+    assert args == {'requires': ['a'], 'args': {'x': 1, 'y': 2},
+                    'parts': {'p': {'launch': 'odom.launch.py', 'args': {'k': 3, 'j': 2}}}}
+    assert base['parts']['p'] == {'launch': 'odom.launch.py', 'args': {'k': 1, 'j': 2}}
+
+
 def test_every_shipped_profile_loads():
     assert device_profile.available() == ['jetson', 'odroid', 'operator', 'sim']
     for name in device_profile.available():

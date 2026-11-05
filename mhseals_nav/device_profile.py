@@ -6,11 +6,12 @@ lowest first: the package profile (and its ``extends``), ``$ROS_WS/config/device
 (deployment), ``~/.config/mhseals/devices/<name>.yaml`` (operator), then the session's
 ``overrides``. The thruster driver and command_mux are never parts: they start with arming.
 """
+from copy import deepcopy
 import json
 import os
 from pathlib import Path
 
-from .navigation_config import load_strict
+from .navigation_config import deep_merge, load_strict
 
 KEYS = {'extends', 'requires', 'args', 'parts'}
 OVERLAY_KEYS = KEYS - {'extends'}
@@ -81,20 +82,17 @@ def validate_layer(layer, where, keys=KEYS):
 
 
 def merge(base, layer):
-    """Overlay ``layer``: requires replaces, args per key, parts per part and per field."""
-    out = {'requires': list(layer.get('requires', base.get('requires', []))),
-           'args': {**base.get('args', {}), **layer.get('args', {})},
-           'parts': {name: dict(spec) for name, spec in base.get('parts', {}).items()}}
+    """Overlay ``layer`` (deep_merge: requires replaces, args, parts and fields per key).
+
+    A part's ``launch`` and ``run`` replace each other.
+    """
+    out = deepcopy({'requires': [], 'args': {}, 'parts': {}, **base})
     for name, spec in layer.get('parts', {}).items():
-        part = out['parts'].setdefault(name, {})
-        if 'args' in spec:
-            spec = dict(spec, args={**part.get('args', {}), **spec['args']})
-        if 'launch' in spec:
-            part.pop('run', None)
-        if 'run' in spec:
-            part.pop('launch', None)
-        part.update(spec)
-    return out
+        part = out['parts'].get(name, {})
+        for given, other in (('launch', 'run'), ('run', 'launch')):
+            if given in spec:
+                part.pop(other, None)
+    return deep_merge(out, {key: layer[key] for key in OVERLAY_KEYS if key in layer})
 
 
 def _read(path, keys):
