@@ -180,7 +180,7 @@ Parameters (class labels, distances, routes, timeouts) are in `config/tasks/<tas
 - `/task/status`: latched JSON `mhseals.mission_status/1` with the stage, phase, goal and why, and per-stage attempts.
 - `/task/hypotheses`: latched JSON `mhseals.task_hypotheses/1` (fixtures in `test/fixtures/`).
 
-It exits 0 on success, 1 on failure, 2 on timeout and 3 when a human override (rc, keyboard, hold) stopped it; a Nav2 goal cancelled by anyone but the task counts as an override. A task never resumes after an override, and one started while a human has control refuses to start (exit 4, "human has control"). On exit it waits up to `exit_settle_s` (`config/tasks/runner.yaml`) until Nav2 holds none of its goals. `mhseals_testing`'s mission rehearsal launches these and scores the events.
+It exits 0 on success, 1 on failure, 2 on timeout and 3 when a human override (command_mux's state naming rc, manual or hold, or no fresh state) stopped it; a Nav2 goal cancelled by anyone but the task counts as an override. A task never resumes after an override, and one started while a human has control refuses to start (exit 4, "human has control"). On exit it waits up to `exit_settle_s` (`config/tasks/runner.yaml`) until Nav2 holds none of its goals. `mhseals_testing`'s mission rehearsal launches these and scores the events.
 
 Two commissioning tasks use the same stack; start localization, object tracking and Nav2 first:
 
