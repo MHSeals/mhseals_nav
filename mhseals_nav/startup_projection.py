@@ -21,11 +21,14 @@ SERVERS = (
 )
 BT_FILES = {'default_nav_to_pose_bt_xml': 'nav_to_pose.xml',
             'default_nav_through_poses_bt_xml': 'nav_replan_recov.xml'}
+# The trees install with the Python package (CMakeLists also copies them to the share).
+TREES = Path(__file__).resolve().parent / 'behavior_trees'
+PRECISE_TREE = TREES / 'nav_precise.xml'   # docking: the tight goal checker
 
 
 def bt_paths(share=None):
     """Behavior trees of the installed package, or of the source tree."""
-    trees = Path(share) / 'behavior_trees' if share else Path(__file__).parent / 'behavior_trees'
+    trees = Path(share) / 'behavior_trees' if share else TREES
     return {key: str(trees / name) for key, name in BT_FILES.items()}
 
 

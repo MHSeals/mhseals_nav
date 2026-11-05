@@ -42,7 +42,7 @@ def node_config(node, filename, base=None):
     """
     path = config_path(filename)
     cfg = deep_merge(deep_merge({}, base or {}),
-                     yaml.safe_load(path.read_text())['/**']['ros__parameters'])
+                     load_strict(path.read_text(), path)['/**']['ros__parameters'])
     flat = {name: p.value for name, p in node._parameters.items() if name != 'use_sim_time'}
     return deep_merge(cfg, nested(flat))
 

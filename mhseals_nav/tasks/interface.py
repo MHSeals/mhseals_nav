@@ -31,9 +31,9 @@ from diagnostic_msgs.msg import DiagnosticArray
 from geometry_msgs.msg import Point, PoseStamped, Twist, Vector3Stamped
 from mavros_msgs.msg import GPSRAW
 from mhseals_nav import robot_geometry
-from mhseals_nav.hold_watchdog import mux_defaults, mux_state, OUTRANK_AUTO
-from mhseals_nav.layers import package_path
+from mhseals_nav.hold_watchdog import mux_defaults, mux_state, mux_suspends
 from mhseals_nav.msg import TrackArray
+from mhseals_nav.startup_projection import PRECISE_TREE
 from mhseals_nav.tasks import load_config, tracks
 from mhseals_nav.tasks.conditions import speed as conditions_speed
 # config_path and load_params live in the ROS-free host; kept here for their callers.
@@ -53,22 +53,6 @@ from rclpy.signals import SignalHandlerOptions
 from rclpy.time import Time
 from std_msgs.msg import String
 from tf2_ros import Buffer, TransformException, TransformListener
-
-
-def mux_suspends(source, age, limit):
-    """Return why command_mux's ~/state stops a task, '' while auto may drive.
-
-    ``source`` is the state's input (None unreadable), ``age`` its receipt age (None: none
-    yet). Fails closed: an input that outranks auto (rc, manual, hold), and a missing or stale
-    state too, since without a live mux nothing the task sends drives the boat.
-    """
-    if age is None:
-        return 'no command_mux state'
-    if age > limit:
-        return f'command_mux state older than {limit} s'
-    if source is None:
-        return 'unreadable command_mux state'
-    return f'{source} has control' if source in OUTRANK_AUTO else ''
 
 
 def pause_reason(record):
@@ -150,8 +134,7 @@ class Navigator:
         self.to_pose = ActionClient(node, NavigateToPose, 'navigate_to_pose')
         self.through = ActionClient(node, NavigateThroughPoses, 'navigate_through_poses')
         self.backup = ActionClient(node, BackUp, 'backup')  # behavior_server's backup plugin
-        # Docking ends on the tight goal checker (behavior_trees/nav_precise.xml).
-        self.precise_tree = str(package_path('behavior_trees', 'nav_precise.xml'))
+        self.precise_tree = str(PRECISE_TREE)   # docking ends on the tight goal checker
 
     def pose(self, x, y, yaw):
         pose = PoseStamped()
