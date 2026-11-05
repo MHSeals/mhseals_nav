@@ -33,7 +33,7 @@ def config_path(*parts):
 
 
 def deep_merge(dst, src):
-    """Recursively copy src onto dst in place; lists, scalars and a mapping over a non-mapping replace."""
+    """Copy src onto dst in place, recursively; lists, scalars and non-mapping targets replace."""
     for key, value in src.items():
         if isinstance(value, dict) and isinstance(dst.get(key), dict):
             deep_merge(dst[key], value)

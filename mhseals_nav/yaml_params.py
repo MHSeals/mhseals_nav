@@ -1,4 +1,4 @@
-"""A node's YAML from the package config/ (layers.config_path) as defaults, with launch overrides on top.
+"""A node's YAML from the package config/ (layers.config_path), with launch overrides on top.
 
 ``section_config`` reads one node's section of a subsystem file (watchdogs.yaml, camera.yaml):
 its defaults, the section and its tune: entries, then overrides, strictly (an unknown key is an

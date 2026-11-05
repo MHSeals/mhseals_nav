@@ -21,7 +21,7 @@ XACRO = '{http://www.ros.org/wiki/xacro}'
 
 
 def description_dir():
-    """Return this package's description/ (layers.package_path: the source tree, else the share)."""
+    """This package's description/ (layers.package_path: the source tree, else the share)."""
     return package_path('description')
 
 
