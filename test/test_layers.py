@@ -1,4 +1,4 @@
-"""layers: the package's one home for the strict read, the deep merge, nesting and the launch boolean."""
+"""layers: the one home of the strict read, deep merge, nesting, launch boolean and paths."""
 from pathlib import Path
 import re
 
