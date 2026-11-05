@@ -1,7 +1,7 @@
 """host_diagnostic: the camera host's temperature, power mode and free disk on /diagnostics.
 
 Runs on the camera computer as the jetson device profile's ``host_diagnostic`` part
-(config/devices/jetson.yaml) and publishes one DiagnosticStatus with ``hardware_id: host:<hostname>``
+(config/devices/jetson.yaml) and publishes one DiagnosticStatus with ``hardware_id: host:<host_name()>``
 every 2 s, so the boat reads it without SSH (mhseals_testing's preflight probe is the reader).
 Reads sysfs and the nvpmodel status only; ``nvpmodel``, ``jetson_clocks`` and the fan are
 never touched. A missing source (a container without /var/lib/nvpmodel) is left out.
@@ -10,8 +10,9 @@ never touched. A missing source (a container without /var/lib/nvpmodel) is left 
 import glob
 from pathlib import Path
 import shutil
-import socket
 import sys
+
+from mhseals_nav.link_watchdog import host_name
 
 PERIOD_S = 2.0
 HOST_PREFIX = 'host:'
@@ -57,7 +58,7 @@ def main(argv=None):
     rclpy.init(args=argv if argv is not None else sys.argv)
     node = rclpy.create_node('host_diagnostic')
     publisher = node.create_publisher(DiagnosticArray, '/diagnostics', 10)
-    host = socket.gethostname()
+    host = host_name()
     data = node.declare_parameter('data_directory', '/').value
 
     def publish():

@@ -10,20 +10,25 @@ so there ``ASTRO_HOSTNAME`` names the machine. Never the registry's address matc
 gateway address can name another computer.
 """
 
-import os
-import socket
 import sys
 
-from mhseals_nav.link_watchdog import short
+from mhseals_nav.link_watchdog import host_name
+from mhseals_nav.yaml_params import section_config, WATCHDOGS
 
-TOPIC = '/operator/heartbeat'
-PERIOD_S = 0.5      # link_watchdog holds after max_age_s (3 s) without a beat
+BEATS_PER_AGE = 6   # beats within link_watchdog's max_age: 3 s -> every 0.5 s
 
 
-def bind(node, period=PERIOD_S):
+def link():
+    """(heartbeat_topic, period): link_watchdog's section of watchdogs.yaml, the receiver's."""
+    cfg = section_config(WATCHDOGS, 'link_watchdog')
+    return cfg['heartbeat_topic'], cfg['max_age'] / BEATS_PER_AGE
+
+
+def bind(node):
     from std_msgs.msg import String
-    pub = node.create_publisher(String, TOPIC, 1)
-    msg = String(data=short(os.environ.get('ASTRO_HOSTNAME') or socket.gethostname()))
+    topic, period = link()
+    pub = node.create_publisher(String, topic, 1)
+    msg = String(data=host_name())
     return node.create_timer(period, lambda: pub.publish(msg))
 
 
