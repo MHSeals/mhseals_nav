@@ -7,9 +7,8 @@ from xml.etree import ElementTree
 
 from . import layers
 from .layers import boolean, load_strict
-from .navigation_config import (load_ceilings, load_overlay,
-                                validate_navigation_base,
-                                validated_merge_limits)
+from .navigation_config import (hardware_state_path, load_ceilings, load_overlay, state_limits,
+                                validate_navigation_base, validated_merge_limits)
 from .yaml_params import camera_fov, footprint, HULL, hull
 
 SERVERS = (
@@ -53,17 +52,19 @@ def camera_path(share=None):
     return config_file('camera.yaml', share)
 
 
-def compile_navigation(params_file, limits_file, *, sim, share=None):
+def compile_navigation(params_file, state_file='', *, sim, share=None):
     """
-    Strictly load the base and optional operator limits, validate, bound and project them.
+    Strictly load the base and the measured limits, validate, bound and project them.
 
-    The operator limits are bounded by the ceilings before projection.
+    The limits are the hardware state file's ``characterization.nav2_limits`` (``state_file``, else
+    $MHSEALS_HARDWARE_CONFIG, else ~/.config/mhseals/hardware.yaml); without them the base's own
+    stay. nav2_ceilings.yaml bounds them before projection.
     """
     if not Path(params_file).expanduser().is_file():
         raise FileNotFoundError(f'Navigation params file not found: {params_file}')
     base = load_overlay(params_file, strict=True)
     validate_navigation_base(base)
-    limits = load_overlay(limits_file, strict=True) if limits_file else {}
+    limits = state_limits(base, state_file or None)
     ceilings = load_ceilings(ceilings_path(share))
     result = project_launch(validated_merge_limits(base, limits, ceilings),
                             {'sim': boolean(sim)}, bt_paths(share))
@@ -96,7 +97,7 @@ def project_launch(parameters, invocation, bt_files):
     return result
 
 
-def effective_limits(params_file=None, limits_file='', *, sim='true', share=None):
+def effective_limits(params_file=None, state_file='', *, sim='true', share=None):
     """Return the motion limits a launch resolves, read from ``compile_navigation``'s output.
 
     For a model of the boat (the fast sim) that must not interpret Nav2's fields itself:
@@ -106,7 +107,7 @@ def effective_limits(params_file=None, limits_file='', *, sim='true', share=None
     camera's field of view (camera.yaml), with the sha256 of every file they came from.
     """
     params_file = params_file or config_file('nav2_params.yaml', share)
-    nav = compile_navigation(params_file, limits_file, sim=sim, share=share)
+    nav = compile_navigation(params_file, state_file, sim=sim, share=share)
     controller = nav['controller_server']['ros__parameters']
     smoother = nav['velocity_smoother']['ros__parameters']
     shim = controller['FollowPath']
@@ -119,8 +120,9 @@ def effective_limits(params_file=None, limits_file='', *, sim='true', share=None
     shape = nav['local_costmap']['local_costmap']['ros__parameters']['footprint']
     camera = camera_path(share)
     fov = camera_fov(camera)
+    state = Path(state_file).expanduser() if state_file else hardware_state_path()
     sources = [params_file, ceilings_path(share), tree, hull_path(share), camera] + (
-        [limits_file] if limits_file else [])
+        [state] if state.is_file() else [])
     return {
         'velocity': {'max': smoother['max_velocity'], 'min': smoother['min_velocity']},
         'accel': {'max': smoother['max_accel'], 'decel': smoother['max_decel']},
@@ -134,7 +136,7 @@ def effective_limits(params_file=None, limits_file='', *, sim='true', share=None
             'angular_dist_threshold', 'rotate_to_heading_angular_vel', 'max_angular_accel')},
         'passed_goal_radius': float(passed.get('radius')),
         'footprint': [[float(v) for v in point] for point in load_strict(shape, 'footprint')],
-        # Degrees and metres for the fast sim's cone (mhseals_testing fastsim adapter).
+        # Degrees and metres for the fast sim's camera cone.
         'camera': {'hfov_deg': math.degrees(fov['hfov']), 'range_m': fov['range']},
         'sources': {str(Path(path).expanduser()): hashlib.sha256(
             Path(path).expanduser().read_bytes()).hexdigest() for path in sources},

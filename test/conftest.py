@@ -2,6 +2,7 @@
 
 import importlib.util
 import logging
+import os
 import re
 
 import pytest
@@ -13,8 +14,10 @@ LIDAR_IP = '192.168.0.201'
 
 
 def pytest_configure(config):
-    """Keep tests that start nodes off the live boat: private domain, localhost only."""
+    """Keep tests that start nodes off the live boat (private domain, localhost only) and off this
+    machine's hardware state file (Nav2 limits come from it)."""
     isolate_ros_env()
+    os.environ['MHSEALS_HARDWARE_CONFIG'] = '/nonexistent/hardware.yaml'
 
 
 NO_ROS = importlib.util.find_spec('rclpy') is None

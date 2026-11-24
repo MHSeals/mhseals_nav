@@ -233,7 +233,7 @@ def test_factory_emits_installed_behavior_trees_and_perception_costmap():
 
     factory = inert_navigation_factory()
     nodes = factory['navigation_nodes']({
-        'params_file': str(ROOT / 'config/nav2_params.yaml'), 'limits_file': '',
+        'params_file': str(ROOT / 'config/nav2_params.yaml'), 'hardware_config': '',
         'sim': 'false'})
     emitted = yaml.safe_load(Path(nodes[0]['parameters'][0]).read_text())
     navigator = emitted['bt_navigator']['ros__parameters']

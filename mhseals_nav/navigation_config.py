@@ -369,9 +369,34 @@ def lower_navigation(base, explicit):
     return result
 
 
-def persistent_limits_path():
-    """Match the existing TUI overlay selection until the TUI owns the path."""
-    override = os.environ.get('MHSEALS_NAV2')
-    if override:
-        return str(Path(override).expanduser())
-    return str(Path(os.environ.get('XDG_CONFIG_HOME', Path.home() / '.config')) / 'mhseals/nav2.yaml')
+def hardware_state_path():
+    """The hardware state file astro apply writes: $MHSEALS_HARDWARE_CONFIG, else ~/.config/mhseals/hardware.yaml."""
+    return Path(os.environ.get('MHSEALS_HARDWARE_CONFIG') or '~/.config/mhseals/hardware.yaml').expanduser()
+
+
+def state_limits(base, path=None):
+    """Nav2 limits from the state file's ``characterization.nav2_limits`` as an overlay of ``base``.
+
+    nav2_limits is ``{velocity: [vx, vy, wz], acceleration: [ax, ay, az]}`` (positive magnitudes);
+    acceleration also bounds braking (ax_min, ay_min). A missing file or key gives {}: the base's
+    own limits (nav2_params.yaml) stay. A malformed value raises ValueError naming the file.
+    """
+    path = Path(path).expanduser() if path else hardware_state_path()
+    limits = ((load_overlay(path, strict=True).get('characterization') or {}).get('nav2_limits')
+              if path.is_file() else None)
+    if not limits:
+        return {}
+    follow = {}
+    for key, names in (('velocity', ('vx_max', 'vy_max', 'wz_max')), ('acceleration', ('ax_max', 'ay_max', 'az_max'))):
+        values = limits.get(key) if isinstance(limits, dict) else None
+        if (not isinstance(values, list) or len(values) != 3 or any(
+                isinstance(v, bool) or not isinstance(v, (int, float)) or not isfinite(v) or v <= 0 for v in values)):
+            raise ValueError(f'{path}: characterization.nav2_limits.{key} must be three positive numbers')
+        follow.update(zip(names, (float(v) for v in values)))
+    follow.update(ax_min=-follow['ax_max'], ay_min=-follow['ay_max'])
+    controller = base['controller_server']['ros__parameters']
+    name = mppi_controller(controller, legacy=True)
+    if name is None:
+        raise ValueError('nav2_limits: the base has no MPPI controller to limit')
+    follow = {key: value for key, value in follow.items() if key in controller[name]}
+    return {'controller_server': {'ros__parameters': {name: follow}}}

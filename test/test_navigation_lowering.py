@@ -126,13 +126,35 @@ def test_strict_loader_names_file_and_line(tmp_path, text, message):
         assert str(path) in str(error.value) and 'line ' in str(error.value)
 
 
-def test_limits_file_errors_name_the_limits_path(base, tmp_path):
-    params = _compile_text(tmp_path, yaml.safe_dump(base))
-    limits = tmp_path / 'limits.yaml'
-    limits.write_text('a: 1\na: 2\n')
-    with pytest.raises(ValueError, match='Duplicate key') as error:
-        compile_navigation(params, limits, sim='true')
-    assert str(limits) in str(error.value)
+def test_nav2_limits_come_from_the_hardware_state_file(tmp_path):
+    """characterization.nav2_limits sets MPPI's limits (and what derives from them); absent, the base stays."""
+    root = Path(__file__).resolve().parents[1]
+    params = root / 'config/nav2_params.yaml'
+    state = tmp_path / 'hardware.yaml'
+    state.write_text(yaml.safe_dump({'characterization': {'nav2_limits': {
+        'velocity': [0.5, 0.2, 0.4], 'acceleration': [0.4, 0.3, 0.6]}}}))
+    nav = compile_navigation(params, state, sim='true')
+    follow = nav['controller_server']['ros__parameters']['FollowPath']
+    assert (follow['vx_max'], follow['vy_max'], follow['wz_max']) == (0.5, 0.2, 0.4)
+    assert (follow['ax_max'], follow['ay_max'], follow['az_max'], follow['ax_min']) == (0.4, 0.3, 0.6, -0.4)
+    assert nav['velocity_smoother']['ros__parameters']['max_velocity'] == [0.5, 0.2, 0.4]
+    base = yaml.safe_load(params.read_text())['controller_server']['ros__parameters']['FollowPath']
+    state.write_text('characterization: {}\n')
+    unchanged = compile_navigation(params, state, sim='true')['controller_server']['ros__parameters']['FollowPath']
+    assert unchanged['vx_max'] == base['vx_max']
+    absent = compile_navigation(params, tmp_path / 'none.yaml', sim='true')['controller_server']['ros__parameters']
+    assert absent['FollowPath']['vx_max'] == base['vx_max']
+
+
+def test_nav2_limits_above_a_ceiling_or_malformed_are_refused(tmp_path):
+    root = Path(__file__).resolve().parents[1]
+    state = tmp_path / 'hardware.yaml'
+    state.write_text('characterization: {nav2_limits: {velocity: [9.0, 0.2, 0.4], acceleration: [0.4, 0.3, 0.6]}}\n')
+    with pytest.raises(ValueError, match='ceiling'):
+        compile_navigation(root / 'config/nav2_params.yaml', state, sim='true')
+    state.write_text('characterization: {nav2_limits: {velocity: [0.5, 0.2], acceleration: [0.4, 0.3, 0.6]}}\n')
+    with pytest.raises(ValueError, match='hardware.yaml'):
+        compile_navigation(root / 'config/nav2_params.yaml', state, sim='true')
 
 
 def test_missing_params_file_names_the_path(tmp_path):
@@ -155,24 +177,14 @@ def test_both_costmaps_get_the_hull_footprint_with_its_padding():
     assert 'footprint' not in raw['local_costmap']['local_costmap']['ros__parameters']
 
 
-def test_an_operator_limits_footprint_is_refused(tmp_path):
-    """The footprint is hull.yaml's alone: an overlay naming one fails, never silently replaced."""
-    root = Path(__file__).resolve().parents[1]
-    limits = tmp_path / 'limits.yaml'
-    limits.write_text(yaml.safe_dump({'local_costmap': {'local_costmap': {'ros__parameters': {
-        'footprint': '[[1.0, 1.0], [1.0, -1.0], [-1.0, -1.0], [-1.0, 1.0]]'}}}}))
-    with pytest.raises(ValueError, match='footprint: unknown parameter'):
-        compile_navigation(root / 'config/nav2_params.yaml', limits, sim='true')
-
-
 def test_effective_limits_are_what_the_launch_resolves(tmp_path):
-    """The fast sim's limits: the launch's own compile, the overlay and ceilings applied."""
+    """The fast sim's limits: the launch's own compile, the state file's nav2_limits and ceilings applied."""
     from mhseals_nav.startup_projection import effective_limits
     root = Path(__file__).resolve().parents[1]
     params = root / 'config/nav2_params.yaml'
-    limits = tmp_path / 'limits.yaml'
-    limits.write_text(yaml.safe_dump({'controller_server': {'ros__parameters': {
-        'FollowPath': {'vx_max': 0.5, 'vy_max': 0.3, 'wz_max': 0.4, 'ay_max': 0.2}}}}))
+    limits = tmp_path / 'hardware.yaml'
+    limits.write_text(yaml.safe_dump({'characterization': {'nav2_limits': {
+        'velocity': [0.5, 0.3, 0.4], 'acceleration': [0.3, 0.2, 0.5]}}}))
     resolved = effective_limits(params, limits)
     launched = compile_navigation(params, limits, sim='true',
                                   share=None)
@@ -198,6 +210,6 @@ def test_effective_limits_are_what_the_launch_resolves(tmp_path):
     assert str(limits) in resolved['sources'] and str(params) in resolved['sources']
     assert {str(root / 'config/hull.yaml'), str(root / 'config/camera.yaml')} <= set(
         resolved['sources'])
-    limits.write_text('controller_server: {ros__parameters: {FollowPath: {vy_max: 9.0}}}\n')
+    limits.write_text('characterization: {nav2_limits: {velocity: [0.5, 9.0, 0.4], acceleration: [0.3, 0.2, 0.5]}}\n')
     with pytest.raises(ValueError, match='ceiling'):
         effective_limits(params, limits)

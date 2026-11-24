@@ -17,7 +17,7 @@ def navigation_nodes(context):
     from launch.event_handlers import OnShutdown
     parameters = compile_navigation(
         LaunchConfiguration('params_file').perform(context),
-        LaunchConfiguration('limits_file').perform(context),
+        LaunchConfiguration('hardware_config').perform(context),
         sim=LaunchConfiguration('sim').perform(context))
     handle = tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False)
     with handle:
@@ -56,8 +56,10 @@ def generate_launch_description():
         DeclareLaunchArgument('params_file', default_value=PathJoinSubstitution(
             [share, 'config', 'nav2_params.yaml'])),
         DeclareLaunchArgument('sim', default_value='false'),
-        DeclareLaunchArgument('limits_file', default_value='',
-                             description='Overlay (measured limits, ~/.config/mhseals/nav2.yaml) merged with params_file'),
+        DeclareLaunchArgument('hardware_config', default_value='',
+                              description='Hardware state YAML whose characterization.nav2_limits sets '
+                                          'the Nav2 limits; empty = $MHSEALS_HARDWARE_CONFIG, else '
+                                          '~/.config/mhseals/hardware.yaml (absent: nav2_params.yaml)'),
         DeclareLaunchArgument('command_mux', default_value='false',
                               description='A command_mux arbitrates /cmd_vel; start the '
                                           'stale-costmap watchdog and the approach guard '

@@ -48,12 +48,12 @@ def test_absent_optional_file_and_valid_overlay(base, tmp_path):
 def test_actual_navigation_factory_fails_before_node(base, tmp_path):
     base_path = tmp_path / 'base.yaml'
     base_path.write_text(yaml.safe_dump(base))
-    overlay = tmp_path / 'bad.yaml'
-    overlay.write_text('controller_server: []')
+    state = tmp_path / 'hardware.yaml'
+    state.write_text('characterization: {nav2_limits: {velocity: [0.3], acceleration: [0.3, 0.3, 0.3]}}')
     ns = inert_navigation_factory()
     ns['Node'] = lambda **kw: pytest.fail('Node constructed before validation')
     with pytest.raises(ValueError):
-        ns['navigation_nodes']({'params_file': str(base_path), 'limits_file': str(overlay)})
+        ns['navigation_nodes']({'params_file': str(base_path), 'hardware_config': str(state)})
 
 
 @pytest.mark.parametrize('patch', [
@@ -158,7 +158,7 @@ def test_absent_optional_overlay_preserves_custom_controller_base(base, tmp_path
     path.write_text(yaml.safe_dump(base))
     ns = inert_navigation_factory()
     nodes = ns['navigation_nodes']({'params_file': str(path),
-                                   'limits_file': str(tmp_path / 'absent.yaml')})
+                                   'hardware_config': str(tmp_path / 'absent.yaml')})
     assert len(nodes) == 7
     emitted = yaml.safe_load(Path(nodes[0]['parameters'][0]).read_text())
     emitted_controller = emitted['controller_server']['ros__parameters']
@@ -174,33 +174,6 @@ def test_absent_optional_overlay_preserves_custom_controller_base(base, tmp_path
     assert 'FollowPath' not in merged['controller_server']['ros__parameters']
 
 
-@pytest.mark.parametrize('patch', [
-    {'waypoint_follower': {'ros__parameters': {
-        'wait_at_waypoint': {'waypoint_pause_duration': -1}}}},
-    {'velocity_smoother': {'ros__parameters': {'deadband_velocity': [-1.0, 0.0, 0.0]}}},
-    {'controller_server': {'ros__parameters': {'FollowPath': {'PathAngleCritic': {'mode': -1}}}}},
-    None,
-])
-def test_review_reproductions_fail_before_node(base, tmp_path, patch):
-    import sys
-    import types
-    from unittest.mock import patch as patch_modules
-    base_path = tmp_path / 'base.yaml'
-    base_path.write_text(yaml.safe_dump(base))
-    overlay = tmp_path / 'overlay.yaml'
-    overlay.write_text(yaml.safe_dump(patch))
-    ns = inert_navigation_factory()
-    ns['Node'] = lambda **kw: pytest.fail('constructed node with invalid requested configuration')
-    actions = types.ModuleType('launch.actions')
-    actions.RegisterEventHandler = lambda *a, **kw: None
-    events = types.ModuleType('launch.event_handlers')
-    events.OnShutdown = lambda **kw: None
-    with patch_modules.dict(sys.modules, {
-            'launch.actions': actions, 'launch.event_handlers': events}):
-        with pytest.raises(ValueError):
-            ns['navigation_nodes']({'params_file': str(base_path), 'limits_file': str(overlay)})
-
-
 def test_actual_factory_consumes_final_projection(base, tmp_path):
     params = base['controller_server']['ros__parameters']
     params['enable_stamped_cmd_vel'] = True
@@ -208,7 +181,7 @@ def test_actual_factory_consumes_final_projection(base, tmp_path):
     base['bt_navigator']['ros__parameters']['default_nav_to_pose_bt_xml'] = '/chosen/tree.xml'
     path = tmp_path / 'base.yaml'
     path.write_text(yaml.safe_dump(base))
-    context = {'params_file': str(path), 'limits_file': '', 'sim': 'true'}
+    context = {'params_file': str(path), 'hardware_config': str(tmp_path / 'absent.yaml'), 'sim': 'true'}
     ns = inert_navigation_factory()
     nodes = ns['navigation_nodes'](context)
     effective = yaml.safe_load(Path(nodes[0]['parameters'][0]).read_text())
@@ -232,29 +205,33 @@ def write(tmp_path, name, text):
     return path
 
 
-def test_factory_accepts_an_overlay_within_the_ceilings(base, tmp_path):
+def nav2_limits(velocity, acceleration=(0.3, 0.3, 0.5)):
+    return yaml.safe_dump({'characterization': {'nav2_limits': {'velocity': list(velocity),
+                                                                'acceleration': list(acceleration)}}})
+
+
+def test_factory_accepts_nav2_limits_within_the_ceilings(base, tmp_path):
     base_path = write(tmp_path, 'base.yaml', yaml.safe_dump(base))
-    overlay = write(tmp_path, 'ok.yaml', 'controller_server: {ros__parameters: '
-                    '{FollowPath: {wz_max: 0.5, vx_min: -0.05}}}')
+    state = write(tmp_path, 'hardware.yaml', nav2_limits((0.5, 0.2, 0.5)))
     from mhseals_nav.startup_projection import compile_navigation
     ns = inert_navigation_factory()
-    assert ns['navigation_nodes']({'params_file': str(base_path), 'limits_file': str(overlay)})
-    result = compile_navigation(base_path, overlay, sim='true',
-                                share=ns['share'])
+    assert ns['navigation_nodes']({'params_file': str(base_path), 'hardware_config': str(state)})
+    result = compile_navigation(base_path, state, sim='true', share=ns['share'])
     follow = result['controller_server']['ros__parameters']['FollowPath']
-    assert follow['wz_max'] == 0.5 and follow['vx_min'] == -0.05
+    assert follow['wz_max'] == 0.5 and follow['vx_max'] == 0.5
 
 
-@pytest.mark.parametrize('typo', ['vx_max: 5.0', 'vx_max: 1.0e+6', 'vx_min: -5.0', 'ax_min: -0.7',
-                                  'ay_min: -2.0'])
-def test_factory_refuses_an_overlay_beyond_the_ceilings(base, tmp_path, typo):
+@pytest.mark.parametrize('velocity, acceleration', [((5.0, 0.2, 0.3), (0.3, 0.3, 0.5)),
+                                                    ((1.0e6, 0.2, 0.3), (0.3, 0.3, 0.5)),
+                                                    ((0.4, 0.2, 0.3), (0.7, 0.3, 0.5)),
+                                                    ((0.4, 0.2, 0.3), (0.3, 2.0, 0.5))])
+def test_factory_refuses_nav2_limits_beyond_the_ceilings(base, tmp_path, velocity, acceleration):
     base_path = write(tmp_path, 'base.yaml', yaml.safe_dump(base))
-    overlay = write(tmp_path, 'typo.yaml',
-                    'controller_server: {ros__parameters: {FollowPath: {%s}}}' % typo)
+    state = write(tmp_path, 'hardware.yaml', nav2_limits(velocity, acceleration))
     ns = inert_navigation_factory()
     ns['Node'] = lambda **kw: pytest.fail('Node constructed past a ceiling')
     with pytest.raises(ValueError, match='ceiling'):
-        ns['navigation_nodes']({'params_file': str(base_path), 'limits_file': str(overlay)})
+        ns['navigation_nodes']({'params_file': str(base_path), 'hardware_config': str(state)})
 
 
 def test_legacy_merge_still_drops_beyond_the_ceiling(base):
@@ -289,7 +266,7 @@ def test_missing_ceilings_fail_closed(base, tmp_path):
     (ns['share'] / 'config/nav2_ceilings.yaml').unlink()
     ns['Node'] = lambda **kw: pytest.fail('Node constructed without ceilings')
     with pytest.raises(FileNotFoundError):
-        ns['navigation_nodes']({'params_file': str(base_path), 'limits_file': ''})
+        ns['navigation_nodes']({'params_file': str(base_path), 'hardware_config': ''})
 
 
 @pytest.mark.parametrize('text', ['vx_max: .nan', 'vx_max: .inf', 'vx_max: 0', 'vx_max: -0.8',
@@ -300,7 +277,7 @@ def test_invalid_ceilings_fail_at_load(base, tmp_path, text):
     (ns['share'] / 'config/nav2_ceilings.yaml').write_text(text)
     ns['Node'] = lambda **kw: pytest.fail('Node constructed with an invalid ceiling')
     with pytest.raises(ValueError):
-        ns['navigation_nodes']({'params_file': str(base_path), 'limits_file': ''})
+        ns['navigation_nodes']({'params_file': str(base_path), 'hardware_config': ''})
 
 
 def test_a_nan_ceiling_passed_in_directly_is_refused(base):

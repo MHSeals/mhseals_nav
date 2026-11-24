@@ -67,8 +67,9 @@ controller_server:
       # Field-proven limits; sampling noise stays below each axis limit so samples are not clipped.
       # These limits (vx_max .. az_max) are the one velocity source: the launch derives the rotation
       # shim's rate and accel, the velocity smoother's vectors and the behavior server's rotational
-      # limits from them (navigation_config.derived). nav2_ceilings.yaml caps them, the limits_file
-      # overlay (the TUI's nav2.yaml) overrides them, and a change applies on the next Nav2 restart.
+      # limits from them (navigation_config.derived). The hardware state file's
+      # characterization.nav2_limits (astro apply) overrides them, nav2_ceilings.yaml caps that, and a
+      # change applies on the next Nav2 restart.
       vx_std: 0.1
       vy_std: 0.07
       wz_std: 0.15
