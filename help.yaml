@@ -2,10 +2,6 @@
 package: mhseals_nav
 summary: Boat bringup - sensors, localization, objects, Nav2 and tasks.
 commands:
-  - name: build
-    run: colcon build --packages-up-to mhseals_nav mhseals_hardware
-    summary: Build the boat packages; the shell reloads itself afterwards.
-
   - name: device.launch
     run: ros2 launch mhseals_nav device.launch.py
     summary: How any computer starts its share of the stack - the parts of its profile in config/devices/.
