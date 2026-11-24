@@ -174,6 +174,23 @@ astro trial line
 
 The trial line carries a hash of `controller_server`'s parameters, so `astro log` groups runs by tuning.
 
+### Validated parameters
+
+Evidence for `config/nav2_params.yaml` as of 2026-11-24. **Nav2 has never reached a goal on the water.** The only field attempt (10-19) ran plain MPPI on raw effort with no velocity loop; it spun about 2.3 turns, and the goal was aborted. Every row below is backed by sim only (crane_ml `astro sim`, seed-1 course, current 0, `astro trial line --scale 0.5`). Square, zigzag, scale 1.0 and the default current are **not yet validated**.
+
+| Group | Value | Evidence |
+|---|---|---|
+| Limits (base) | vx 0.4, vy 0.15, wz 0.3; ax/ay 0.3, az 0.5 | Chosen 10-23 as "field" values, but no field run used them. The boat's own `characterization.nav2_limits` replaces them when present |
+| Accelerations | ax/ay 0.3, az 0.5 | Sim 11-24: with the sim's `nav2_limits` (0.09/0.10/0.25), line x0.5 never finished. Set live to 0.3/0.3/0.5, it is **done** in 128 s (xte 0.34/0.71 m, final 0.12 m, 6 flips) |
+| Rotation shim | `angular_dist_threshold` 0.8, once per approach, to the goal yaw | Sim 11-24: at 1.8 the boat crabbed and looped near goals (line x0.5 incomplete twice, 180 s timeouts) |
+| Heading critics | PathAngle weight 4.0, max angle 0.4 rad, thresholds 1.5 m (PathAngle, PathAlign, GoalAngle) | Sim 11-24: same runs as the shim row. Before the change, heading drifted 68 deg on a 10 m leg |
+| MPPI horizon/batch | 48 x 0.1 s, 600 samples, 10 Hz | Sim only. Even on the laptop the loop once missed 10 Hz (6 Hz); not measured on the ODROID |
+| Goal checkers | xy 0.4 / yaw 0.5 (precise 0.3 / 0.25) | Sim. Needs an RTK fix: without one GPS wander is about 1 m |
+| Footprint | hull.yaml 1.063 x 0.895 m + 0.1 padding | Taken from the simplified CAD collision mesh. The visual hull mesh is 1.29 m long (the boat is about 1.34 m), so the bow and stern are about 0.12-0.14 m short |
+| Inflation | radius 1.5, scaling 3.0 | The sim entry gate leaves 1.64 m between lethal discs (buoy 0.23 m + 0.1 m growth). An aligned boat has +-0.27 m of margin; at 15 deg off the path, +-0.13 m. MPPI still aborts at the gate once per run ("Optimizer fail"), and the BT recovers |
+
+Velocity loop (mhseals_hardware, sim): yaw kp/ki 0.6/0.4 overshot 87/93 % in `astro test steps-yaw --space small`; 0.1/0.1 gives 4/11 %, and the feedforward alone 0 %. The boat needs its own steps-yaw run before Nav2.
+
 ### Development
 
 Develop inside the [`astro_dock`](https://github.com/1unarzDev/astro_dock) ROS container; its README covers setup and simulation connections. From the workspace root:

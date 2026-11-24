@@ -43,9 +43,10 @@ controller_server:
       # of turning (PreferForward 5.0 did not change that), and timed out near the goal.
       plugin: nav2_rotation_shim_controller::RotationShimController
       primary_controller: nav2_mppi_controller::MPPIController
-      # Sim: 1.0 re-armed the shim mid-route and near the goal (stop-and-turn cycles made
-      # lateral/forward legs slower than MPPI alone); 1.8 removed that. Once per approach.
-      angular_dist_threshold: 1.8           # rad between boat heading and path heading
+      # Sim 10-23: 1.0 without rotate_to_heading_once re-armed mid-route; once per approach fixes that.
+      # Sim 11-24 (line x0.5): at 1.8 a leg starting up to 103 deg off was left to MPPI, which crabbed
+      # (45-60 deg off the path) and looped near the goal; 0.8 turns in place first.
+      angular_dist_threshold: 0.8           # rad between boat heading and path heading
       rotate_to_heading_once: true
       forward_sampling_distance: 0.5
       simulate_ahead_time: 1.0
@@ -111,14 +112,14 @@ controller_server:
         enabled: true
         cost_power: 1
         cost_weight: 3.0
-        threshold_to_consider: 0.5
+        threshold_to_consider: 1.5   # sim 11-24: was 0.5; the boat overshoots that, then chased the path heading near the goal
       PathAlignCritic:
         enabled: true
         cost_power: 1
         cost_weight: 10.0
         max_path_occupancy_ratio: 0.05
         trajectory_point_step: 4
-        threshold_to_consider: 0.5
+        threshold_to_consider: 1.5   # sim 11-24: was 0.5, hands over to the goal critics with GoalAngle
         offset_from_furthest: 20
         use_path_orientations: false
       PathFollowCritic:
@@ -131,10 +132,10 @@ controller_server:
       PathAngleCritic:
         enabled: true
         cost_power: 1
-        cost_weight: 2.0
+        cost_weight: 4.0   # sim 11-24: was 2.0; at 2.0 heading drifted 68 deg on a 10 m leg
         offset_from_furthest: 4
-        threshold_to_consider: 0.5
-        max_angle_to_furthest: 1.0
+        threshold_to_consider: 1.5   # sim 11-24: was 0.5, with GoalAngle
+        max_angle_to_furthest: 0.4   # sim 11-24: was 1.0 (57 deg free); a 1.64 m gate allows about 15 deg
         mode: 0
       PreferForwardCritic:
         enabled: true
