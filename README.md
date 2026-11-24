@@ -137,7 +137,27 @@ The NTRIP mountpoint is ranked by distance from the rough fix (rover, else base,
 ros2 run mhseals_nav trial square --scale 0.5
 ```
 
-It prints a progress line every second, then time, mean/max cross-track error, final position error, yaw-rate sign changes and max speed. The line is appended to the day log (`$ASTRO_DATA/<date>/log.txt`) and published on `/events`, with a hash of `controller_server`'s live parameters so runs can be compared by tuning. Bag presets for `astro rec` are `config/bags.yaml`.
+It drives one leg per pose (a closed course ends at its start, and Nav2's goal checker only looks at a path's last pose) and reports `done` only when every leg ends within `--tolerance` (0.5 m) of its pose, else `incomplete k/n`. It prints a progress line every second, then time, mean/max cross-track error (`xte`), final position error, yaw-rate sign changes, max speed and `track=vx vy wz` (mean/max of Nav2's `/cmd_vel` minus the odometry body velocity).
+
+A large track error means the boat isn't doing what Nav2 asked: fix the control layers first. A small track error with a bad `xte` means: tune Nav2. The line is appended to the day log (`$ASTRO_DATA/<date>/log.txt`) and published on `/events`, with a hash of `controller_server`'s live parameters so runs can be compared by tuning. Bag presets for `astro rec` are `config/bags.yaml`.
+
+### Tuning Nav2
+
+Work in this order; each step assumes the ones before it.
+
+1. **Velocity loop**: `astro test steps-surge` (and `-sway`, `-yaw`) until `track` in a trial is small.
+2. **Limits**: `astro test nav2`, then `astro apply nav2`. Nav2 reads them at launch, so restart `navigation.launch.py` after applying.
+3. **Rotation shim**: `FollowPath.angular_dist_threshold` (rad of heading error before the boat turns in place).
+4. **MPPI's few knobs**: the horizon (`time_steps` × `model_dt`; `model_dt` follows `controller_frequency`), `temperature`, and the `cost_weight` of `PathFollowCritic`, `PathAlignCritic`, `GoalCritic` and `PreferForwardCritic`.
+5. Leave the planner alone.
+
+The manual loop, one change at a time:
+
+```bash
+ros2 param set /controller_server FollowPath.PathAlignCritic.cost_weight 14.0
+astro trial line
+astro mark "PathAlign 14"
+```
 
 ### Development
 

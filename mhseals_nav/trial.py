@@ -3,9 +3,13 @@
   ros2 run mhseals_nav trial COURSE [--scale S]
 
 A course is config/trials/COURSE.yaml: ``points`` ([x, y] metres in the start pose's frame, x ahead,
-y left) and ``timeout_s``. The trial reads the start pose from odometry, sends the course, prints a
-progress line every second, then the metrics (time, mean/max cross-track error, final position
-error, yaw-rate sign changes, max speed). The summary is appended to $ASTRO_DATA/<date>/log.txt
+y left) and ``timeout_s``. The trial reads the start pose from odometry and drives the course one
+leg per NavigateThroughPoses goal: a closed course ends where it starts, and Nav2's goal checker
+looks only at a path's last pose, so one goal for the whole loop "arrives" at once. A leg counts
+as reached when Nav2 succeeds and the boat is within --tolerance of its pose; the trial is
+``done`` only when every leg is, else ``incomplete k/n``. It prints a progress line every second,
+then the metrics (time, mean/max cross-track error, final position error, yaw-rate sign changes,
+max speed, and the command-vs-actual tracking error per axis). The summary is appended to $ASTRO_DATA/<date>/log.txt
 (``HH:MM:SS  trial   ...``) and published on /events, with a short hash of controller_server's live
 parameters so two trials can be told apart by tuning. Ctrl-C cancels the goal.
 """
@@ -88,15 +92,22 @@ def sign_changes(values, deadband=YAW_DEADBAND):
 
 
 def metrics(samples, route):
-    """Score a run. samples: [(t, x, y, speed, yaw_rate)]; route: [(x, y)] from the start through
-    every waypoint. Returns time, xte_mean, xte_max, final (m to the last waypoint), flips, vmax."""
+    """Score a run. samples: [(t, x, y, (vx, vy, wz) measured body velocity, (vx, vy, wz) commanded
+    or None)]; route: [(x, y)] from the start through every waypoint. Returns time, xte_mean,
+    xte_max, final (m to the last waypoint), flips (yaw-rate sign changes), vmax, and track: per
+    axis (mean, max) of |commanded - measured| over the samples that have a command."""
     if len(samples) < 2:
         raise ValueError('fewer than 2 odometry samples')
-    errors = [cross_track((x, y), route) for _, x, y, _, _ in samples]
+    errors = [cross_track((s[1], s[2]), route) for s in samples]
     _, xe, ye, _, _ = samples[-1]
+    track = []
+    for axis in range(3):
+        diffs = [abs(s[4][axis] - s[3][axis]) for s in samples if s[4] is not None]
+        track.append((sum(diffs) / len(diffs), max(diffs)) if diffs else None)
     return dict(time=samples[-1][0] - samples[0][0], xte_mean=sum(errors) / len(errors), xte_max=max(errors),
                 final=math.hypot(xe - route[-1][0], ye - route[-1][1]),
-                flips=sign_changes([s[4] for s in samples]), vmax=max(s[3] for s in samples))
+                flips=sign_changes([s[3][2] for s in samples]),
+                vmax=max(math.hypot(s[3][0], s[3][1]) for s in samples), track=track)
 
 
 def params_hash(parameters):
@@ -106,9 +117,15 @@ def params_hash(parameters):
 
 
 def summary(course, scale, result, status, ctrl):
+    track = ' '.join('-' if a is None else f'{a[0]:.2f}/{a[1]:.2f}' for a in result.get('track') or [None] * 3)
     return (f"{course}{'' if scale == 1 else f' x{scale:g}'} {status} time={result['time']:.1f}s "
             f"xte={result['xte_mean']:.2f}/{result['xte_max']:.2f}m final={result['final']:.2f}m "
-            f"flips={result['flips']} vmax={result['vmax']:.2f}m/s ctrl={ctrl}")
+            f"flips={result['flips']} vmax={result['vmax']:.2f}m/s track={track} ctrl={ctrl}")
+
+
+def verdict(reached, total):
+    """'done' only when every leg was reached, else 'incomplete k/n'."""
+    return 'done' if reached == total else f'incomplete {reached}/{total}'
 
 
 def log_line(kind, message, when=None):
@@ -165,7 +182,7 @@ def run(args):
     from rclpy.action import ActionClient
     from rclpy.qos import qos_profile_sensor_data
     from action_msgs.msg import GoalStatus
-    from geometry_msgs.msg import PoseStamped
+    from geometry_msgs.msg import PoseStamped, Twist
     from nav2_msgs.action import NavigateThroughPoses
     from nav_msgs.msg import Odometry
     from std_msgs.msg import String
@@ -174,9 +191,11 @@ def run(args):
     rclpy.init()
     node = rclpy.create_node('trial')
     events = node.create_publisher(String, args.events, 10)
-    odom = {}
+    odom, cmd = {}, {}
     node.create_subscription(Odometry, args.odom, lambda m: odom.__setitem__('msg', m), qos_profile_sensor_data)
+    node.create_subscription(Twist, args.cmd, lambda m: cmd.__setitem__('msg', (m, time.monotonic())), 10)
     client = ActionClient(node, NavigateThroughPoses, args.action)
+    samples, reached, status = [], 0, None
     try:
         deadline = time.monotonic() + 10
         while 'msg' not in odom and time.monotonic() < deadline:
@@ -192,57 +211,67 @@ def run(args):
         start = (p.position.x, p.position.y, yaw_of(p.orientation))
         poses = to_world(points, start)
         route = [start[:2]] + [q[:2] for q in poses]
-        goal = NavigateThroughPoses.Goal()
-        for x, y, heading in poses:
+        print(f'trial {args.course} x{args.scale:g}: {len(poses)} legs in {frame}, timeout {timeout:.0f}s, '
+              f'tolerance {args.tolerance:g}m, ctrl={ctrl}', flush=True)
+        t0, printed, last, feedback = time.monotonic(), 0.0, None, {}
+        for leg, (x, y, heading) in enumerate(poses, 1):
+            goal = NavigateThroughPoses.Goal()
             pose = PoseStamped()
             pose.header.frame_id = frame
             pose.header.stamp = node.get_clock().now().to_msg()
             pose.pose.position.x, pose.pose.position.y = x, y
             pose.pose.orientation.z, pose.pose.orientation.w = math.sin(heading / 2), math.cos(heading / 2)
             goal.poses.append(pose)
-        feedback = {}
-        print(f'trial {args.course} x{args.scale:g}: {len(poses)} poses in {frame}, timeout {timeout:.0f}s, ctrl={ctrl}',
-              flush=True)
-        sent = client.send_goal_async(goal, feedback_callback=lambda f: feedback.__setitem__('f', f.feedback))
-        rclpy.spin_until_future_complete(node, sent, timeout_sec=10)
-        handle = sent.result() if sent.done() else None
-        if handle is None or not handle.accepted:
-            raise SystemExit('trial: goal rejected')
-        done = handle.get_result_async()
-        samples, t0, printed, last = [], time.monotonic(), 0.0, None
-        status = 'timeout'
-        try:
-            while True:
-                rclpy.spin_once(node, timeout_sec=0.05)
-                msg = odom['msg']
-                if msg is not last:
-                    last = msg
-                    t = time.monotonic() - t0
-                    q = msg.pose.pose.position
-                    v = msg.twist.twist
-                    samples.append((t, q.x, q.y, math.hypot(v.linear.x, v.linear.y), v.angular.z))
-                elapsed = time.monotonic() - t0
-                if elapsed - printed >= 1.0 and samples:
-                    printed = elapsed
-                    f = feedback.get('f')
-                    left = f'{f.number_of_poses_remaining} left, {f.distance_remaining:.1f}m to go' if f else '-'
-                    s = samples[-1]
-                    print(f'  {elapsed:5.1f}s  {left}  xte {cross_track(s[1:3], route):.2f}m  '
-                          f'v {s[3]:.2f}m/s  wz {s[4]:+.2f}', flush=True)
-                if done.done():
-                    status = {GoalStatus.STATUS_SUCCEEDED: 'done', GoalStatus.STATUS_ABORTED: 'aborted',
-                              GoalStatus.STATUS_CANCELED: 'canceled'}.get(done.result().status, 'failed')
-                    break
-                if elapsed > timeout:
-                    handle.cancel_goal_async()
-                    break
-        except KeyboardInterrupt:
-            status = 'abort (ctrl-c)'
+            feedback.clear()
+            sent = client.send_goal_async(goal, feedback_callback=lambda f: feedback.__setitem__('f', f.feedback))
+            rclpy.spin_until_future_complete(node, sent, timeout_sec=10)
+            handle = sent.result() if sent.done() else None
+            if handle is None or not handle.accepted:
+                status = f'rejected at leg {leg}'
+                break
+            done = handle.get_result_async()
             try:
-                future = handle.cancel_goal_async()
-                rclpy.spin_until_future_complete(node, future, timeout_sec=2)
-            except Exception as error:      # the context may already be shutting down
-                print(f'trial: cancel failed ({error}); cancel the goal by hand', file=sys.stderr)
+                while True:
+                    rclpy.spin_once(node, timeout_sec=0.05)
+                    msg = odom['msg']
+                    if msg is not last:
+                        last = msg
+                        q, v = msg.pose.pose.position, msg.twist.twist
+                        c = cmd.get('msg')
+                        commanded = (c[0].linear.x, c[0].linear.y, c[0].angular.z) if c and \
+                            time.monotonic() - c[1] < 0.5 else None
+                        samples.append((time.monotonic() - t0, q.x, q.y, (v.linear.x, v.linear.y, v.angular.z),
+                                        commanded))
+                    elapsed = time.monotonic() - t0
+                    if elapsed - printed >= 1.0 and samples:
+                        printed = elapsed
+                        s = samples[-1]
+                        to_go = math.hypot(x - s[1], y - s[2])
+                        print(f'  {elapsed:5.1f}s  leg {leg}/{len(poses)}  {to_go:.1f}m to go  '
+                              f'xte {cross_track(s[1:3], route):.2f}m  v {math.hypot(*s[3][:2]):.2f}m/s  '
+                              f'wz {s[3][2]:+.2f}', flush=True)
+                    if done.done():
+                        break
+                    if elapsed > timeout:
+                        handle.cancel_goal_async()
+                        status = 'timeout'
+                        break
+            except KeyboardInterrupt:
+                status = 'abort (ctrl-c)'
+                try:
+                    future = handle.cancel_goal_async()
+                    rclpy.spin_until_future_complete(node, future, timeout_sec=2)
+                except Exception as error:      # the context may already be shutting down
+                    print(f'trial: cancel failed ({error}); cancel the goal by hand', file=sys.stderr)
+            if status:
+                break
+            here = odom['msg'].pose.pose.position
+            miss = math.hypot(x - here.x, y - here.y)
+            if done.result().status != GoalStatus.STATUS_SUCCEEDED or miss > args.tolerance:
+                print(f'  leg {leg}: nav2 status {done.result().status}, {miss:.2f}m from its pose', flush=True)
+                break
+            reached += 1
+        status = f'{verdict(reached, len(poses))}' + (f' ({status})' if status else '')
         result = metrics(samples, route)
         message = summary(args.course, args.scale, result, status, ctrl)
         line = log_line(LOG_KIND, message)
@@ -253,7 +282,7 @@ def run(args):
         except Exception as error:          # after Ctrl-C the context may be gone; the file has it
             print(f'trial: /events publish failed ({error})', file=sys.stderr)
         print(line + ('' if path else '   (ASTRO_DATA unset: not logged)'), flush=True)
-        return 0 if status == 'done' else 1
+        return 0 if reached == len(poses) else 1
     finally:
         node.destroy_node()
         if rclpy.ok():
@@ -267,6 +296,9 @@ def main(argv=None):
     ap.add_argument('--scale', type=float, default=1.0, help='multiply the course size (e.g. 0.5 for a small area)')
     ap.add_argument('--odom', default='/odom/global', help='odometry topic; goals use its frame (default /odom/global)')
     ap.add_argument('--action', default='/navigate_through_poses', help='NavigateThroughPoses action')
+    ap.add_argument('--cmd', default='/cmd_vel', help="Nav2's smoothed velocity command (default /cmd_vel)")
+    ap.add_argument('--tolerance', type=float, default=0.5,
+                    help='m from a leg pose that counts as reached (default 0.5, above the 0.4 goal checker)')
     ap.add_argument('--events', default='/events', help='topic the log line is published on')
     ap.add_argument('--no-hash', action='store_true', help="skip reading controller_server's parameters")
     args = ap.parse_args(sys.argv[1:] if argv is None else argv)

@@ -162,6 +162,8 @@ commands:
       - {name: course, required: true, choices: [line, square, zigzag], description: 'config/trials/<course>.yaml.'}
       - {name: --scale, type: float, default: 1.0, description: Multiply the course size (0.5 for a small area).}
       - {name: --odom, default: /odom/global, description: Odometry topic; the goals use its frame.}
+      - {name: --tolerance, type: float, default: 0.5, description: 'm from a leg pose that counts as reached; done only when every leg is.'}
+      - {name: --cmd, default: /cmd_vel, description: "Nav2's smoothed command, compared with odometry for track=."}
     examples:
       - ros2 run mhseals_nav trial square --scale 0.5
 
