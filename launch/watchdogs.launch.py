@@ -1,6 +1,7 @@
 """The boat's hold-only safety watchdogs: operator link, geofence, FCU link and EKF inputs.
 
-Each asks command_mux to hold while autonomy commands flow. Their settings are their sections of
+They no longer act on anything: command_mux has no ~/request (hold/release) any more, so their
+hold requests reach nobody, and no device profile starts them. Kept until the owner decides. Their settings are their sections of
 config/watchdogs.yaml; an argument given here overrides one, and an empty one keeps the YAML
 (fence_file: the simulator's fences/crane.yaml instead of the operator's file).
 """
