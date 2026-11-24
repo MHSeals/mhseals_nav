@@ -1,24 +1,27 @@
 # Commands this package provides: `astro <name> [args]` runs `run` (astro help lists them).
 # level: core (astro help) or setup (astro help --all); host: the role astro forwards it to off-robot;
 # choices_from: a command printing one choice per line (a TAB and a description may follow).
+# Voice: summary and notes in everyday words ("the boat computer", "the camera computer", "the operator
+# laptop"); topics, config keys, nodes and paths go in details.
 package: mhseals_nav
-summary: Boat bringup - localization, perception, Nav2, tasks and RTK.
+summary: The boat's sense of where it is and where to go - position, cameras and lidar, navigation, tasks and RTK GPS.
 commands:
   - name: device
     run: ros2 launch mhseals_nav device.launch.py
     level: setup
     host: boat_computer
-    summary: Start a computer's parts of the stack (config/devices/<device>.yaml); astro up starts them as stacks.
-    notes: >-
+    summary: Start one computer's share of the boat software by hand; astro up normally does this for you.
+    notes: Useful to start a single part while debugging, e.g. only the position tracking on the boat computer.
+    details: >-
       Parts: odroid localization (MAVROS, TF and the EKFs), mapping, navigation, mission; jetson camera,
       objects, lidar, host_diagnostic; operator rtk; sim adds sim_bridge (the Unity endpoint) to the odroid
       and jetson parts. The drive stack is mhseals_hardware's drive. Layers: $ROS_WS/config/devices/<device>.yaml,
       then ~/.config/mhseals/devices/, then overrides.
     params:
-      - {name: device, required: true, choices: [odroid, jetson, operator, sim], description: Device profile in config/devices/.}
+      - {name: device, required: true, choices: [odroid, jetson, operator, sim], description: 'Which computer: odroid is the boat computer, jetson the camera computer, operator the operator laptop.'}
       - {name: only, choices_from: ros2 run mhseals_nav device_parts,
-         description: 'Comma-separated parts to start; empty starts all. ros2 run mhseals_nav device_parts DEVICE lists them.'}
-      - {name: overrides, description: 'Session layer: JSON in the device profile schema.'}
+         description: 'Only these parts, comma-separated, e.g. localization; leave empty to start all of them.'}
+      - {name: overrides, description: 'Settings for this run only, as JSON in the device file layout.'}
     examples:
       - ros2 launch mhseals_nav device.launch.py device:=odroid only:=localization
       - ros2 launch mhseals_nav device.launch.py device:=sim
@@ -27,18 +30,20 @@ commands:
     run: ros2 run mhseals_nav rtk base
     level: core
     host: operator
-    summary: RTK corrections to MAVROS from the USB base receiver and/or NTRIP, until Ctrl-C.
-    notes: >-
-      Settings: ~/.config/mhseals/rtk.yaml (device, saved sites, ntrip overrides); casters in config/ntrip.yaml,
-      credentials in ~/.config/astro/secrets.env. The NTRIP mountpoint is the nearest to the rough fix (any region).
+    summary: Make the boat's GPS accurate to a few centimetres by sending it corrections from a base receiver or an internet service. Leave it running.
+    notes: Check it works with astro rtk status (it should say fixed). Ctrl-C stops the corrections.
+    details: >-
+      RTK corrections to MAVROS from the USB base receiver and/or NTRIP. Settings: ~/.config/mhseals/rtk.yaml
+      (device, saved sites, ntrip overrides); casters in config/ntrip.yaml, credentials in
+      ~/.config/astro/secrets.env. The NTRIP mountpoint is the nearest to the rough fix (any region).
     params:
       - {name: port, default: auto, choices_from: astro rtk ports,
-         description: 'Serial device of the base receiver, e.g. /dev/ttyACM0; auto is the settings device, else the first u-blox found.'}
-      - {name: --source, choices: [auto, local, ntrip], default: auto, description: 'auto uses both (the nearer/fixed one feeds the FCU); local the USB base only; ntrip NTRIP only.'}
-      - {name: --pin, default: auto, description: 'Stream only this NTRIP mountpoint, MOUNT or CASTER/MOUNT, e.g. RTK2go/MYMOUNT; auto is the nearest.', free: mountpoints come from the caster table}
-      - {name: --survey, type: bool, description: 'Start a new survey-in of the base position (takes minutes).'}
-      - {name: --known, description: 'Fix the base at a site saved in ~/.config/mhseals/rtk.yaml, by name, e.g. lake.', free: saved sites live in the host's rtk.yaml}
-      - {name: --resume, type: bool, description: 'Adopt the receiver as it is now, without a new survey.'}
+         description: 'Where the base GPS receiver is plugged in, e.g. /dev/ttyACM0; auto finds it.'}
+      - {name: --source, choices: [auto, local, ntrip], default: auto, description: 'Where corrections come from: local is your own base receiver, ntrip an internet service, auto uses whichever is better.'}
+      - {name: --pin, default: auto, description: 'Use only this internet correction station, e.g. RTK2go/MYMOUNT; auto picks the nearest one.', free: mountpoints come from the caster table}
+      - {name: --survey, type: bool, description: 'Have the base receiver measure its own position again (takes minutes).'}
+      - {name: --known, description: 'Put the base at a spot you saved before, by its name, e.g. lake.', free: saved sites live in the host's rtk.yaml}
+      - {name: --resume, type: bool, description: 'Keep the base receiver''s current position, without measuring again.'}
     examples:
       - ros2 run mhseals_nav rtk base --source ntrip
       - ros2 run mhseals_nav rtk base /dev/ttyACM0 --source local --survey
@@ -47,8 +52,9 @@ commands:
     run: ros2 run mhseals_nav rtk status
     level: core
     host: operator
-    summary: The rover fix (none/float/fixed), satellites, and the corrections' source, mount and age.
-    notes: Exits 1 unless corrections reach a subscriber.
+    summary: Check how accurate the boat's GPS is right now (none, float or fixed) and whether corrections are arriving.
+    notes: Fixed is the best, a few centimetres. If no corrections arrive, start astro rtk base.
+    details: Shows the rover fix, satellites, and the corrections' source, mount and age; exits 1 unless corrections reach a subscriber.
     params:
       - {name: --watch, type: bool, description: 'Print a new status line every 2 s until Ctrl-C.'}
     examples:
@@ -58,21 +64,23 @@ commands:
     run: ros2 run mhseals_nav rtk ports
     level: setup
     host: operator
-    summary: The base receivers found (serial device and how), best first; rtk base uses the first.
+    summary: List the GPS base receivers plugged into this laptop, best first; rtk base uses the first.
 
   - name: task
     run: ros2 run mhseals_nav run_task
     level: core
     host: boat_computer
     needs: [localization, drive+controller, nav]
-    summary: Run one task tree (mhseals_nav/tasks/trees) with its config/tasks/ YAML.
-    notes: >-
-      Exits 0 success, 1 failure, 2 timeout, 3 human override (the mux input rc, manual or hold), 4 refused
-      (a human had control). Events on /task/events, status on /task/status.
+    summary: Run one autonomous task (say, the navigation channel) or the whole mission, and see whether it succeeded.
+    notes: Taking over with the remote ends it. It starts the software it needs first.
+    details: >-
+      Runs one task tree (mhseals_nav/tasks/trees) with its config/tasks/ YAML. Exits 0 success, 1 failure,
+      2 timeout, 3 human override (the mux input rc, manual or hold), 4 refused (a human had control). Events on
+      /task/events, status on /task/status.
     params:
-      - {name: --task, required: true, choices_from: ros2 run mhseals_nav run_task --list, description: 'The task tree to run (run_task --list names them), e.g. nav_channel.'}
-      - {name: --params, type: path, default: auto, description: 'The task YAML to run it with, e.g. config/tasks/mission_crane.yaml; auto is config/tasks/<task>.yaml.'}
-      - {name: --profile, choices: [qualifying, finals], default: auto, description: "Mission overlay config/tasks/profiles/<name>.yaml; auto is the mission YAML's."}
+      - {name: --task, required: true, choices_from: ros2 run mhseals_nav run_task --list, description: 'The task to run, e.g. nav_channel, or mission for the whole run.'}
+      - {name: --params, type: path, default: auto, description: 'A settings file for the task, e.g. config/tasks/mission_crane.yaml; auto is the task''s own.'}
+      - {name: --profile, choices: [qualifying, finals], default: auto, description: "Which competition round's settings to use: qualifying or finals; auto keeps the mission's own."}
     examples:
       - ros2 run mhseals_nav run_task --task nav_channel
       - ros2 run mhseals_nav run_task --task mission --params config/tasks/mission_crane.yaml --ros-args -p use_sim_time:=true
@@ -82,15 +90,17 @@ commands:
     level: core
     host: boat_computer
     needs: [localization, drive+controller, nav]
-    summary: Drive a course from config/trials/ (relative to the start pose) through Nav2, then print, log and publish its metrics.
-    notes: >-
-      Metrics: time, mean/max cross-track error, final position error, yaw-rate sign changes, max speed, and a
-      hash of controller_server's parameters. One line goes to $ASTRO_DATA/<date>/log.txt and /events.
+    summary: Have the boat drive a set shape (a square, a zigzag) on its own and score how well it followed it, to compare navigation settings.
+    notes: The course starts where the boat is now, so leave room. It prints the score and adds it to today's log.
+    details: >-
+      Courses are config/trials/<course>.yaml, driven through Nav2. Metrics: time, mean/max cross-track error,
+      final position error, yaw-rate sign changes, max speed, and a hash of controller_server's parameters. One
+      line goes to $ASTRO_DATA/<date>/log.txt and /events.
     params:
-      - {name: course, required: true, choices_from: ros2 run mhseals_nav trial --list, description: 'The course to drive, a file config/trials/<course>.yaml, e.g. square or zigzag.'}
-      - {name: --scale, type: float, default: 1.0, choices: [0.25, 0.5, 0.75, 1.0, 1.5, 2.0], description: 'Multiply the course size to fit the water, e.g. 0.5 for a small area.'}
-      - {name: --odom, default: /odom/global, choices: [/odom/global, /odom/local], description: 'Odometry topic to measure against; the goals use its frame, e.g. /odom/local.'}
-      - {name: --tolerance, type: float, default: 0.5, choices: [0.25, 0.5, 1.0, 2.0], description: 'Metres from a leg pose that count as reached, e.g. 1.0; done only when every leg is.'}
-      - {name: --cmd, default: /cmd_vel, description: "Nav2's smoothed command topic, compared with odometry for track=, e.g. /cmd_vel.", free: a ROS topic name}
+      - {name: course, required: true, choices_from: ros2 run mhseals_nav trial --list, description: 'The shape to drive, e.g. square or zigzag.'}
+      - {name: --scale, type: float, default: 1.0, choices: [0.25, 0.5, 0.75, 1.0, 1.5, 2.0], description: 'Shrink or grow the course to fit the water, e.g. 0.5 for a small area.'}
+      - {name: --odom, default: /odom/global, choices: [/odom/global, /odom/local], description: 'Which position to score against: global uses GPS, local drifts slowly but is smoother.'}
+      - {name: --tolerance, type: float, default: 0.5, choices: [0.25, 0.5, 1.0, 2.0], description: 'How close, in metres, counts as reaching each corner, e.g. 1.0.'}
+      - {name: --cmd, default: /cmd_vel, description: "The navigation command to compare with how the boat really moved, e.g. /cmd_vel.", free: a ROS topic name}
     examples:
       - ros2 run mhseals_nav trial square --scale 0.5
