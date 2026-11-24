@@ -25,8 +25,9 @@ def test_omni_mppi_and_command_limits():
     assert mppi['PathAngleCritic']['mode'] == 0 and 'PreferForwardCritic' in mppi['critics']
     # Sim: MPPI alone reverses to a goal behind the boat; the shim must turn it first.
     assert mppi['plugin'] == 'nav2_rotation_shim_controller::RotationShimController'
-    # Below ~1.6 the shim re-engages mid-route and near the goal (stop-and-turn cycles).
-    assert 1.6 <= mppi['angular_dist_threshold'] <= 2.2
+    # 0.8 (sim-validated 11-24, d70de61): lower re-engages the shim mid-route; higher let the boat
+    # crab 45-60 deg off heading and loop at the goal. See the README's validated parameters.
+    assert 0.6 <= mppi['angular_dist_threshold'] <= 2.2
     assert mppi['rotate_to_heading_once'] is True
     # Inside the active goal checker's xy tolerance the shim turns to the goal yaw; nothing
     # else steers to it. Jazzy copies that tolerance into position_checker each cycle.
