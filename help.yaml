@@ -33,12 +33,12 @@ commands:
       credentials in ~/.config/astro/secrets.env. The NTRIP mountpoint is the nearest to the rough fix (any region).
     params:
       - {name: port, default: auto, choices_from: astro rtk ports,
-         description: 'Serial device of the base receiver; auto is the settings device, else the first u-blox found (rtk ports).'}
+         description: 'Serial device of the base receiver, e.g. /dev/ttyACM0; auto is the settings device, else the first u-blox found.'}
       - {name: --source, choices: [auto, local, ntrip], default: auto, description: 'auto uses both (the nearer/fixed one feeds the FCU); local the USB base only; ntrip NTRIP only.'}
-      - {name: --pin, default: auto, description: 'Stream only this NTRIP mountpoint (MOUNT or CASTER/MOUNT); auto is the nearest.'}
-      - {name: --survey, type: bool, description: Start a new survey-in.}
-      - {name: --known, description: Fix the base at a named saved site.}
-      - {name: --resume, type: bool, description: Adopt the receiver as it is.}
+      - {name: --pin, default: auto, description: 'Stream only this NTRIP mountpoint, MOUNT or CASTER/MOUNT, e.g. RTK2go/MYMOUNT; auto is the nearest.', free: mountpoints come from the caster table}
+      - {name: --survey, type: bool, description: 'Start a new survey-in of the base position (takes minutes).'}
+      - {name: --known, description: 'Fix the base at a site saved in ~/.config/mhseals/rtk.yaml, by name, e.g. lake.', free: saved sites live in the host's rtk.yaml}
+      - {name: --resume, type: bool, description: 'Adopt the receiver as it is now, without a new survey.'}
     examples:
       - ros2 run mhseals_nav rtk base --source ntrip
       - ros2 run mhseals_nav rtk base /dev/ttyACM0 --source local --survey
@@ -50,7 +50,7 @@ commands:
     summary: The rover fix (none/float/fixed), satellites, and the corrections' source, mount and age.
     notes: Exits 1 unless corrections reach a subscriber.
     params:
-      - {name: --watch, type: bool, description: Print a line every 2 s until Ctrl-C.}
+      - {name: --watch, type: bool, description: 'Print a new status line every 2 s until Ctrl-C.'}
     examples:
       - ros2 run mhseals_nav rtk status --watch
 
@@ -64,13 +64,14 @@ commands:
     run: ros2 run mhseals_nav run_task
     level: core
     host: boat_computer
+    needs: [localization, drive+controller, nav]
     summary: Run one task tree (mhseals_nav/tasks/trees) with its config/tasks/ YAML.
     notes: >-
       Exits 0 success, 1 failure, 2 timeout, 3 human override (the mux input rc, manual or hold), 4 refused
       (a human had control). Events on /task/events, status on /task/status.
     params:
-      - {name: --task, required: true, choices_from: ros2 run mhseals_nav run_task --list, description: Task tree name.}
-      - {name: --params, type: path, default: auto, description: 'Task YAML; auto is config/tasks/<task>.yaml.'}
+      - {name: --task, required: true, choices_from: ros2 run mhseals_nav run_task --list, description: 'The task tree to run (run_task --list names them), e.g. nav_channel.'}
+      - {name: --params, type: path, default: auto, description: 'The task YAML to run it with, e.g. config/tasks/mission_crane.yaml; auto is config/tasks/<task>.yaml.'}
       - {name: --profile, choices: [qualifying, finals], default: auto, description: "Mission overlay config/tasks/profiles/<name>.yaml; auto is the mission YAML's."}
     examples:
       - ros2 run mhseals_nav run_task --task nav_channel
@@ -80,15 +81,16 @@ commands:
     run: ros2 run mhseals_nav trial
     level: core
     host: boat_computer
+    needs: [localization, drive+controller, nav]
     summary: Drive a course from config/trials/ (relative to the start pose) through Nav2, then print, log and publish its metrics.
     notes: >-
       Metrics: time, mean/max cross-track error, final position error, yaw-rate sign changes, max speed, and a
       hash of controller_server's parameters. One line goes to $ASTRO_DATA/<date>/log.txt and /events.
     params:
-      - {name: course, required: true, choices_from: ros2 run mhseals_nav trial --list, description: 'config/trials/<course>.yaml.'}
-      - {name: --scale, type: float, default: 1.0, description: Multiply the course size (0.5 for a small area).}
-      - {name: --odom, default: /odom/global, description: Odometry topic; the goals use its frame.}
-      - {name: --tolerance, type: float, default: 0.5, description: 'm from a leg pose that counts as reached; done only when every leg is.'}
-      - {name: --cmd, default: /cmd_vel, description: "Nav2's smoothed command, compared with odometry for track=."}
+      - {name: course, required: true, choices_from: ros2 run mhseals_nav trial --list, description: 'The course to drive, a file config/trials/<course>.yaml, e.g. square or zigzag.'}
+      - {name: --scale, type: float, default: 1.0, choices: [0.25, 0.5, 0.75, 1.0, 1.5, 2.0], description: 'Multiply the course size to fit the water, e.g. 0.5 for a small area.'}
+      - {name: --odom, default: /odom/global, choices: [/odom/global, /odom/local], description: 'Odometry topic to measure against; the goals use its frame, e.g. /odom/local.'}
+      - {name: --tolerance, type: float, default: 0.5, choices: [0.25, 0.5, 1.0, 2.0], description: 'Metres from a leg pose that count as reached, e.g. 1.0; done only when every leg is.'}
+      - {name: --cmd, default: /cmd_vel, description: "Nav2's smoothed command topic, compared with odometry for track=, e.g. /cmd_vel.", free: a ROS topic name}
     examples:
       - ros2 run mhseals_nav trial square --scale 0.5
