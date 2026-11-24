@@ -32,7 +32,7 @@ commands:
       Settings: ~/.config/mhseals/rtk.yaml (device, saved sites, ntrip overrides); casters in config/ntrip.yaml,
       credentials in ~/.config/astro/secrets.env. The NTRIP mountpoint is the nearest to the rough fix (any region).
     params:
-      - {name: port, default: auto, choices_from: ros2 run mhseals_nav rtk ports,
+      - {name: port, default: auto, choices_from: astro rtk ports,
          description: 'Serial device of the base receiver; auto is the settings device, else the first u-blox found (rtk ports).'}
       - {name: --source, choices: [auto, local, ntrip], default: auto, description: 'auto uses both (the nearer/fixed one feeds the FCU); local the USB base only; ntrip NTRIP only.'}
       - {name: --pin, default: auto, description: 'Stream only this NTRIP mountpoint (MOUNT or CASTER/MOUNT); auto is the nearest.'}
