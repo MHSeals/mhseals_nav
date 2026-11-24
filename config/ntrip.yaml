@@ -6,8 +6,10 @@
 # lends its sourcetable to the picker, but is never streamed from.
 #
 # Picking: cost = station km + caster bias_km + penalties (MSM7 best; single band +40 km), and
-# anything beyond max_km is a last resort. A network (VRS/IMAX) mountpoint counts half the
-# distance to the network's nearest listed station, NEAR the full distance.
+# anything beyond max_km is a last resort. Distance is the mountpoint's own lat/lon whenever its
+# STR record has one. Only the sourcetable makes a network (VRS/IMAX) mountpoint: solution 1 and a
+# NET record (or a caster with `group`); one without a position counts half the distance to the
+# network's nearest listed station, NEAR the full distance. Names and descriptions never do.
 # Source rule (rtk.yaml priority auto): NTRIP when its best station is under near_km and the local
 # base is not at a fixed site, otherwise the local base.
 enabled: true
@@ -20,7 +22,7 @@ gga_every_s: 10.0        # GGA uplink to mountpoints whose table entry asks for 
 repick_s: 60.0           # re-rank as the boat moves; switch only if this much cheaper:
 repick_margin_km: 5.0
 mount_cooldown_s: 60.0   # a failed mountpoint rests this long, doubling to 10 min (RTK2go: retry >= 10 s)
-auth_cooldown_s: 600.0   # a refused login rests the whole caster
+auth_cooldown_s: 600.0   # a refusal (HTTP 400/401/403, "not allowed", "banned") rests the whole caster
 timeout_s: 5.0           # connect and sourcetable read timeout
 penalties: {msm4: 3.0, msm5: 2.0, legacy: 15.0, unknown: 8.0,    # km added to a station's cost
             single_band: 40.0, per_missing_system: 3.0, beyond_max: 200.0}
@@ -67,7 +69,8 @@ casters:
     password_env: EARTHSCOPE_PASSWORD
     bias_km: 2
   # RTK2go community caster: http://rtk2go.com/how-to-connect/ . User name = a valid e-mail, the
-  # password is ignored; no registration. Failed connects in the hundreds ban the IP for hours
+  # password is ignored; no registration. Only the e-mail is needed: RTK2GO_USER=<your e-mail> in
+  # the secrets file (never here). Failed connects in the hundreds ban the IP for hours
   # (http://rtk2go.com/how-to-get-your-ip-banned/), hence the cooldowns above. Bases vary in
   # quality and survey, so it carries a bias.
   - name: RTK2go

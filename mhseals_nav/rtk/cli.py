@@ -1,11 +1,15 @@
 """rtk_base (run the corrections source) and `rtk status` (what the rover and the source are doing).
 
   ros2 run mhseals_nav rtk_base [PORT] [--source auto|local|ntrip] [--pin MOUNT] [--survey | --known NAME | --resume]
-  ros2 run mhseals_nav rtk status [--watch]
+  ros2 run mhseals_nav rtk status [--watch]  # exit 0 only while corrections reach a subscriber
   ros2 run mhseals_nav rtk base ...          # same as rtk_base
+
+rtk_base prints a status line (base_line) when it changes, at most every few seconds; `rtk status`
+prints the same with the rover's fix and the survey's progress.
 """
 
 import argparse
+import re
 import sys
 import time
 
@@ -19,8 +23,100 @@ def rtk_fix(fix_type):
     return {5: 'float', 6: 'fixed'}.get(int(fix_type), 'none')
 
 
+def _clock(seconds):
+    seconds = int(seconds or 0)
+    return f'{seconds // 60}:{seconds % 60:02d}'
+
+
+def _plural(n, word):
+    return f"{n} {word}{'' if n == 1 else 's'}"
+
+
+def base_line(status, percent=False):
+    """What the corrections source is doing and where its RTCM goes, from the /rtk/status document.
+
+    e.g. ``survey 3:12  acc 1.84 m (target 2.0)  sats 26  -> sending RTCM 1005/1077 to
+    /mavros/gps_rtk/send_rtcm (1 subscriber)``; when nothing is sent, the reason instead.
+    ``percent`` adds the survey's progress (rtk status).
+    """
+    if not status:
+        return 'rtk_base not running (no /rtk/status)'
+    source = status.get('source') or {}
+    net = source.get('ntrip') or {}
+    kind, phase, detail = source.get('kind', 'base'), status.get('phase'), status.get('detail') or ''
+    parts, reason = [], ''
+    if kind == 'ntrip':
+        if net.get('mount'):
+            parts.append(f"ntrip {net.get('caster') or '?'}/{net['mount']}"
+                         + (f" {net['km']} km" if net.get('km') is not None else ''))
+        else:
+            parts.append('ntrip')
+        reason = detail
+    else:
+        svin = status.get('svin') or {}
+        model = status.get('base_model') or 'base'
+        if phase in ('surveying', 'ready') and svin:
+            parts.append(('survey done ' if phase == 'ready' else 'survey ') + _clock(svin.get('seconds'))
+                         + (f" {round(100 * (status.get('survey') or 0))}%" if percent else '')
+                         + (f"  acc {svin['accuracy']:.2f} m (target {status.get('survey_target')})"
+                            if svin.get('accuracy') is not None else ''))
+            reason = '' if phase == 'ready' else 'survey not done yet'
+        elif phase == 'fixed':
+            parts.append(f"{model} fixed at {status['site']}" if status.get('site') else f'{model} fixed position')
+        elif phase == 'surveying':
+            parts.append(f'{model} surveying')
+            reason = detail
+        else:
+            parts.append(f'{model} {phase or "off"}')
+            reason = detail
+        if status.get('satellites') is not None:
+            parts.append(f"sats {status['satellites']}")
+    topic, subs, age = status.get('topic') or 'the RTCM topic', status.get('subscribers'), status.get('age')
+    listeners = '' if subs is None else f' ({_plural(subs, "subscriber")})' if subs else \
+        ' (no subscriber: is MAVROS running?)'
+    if age is not None and age <= 3:
+        ids = '/'.join(str(i) for i in status.get('rtcm') or []) or '?'
+        parts.append(f'-> sending RTCM {ids} to {topic}{listeners}')
+    else:
+        if subs == 0:
+            reason = '; '.join(filter(None, (reason, f'no subscriber on {topic}')))
+        if not reason and net.get('detail') and kind != 'ntrip':
+            reason = 'ntrip: ' + net['detail']
+        parts.append('-> not sending: ' + (reason or ('no frames from the receiver' if phase in ('ready', 'fixed')
+                                                       else 'no source')))
+    return '  '.join(parts)
+
+
+class Printer:
+    """Decides when rtk_base prints its line: on a change of what it says (numbers aside) at most
+    every ``gap`` s, and a changed number at most every ``every`` s."""
+
+    def __init__(self, gap=3.0, every=15.0):
+        self.gap, self.every = gap, every
+        self.line, self.key, self.at = None, None, float('-inf')
+
+    def offer(self, line, now):
+        """The line to print now, or None."""
+        key = re.sub(r'\d+(\.\d+)?', '#', line)
+        if line == self.line or now - self.at < (self.gap if key != self.key else self.every):
+            return None
+        self.line, self.key, self.at = line, key, now
+        return line
+
+
+def healthy(status):
+    """Whether corrections reach the FCU: RTCM under 3 s old on a topic someone subscribes to, from a
+    surveyed or fixed local base or a streaming NTRIP mountpoint (`rtk status` exits 0 only then)."""
+    if not status or status.get('age') is None or status['age'] > 3 or status.get('subscribers') == 0:
+        return False
+    source = status.get('source') or {}
+    if source.get('kind') == 'ntrip':
+        return (source.get('ntrip') or {}).get('phase') == 'streaming'
+    return status.get('phase') in ('ready', 'fixed')
+
+
 def status_line(status, rover):
-    """One line from the /rtk/status document and the rover's GPSRAW fields (either may be None)."""
+    """`rtk status`: the rover's fix (GPSRAW, may be None), then base_line with the survey's progress."""
     if rover:
         fix = rover['fix_type']
         parts = [f"rover {rtk_fix(fix)} ({FIX_NAMES.get(fix, fix)}) sats {rover['satellites_visible']}"
@@ -28,24 +124,10 @@ def status_line(status, rover):
     else:
         parts = ['rover no GPSRAW (is MAVROS up?)']
     if status:
-        source = status.get('source') or {}
-        net = source.get('ntrip') or {}
-        kind = source.get('kind', 'base')
-        if kind == 'ntrip':
-            where = f"ntrip {net.get('caster') or '?'}/{net.get('mount') or '-'}"
-            if net.get('km') is not None:
-                where += f" {net['km']} km"
-        else:
-            where = f"local {status.get('base_model') or 'base'}" + (f" site {status['site']}" if status.get('site') else '')
         age = status.get('age')
-        parts.append(f"corrections {where} {status.get('base', '?')} age "
-                     + ('-' if age is None else f'{age:.1f}s'))
-        if kind != 'ntrip' and status.get('satellites') is not None:
-            parts.append(f"base sats {status['satellites']}")
-        if status.get('detail'):
-            parts.append(status['detail'])
+        parts.append(f'corrections {base_line(status, percent=True)}  age ' + ('-' if age is None else f'{age:.1f}s'))
     else:
-        parts.append('rtk_base not running (no /rtk/status)')
+        parts.append(base_line(status))
     return ' | '.join(parts)
 
 
@@ -73,6 +155,10 @@ def parse(argv):
                          'mix bases at the FCU (set source: ours to run this base)')
     if args.port:
         config['device'] = args.port
+    elif not config['device'] and args.source != 'ntrip':
+        device, how = base.find_receiver()
+        config['device'] = device or ''
+        print(f'rtk_base: base receiver {device} ({how})' if device else f'rtk_base: {how}', flush=True)
     if args.resume:
         config['auto_site'] = False
     position = None
@@ -109,14 +195,16 @@ def main(argv=None):
                                  '`rtk base ...` (= rtk_base).')
     ap.add_argument('command', choices=['status', 'base'])
     ap.add_argument('--watch', action='store_true', help='print a line every 2 s until Ctrl-C')
+    # exit 0 only when healthy(): a lake checklist's `rtk status` fails while nothing reaches the FCU
     ap.add_argument('--timeout', type=float, default=3.0, help='seconds to wait for the topics')
     args = ap.parse_args(argv)
     from mhseals_nav.rtk.node import read_status
     try:
         while True:
-            print(time.strftime('%H:%M:%S') + '  ' + status_line(*read_status(args.timeout)), flush=True)
+            status, rover = read_status(args.timeout)
+            print(time.strftime('%H:%M:%S') + '  ' + status_line(status, rover), flush=True)
             if not args.watch:
-                return 0
+                return 0 if healthy(status) else 1
             time.sleep(2)
     except KeyboardInterrupt:
         return 0

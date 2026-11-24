@@ -20,7 +20,9 @@ rosidl_generate_interfaces(${PROJECT_NAME}
 # subpackage, and a second call is a hard error, so the sources merge into the same
 # install directory and each executable is a generated wrapper. multiprocessing
 # "spawn" children re-run the wrapper as __mp_main__, so main() must be guarded or
-# each child starts the program again and dies during bootstrap (lidar_relay).
+# each child starts the program again and dies during bootstrap (lidar_relay). The wrapper runs the
+# environment's python3 (the workspace venv is first on PATH in the dev container), so pip-only
+# dependencies (pyserial, pyubx2 for rtk_base) import as they do in the tests.
 install(DIRECTORY ${PROJECT_NAME}/ DESTINATION ${PYTHON_INSTALL_DIR}/${PROJECT_NAME}
   PATTERN "__pycache__" EXCLUDE PATTERN "*.pyc" EXCLUDE)
 
@@ -60,7 +62,7 @@ foreach(entry ${ENTRY_POINTS})
     list(GET target 1 function)
   endif()
   file(GENERATE OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/scripts/${exe}
-    CONTENT "#!/usr/bin/python3\nimport sys\nfrom ${PROJECT_NAME}.${module} import ${function} as main\nif __name__ == '__main__':\n    sys.exit(main())\n"
+    CONTENT "#!/usr/bin/env python3\nimport sys\nfrom ${PROJECT_NAME}.${module} import ${function} as main\nif __name__ == '__main__':\n    sys.exit(main())\n"
     FILE_PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
   install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/scripts/${exe} DESTINATION lib/${PROJECT_NAME})
 endforeach()

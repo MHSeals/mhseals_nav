@@ -116,6 +116,6 @@ class Corrections:
         state['source'] = dict(kind=kind, priority=self.priority, switches=switches,
                                base_phase=base['phase'], base_model=base.get('model', ''), site=base.get('site'),
                                ntrip=None if not net else {k: net[k] for k in (
-                                   'phase', 'mount', 'caster', 'km', 'vrs', 'station', 'candidates', 'failovers',
+                                   'phase', 'detail', 'mount', 'caster', 'km', 'vrs', 'station', 'candidates', 'failovers',
                                    'last_error', 'gga_sent')})
         return state

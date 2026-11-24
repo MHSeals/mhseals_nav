@@ -6,9 +6,11 @@ or a known position; a reconnect polls the receiver and resumes instead.
 """
 
 from copy import deepcopy
+import glob
 import math
 import os
 from pathlib import Path
+import re
 import threading
 import time
 from types import SimpleNamespace
@@ -24,8 +26,35 @@ DEFAULTS = dict(source='ours', device='', radio='', radio_baud=57600, survey_sec
 SOURCES = ('ours', 'external', 'none')
 # With source ours, which of the local base and NTRIP feeds the FCU (corrections.choose).
 PRIORITIES = ('auto', 'base', 'ntrip')
-# Receiver -> the base it is in: the Here+ is a NEO-M8P (L1), the Here4 an F9P (L1/L2).
+# Receiver -> the base it is in: the Here+ is a NEO-M8P (L1), the Here4 an F9P (HPG firmware for
+# L1/L2, or HPG L1L5 for L1/L5 on a NEO-F9P: receiver_info tells them apart from MON-VER).
 MODELS = {'M8P': 'Here+', 'F9P': 'Here4'}
+UBLOX_VID = 0x1546
+
+
+def find_receiver(paths=glob.glob, ports=None):
+    """(device, how it was found) of the base receiver when none is configured, else (None, why not).
+
+    A u-blox device by id first, then any port with u-blox's USB vendor id, then a ttyACM whose
+    vendor is unknown (a port of another known vendor, e.g. an FCU, is never picked).
+    """
+    by_id = sorted(paths('/dev/serial/by-id/*u-blox*'))
+    if by_id:
+        return by_id[0], 'u-blox by id' + (f', {len(by_id) - 1} more' if len(by_id) > 1 else '')
+    if ports is None:
+        try:
+            from serial.tools import list_ports
+            ports = list_ports.comports()
+        except ImportError:
+            ports = []
+    ublox = sorted(p.device for p in ports if getattr(p, 'vid', None) == UBLOX_VID)
+    if ublox:
+        return ublox[0], 'USB vendor 1546 (u-blox)'
+    other = {p.device for p in ports if getattr(p, 'vid', None) not in (None, UBLOX_VID)}
+    acm = sorted(d for d in paths('/dev/ttyACM*') if d not in other)
+    if acm:
+        return acm[0], 'first ttyACM, vendor unknown'
+    return None, 'no u-blox device (/dev/serial/by-id/*u-blox*, USB vendor 1546 or an unknown ttyACM)'
 
 GCS_SYSTEM, GCS_COMPONENT = 255, 190
 
@@ -139,15 +168,61 @@ def split_position(position):
     return result
 
 
-# F9P (Here4) base signals: GPS L1C/A+L2C, GLONASS L1+L2, Galileo E1+E5b, BeiDou B1I+B2I.
-F9P_SIGNALS = ('GPS', 'GPS_L1CA', 'GPS_L2C', 'GLO', 'GLO_L1', 'GLO_L2', 'GAL', 'GAL_E1', 'GAL_E5B',
-               'BDS', 'BDS_B1', 'BDS_B2')
-# RTCM MSM ids per constellation (GPS, GLONASS, Galileo, BeiDou)
-F9P_MSM = {7: (1077, 1087, 1097, 1127), 4: (1074, 1084, 1094, 1124)}
+# F9P HPG (L1/L2 firmware) base signals: GPS L1C/A+L2C, GLONASS L1+L2, Galileo E1+E5b, BeiDou
+# B1I+B2I. The HPG L1L5 firmware has other signals and refuses these keys, so it keeps its own set.
+F9P_L1L2_SIGNALS = {'GPS': ('GPS', 'GPS_L1CA', 'GPS_L2C'), 'GLO': ('GLO', 'GLO_L1', 'GLO_L2'),
+                    'GAL': ('GAL', 'GAL_E1', 'GAL_E5B'), 'BDS': ('BDS', 'BDS_B1', 'BDS_B2')}
+GNSS = ('GPS', 'GLO', 'GAL', 'BDS')
+# RTCM MSM ids per constellation
+F9P_MSM = {7: dict(GPS=1077, GLO=1087, GAL=1097, BDS=1127), 4: dict(GPS=1074, GLO=1084, GAL=1094, BDS=1124)}
+GNSS_NAMES = {'GPS': 'GPS', 'GLO': 'GLO', 'GLONASS': 'GLO', 'GAL': 'GAL', 'GALILEO': 'GAL',
+              'BDS': 'BDS', 'BEI': 'BDS', 'BEIDOU': 'BDS'}
 
 
-def base_commands(model, config, position=None):
-    """Receiver-specific commands that start a survey, or fix a known position (RAM only)."""
+def receiver_info(texts):
+    """MON-VER's strings (software, hardware, extensions) -> model (M8P/F9P/None), firmware
+    (FWVER), module (MOD), bands (L1, L1L2, L1L5 or '' when unknown) and gnss (the constellations
+    the extensions list, else all four)."""
+    texts = [str(t).strip(' \x00') for t in texts if t and str(t).strip(' \x00')]
+    joined = ' '.join(texts)
+    model = next((m for m in ('M8P', 'F9P') if m in joined), None)
+
+    def field(name):
+        return next((t.split('=', 1)[1].strip() for t in texts if t.upper().startswith(name + '=')), '')
+
+    firmware = field('FWVER')
+    if model == 'M8P':
+        bands = 'L1'
+    elif re.search(r'L1\s*/?\s*L5', firmware, re.I):
+        bands = 'L1L5'
+    elif model == 'F9P' and firmware.upper().startswith('HPG'):
+        bands = 'L1L2'
+    else:
+        bands = ''
+    gnss = {GNSS_NAMES[w] for t in texts if '=' not in t for w in re.split(r'[;,\s]+', t.upper()) if w in GNSS_NAMES}
+    return dict(model=model, firmware=firmware, module=field('MOD'), bands=bands, gnss=sorted(gnss or GNSS))
+
+
+def mon_ver_texts(message):
+    """The strings of a pyubx2 MON-VER message, in order."""
+    names = ['swVersion', 'hwVersion'] + sorted(k for k in vars(message) if k.startswith('extension'))
+    texts = []
+    for name in names:
+        value = getattr(message, name, b'')
+        texts.append(value.decode('ascii', 'ignore') if isinstance(value, bytes) else str(value))
+    return texts
+
+
+class Refused(ValueError):
+    """The receiver answered ACK-NAK: fatal, never retried (a retry sends the same refused keys)."""
+
+
+def base_commands(model, config, position=None, receiver=None):
+    """(label, message) pairs that start a survey, or fix a known position (RAM only).
+
+    ``receiver`` is receiver_info's dict: an F9P's signal keys are sent only to the L1/L2 HPG
+    firmware, and RTCM goes out for the constellations it lists (1230, GLONASS biases, with GLONASS).
+    """
     from pyubx2 import UBXMessage, SET
     seconds, accuracy = int(config['survey_seconds']), round(float(config['survey_accuracy']) * 10000)
     arp, biases = 1, 5          # RTCM 1005 every epoch, 1230 every 5th
@@ -161,26 +236,34 @@ def base_commands(model, config, position=None):
                               ecefZOrAlt=alt, ecefZOrAltHP=alt_hp,
                               fixedPosAcc=round(float(position.get('accuracy', .02)) * 10000))
             return UBXMessage('CFG', 'CFG-TMODE3', SET, **fields)
-        commands = [mode(0), UBXMessage('CFG', 'CFG-RATE', SET, measRate=1000, navRate=1, timeRef=1)]
+        commands = [('time mode off', mode(0)),
+                    ('rate', UBXMessage('CFG', 'CFG-RATE', SET, measRate=1000, navRate=1, timeRef=1))]
         # NAV-SVIN, NAV-PVT, then RTCM 1005 / 1077 / 1087 (MSM7, L1 only) / 1230; rates are per 1 Hz epoch.
         for cls, msg, rate in ((1, 0x3B, 1), (1, 7, 1), (0xF5, 5, arp),
                                (0xF5, 0x4D, 1), (0xF5, 0x57, 1), (0xF5, 0xE6, biases)):
-            commands.append(UBXMessage('CFG', 'CFG-MSG', SET, msgClass=cls, msgID=msg, rateUSB=rate))
-        return commands + [mode(2 if position else 1)]
+            commands.append((f'output {cls:#x}/{msg:#x}',
+                             UBXMessage('CFG', 'CFG-MSG', SET, msgClass=cls, msgID=msg, rateUSB=rate)))
+        return commands + [('survey' if not position else 'fixed position', mode(2 if position else 1))]
     if model != 'F9P':
         raise ValueError(f'unsupported base receiver {model}; expected M8P or F9P')
-    # Signal changes restart the GNSS engine, so they go first and in one message (u-blox F9 HPG).
-    commands = [UBXMessage.config_set(1, 0, [(f'CFG_SIGNAL_{s}_ENA', 1) for s in F9P_SIGNALS]),
-                UBXMessage.config_set(1, 0, [('CFG_TMODE_MODE', 0)])]
+    info = receiver or dict(bands='L1L2', gnss=list(GNSS))
+    gnss = [g for g in GNSS if g in (info.get('gnss') or GNSS)]
+    commands = []
+    if info.get('bands') == 'L1L2':
+        # Signal changes restart the GNSS engine, so they go first and in one message.
+        commands.append(('L1/L2 signals', UBXMessage.config_set(
+            1, 0, [(f'CFG_SIGNAL_{s}_ENA', 1) for g in gnss for s in F9P_L1L2_SIGNALS[g]])))
+    commands.append(('time mode off', UBXMessage.config_set(1, 0, [('CFG_TMODE_MODE', 0)])))
     data = [('CFG_USBOUTPROT_UBX', 1), ('CFG_USBOUTPROT_RTCM3X', 1),
             ('CFG_RATE_MEAS', 1000), ('CFG_RATE_NAV', 1),
             ('CFG_MSGOUT_UBX_NAV_SVIN_USB', 1), ('CFG_MSGOUT_UBX_NAV_PVT_USB', 1)]
     # Dual-band MSM7, 4 constellations: about 1.2-1.6 kB per 1 Hz epoch, every frame under the
     # 720 B GPS_RTCM_DATA limit and the epoch under the 2400 B DroneCAN buffer.
-    for msg, rate in ((1005, arp), *((m, 1) for m in F9P_MSM[7]), (1230, biases)):
+    rtcm = [(1005, arp), *((F9P_MSM[7][g], 1) for g in gnss)] + ([(1230, biases)] if 'GLO' in gnss else [])
+    for msg, rate in rtcm:
         data.append((f'CFG_MSGOUT_RTCM_3X_TYPE{msg}_USB', rate))
-    for msg in F9P_MSM[4]:
-        data.append((f'CFG_MSGOUT_RTCM_3X_TYPE{msg}_USB', 0))   # MSM4 off, never both sets
+    for g in gnss:
+        data.append((f'CFG_MSGOUT_RTCM_3X_TYPE{F9P_MSM[4][g]}_USB', 0))   # MSM4 off, never both sets
     if position:
         lat, lat_hp, lon, lon_hp, alt, alt_hp = split_position(position)
         data += list(zip(('CFG_TMODE_LAT', 'CFG_TMODE_LAT_HP', 'CFG_TMODE_LON',
@@ -190,7 +273,8 @@ def base_commands(model, config, position=None):
                  ('CFG_TMODE_FIXED_POS_ACC', round(float(position.get('accuracy', .02)) * 10000))]
     data += [('CFG_TMODE_SVIN_MIN_DUR', seconds), ('CFG_TMODE_SVIN_ACC_LIMIT', accuracy),
              ('CFG_TMODE_MODE', 2 if position else 1)]
-    return commands + [UBXMessage.config_set(1, 0, data)]
+    return commands + [('RTCM output and ' + ('fixed position' if position else 'survey'),
+                        UBXMessage.config_set(1, 0, data))]
 
 
 def mode_poll(model):
@@ -283,13 +367,15 @@ class BaseSession:
         self.lock = threading.RLock()
         self.state = dict(phase='off', detail='starting', received=0, delivered=0,
                           errors=0, routes=self._blank_routes(), model='', survey=None,
-                          base_position=None, base_satellites=None, site=None, rough=None)
+                          base_position=None, base_satellites=None, site=None, rough=None,
+                          firmware='', bands='')
         self.stopped = threading.Event()
         self.thread = None
         self.position = None
         self.configure = False
         self.fixed = False
         self.auto = False
+        self.receiver = {}          # receiver_info of the identified receiver
 
     def _blank_routes(self):
         return [dict(sent=0, failed=0, error='', error_at=None) for _ in self.sinks]
@@ -364,11 +450,12 @@ class BaseSession:
                             self._configure(serial_port, reader, model)
                             # Only the operator's request configures; a reconnect never does.
                             self.configure = False
-                            identified = True    # a rejected configure stays fatal rather than retrying
+                            identified = True
                         else:
                             identified = True
                             self._resume(serial_port, reader, model)
-                            if self.auto and self.state['phase'] == 'idle':
+                            auto, self.auto = self.auto, False      # once per start, even when it fails
+                            if auto and self.state['phase'] == 'idle':
                                 self._auto_site(serial_port, reader, model)
                         self.auto = False
                         polled = float('-inf')
@@ -378,8 +465,10 @@ class BaseSession:
                         polled = self.clock()
                     self._handle(*reader.read())
                 except (serial.SerialException, OSError, RuntimeError, ValueError) as error:
-                    # A slow or odd receiver is only fatal before the first success (wrong device).
-                    if not identified and not isinstance(error, (serial.SerialException, OSError)):
+                    # A slow or odd receiver is only fatal before the first success (wrong device);
+                    # a refusal always is: retrying would send the same refused keys again.
+                    if isinstance(error, Refused) or (
+                            not identified and not isinstance(error, (serial.SerialException, OSError))):
                         raise
                     if serial_port:
                         serial_port.close()
@@ -456,22 +545,24 @@ class BaseSession:
         while not self.stopped.is_set() and self.clock() < deadline:
             _, message = reader.read()
             if message is not None and message.identity == 'MON-VER':
-                description = str(message)
-                for model in ('M8P', 'F9P'):
-                    if model in description:
-                        self.update(model=model)
-                        return model
-                raise ValueError('unsupported receiver: ' + description)
+                info = receiver_info(mon_ver_texts(message))
+                if info['model'] is None:
+                    info = receiver_info([str(message)])
+                if info['model'] is None:
+                    raise ValueError('unsupported receiver: ' + str(message))
+                self.receiver = info
+                self.update(model=info['model'], firmware=info['firmware'], bands=info['bands'])
+                return info['model']
         raise RuntimeError('receiver did not answer MON-VER; check selected USB device')
 
     def _configure(self, port, reader, model):
         self.update(phase='configuring', detail='configuring ' + model)
-        commands = base_commands(model, self.config, self.position)
-        for index, command in enumerate(commands):
+        commands = base_commands(model, self.config, self.position, self.receiver)
+        for index, (label, command) in enumerate(commands):
             if index == len(commands) - 1:
                 # Let the 1 Hz engine see time mode off before re-enabling, so survey-in restarts.
                 self.stopped.wait(1.2)
-            self._command(port, reader, command)
+            self._command(port, reader, command, label)
         site = (self.position or {}).get('name')
         self.update(phase='fixed' if self.position else 'surveying',
                     detail=f'site {site}' if site else 'known position' if self.position
@@ -540,7 +631,7 @@ class BaseSession:
             self.position, self.fixed = None, False
         self._configure(port, reader, model)
 
-    def _command(self, port, reader, command):
+    def _command(self, port, reader, command, label=''):
         if self.stopped.is_set():
             return
         port.write(command.serialize())
@@ -551,7 +642,10 @@ class BaseSession:
                 if (message.clsID, message.msgID) != (command.msg_cls[0], command.msg_id[0]):
                     continue
                 if message.identity == 'ACK-NAK':
-                    raise ValueError(f'receiver rejected {command.identity}')
+                    firmware = ' '.join(filter(None, (self.receiver.get('module'), self.receiver.get('firmware'))))
+                    raise Refused(f'receiver refused config ({label or command.identity}, {command.identity}) on '
+                                  f"{firmware or self.state['model']}; not retried. Fix: rtk_base --resume "
+                                  'uses the receiver as it is set up, or add this firmware to rtk/base.py base_commands')
                 return
         if not self.stopped.is_set():
             raise RuntimeError(f'no receiver acknowledgement for {command.identity}')
@@ -568,11 +662,13 @@ class StatusTracker:
     """Builds the 1 Hz status dict from a BaseSession and the MAVROS sink's counters.
 
     `sink` needs `.counts` (sent/stale), `.bytes` and `.last` (monotonic stamp of the last
-    frame published, or None); `pubs` is a callable returning the RTCM publisher count.
+    frame published, or None), and may have `.topic` and `.recent()` (the RTCM ids sent lately);
+    `pubs` and `subs` are callables returning the RTCM topic's publisher and subscriber counts
+    (no subscriber: MAVROS is not listening, so nothing reaches the FCU).
     """
 
-    def __init__(self, session, sink, pubs=lambda: 1, clock=time.monotonic):
-        self.session, self.sink, self.pubs, self.clock = session, sink, pubs, clock
+    def __init__(self, session, sink, pubs=lambda: 1, subs=lambda: None, clock=time.monotonic):
+        self.session, self.sink, self.pubs, self.subs, self.clock = session, sink, pubs, subs, clock
         self.mark = (clock(), 0, 0)
         self.first_accuracy = None
         self.drops = []             # stamps of stale drops, to count the last 60 s
@@ -593,7 +689,10 @@ class StatusTracker:
                     detail=state['detail'], model=state['model'], satellites=state['base_satellites'],
                     **self._survey(state), base_position=state['base_position'], base_ecef=self._ecef(state['base_position']),
                     age=None if last is None else round(max(now - last, 0.0), 2),
-                    drops=len(self.drops), pubs=self.pubs(), rates=rates,
+                    drops=len(self.drops), pubs=self.pubs(), subscribers=self.subs(), rates=rates,
+                    topic=getattr(self.sink, 'topic', None),
+                    rtcm=self.sink.recent() if hasattr(self.sink, 'recent') else [],
+                    firmware=state.get('firmware', ''),
                     frames=dict(received=state['received'], delivered=state['delivered'],
                                 errors=state['errors'], oversize=self.sink.counts['oversize']),
                     base_model=MODELS.get(state['model'], state['model']), site=state.get('site'),

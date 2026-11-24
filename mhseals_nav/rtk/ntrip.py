@@ -6,11 +6,16 @@ in a repo: each caster names environment variables, filled from a secrets file (
 
 Picking (``rank``): every RTCM3 mountpoint of every reachable caster gets a cost in kilometres,
 its distance from the rough position plus penalties for an older message set (MSM7 best, then
-MSM4), a single band, fewer constellations and the caster's own bias. A network (VRS-style)
-mountpoint counts half the distance to the network's nearest station. Mountpoints beyond
-``max_km`` stay as last-resort fallbacks. A mountpoint that went stale, refused or dropped rests
-for ``mount_cooldown`` (doubling to 10 min); a caster that refused the login rests for
-``auth_cooldown``. ``pin`` (``MOUNT`` or ``CASTER/MOUNT``) keeps only that mountpoint.
+MSM4), a single band, fewer constellations and the caster's own bias. The distance is always the
+mountpoint's own lat/lon when the table gives one. A mountpoint is a network (VRS-style) one only
+when the table says so: solution 1 in its STR record and a NET record for its network (or a
+caster configured with a ``group``); only such a mountpoint without a position of its own takes
+its network's nearest station (half that distance for a virtual base). Names and descriptions
+("NET", "Is near: ...") never make a network. Mountpoints beyond ``max_km`` stay as last-resort
+fallbacks. A mountpoint that went stale or dropped rests for ``mount_cooldown`` (doubling to
+10 min); a caster that refused (HTTP 400/401/403, "not allowed", "banned") rests whole for
+``auth_cooldown``, as RTK2go bans clients that keep retrying. ``pin`` (``MOUNT`` or
+``CASTER/MOUNT``) keeps only that mountpoint.
 """
 
 import base64
@@ -66,7 +71,8 @@ def load_settings(rtk_config=None, path=None):
 
 
 class NtripError(Exception):
-    """A caster refused or broke the stream; ``kind`` is auth, mount, stale or link."""
+    """A caster refused or broke the stream; ``kind`` is auth (the caster refused us: rest it
+    whole), mount, stale or link."""
 
     def __init__(self, kind, message):
         super().__init__(message)
@@ -158,10 +164,16 @@ class Stream:
     auth: str = ''
     bitrate: int = 0
     messages: set = field(default_factory=set)
+    listed_network: bool = False    # the table has a NET record for ``network``
 
     @property
     def vrs(self):
-        return self.solution == 1 or (self.nmea == 1 and bool(re.search(r'VRS|NEAR|MAX|NRT|NET', self.mount + self.identifier, re.I)))
+        """A network mountpoint by the sourcetable alone: solution 1 and a real NET record."""
+        return self.solution == 1 and self.listed_network
+
+    @property
+    def located(self):
+        return self.lat is not None and self.lon is not None and not (self.lat == 0 and self.lon == 0)
 
 
 def _number(text, kind=float, default=None):
@@ -173,8 +185,10 @@ def _number(text, kind=float, default=None):
 
 
 def parse_sourcetable(text, caster=''):
-    """STR records of a sourcetable body (CAS/NET lines and the ENDSOURCETABLE marker are skipped)."""
+    """STR records of a sourcetable body; NET records only mark the streams of a listed network."""
     streams = []
+    networks = {line.split(';')[1].strip().lower() for line in text.splitlines()
+                if line.startswith('NET;') and len(line.split(';')) > 1}
     for line in text.splitlines():
         if not line.startswith('STR;'):
             continue
@@ -186,7 +200,8 @@ def parse_sourcetable(text, caster=''):
         streams.append(Stream(caster=caster, mount=f[1], identifier=f[2], format=f[3], details=f[4],
                               carrier=_number(f[5], int, 0), nav=f[6], network=f[7], country=f[8],
                               lat=lat, lon=lon, nmea=_number(f[11], int, 0), solution=_number(f[12], int, 0),
-                              auth=f[15], bitrate=_number(f[17], int, 0), messages=messages))
+                              auth=f[15], bitrate=_number(f[17], int, 0), messages=messages,
+                              listed_network=bool(f[7].strip()) and f[7].strip().lower() in networks))
     return streams
 
 
@@ -251,25 +266,32 @@ def rank(streams, here, settings, biases=None, resting=(), groups=None):
     """Candidates for position ``here`` (lat, lon), best first; resting keys (caster, mount) are left out.
 
     ``groups`` maps a caster to the network it belongs to (its stations may be in another
-    caster's table, e.g. FPRN-NET -> FPRN); a network mountpoint is as near as its group's
-    nearest single station (VRS/IMAX: half that, as the virtual base sits at the rover).
+    caster's table, e.g. FPRN-NET -> FPRN); a caster mapped to another one is a network caster,
+    so its solution-1 mountpoints are network ones even without a NET record. Every mountpoint
+    with a position is ranked by its own distance; a network mountpoint without one is as near as
+    its group's nearest single station (half that for a virtual base, the full distance for NEAR).
     """
     weights, pin = settings['penalties'], settings.get('pin')
     biases, groups = biases or {}, groups or {}
+
+    def network(s):
+        return s.vrs or (s.solution == 1 and groups.get(s.caster, s.caster) != s.caster)
+
     single = {}
     for s in streams:            # nearest single-base station per network group
-        if usable(s) and not s.vrs and s.lat is not None and s.lon is not None:
+        if usable(s) and not network(s) and s.located:
             km, group = distance_km(here, (s.lat, s.lon)), groups.get(s.caster, s.caster)
             single[group] = min(single.get(group, km), km)
     out = []
     for s in streams:
         if not usable(s) or (s.caster, s.mount) in resting or (pin and not pinned(s, pin)):
             continue
-        if s.lat is None or s.lon is None or (s.lat == 0 and s.lon == 0 and not s.vrs):
+        if s.located:
+            km = distance_km(here, (s.lat, s.lon))
+        elif network(s) and groups.get(s.caster, s.caster) in single:
+            km = single[groups.get(s.caster, s.caster)] * (1.0 if 'NEAR' in s.mount.upper() else 0.5)
+        else:
             continue
-        km = distance_km(here, (s.lat, s.lon))
-        if s.vrs:
-            km = single.get(groups.get(s.caster, s.caster), km) * (1.0 if 'NEAR' in s.mount.upper() else 0.5)
         level, found = msm_level(s), systems(s)
         cost = km + biases.get(s.caster, 0.0)
         cost += {7: 0.0, 5: weights['msm5'], 4: weights['msm4'], 3: weights['legacy']}.get(level, weights['unknown'])
@@ -422,6 +444,21 @@ def request(mount, host, port, user=None, password=None, version=2, gga_line=Non
     return ('\r\n'.join(lines) + '\r\n\r\n').encode()
 
 
+# A caster's refusal of this client (not of one mountpoint): rest the whole caster.
+REFUSED = re.compile(r'not\s+allowed|banned|unauthori[sz]ed|forbidden', re.I)
+
+
+def reason_text(status, body=b''):
+    """The server's words for a refusal: its status line and the first line of text after it."""
+    words = [status.strip()]
+    for line in body.decode('latin-1', 'replace').splitlines():
+        line = re.sub(r'<[^>]+>', ' ', line).strip()       # some casters answer in HTML
+        if line and line not in words[0]:
+            words.append(line[:120])
+            break
+    return ' - '.join(w for w in words if w) or 'no reason given'
+
+
 class Client:
     """One connection to a caster: the sourcetable, or a mountpoint's RTCM stream with GGA uplink."""
 
@@ -454,9 +491,11 @@ class Client:
         self.chunks = Dechunker() if b'chunked' in headers.lower() else None
         text = status.decode('latin-1', 'replace')
         code = _number(text.split()[1], int) if len(text.split()) > 1 else None
-        if code == 401 or code == 403:
+        if code in (400, 401, 403) or REFUSED.search(text) or (code != 200 and REFUSED.search(
+                body.decode('latin-1', 'replace'))):
             self.close()
-            raise NtripError('auth', f"{c['name']}: login refused ({text.strip()})")
+            raise NtripError('auth', f"{c['name']} refused {'/' + mount if mount else 'the sourcetable'}: "
+                             + reason_text(text, body))
         if mount and (text.startswith('SOURCETABLE') or code == 404):
             self.close()
             raise NtripError('mount', f"{c['name']}/{mount}: no such mountpoint")
@@ -532,6 +571,7 @@ class NtripSource:
         self.env = env if env is not None else {**read_secrets(self.settings['secrets']), **os.environ}
         self.tables, self.fetched = {}, {}          # caster -> streams, caster -> clock stamp
         self.resting, self.strikes = {}, {}         # key or caster name -> until; key -> count
+        self.reasons = {}                           # key or caster name -> why it rests
         self.lock = threading.RLock()
         self.wanted, self.stopped = threading.Event(), threading.Event()
         self.thread = None
@@ -589,15 +629,26 @@ class NtripSource:
             try:
                 self.tables[name] = Client(caster, self.env, self.connect).sourcetable(self.settings['timeout_s'])
                 self.fetched[name] = now
-            except (OSError, NtripError, ValueError) as error:
+            except NtripError as error:
+                self.fetched[name] = now - self.settings['refresh_s'] + self.settings['mount_cooldown_s']
+                if error.kind == 'auth':
+                    self.rest_caster(name, str(error))
+                self.update(last_error=f'{name} sourcetable: {error}')
+            except (OSError, ValueError) as error:
                 self.fetched[name] = now - self.settings['refresh_s'] + self.settings['mount_cooldown_s']
                 self.update(last_error=f'{name} sourcetable: {error}')
 
+    def rest_caster(self, name, reason):
+        """Rest the whole caster for auth_cooldown_s, keeping the server's reason for the status."""
+        self.resting[name] = self.clock() + self.settings['auth_cooldown_s']
+        self.reasons[name] = reason
+
     def rest(self, error, candidate):
-        """Cool down the mountpoint, or the whole caster on a refused login."""
+        """Cool down the mountpoint, or the whole caster when it refused this client."""
         now = self.clock()
+        self.reasons[candidate.key] = str(error)
         if error.kind == 'auth':
-            self.resting[candidate.stream.caster] = now + self.settings['auth_cooldown_s']
+            self.rest_caster(candidate.stream.caster, str(error))
         else:
             strikes = self.strikes.get(candidate.key, 0) + 1
             self.strikes[candidate.key] = strikes
@@ -632,16 +683,17 @@ class NtripSource:
     def step(self):
         """One pick-connect-stream cycle; returns when the stream ends, fails or is re-picked."""
         self.refresh()
+        ranked = self.ranked()
         if not self.wanted.is_set():
-            self.update(phase='standby', detail='standby', mount='')
+            # The mux wants NTRIP only once a mountpoint is usable, so say why it is not, or that it waits.
+            best = ranked[0] if ranked else None
+            self.update(phase='standby', mount='', detail=self.why_not() if best is None else
+                        f'not needed: the local base is in use ({best.stream.caster}/{best.stream.mount} '
+                        f'{best.km:.1f} km ready)')
             self.wanted.wait(1)         # close() sets it too
             return
-        ranked = self.ranked()
         if not ranked:
-            here = self.position()
-            self.update(phase='connecting', mount='', detail='waiting for a rough position' if here is None
-                        else f"pinned mountpoint {self.settings['pin']} not usable (tables, credentials or cooldown)"
-                        if self.settings.get('pin') else 'no usable mountpoint (credentials, cooldowns or tables)')
+            self.update(phase='connecting', mount='', detail=self.why_not())
             self.stopped.wait(2)
             return
         best = ranked[0]
@@ -650,6 +702,37 @@ class NtripSource:
         except NtripError as error:
             self.rest(error, best)
             self.update(phase='connecting', detail='failover: ' + str(error))
+
+    def why_not(self):
+        """Why no mountpoint can stream now, in one line: the best blocked one's cause and its fix."""
+        here = self.position()
+        if here is None:
+            return 'no position yet (no rover or base fix, nothing saved, no fallback in ntrip settings)'
+        streams = [s for c in self.casters for s in self.tables.get(c['name'], [])]
+        if not streams:
+            error = self.snapshot()['last_error']
+            return 'no sourcetable yet' + (f' ({error})' if error else '')
+        pin = self.settings.get('pin')
+        if pin and not any(pinned(s, pin) for s in streams):
+            return f'pin {pin} not in any sourcetable'
+        every = rank(streams, here[:2], self.settings, self.biases, (), self.groups)
+        if not every:
+            return f'pin {pin} is not a usable RTCM 3 mountpoint' if pin else 'no usable RTCM 3 mountpoint in the sourcetables'
+        now, by_name = self.clock(), {c['name']: c for c in self.casters}
+        for candidate in every:
+            name, caster = candidate.stream.caster, by_name.get(candidate.stream.caster, {})
+            if needs_login(caster) and not credentials(caster, self.env)[0]:
+                files = secrets_files(self.settings['secrets'])
+                where = f'in {files[0]}' if files else (
+                    f"in {', '.join(map(str, self.settings['secrets'] or ['a secrets file']))} (not found here; "
+                    'is it mounted into this container?)')
+                return f"no credentials for caster {name}: set {caster['user_env']} {where}"
+            for key in (name, candidate.key):
+                until = self.resting.get(key, 0)
+                if until > now:
+                    what = name if key == name else f'{name}/{candidate.stream.mount}'
+                    return f'{what} cooling down {until - now:.0f} s: {self.reasons.get(key, "failed")}'
+        return 'no usable mountpoint'
 
     def _gga(self):
         here = self.position()

@@ -133,12 +133,14 @@ Commissioning tasks `pair_test` (cross the nearest red/green pole pair and back)
 
 ```bash
 ros2 run mhseals_nav rtk_base --source ntrip          # NTRIP only; auto (default) uses both, local the USB base only
-ros2 run mhseals_nav rtk_base /dev/ttyACM0 --survey   # USB base: new survey-in (--known SITE, --resume)
+ros2 run mhseals_nav rtk_base --survey                # USB base (found by itself, or PORT): new survey-in (--known SITE, --resume)
 ros2 run mhseals_nav rtk_base --pin MOUNT             # stream one NTRIP mountpoint (MOUNT or CASTER/MOUNT)
-ros2 run mhseals_nav rtk status [--watch]             # rover fix none/float/fixed, satellites, source, mount, age
+ros2 run mhseals_nav rtk status [--watch]             # rover fix, source, survey %, what is sent; exit 1 unless RTCM reaches a subscriber
 ```
 
-The NTRIP mountpoint is ranked by distance from the rough fix (rover, else base, else the last one saved), plus penalties for older message sets, single band and fewer constellations, so it works wherever a caster has stations. Casters and weights are `config/ntrip.yaml`; station settings and saved sites are `~/.config/mhseals/rtk.yaml`; credentials are in `~/.config/astro/secrets.env` (mode 600).
+The NTRIP mountpoint is ranked by distance from the rough fix (rover, else base, else the last one saved), plus penalties for older message sets, single band and fewer constellations, so it works wherever a caster has stations. Casters and weights are `config/ntrip.yaml`; station settings and saved sites are `~/.config/mhseals/rtk.yaml`; credentials are in `~/.config/astro/secrets.env` (mode 600), which the dev container must mount. RTK2go needs only an e-mail address as its user, no password: `RTK2GO_USER=<your e-mail>` in that file (FPRN: `FPRN_USER`, `FPRN_PASSWORD`; EarthScope: `EARTHSCOPE_USER`, `EARTHSCOPE_PASSWORD`). A mountpoint is ranked by its own position; only one the sourcetable marks as a network (solution 1 and a NET record) and that has no position takes its network's nearest station. A caster that refuses (HTTP 400/401/403, "not allowed") rests whole for `auth_cooldown_s`, with its reason in the status.
+
+With no port and no `device` in the settings, `rtk_base` takes the first u-blox receiver (`/dev/serial/by-id/*u-blox*`, USB vendor 1546, else a ttyACM of unknown vendor) and says which. The F9P's firmware is read from MON-VER: the L1/L2 HPG firmware gets its signal keys, the HPG L1L5 firmware keeps its own signals, and RTCM goes out for the constellations it lists. A refused configuration stops the base with one line naming the message and the fix; it is never retried. While running it prints a line when its state changes, e.g. `survey 3:12  acc 1.84 m (target 2.0)  sats 26  -> sending RTCM 1005/1077/... to /mavros/gps_rtk/send_rtcm (1 subscriber)`, or `-> not sending:` and the reason (no position yet, no credentials for a caster, a pin not in any sourcetable, a refused config, no subscriber on the RTCM topic).
 
 ### Trials
 

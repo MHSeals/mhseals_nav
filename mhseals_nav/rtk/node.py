@@ -31,6 +31,7 @@ class MavrosSink:
         self.counts = dict(sent=0, stale=0, oversize=0, split=0)
         self.warned, self.count = None, 0
         self.bytes, self.last = 0, None     # published payload bytes; clock stamp of the last frame
+        self.ids = {}                       # RTCM message id -> clock stamp it was last sent
 
     def __call__(self, frame, stamp):
         n = self.node.count_publishers(self.topic)
@@ -58,6 +59,12 @@ class MavrosSink:
         self.counts['sent'] += 1
         self.bytes += len(frame)
         self.last = self.clock()
+        self.ids[int.from_bytes(frame[3:5], 'big') >> 4] = self.last
+
+    def recent(self, window=10.0):
+        """RTCM message ids sent in the last ``window`` s, ascending."""
+        now = self.clock()
+        return sorted(i for i, stamp in self.ids.items() if now - stamp <= window)
 
     def check_owner(self, n):
         """Warn once per other live node publishing corrections; two senders interleave frames."""
@@ -91,6 +98,7 @@ def serve(config, survey=False, position=None, source='auto', pin=None):
     from std_msgs.msg import String
     from mhseals_nav.rtk import ntrip
     from mhseals_nav.rtk.base import BaseSession, Radio, StatusTracker
+    from mhseals_nav.rtk.cli import Printer, base_line
     from mhseals_nav.rtk.corrections import Corrections
     rclpy.init()
     node = rclpy.create_node('rtk_base')
@@ -119,9 +127,19 @@ def serve(config, survey=False, position=None, source='auto', pin=None):
 
     node.create_subscription(NavSatFix, ROVER_FIX, on_fix, qos_profile_sensor_data)
     node.create_timer(1.0, mux.evaluate)
-    tracker = StatusTracker(mux, sink, lambda: node.count_publishers(sink.topic))
+    tracker = StatusTracker(mux, sink, lambda: node.count_publishers(sink.topic),
+                            lambda: node.count_subscribers(sink.topic))
     publisher = node.create_publisher(String, STATUS_TOPIC, status_qos())
-    node.create_timer(1.0, lambda: publisher.publish(String(data=json.dumps(tracker.status()))))
+    printer = Printer()
+
+    def tick():
+        status = tracker.status()
+        publisher.publish(String(data=json.dumps(status)))
+        line = printer.offer(base_line(status), time.monotonic())
+        if line:
+            print(time.strftime('%H:%M:%S') + '  ' + line, flush=True)
+
+    node.create_timer(1.0, tick)
     if base:
         base.start(survey=survey, position=position, auto=config['auto_site'])
     if net:
