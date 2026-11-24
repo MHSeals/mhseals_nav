@@ -178,7 +178,7 @@ def test_installed_entry_point_survives_spawned_workers(tmp_path):
     template = re.search(r'CONTENT "(.*?)"\n', (ROOT / 'CMakeLists.txt').read_text()).group(1)
     wrapper = tmp_path / 'lib' / 'mhseals_nav' / 'lidar_relay'
     wrapper.parent.mkdir(parents=True)
-    script = template.replace('${PROJECT_NAME}', 'mhseals_nav').replace('${module}', 'lidar_relay')
+    script = template.replace('${PROJECT_NAME}', 'mhseals_nav').replace('${module}', 'lidar_relay').replace('${function}', 'main')
     wrapper.write_text(script.encode().decode('unicode_escape'))
     # A private ament prefix resolves the share directory to this checkout's config.
     (tmp_path / 'share/ament_index/resource_index/packages').mkdir(parents=True)
