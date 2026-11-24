@@ -15,6 +15,9 @@ GATED = {'zed': {'zed_wrapper'}}
 USES = re.compile(r"""(?:package=|FindPackageShare\()['"](\w+)['"]""")
 # Imported with a gated package's install (zed_wrapper's), so gated with it.
 WITH_GATED = {'zed_msgs', 'zed_interfaces'}
+# The RTK base's USB and MAVLink libraries: pip packages of the dev image (astro_dock's
+# .devcontainer/requirements.txt), imported lazily by rtk/base.py only on the operator station.
+PIP = {'serial', 'pyubx2', 'pyrtcm', 'pymavlink'}
 # Python module -> its package.xml key, where they differ.
 PACKAGES = {'numpy': 'python3-numpy', 'yaml': 'python3-yaml', 'cv2': 'python3-opencv'}
 INCLUDES = re.compile(r"""'launch',\s*'(\w+\.launch\.py)'""")
@@ -70,7 +73,7 @@ def test_every_launched_package_is_declared_or_gated():
 def test_every_imported_package_is_declared_or_gated():
     used = imported()
     assert {'sensor_msgs', 'tf2_msgs', 'xacro', 'rosbag2_py'} <= set(used)   # the walk sees them
-    gated = set().union(*GATED.values(), WITH_GATED)
+    gated = set().union(*GATED.values(), WITH_GATED, PIP)
     missing = {package: sorted(used[package]) for package in sorted(set(used) - declared() - gated)}
     assert not missing, f'add to package.xml or gate behind a profile requires: {missing}'
 

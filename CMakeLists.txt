@@ -44,13 +44,22 @@ set(ENTRY_POINTS
   ekf_input_watchdog=ekf_input_watchdog
   operator_heartbeat=operator_heartbeat
   host_diagnostic=host_diagnostic
+  rtk_base=rtk.cli:base_main
+  rtk=rtk.cli
 )
 foreach(entry ${ENTRY_POINTS})
   string(REPLACE "=" ";" entry "${entry}")
   list(GET entry 0 exe)
-  list(GET entry 1 module)
+  list(GET entry 1 target)
+  string(REPLACE ":" ";" target "${target}")   # module[:function], default main
+  list(GET target 0 module)
+  list(LENGTH target parts)
+  set(function main)
+  if(parts GREATER 1)
+    list(GET target 1 function)
+  endif()
   file(GENERATE OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/scripts/${exe}
-    CONTENT "#!/usr/bin/python3\nimport sys\nfrom ${PROJECT_NAME}.${module} import main\nif __name__ == '__main__':\n    sys.exit(main())\n"
+    CONTENT "#!/usr/bin/python3\nimport sys\nfrom ${PROJECT_NAME}.${module} import ${function} as main\nif __name__ == '__main__':\n    sys.exit(main())\n"
     FILE_PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
   install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/scripts/${exe} DESTINATION lib/${PROJECT_NAME})
 endforeach()
