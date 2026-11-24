@@ -136,7 +136,23 @@ def credentials(caster, env):
     user_key, password_key = caster.get('user_env'), caster.get('password_env')
     if not user_key:
         return None, None
-    return env.get(user_key) or None, env.get(password_key, '') if password_key else ''
+    user = env.get(user_key) or None
+    if not user and caster.get('user_default') == 'email':
+        user = default_email()          # a caster whose user name is any e-mail (RTK2go)
+    return user, env.get(password_key, '') if password_key else ''
+
+
+def default_email():
+    """An e-mail for casters that only want one: $EMAIL, else git's user.email, else None."""
+    if os.environ.get('EMAIL', '').count('@') == 1:
+        return os.environ['EMAIL']
+    import subprocess
+    try:
+        out = subprocess.run(['git', 'config', '--get', 'user.email'], capture_output=True, text=True, timeout=3)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    value = out.stdout.strip()
+    return value if value.count('@') == 1 else None
 
 
 def needs_login(caster):
@@ -469,7 +485,7 @@ class Client:
     def _open(self, mount, gga_line=None, timeout=5.0):
         c = self.caster
         user, password = credentials(c, self.env) if mount else (None, None)
-        if mount and needs_login(c) and not user:
+        if mount and needs_login(c) and not user:   # (user_default casters fall back to an e-mail first)
             raise NtripError('auth', f"{c['name']}: no credentials ({c.get('user_env')} unset)")
         version = int(c.get('version', 2))
         sock = self.connect(c['host'], int(c['port']), bool(c.get('tls')), timeout)

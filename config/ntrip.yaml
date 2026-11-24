@@ -27,7 +27,7 @@ timeout_s: 5.0           # connect and sourcetable read timeout
 penalties: {msm4: 3.0, msm5: 2.0, legacy: 15.0, unknown: 8.0,    # km added to a station's cost
             single_band: 40.0, per_missing_system: 3.0, beyond_max: 200.0}
 # secrets: astro's secrets file ($ASTRO_SECRETS overrides its path), mode 600. Values are never printed.
-secrets: [~/.config/astro/secrets.env]
+secrets: [~/.config/astro/secrets.env, ~/.config/mhseals/secrets.env]   # the second is mounted into the dev container
 position_cache: ~/.cache/mhseals/ntrip_position.json   # last rough fix, survives reboots
 fallback: null           # {latitude, longitude, height} when no fix was ever seen
 pin: null                # MOUNT or CASTER/MOUNT: stream only that mountpoint (rtk base --pin)
@@ -78,4 +78,5 @@ casters:
     port: 2101
     version: 2
     user_env: RTK2GO_USER
+    user_default: email      # unset: $EMAIL, else git user.email
     bias_km: 5
