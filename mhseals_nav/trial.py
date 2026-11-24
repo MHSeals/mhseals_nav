@@ -11,7 +11,8 @@ as reached when Nav2 succeeds and the boat is within --tolerance of its pose; th
 then the metrics (time, mean/max cross-track error, final position error, yaw-rate sign changes,
 max speed, and the command-vs-actual tracking error per axis). The summary is appended to $ASTRO_DATA/<date>/log.txt
 (``HH:MM:SS  trial   ...``) and published on /events, with a short hash of controller_server's live
-parameters so two trials can be told apart by tuning. Ctrl-C cancels the goal.
+parameters so two trials can be told apart by tuning. Ctrl-C, SIGTERM or SIGHUP (an ssh drop)
+cancels the running goal before the trial exits.
 """
 
 import argparse
@@ -20,6 +21,7 @@ import hashlib
 import math
 import os
 from pathlib import Path
+import signal
 import sys
 import time
 
@@ -146,6 +148,35 @@ def append_log(line, when=None, data=None):
     return path
 
 
+class Stop(Exception):
+    """A stop signal (SIGINT, SIGTERM, SIGHUP) arrived; the running goal must be cancelled."""
+
+
+STOP_SIGNALS = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
+
+
+def install_stop_handlers():
+    """Raise Stop on the first SIGINT/SIGTERM/SIGHUP (later ones are ignored, so the cancel runs).
+
+    rclpy's own SIGINT handler would shut the context down before the cancel could be sent, so the
+    trial inits rclpy without it. Returns the previous handlers for ``restore_handlers``."""
+    previous = {sig: signal.getsignal(sig) for sig in STOP_SIGNALS}
+    fired = []
+
+    def handler(signum, _frame):
+        if not fired:
+            fired.append(signum)
+            raise Stop(signal.Signals(signum).name)
+    for sig in STOP_SIGNALS:
+        signal.signal(sig, handler)
+    return previous
+
+
+def restore_handlers(previous):
+    for sig, handler in previous.items():
+        signal.signal(sig, handler)
+
+
 # --- ROS --------------------------------------------------------------------------------------
 
 def yaw_of(q):
@@ -187,8 +218,11 @@ def run(args):
     from nav_msgs.msg import Odometry
     from std_msgs.msg import String
 
+    from rclpy.signals import SignalHandlerOptions
+
     points, timeout = load_course(args.course, args.scale)
-    rclpy.init()
+    previous = install_stop_handlers()
+    rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
     node = rclpy.create_node('trial')
     events = node.create_publisher(String, args.events, 10)
     odom, cmd = {}, {}
@@ -196,6 +230,26 @@ def run(args):
     node.create_subscription(Twist, args.cmd, lambda m: cmd.__setitem__('msg', (m, time.monotonic())), 10)
     client = ActionClient(node, NavigateThroughPoses, args.action)
     samples, reached, status = [], 0, None
+    goal = {'sent': None}                  # the latest send_goal future: cancelled on any way out
+
+    def cancel_active(wait=2.0):
+        """Cancel the latest goal unless it has finished; wait up to ``wait`` s for the answer."""
+        sent, goal['sent'] = goal['sent'], None
+        if sent is None:
+            return
+        try:
+            if not sent.done():                                     # stopped while sending: learn its handle
+                rclpy.spin_until_future_complete(node, sent, timeout_sec=wait)
+            handle = sent.result() if sent.done() else None
+            if handle is None or not handle.accepted or handle.get_result_async().done():
+                return
+            future = handle.cancel_goal_async()
+            rclpy.spin_until_future_complete(node, future, timeout_sec=wait)
+            print('trial: goal cancelled' if future.done() else 'trial: no cancel answer; check Nav2',
+                  file=sys.stderr, flush=True)
+        except Exception as error:
+            print(f'trial: cancel failed ({error}); cancel the goal by hand', file=sys.stderr, flush=True)
+
     try:
         deadline = time.monotonic() + 10
         while 'msg' not in odom and time.monotonic() < deadline:
@@ -214,23 +268,25 @@ def run(args):
         print(f'trial {args.course} x{args.scale:g}: {len(poses)} legs in {frame}, timeout {timeout:.0f}s, '
               f'tolerance {args.tolerance:g}m, ctrl={ctrl}', flush=True)
         t0, printed, last, feedback = time.monotonic(), 0.0, None, {}
-        for leg, (x, y, heading) in enumerate(poses, 1):
-            goal = NavigateThroughPoses.Goal()
-            pose = PoseStamped()
-            pose.header.frame_id = frame
-            pose.header.stamp = node.get_clock().now().to_msg()
-            pose.pose.position.x, pose.pose.position.y = x, y
-            pose.pose.orientation.z, pose.pose.orientation.w = math.sin(heading / 2), math.cos(heading / 2)
-            goal.poses.append(pose)
-            feedback.clear()
-            sent = client.send_goal_async(goal, feedback_callback=lambda f: feedback.__setitem__('f', f.feedback))
-            rclpy.spin_until_future_complete(node, sent, timeout_sec=10)
-            handle = sent.result() if sent.done() else None
-            if handle is None or not handle.accepted:
-                status = f'rejected at leg {leg}'
-                break
-            done = handle.get_result_async()
-            try:
+        try:
+            for leg, (x, y, heading) in enumerate(poses, 1):
+                request = NavigateThroughPoses.Goal()
+                pose = PoseStamped()
+                pose.header.frame_id = frame
+                pose.header.stamp = node.get_clock().now().to_msg()
+                pose.pose.position.x, pose.pose.position.y = x, y
+                pose.pose.orientation.z, pose.pose.orientation.w = math.sin(heading / 2), math.cos(heading / 2)
+                request.poses.append(pose)
+                feedback.clear()
+                sent = client.send_goal_async(
+                    request, feedback_callback=lambda f: feedback.__setitem__('f', f.feedback))
+                goal['sent'] = sent
+                rclpy.spin_until_future_complete(node, sent, timeout_sec=10)
+                handle = sent.result() if sent.done() else None
+                if handle is None or not handle.accepted:
+                    status = f'rejected at leg {leg}'
+                    break
+                done = handle.get_result_async()
                 while True:
                     rclpy.spin_once(node, timeout_sec=0.05)
                     msg = odom['msg']
@@ -253,24 +309,19 @@ def run(args):
                     if done.done():
                         break
                     if elapsed > timeout:
-                        handle.cancel_goal_async()
-                        status = 'timeout'
+                        status = 'timeout'          # cancel_active below cancels the leg
                         break
-            except KeyboardInterrupt:
-                status = 'abort (ctrl-c)'
-                try:
-                    future = handle.cancel_goal_async()
-                    rclpy.spin_until_future_complete(node, future, timeout_sec=2)
-                except Exception as error:      # the context may already be shutting down
-                    print(f'trial: cancel failed ({error}); cancel the goal by hand', file=sys.stderr)
-            if status:
-                break
-            here = odom['msg'].pose.pose.position
-            miss = math.hypot(x - here.x, y - here.y)
-            if done.result().status != GoalStatus.STATUS_SUCCEEDED or miss > args.tolerance:
-                print(f'  leg {leg}: nav2 status {done.result().status}, {miss:.2f}m from its pose', flush=True)
-                break
-            reached += 1
+                if status:
+                    break
+                here = odom['msg'].pose.pose.position
+                miss = math.hypot(x - here.x, y - here.y)
+                if done.result().status != GoalStatus.STATUS_SUCCEEDED or miss > args.tolerance:
+                    print(f'  leg {leg}: nav2 status {done.result().status}, {miss:.2f}m from its pose', flush=True)
+                    break
+                reached += 1
+        except Stop as stop:
+            status = f'abort ({stop})'
+        cancel_active()
         status = f'{verdict(reached, len(poses))}' + (f' ({status})' if status else '')
         result = metrics(samples, route)
         message = summary(args.course, args.scale, result, status, ctrl)
@@ -279,14 +330,16 @@ def run(args):
         try:
             events.publish(String(data=line))
             rclpy.spin_once(node, timeout_sec=0.2)
-        except Exception as error:          # after Ctrl-C the context may be gone; the file has it
+        except Exception as error:          # the file has it
             print(f'trial: /events publish failed ({error})', file=sys.stderr)
         print(line + ('' if path else '   (ASTRO_DATA unset: not logged)'), flush=True)
         return 0 if reached == len(poses) else 1
     finally:
+        cancel_active()                       # any way out (an error, a second signal): no goal left driving
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
+        restore_handlers(previous)
 
 
 def main(argv=None):
@@ -306,6 +359,8 @@ def main(argv=None):
         return run(args)
     except ValueError as error:
         raise SystemExit(f'trial: {error}')
+    except Stop as stop:
+        raise SystemExit(f'trial: stopped ({stop}); no goal left running')
 
 
 if __name__ == '__main__':

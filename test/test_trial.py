@@ -50,3 +50,18 @@ def test_the_log_line_and_parameter_hash():
     assert line == ('13:05:12  trial   square x0.5 done time=61.2s xte=0.31/0.90m final=0.42m flips=3 '
                     'vmax=0.45m/s track=0.05/0.21 0.02/0.09 - ctrl=ab12cd')
     assert trial.params_hash({'a': 1, 'b': 0.5}) == trial.params_hash({'b': 0.5, 'a': 1}) != trial.params_hash({'a': 2})
+
+
+def test_a_stop_signal_raises_once_then_handlers_restore():
+    """SIGTERM (an ssh drop is SIGHUP) raises Stop so the goal is cancelled; a second one doesn't interrupt the cancel."""
+    import os
+    import signal
+    before = signal.getsignal(signal.SIGTERM)
+    previous = trial.install_stop_handlers()
+    try:
+        with pytest.raises(trial.Stop, match='SIGTERM'):
+            os.kill(os.getpid(), signal.SIGTERM)
+        os.kill(os.getpid(), signal.SIGHUP)                 # ignored: the cancel must run
+    finally:
+        trial.restore_handlers(previous)
+    assert signal.getsignal(signal.SIGTERM) is before
