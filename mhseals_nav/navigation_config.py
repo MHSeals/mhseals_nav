@@ -1,9 +1,11 @@
 """Merge measured limits with the current navigation parameters at launch."""
 from copy import deepcopy
 import logging
+import math
 from math import isfinite
 import os
 from pathlib import Path
+import sys
 
 import yaml
 
@@ -372,6 +374,22 @@ def lower_navigation(base, explicit):
 def hardware_state_path():
     """The hardware state file astro apply writes: $MHSEALS_HARDWARE_CONFIG, else ~/.config/mhseals/hardware.yaml."""
     return Path(os.environ.get('MHSEALS_HARDWARE_CONFIG') or '~/.config/mhseals/hardware.yaml').expanduser()
+
+
+def clip_to_ceilings(limits, ceilings, where='nav2_limits'):
+    """limits (a state_limits overlay) with each value above its ceiling clipped to it, by magnitude.
+
+    One warning line names every clipped value: the boat keeps moving, at the ceiling.
+    """
+    clipped, out = [], deepcopy(limits)
+    for section in out.get('controller_server', {}).get('ros__parameters', {}).values():
+        for key, value in section.items():
+            if key in ceilings and abs(value) > ceilings[key]:
+                section[key] = math.copysign(float(ceilings[key]), value)
+                clipped.append(f'{key} {value:g}->{section[key]:g}')
+    if clipped:
+        print(f'WARNING {where} above nav2_ceilings.yaml, clipped: ' + ', '.join(clipped), file=sys.stderr, flush=True)
+    return out
 
 
 def state_limits(base, path=None):

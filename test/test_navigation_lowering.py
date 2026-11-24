@@ -146,12 +146,16 @@ def test_nav2_limits_come_from_the_hardware_state_file(tmp_path):
     assert absent['FollowPath']['vx_max'] == base['vx_max']
 
 
-def test_nav2_limits_above_a_ceiling_or_malformed_are_refused(tmp_path):
+def test_nav2_limits_above_a_ceiling_are_clipped_and_malformed_refused(tmp_path, capsys):
     root = Path(__file__).resolve().parents[1]
+    ceilings = yaml.safe_load((root / 'config/nav2_ceilings.yaml').read_text())
     state = tmp_path / 'hardware.yaml'
-    state.write_text('characterization: {nav2_limits: {velocity: [9.0, 0.2, 0.4], acceleration: [0.4, 0.3, 0.6]}}\n')
-    with pytest.raises(ValueError, match='ceiling'):
-        compile_navigation(root / 'config/nav2_params.yaml', state, sim='true')
+    state.write_text('characterization: {nav2_limits: {velocity: [9.0, 0.2, 0.4], acceleration: [0.4, 0.3, 9.0]}}\n')
+    nav = compile_navigation(root / 'config/nav2_params.yaml', state, sim='true')
+    follow = nav['controller_server']['ros__parameters']['FollowPath']
+    assert (follow['vx_max'], follow['az_max'], follow['vy_max']) == (ceilings['vx_max'], ceilings['az_max'], 0.2)
+    warning = capsys.readouterr().err.strip().splitlines()
+    assert len(warning) == 1 and 'vx_max 9->' in warning[0] and 'az_max 9->' in warning[0]
     state.write_text('characterization: {nav2_limits: {velocity: [0.5, 0.2], acceleration: [0.4, 0.3, 0.6]}}\n')
     with pytest.raises(ValueError, match='hardware.yaml'):
         compile_navigation(root / 'config/nav2_params.yaml', state, sim='true')
@@ -211,5 +215,5 @@ def test_effective_limits_are_what_the_launch_resolves(tmp_path):
     assert {str(root / 'config/hull.yaml'), str(root / 'config/camera.yaml')} <= set(
         resolved['sources'])
     limits.write_text('characterization: {nav2_limits: {velocity: [0.5, 9.0, 0.4], acceleration: [0.3, 0.2, 0.5]}}\n')
-    with pytest.raises(ValueError, match='ceiling'):
-        effective_limits(params, limits)
+    ceiling = yaml.safe_load((root / 'config/nav2_ceilings.yaml').read_text())['vy_max']
+    assert effective_limits(params, limits)['controller']['vy_max'] == ceiling     # clipped, not refused

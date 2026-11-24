@@ -7,7 +7,7 @@ from xml.etree import ElementTree
 
 from . import layers
 from .layers import boolean, load_strict
-from .navigation_config import (hardware_state_path, load_ceilings, load_overlay, state_limits,
+from .navigation_config import (clip_to_ceilings, hardware_state_path, load_ceilings, load_overlay, state_limits,
                                 validate_navigation_base, validated_merge_limits)
 from .yaml_params import camera_fov, footprint, HULL, hull
 
@@ -58,14 +58,14 @@ def compile_navigation(params_file, state_file='', *, sim, share=None):
 
     The limits are the hardware state file's ``characterization.nav2_limits`` (``state_file``, else
     $MHSEALS_HARDWARE_CONFIG, else ~/.config/mhseals/hardware.yaml); without them the base's own
-    stay. nav2_ceilings.yaml bounds them before projection.
+    stay. A value above nav2_ceilings.yaml is clipped to it with one warning line.
     """
     if not Path(params_file).expanduser().is_file():
         raise FileNotFoundError(f'Navigation params file not found: {params_file}')
     base = load_overlay(params_file, strict=True)
     validate_navigation_base(base)
-    limits = state_limits(base, state_file or None)
     ceilings = load_ceilings(ceilings_path(share))
+    limits = clip_to_ceilings(state_limits(base, state_file or None), ceilings)   # never refuse: clip and warn
     result = project_launch(validated_merge_limits(base, limits, ceilings),
                             {'sim': boolean(sim)}, bt_paths(share))
     rectangle = hull(hull_path(share))   # an overlay footprint is refused: base has none

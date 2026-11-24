@@ -225,13 +225,17 @@ def test_factory_accepts_nav2_limits_within_the_ceilings(base, tmp_path):
                                                     ((1.0e6, 0.2, 0.3), (0.3, 0.3, 0.5)),
                                                     ((0.4, 0.2, 0.3), (0.7, 0.3, 0.5)),
                                                     ((0.4, 0.2, 0.3), (0.3, 2.0, 0.5))])
-def test_factory_refuses_nav2_limits_beyond_the_ceilings(base, tmp_path, velocity, acceleration):
+def test_factory_clips_nav2_limits_beyond_the_ceilings(base, tmp_path, velocity, acceleration, capsys):
+    """The boat is never locked out by a measurement: Nav2 starts at the ceiling, with one warning."""
     base_path = write(tmp_path, 'base.yaml', yaml.safe_dump(base))
     state = write(tmp_path, 'hardware.yaml', nav2_limits(velocity, acceleration))
     ns = inert_navigation_factory()
-    ns['Node'] = lambda **kw: pytest.fail('Node constructed past a ceiling')
-    with pytest.raises(ValueError, match='ceiling'):
-        ns['navigation_nodes']({'params_file': str(base_path), 'hardware_config': str(state)})
+    nodes = ns['navigation_nodes']({'params_file': str(base_path), 'hardware_config': str(state)})
+    emitted = yaml.safe_load(Path(nodes[0]['parameters'][0]).read_text())
+    follow = emitted['controller_server']['ros__parameters']['FollowPath']
+    ceilings = yaml.safe_load((ns['share'] / 'config/nav2_ceilings.yaml').read_text())
+    assert all(abs(follow[key]) <= ceilings[key] for key in ceilings if key in follow)
+    assert len([line for line in capsys.readouterr().err.splitlines() if 'clipped' in line]) == 1
 
 
 def test_legacy_merge_still_drops_beyond_the_ceiling(base):
