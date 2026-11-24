@@ -60,35 +60,6 @@ def generate_launch_description():
                               description='Hardware state YAML whose characterization.nav2_limits sets '
                                           'the Nav2 limits; empty = $MHSEALS_HARDWARE_CONFIG, else '
                                           '~/.config/mhseals/hardware.yaml (absent: nav2_params.yaml)'),
-        DeclareLaunchArgument('command_mux', default_value='false',
-                              description='A command_mux arbitrates /cmd_vel; start the '
-                                          'stale-costmap watchdog and the approach guard '
-                                          'that ask it to hold'),
-        DeclareLaunchArgument('perception', default_value='true',
-                              description='A perception costmap feeds Nav2; false skips the '
-                                          'stale-costmap watchdog'),
-        DeclareLaunchArgument('approach_enforce', default_value='',
-                              description='approach_guard requests holds; empty keeps '
-                                          'watchdogs.yaml tune.approach_guard.enforce'),
         OpaqueFunction(function=navigation_nodes),
-        OpaqueFunction(function=guard_nodes),
     ])
 
-
-def guard_nodes(context):
-    """Hold-only nodes; without a mux nothing would act on their requests."""
-    from mhseals_nav.layers import boolean
-
-    def flag(name):
-        return boolean(LaunchConfiguration(name).perform(context))
-    if not flag('command_mux'):
-        return []
-    clock = {'use_sim_time': flag('sim')}
-    nodes = [('costmap_watchdog', clock)] if flag('perception') else []
-    # The approach guard holds when an obstacle closes in on the hull from any side
-    # (watchdogs.yaml: log-only until water bags replay clean; the sim profile enforces).
-    enforce = LaunchConfiguration('approach_enforce').perform(context).strip()
-    nodes.append(('approach_guard', dict(clock, **(
-        {'enforce': flag('approach_enforce')} if enforce else {}))))
-    return [Node(package='mhseals_nav', executable=name, name=name, output='screen',
-                 parameters=[parameters]) for name, parameters in nodes]

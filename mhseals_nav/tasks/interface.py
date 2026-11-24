@@ -12,11 +12,9 @@ Interface the test suite scores and the TUI shows (all reliable, transient local
                     4 refused: a human had control when it was started
 
 A human override ends the task at once, cancelling its Nav2 goals; it never resumes by itself.
-The override is command_mux's latched ~/state (watchdogs.yaml mux_state_topic) naming rc,
-manual or hold, or that state missing or older than mux_state_max_age (fails closed). Started
-while a human has control, or with no state within mux_state_max_age, the task refuses. A pause
-request (runner.yaml pause_topic: the fence returning the boat inside) ends or refuses it the
-same way, with the requester's reason, so it never fights the request.
+The override is command_mux's latched ~/state (runner.yaml mux_state_topic) naming rc,
+manual or hold, or that state missing or older than mux_state_max_age (fails closed; tasks/mux.py).
+Started while a human has control, or with no state within mux_state_max_age, the task refuses.
 """
 
 import argparse
@@ -31,12 +29,12 @@ from diagnostic_msgs.msg import DiagnosticArray
 from geometry_msgs.msg import Point, PoseStamped, Twist, Vector3Stamped
 from mavros_msgs.msg import GPSRAW
 from mhseals_nav import robot_geometry
-from mhseals_nav.hold_watchdog import mux_defaults, mux_state, mux_suspends
 from mhseals_nav.msg import TrackArray
 from mhseals_nav.startup_projection import PRECISE_TREE
 from mhseals_nav.tasks import load_config, tracks
 from mhseals_nav.tasks.conditions import speed as conditions_speed
 from mhseals_nav.tasks.host import MissionHost
+from mhseals_nav.tasks.mux import mux_state, mux_suspends
 from mhseals_nav.tasks.params import load_params
 from mhseals_nav.tasks.trees import TREES
 from nav2_msgs.action import BackUp, NavigateThroughPoses, NavigateToPose
@@ -52,16 +50,6 @@ from rclpy.signals import SignalHandlerOptions
 from rclpy.time import Time
 from std_msgs.msg import String
 from tf2_ros import Buffer, TransformException, TransformListener
-
-
-def pause_reason(record):
-    """Why a pause request (JSON {paused, cause, why}) pauses autonomy, '' when it does not."""
-    try:
-        body = json.loads(record)
-        return f"{body.get('cause') or 'pause'}: {body.get('why') or 'paused'}" \
-            if body.get('paused') is True else ''
-    except (ValueError, AttributeError, TypeError):
-        return ''
 
 
 EXIT_CODES = {'SUCCESS': 0, 'FAILURE': 1, 'TIMEOUT': 2, 'PREEMPTED': 3, 'REFUSED': 4}
@@ -304,10 +292,9 @@ class TaskRunner(Node):
         self.create_subscription(DiagnosticArray, '/perception/status', self._status, 10)
         self.watch_conditions(self.host.conditions)
         # A human override (the mux input rc, manual or hold) ends the task the moment it arrives.
-        self.mux = mux_defaults()
+        self.mux = {key: self.config[key] for key in ('mux_state_topic', 'mux_state_max_age')}
         self.mux_input, self.mux_at, self.born = None, None, time.monotonic()
         self.create_subscription(String, self.mux['mux_state_topic'], self._mux, latched)
-        self.create_subscription(String, self.config['pause_topic'], self._pause, latched)
         self.create_timer(1.0 / float(params.get('tick_hz', 10.0)), self.tick)
 
     def _publish_event(self, payload):
@@ -383,14 +370,6 @@ class TaskRunner(Node):
             self.refuse(why)
         return True
 
-    def _pause(self, message):
-        why = pause_reason(message.data)
-        if why and self.host.outcome is None:
-            if self.host.started is not None:
-                self.preempt(why)
-            else:
-                self.host.refuse(why)
-
     def refuse(self, why=None):
         self.host.refuse(why)
 
@@ -462,12 +441,18 @@ def run(runner):
 
 def main(args=None):
     parser = argparse.ArgumentParser(description='Run one RoboBoat task tree')
-    parser.add_argument('--task', required=True, choices=sorted(TREES))
+    parser.add_argument('--task', choices=sorted(TREES))
     parser.add_argument('--params', help='task YAML (default: config/tasks/<task>.yaml)')
     parser.add_argument('--profile', help='mission overlay config/tasks/profiles/<name>.yaml '
                         "(default: the mission YAML's profile)")
+    parser.add_argument('--list', action='store_true', help='print the task trees, one per line')
     argv = rclpy.utilities.remove_ros_args(args=sys.argv if args is None else args)
     options = parser.parse_args(argv[1:])
+    if options.list:
+        print('\n'.join(sorted(TREES)))
+        return
+    if not options.task:
+        parser.error('--task is required (--list prints the trees)')
     # Without rclpy's SIGINT handler, Ctrl+C reaches finish() with a live context, so
     # the final event goes out and a running Nav2 goal is cancelled.
     rclpy.init(args=args, signal_handler_options=SignalHandlerOptions.NO)

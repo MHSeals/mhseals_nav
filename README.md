@@ -1,47 +1,68 @@
 # mhseals_nav
 
-The boat's bringup: sensors, localization (EKFs), perception (camera and lidar objects), Nav2 and the
-RoboBoat task trees. It runs the same against the real boat and the [crane_ml](https://github.com/1unarzDev/crane_ml)
-simulator; the thrusters are [mhseals_hardware](https://github.com/MHSeals/mhseals_hardware).
+The boat's bringup: localization (MAVROS and the EKFs), perception (camera and lidar objects), Nav2, the
+RoboBoat task trees and RTK corrections. It runs the same against the real boat and the
+[crane_ml](https://github.com/1unarzDev/crane_ml) simulator; the thrusters are
+[mhseals_hardware](https://github.com/MHSeals/mhseals_hardware).
 
 ```bash
-astro up                      # sensors (MAVROS, EKFs), perception (ZED, lidar) and drive, each on its host
+astro up                      # localization, perception and drive, each on its host
 astro up nav                  # Nav2 on the boat computer (reads the applied nav2 limits)
+astro task --task nav_channel # run one task tree
 astro trial line --scale 0.5  # drive a 10 m out-and-back through Nav2 and print its metrics
 astro rtk status              # RTK fix, satellites and correction source
 ```
 
-Sections: [Launch files](#usage) · [Trials](#trials) · [Tuning Nav2](#tuning-nav2) ·
-[RTK corrections](#rtk-corrections) · [Tasks](#tasks) · [Architecture](#architecture) ·
+Commands ([`help.yaml`](help.yaml), `astro help`): [device](#device) · [task](#tasks) · [trial](#trials) ·
+[rtk](#rtk-corrections). Also: [Tuning Nav2](#tuning-nav2) · [Architecture](#architecture) ·
 [FCU parameters](#fcu-parameters) · [Development](#development)
 
-### Usage
+### Stacks
 
-Launch files separate the main responsibilities:
+`astro up` starts the vessel profile's `astro.stacks` (profiles repo, `roboboat/profile.yaml`), each on its
+host and each one `device` part or a drive launch:
 
-- `sensors.launch.py` starts the Velodyne driver and lidar relay with `sim:=false`, or the ROS TCP endpoint with `sim:=true`. It never starts the camera.
-- `device.launch.py device:=<profile>` is how any computer starts its share of the stack, by hand in its dev container (`astro on HOST`). A device profile in `config/devices/` lists its parts, each an include of a launch file here with arguments, or one `ros2 run`: `odroid` (the boat computer: MAVROS, EKFs, SLAM, Nav2, missions), `jetson` (camera, `objects.launch.py backend:=zed`, the lidar and `host_diagnostic`), `operator` (the RTK base and the operator heartbeat) and `sim` (both boat computers on one machine against the crane_ml simulator). `only:=a,b` starts a subset, and `overrides:='<json>'` is the session layer over `$ROS_WS/config/devices/<profile>.yaml` and `~/.config/mhseals/devices/<profile>.yaml`. The drive stack (thruster driver, `command_mux`) is never a part: start it with `ros2 launch mhseals_hardware drive.launch.py`.
-- `camera.launch.py` starts the ZED wrapper with `config/zed_boat.yaml` and `config/custom_object_detection.yaml`, plus lazy `/front_camera/camera_info` and a 2 Hz preview; `slam:=true` adds raw RGB and depth.
-- `odom.launch.py` starts MAVROS and measurement relays (`fcu:=true`), robot TF, and `ekf.launch.py` (dual EKFs and Navsat; `start_ekf:=false` leaves them to a separate launch, and `~/.config/mhseals/ekf.yaml` overrides parameters per node).
-- `navigation.launch.py` starts Nav2 servers and lifecycle management. Its motion limits are the hardware state file's `characterization.nav2_limits` (`hardware_config:=`, else `$MHSEALS_HARDWARE_CONFIG`, else `~/.config/mhseals/hardware.yaml`; `astro apply` writes it), clipped to `config/nav2_ceilings.yaml` with a warning; without them `nav2_params.yaml`'s own stay. SLAM is optional. `command_mux:=true` adds the stale-costmap watchdog and the approach guard, which are inert in the same way as the watchdogs below.
-- `watchdogs.launch.py` starts the link, fence, FCU and EKF-input watchdogs. They are inert: their hold requests reach nothing (command_mux takes none) and no device profile starts them ([issue #9](https://github.com/MHSeals/mhseals_field/issues/9)).
-- `slam.launch.py` starts RTABMap mapping, leaving localization TF with the EKFs.
-- `objects.launch.py` starts one camera backend (`backend:=zed|sim`), the tracker and the perception costmap. On the boat the Orin runs them.
+| Stack | Host | Starts |
+| --- | --- | --- |
+| `localization` | boat computer | `device:=odroid only:=localization` |
+| `perception` | camera host | `device:=jetson` (camera, objects, lidar, host_diagnostic) |
+| `drive` | boat computer | `ros2 launch mhseals_hardware drive.launch.py` |
+| `nav` (on request) | boat computer | `device:=odroid only:=navigation` |
+| `mapping`, `mission` (on request) | boat computer | `only:=mapping`; `run_task --task mission` |
 
-```bash
-ros2 launch mhseals_nav <launch_name>.launch.py param1:=value1 param2:=value2
-ros2 launch mhseals_nav device.launch.py device:=sim
-```
+### device
 
-Start each component once; on the boat `astro up` does it (the vessel profile's `astro.stacks`). `sim` defaults to `false` in every launch file; the `sim` profile sets it, and `sim:=true` requires the simulator's `/clock`.
+`ros2 launch mhseals_nav device.launch.py device:=PROFILE [only:=a,b] [overrides:='<json>']` starts a
+computer's parts; it is the only launch file meant to be started by hand. A profile in `config/devices/`
+lists the parts, each an include of a launch file here (with arguments) or one `ros2 run`:
+
+| Profile | Parts |
+| --- | --- |
+| `odroid` (boat computer) | `localization` (odom.launch.py: MAVROS and relays, robot TF, and the EKFs and navsat_transform through ekf.launch.py), `mapping` (RTAB-Map), `navigation` (Nav2), `mission` (task.launch.py; no task unless given one) |
+| `jetson` (camera host) | `camera` (ZED), `objects` (camera backend, tracker, perception costmap), `lidar` (Velodyne and `lidar_relay`), `host_diagnostic` |
+| `operator` | `rtk` (`rtk base`) |
+| `sim` | the odroid and jetson parts against crane_ml (`fcu:=false`, `backend:=sim`; no camera, lidar or host_diagnostic) plus `sim_bridge` (the Unity ROS-TCP endpoint; its port is `ros_port`) |
+
+`ros2 run mhseals_nav device_parts [PROFILE]` prints the parts `only:=` takes (`part<TAB>what it
+starts`). Layers, lowest first: the package profile and its `extends`, `$ROS_WS/config/devices/PROFILE.yaml`,
+`~/.config/mhseals/devices/PROFILE.yaml`, then `overrides`; a layer that sets a part the profile lacks
+(without its own launch or run) is refused with the part's name. The drive stack (thruster driver,
+`command_mux`) is never a part. `sim` defaults to `false`; the `sim` profile sets it, and `sim:=true` needs
+the simulator's `/clock`.
+
+The other launch files are the parts' internals: `odom.launch.py`, `ekf.launch.py` (the EKFs alone, to
+restart them with MAVROS up; `~/.config/mhseals/ekf.yaml` overrides per node), `camera.launch.py`,
+`objects.launch.py`, `sensors.launch.py` (the lidar with `sim:=false`, the Unity endpoint with
+`sim:=true`), `navigation.launch.py` (Nav2; its limits are the hardware state file's
+`characterization.nav2_limits`, `hardware_config:=`, else `$MHSEALS_HARDWARE_CONFIG`, else
+`~/.config/mhseals/hardware.yaml`, clipped to `config/nav2_ceilings.yaml`; restart it after changing Nav2
+parameters), `slam.launch.py` and `task.launch.py`.
 
 `/cmd_vel` is the final smoothed navigation output. Nav2 commands are velocity targets; the hardware PWM driver interprets Twist as effort, so autonomous propulsion requires a calibrated velocity controller.
 
-While a task runs, the runner sends zero velocity to `/cmd_vel_nav` whenever Nav2 has been silent for 0.3 s (between goals, after an abort, during the recovery Wait), so the boat keeps station. The zeros stop at an override, a refusal or the end of the run.
-
 ### Parameters
 
-`ros2 launch mhseals_nav <file> --show-args` lists every argument; `help.yaml` documents the common ones for astro_dock's help browser. Lidar reaches Nav2 only inside `/perception/costmap`; a no-lidar run is a perception-side choice (`perception_costmap.yaml` lidar_layer), not a Nav2 argument.
+`ros2 launch mhseals_nav <file> --show-args` lists every argument; `help.yaml` documents the commands for astro's help browser. Lidar reaches Nav2 only inside `/perception/costmap`; a no-lidar run is a perception-side choice (`perception_costmap.yaml` lidar_layer), not a Nav2 argument.
 
 ### Architecture
 
@@ -78,7 +99,7 @@ While a task runs, the runner sends zero velocity to `/cmd_vel_nav` whenever Nav
 
 #### LiDAR relay and markers
 
-- `sensors.launch.py` also starts `lidar_relay`, which downsamples the cloud and republishes `/points` with one reliable writer for Nav2 and RViz. Stop older viewer relays to avoid duplicates.
+- The `lidar` part (`sensors.launch.py`) also starts `lidar_relay`, which downsamples the cloud and republishes `/points` with one reliable writer for Nav2 and RViz. Stop older viewer relays to avoid duplicates.
 - In sim, `tune.smear: true` in `config/lidar.yaml` smears crane's instantaneous scans over a 0.1 s VLP16 sweep with the true motion (`lidar_smear`), so the relay's deskew can be checked.
 - Use RViz's `MarkerArray` display for `/perception/detection_markers`; it shows outlines and confidence in `map`.
 
@@ -99,9 +120,12 @@ Rates are set in `config/mavros_setup.yaml` (FCU streams), `config/ekf_*.yaml` (
 RoboBoat tasks are [py_trees](https://py-trees.readthedocs.io) behaviour trees in `mhseals_nav/tasks/`, layered on Nav2: Nav2's XML trees decide *how to drive* (plan, follow, recover), the task trees decide *what to do* (which gates, which beacon, when to report). Leaves are plain Python over a blackboard of tracked objects (`/perception/tracks`), the boat's map pose and the time, so they are testable without ROS. `tasks/behaviours.py` holds the driving leaves and decorators, `tasks/plans.py` the `Plan*` leaves that only write routes.
 
 ```bash
-ros2 launch mhseals_nav task.launch.py task:=nav_channel   # or follow_path, docking, speed_challenge, return_home
+astro task --task nav_channel      # ros2 run mhseals_nav run_task --task nav_channel
+ros2 run mhseals_nav run_task --list
 ros2 run mhseals_nav run_task --task mission --params config/tasks/mission_crane.yaml --ros-args -p use_sim_time:=true
 ```
+
+`--profile qualifying|finals` overlays `config/tasks/profiles/<name>.yaml` on the mission. While a task runs, the runner sends zero velocity to `/cmd_vel_nav` whenever Nav2 has been silent for 0.3 s (between goals, after an abort, during the recovery Wait), so the boat keeps station; the zeros stop at an override, a refusal or the end of the run.
 
 The RoboBoat 2025 tasks (handbook section 3.2; task 5, the deliveries, is not attempted):
 
@@ -123,28 +147,28 @@ Parameters (class labels, distances, routes, timeouts) are in `config/tasks/<tas
 - `/task/status`: latched JSON `mhseals.mission_status/1` with the stage, phase, goal and why, and per-stage attempts.
 - `/task/hypotheses`: latched JSON `mhseals.task_hypotheses/1` (fixtures in `test/fixtures/`).
 
-It exits 0 on success, 1 on failure, 2 on timeout and 3 when a human override (command_mux's state naming rc, manual or hold, or no fresh state) stopped it; a Nav2 goal cancelled by anyone but the task counts as an override. A task never resumes after an override, and one started while a human has control refuses to start (exit 4, "human has control"). On exit it waits up to `exit_settle_s` (`config/tasks/runner.yaml`) until Nav2 holds none of its goals.
+It exits 0 on success, 1 on failure, 2 on timeout and 3 when a human override (command_mux's latched state, `runner.yaml` `mux_state_topic`, naming rc, manual or hold, or no state within `mux_state_max_age`) stopped it; a Nav2 goal cancelled by anyone but the task counts as an override. A task never resumes after an override, and one started while a human has control refuses to start (exit 4, "human has control"). On exit it waits up to `exit_settle_s` (`config/tasks/runner.yaml`) until Nav2 holds none of its goals.
 
 Commissioning tasks `pair_test` (cross the nearest red/green pole pair and back) and `circle_test` (circle the nearest yellow buoy) use the same stack and `config/tasks/<task>.yaml`; start localization, tracking and Nav2 first and run one task at a time.
 
 ### RTK corrections
 
-`rtk_base` runs on the operator station: it reads a USB base receiver (Here+ M8P or Here4 F9P) and/or a public NTRIP caster and publishes RTCM to MAVROS (`/mavros/gps_rtk/send_rtcm`), with a latched JSON status on `/rtk/status`.
+`astro rtk base` (`ros2 run mhseals_nav rtk base`; the operator profile's `rtk` part) runs on the operator station: it reads a USB base receiver (Here+ M8P or Here4 F9P) and/or a public NTRIP caster and publishes RTCM to MAVROS (`/mavros/gps_rtk/send_rtcm`), with a latched JSON status on `/rtk/status`.
 
 ```bash
-ros2 run mhseals_nav rtk_base --source ntrip          # NTRIP only; auto (default) uses both, local the USB base only
-ros2 run mhseals_nav rtk_base --survey                # USB base (found by itself, or PORT): new survey-in (--known SITE, --resume)
-ros2 run mhseals_nav rtk_base --pin MOUNT             # stream one NTRIP mountpoint (MOUNT or CASTER/MOUNT)
+ros2 run mhseals_nav rtk base  --source ntrip          # NTRIP only; auto (default) uses both, local the USB base only
+ros2 run mhseals_nav rtk base  --survey                # USB base (found by itself, or PORT): new survey-in (--known SITE, --resume)
+ros2 run mhseals_nav rtk base  --pin MOUNT             # stream one NTRIP mountpoint (MOUNT or CASTER/MOUNT)
 ros2 run mhseals_nav rtk status [--watch]             # rover fix, source, survey %, what is sent; exit 1 unless RTCM reaches a subscriber
 ```
 
 The NTRIP mountpoint is ranked by distance from the rough fix (rover, else base, else the last one saved), plus penalties for older message sets, single band and fewer constellations, so it works wherever a caster has stations. Casters and weights are `config/ntrip.yaml`; station settings and saved sites are `~/.config/mhseals/rtk.yaml`; credentials are in `~/.config/astro/secrets.env` (mode 600), which the dev container must mount. RTK2go needs only an e-mail address as its user, no password: `RTK2GO_USER=<your e-mail>` in that file (FPRN: `FPRN_USER`, `FPRN_PASSWORD`; EarthScope: `EARTHSCOPE_USER`, `EARTHSCOPE_PASSWORD`). A mountpoint is ranked by its own position; only one the sourcetable marks as a network (solution 1 and a NET record) and that has no position takes its network's nearest station. A caster that refuses (HTTP 400/401/403, "not allowed") rests whole for `auth_cooldown_s`, with its reason in the status.
 
-With no port and no `device` in the settings, `rtk_base` takes the first u-blox receiver (`/dev/serial/by-id/*u-blox*`, USB vendor 1546, else a ttyACM of unknown vendor) and says which. The F9P's firmware is read from MON-VER: the L1/L2 HPG firmware gets its signal keys, the HPG L1L5 firmware keeps its own signals, and RTCM goes out for the constellations it lists. A refused configuration stops the base with one line naming the message and the fix; it is never retried. While running it prints a line when its state changes, e.g. `survey 3:12  acc 1.84 m (target 2.0)  sats 26  -> sending RTCM 1005/1077/... to /mavros/gps_rtk/send_rtcm (1 subscriber)`, or `-> not sending:` and the reason (no position yet, no credentials for a caster, a pin not in any sourcetable, a refused config, no subscriber on the RTCM topic).
+With no port and no `device` in the settings, `rtk base` takes the first u-blox receiver (`/dev/serial/by-id/*u-blox*`, USB vendor 1546, else a ttyACM of unknown vendor) and says which. The F9P's firmware is read from MON-VER: the L1/L2 HPG firmware gets its signal keys, the HPG L1L5 firmware keeps its own signals, and RTCM goes out for the constellations it lists. A refused configuration stops the base with one line naming the message and the fix; it is never retried. While running it prints a line when its state changes, e.g. `survey 3:12  acc 1.84 m (target 2.0)  sats 26  -> sending RTCM 1005/1077/... to /mavros/gps_rtk/send_rtcm (1 subscriber)`, or `-> not sending:` and the reason (no position yet, no credentials for a caster, a pin not in any sourcetable, a refused config, no subscriber on the RTCM topic).
 
 ### Trials
 
-`astro trial COURSE` (`ros2 run mhseals_nav trial`) drives a course from `config/trials/` (`line` 20 m out and back, `square` 10 m, `zigzag`) through Nav2's NavigateThroughPoses, placed relative to the boat's start pose. Start Nav2 first (`astro up nav`).
+`astro trial COURSE` (`ros2 run mhseals_nav trial`; `--list` prints the courses) drives a course from `config/trials/` (`line` 20 m out and back, `square` 10 m, `zigzag`) through Nav2's NavigateThroughPoses, placed relative to the boat's start pose. Start Nav2 first (`astro up nav`).
 
 ```bash
 astro trial square --scale 0.5
@@ -200,8 +224,7 @@ colcon build --symlink-install --packages-select mhseals_nav mhseals_hardware
 source install/setup.bash
 colcon test --packages-select mhseals_nav mhseals_hardware
 colcon test-result --verbose
-
-src/mhseals_nav/smoke.sh   # the landing gate: config parse and pure-python units, < 60 s, no ROS
+python3 -m pytest -q src/mhseals_nav/test   # the same suite without colcon; ROS-only tests skip on a host
 ```
 
 `CMakeLists.txt` generates the `ros2 run mhseals_nav <executable>` scripts and installs launch files, configurations, robot descriptions, and behavior trees. Register new runnable nodes there, declare dependencies in `package.xml`, and rebuild/source after installed assets change. Tuning lives in `config/`, physical frames in `description/`, and navigation behavior in `mhseals_nav/behavior_trees/`.

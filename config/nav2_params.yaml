@@ -165,7 +165,7 @@ local_costmap:
       use_maximum: false
       plugins: [perception_layer, inflation_layer]
       # The Orin's /perception/costmap (lidar STVL + tracks, graded): resampled through TF
-      # into this rolling map. It has no timeout; costmap_watchdog holds the boat if stale.
+      # into this rolling map. It has no timeout.
       perception_layer:
         plugin: nav2_costmap_2d::StaticLayer
         map_topic: /perception/costmap
@@ -232,7 +232,7 @@ global_costmap:
       use_maximum: false
       plugins: [perception_layer, inflation_layer]
       # The Orin's /perception/costmap (lidar STVL + tracks, graded): resampled through TF
-      # into this rolling map. It has no timeout; costmap_watchdog holds the boat if stale.
+      # into this rolling map. It has no timeout.
       perception_layer:
         plugin: nav2_costmap_2d::StaticLayer
         map_topic: /perception/costmap

@@ -206,7 +206,7 @@ def main(args=None):
 
     node.create_subscription(Odometry, '/mavros/global_position/local', receive,
                              qos_profile_sensor_data)
-    # /gps/fix for navsat_transform and the watchdogs, in the antenna's frame.
+    # /gps/fix for navsat_transform, in the antenna's frame.
     fix_out = node.create_publisher(NavSatFix, '/gps/fix', 10)
     node.create_subscription(NavSatFix, '/mavros/global_position/raw/fix',
                              lambda fix: fix_out.publish(antenna_fix(fix, gps_frame)),

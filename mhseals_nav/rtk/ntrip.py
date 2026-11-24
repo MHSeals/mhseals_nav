@@ -1,4 +1,4 @@
-"""NTRIP corrections for rtk_base: caster sourcetables, the mountpoint picker, a client with a
+"""NTRIP corrections for rtk base: caster sourcetables, the mountpoint picker, a client with a
 GGA uplink, and failover between mountpoints and casters. No ROS imports.
 
 The casters, their order and the picker's weights are config/ntrip.yaml. Credentials are never

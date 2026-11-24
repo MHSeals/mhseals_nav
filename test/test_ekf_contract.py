@@ -123,13 +123,13 @@ def test_mavros_loads_only_the_plugins_the_stack_uses():
             'setpoint_velocity'} <= set(plugins)
 
 
-def test_ekfs_launch_on_their_own_and_odom_includes_them_unless_disabled():
+def test_ekfs_launch_on_their_own_and_odom_always_includes_them():
     ekf = (ROOT / 'launch/ekf.launch.py').read_text()
     assert "('odometry/filtered', '/odom/global')" in ekf.split('navsat =', 1)[1].split('local =', 1)[0]
     assert "('odometry/filtered', '/odom/local')" in ekf
     assert ekf.count("'ekf_node'") == 2
     odom = (ROOT / 'launch/odom.launch.py').read_text()
-    assert "('start_ekf', 'true'" in odom and "'ekf.launch.py'" in odom
+    assert 'start_ekf' not in odom and "'ekf.launch.py'" in odom
     assert 'ekf_node' not in odom and 'navsat_transform_node' not in odom
 
 

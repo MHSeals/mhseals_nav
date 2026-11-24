@@ -1,14 +1,14 @@
 # One machine runs the boat and camera parts against the Unity simulator (crane_ml), which
-# publishes the sensors, images and detections; sensors starts only its ROS-TCP endpoint.
+# publishes the sensors, images and detections; sim_bridge is the ROS-TCP endpoint to it.
 extends: [odroid, jetson]
 requires: []
 args: {sim: 'true'}
 parts:
-  odometry: {args: {fcu: 'false'}}
-  ekf: {args: {ekf_startup_context: standalone}}
+  localization: {args: {fcu: 'false', ekf_startup_context: standalone}}
   camera: {enabled: false}
   objects: {args: {backend: sim}, nodes: [object_tracker]}
-  sensors: {nodes: []}
+  lidar: {enabled: false}
+  # sensors.launch.py with sim:=true: the Unity endpoint (launch arg ros_port), the sim lidar smear
+  # and /perception/nearby.
+  sim_bridge: {launch: sensors.launch.py, nodes: [UnityEndpoint]}
   host_diagnostic: {enabled: false}       # it reports the Orin's temperature and power mode
-  # The boat only logs approaches (watchdogs.yaml tune.approach_guard.enforce); sim holds on them.
-  navigation: {args: {approach_enforce: 'true'}}

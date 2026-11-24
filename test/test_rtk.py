@@ -52,7 +52,7 @@ def test_fix_parsing_and_the_status_line():
     assert ('corrections ntrip B/MELBOURNE 3.1 km  -> sending RTCM 1005/1077 to /mavros/gps_rtk/send_rtcm '
             '(1 subscriber)  age 0.4s') in line
     line = status_line(None, {'fix_type': 5, 'satellites_visible': 9})
-    assert 'rover float' in line and 'rtk_base not running' in line
+    assert 'rover float' in line and 'rtk base not running' in line
     assert status_line(None, None).startswith('rover no GPSRAW')
 
 

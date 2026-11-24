@@ -1,8 +1,8 @@
 # Keys the TUI displays. One entry per key:
 #   type, units (docs/config-conventions.md R2), tier, doc, and range [lo, hi] only where a
 #   validator enforces exactly that range.
-# Nav2 keys are <server>.<plugin>.<key>; MAVROS keys are mavros_setup.<key>; fence keys are
-# fence_watchdog.<key> (its section of watchdogs.yaml, tune: applied); lidar keys are lidar.<dotted keys of lidar.yaml>
+# Nav2 keys are <server>.<plugin>.<key>; MAVROS keys are mavros_setup.<key>;
+# lidar keys are lidar.<dotted keys of lidar.yaml>
 # (the model and rpm are the vessel profile's).
 
 controller_server.controller_frequency: {type: float, units: Hz, tier: reconfigure, doc: "Controller loop rate; model_dt derives from it."}
@@ -42,10 +42,3 @@ lidar.driver.frame: {type: str, units: frame, tier: restart, doc: "Lidar TF fram
 lidar.driver.endpoint.ip: {type: str, units: "1", tier: restart, doc: "Device IPv4 address; the vessel profile's unless a layer or velodyne_ip sets it."}
 lidar.driver.endpoint.port: {type: int, units: "1", range: [1, 65535], tier: restart, doc: "Device UDP port."}
 
-fence_watchdog.margin: {type: float, units: m, tier: restart, doc: "Edge band where heading or moving outward already holds; covers the coast after a hold."}
-fence_watchdog.return_inset: {type: float, units: m, tier: restart, doc: "How far inside the nearest edge the return goal lies."}
-fence_watchdog.return_speed: {type: float, units: m/s, tier: restart, doc: "Nav2 speed limit while returning; lifted when the return ends."}
-fence_watchdog.return_timeout: {type: float, units: s, tier: restart, doc: "Time to get back inside before the return holds as alert does."}
-fence_watchdog.return_lead: {type: float, units: s, tier: restart, doc: "Wait between the pause request and the return goal, for the runners to cancel their goals."}
-fence_watchdog.return_tries: {type: int, units: count, tier: restart, doc: "Return goal sends while Nav2 refuses it before the return fails."}
-fence_watchdog.status_rate: {type: float, units: Hz, tier: restart, doc: "Rate of the /fence/status JSON; it also publishes on every change."}

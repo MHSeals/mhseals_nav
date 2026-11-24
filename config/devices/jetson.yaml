@@ -1,5 +1,6 @@
-# The camera computer (Orin + ZED 2i + VLP16): camera, perception and the lidar, no motion.
-# Started by hand (ros2 launch mhseals_nav device.launch.py device:=jetson), never on container start.
+# The camera computer (Orin + ZED 2i + VLP16): camera, objects and the lidar, no motion.
+# Started by `astro up` (the perception stack) or by hand:
+# ros2 launch mhseals_nav device.launch.py device:=jetson.
 requires: [zed, gpu]
 args: {sim: 'false'}
 parts:
@@ -10,6 +11,6 @@ parts:
   objects: {launch: objects.launch.py, args: {backend: zed}, nodes: [zed_backend, object_tracker, costmap]}
   # velodyne_driver runs on the large-data transport, which no other computer discovers; the
   # relay that carries /points onto the default transport is the proof the part is up.
-  sensors: {launch: sensors.launch.py, nodes: [lidar_relay_publish]}
+  lidar: {launch: sensors.launch.py, nodes: [lidar_relay_publish]}
   # Temperature, power mode and free disk on /diagnostics.
   host_diagnostic: {run: [mhseals_nav, host_diagnostic], nodes: [host_diagnostic]}

@@ -1,6 +1,6 @@
 """A node's YAML from the package config/ (layers.config_path), with launch overrides on top.
 
-``section_config`` reads one node's section of a subsystem file (watchdogs.yaml, camera.yaml):
+``section_config`` reads one node's section of a subsystem file (camera.yaml):
 its defaults, the section and its tune: entries, then overrides, strictly (an unknown key is an
 error naming it). Keys that lost their unit suffix are still read from overrides for one release,
 with a warning.
@@ -11,25 +11,11 @@ from pathlib import Path
 
 from mhseals_nav.layers import config_path, deep_merge, load_strict, nested
 
-WATCHDOGS = 'watchdogs.yaml'
 HULL = 'hull.yaml'
 ROS_PARAMETERS = ('use_sim_time', 'start_type_description_service')   # every node has them
 # Old override key -> (new key, conversion); dropped after one release.
-RENAMED = {'max_age_s': ('max_age', None), 'command_window_s': ('command_window', None),
-           'mux_state_max_age_s': ('mux_state_max_age', None), 'repeat_s': ('repeat', None),
-           'rate_hz': ('rate', None), 'margin_m': ('margin', None),
-           'outward_speed_mps': ('outward_speed', None),
-           'outward_angle_deg': ('outward_angle', math.radians),
-           'fence_rate_hz': ('fence_rate', None), 'anchor_max_speed_mps': ('anchor_max_speed', None),
-           'max_tracks_age_s': ('max_tracks_age', None), 'max_stamp_age_s': ('max_stamp_age', None),
-           'max_state_age_s': ('max_state_age', None), 'max_imu_age_s': ('max_imu_age', None),
-           'max_gps_age_s': ('max_gps_age', None), 'max_odom_age_s': ('max_odom_age', None),
+RENAMED = {'max_age_s': ('max_age', None), 'rate_hz': ('rate', None),
            'half_length_m': ('half_length', None), 'half_width_m': ('half_width', None),
-           'trigger_m': ('trigger', None), 'move_m': ('move', None), 'min_age_s': ('min_age', None),
-           'memory_s': ('memory', None), 'warmup_s': ('warmup', None),
-           'cluster_m': ('cluster', None), 'miss_s': ('miss', None), 'crop_m': ('crop', None),
-           'confirm_s': ('confirm', None), 'recent_s': ('recent', None),
-           'max_costmap_age_s': ('max_costmap_age', None), 'max_tf_age_s': ('max_tf_age', None),
            'hfov_deg': ('hfov', math.radians), 'range_m': ('range', None)}
 
 
@@ -90,11 +76,6 @@ def camera_fov(path=None):
     return section_config('camera.yaml', 'backend', path=path)['fov']
 
 
-def watchdog_config(name, overrides=None, warn=lambda message: None, path=None, base=None):
-    """The watchdog ``name``'s section of config/watchdogs.yaml (see ``section_config``)."""
-    return section_config(WATCHDOGS, name, overrides, warn, path, base)
-
-
 def section_config(filename, name, overrides=None, warn=lambda message: None, path=None,
                    base=None):
     """Return section ``name`` of config/<filename>, ``base`` under its defaults.
@@ -123,7 +104,3 @@ def node_section_config(node, filename, name, base=None):
     flat = {key: p.value for key, p in node._parameters.items()
             if key not in ROS_PARAMETERS and not key.startswith('qos_overrides.')}
     return section_config(filename, name, flat, node.get_logger().warning, base=base)
-
-
-def node_watchdog_config(node, name, base=None):
-    return node_section_config(node, WATCHDOGS, name, base)

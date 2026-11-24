@@ -1,4 +1,4 @@
-"""ROS side of rtk_base: the MAVROS RTCM sink, the /rtk/status publisher and the node loop."""
+"""ROS side of rtk base: the MAVROS RTCM sink, the /rtk/status publisher and the node loop."""
 
 import json
 import time

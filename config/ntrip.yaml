@@ -1,4 +1,4 @@
-# NTRIP casters for rtk_base (mhseals_nav/rtk/ntrip.py), checked 2026-10-25 against the pages cited.
+# NTRIP casters for rtk base (mhseals_nav/rtk/ntrip.py), checked 2026-10-25 against the pages cited.
 # Per machine: rtk.yaml `ntrip:` overrides any key here; `ntrip: {casters: [{name: X, enabled: false}]}`
 # merges into the caster of that name, and an unknown name adds one.
 # Credentials are never here: each caster names environment variables, read from `secrets` (a .env
@@ -30,7 +30,7 @@ penalties: {msm4: 3.0, msm5: 2.0, legacy: 15.0, unknown: 8.0,    # km added to a
 secrets: [~/.config/astro/secrets.env]
 position_cache: ~/.cache/mhseals/ntrip_position.json   # last rough fix, survives reboots
 fallback: null           # {latitude, longitude, height} when no fix was ever seen
-pin: null                # MOUNT or CASTER/MOUNT: stream only that mountpoint (rtk_base --pin)
+pin: null                # MOUNT or CASTER/MOUNT: stream only that mountpoint (rtk base --pin)
 
 casters:
   # Florida Permanent Reference Network (FDOT), Leica Spider caster. Free, one account per rover:

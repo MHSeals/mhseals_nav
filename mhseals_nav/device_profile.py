@@ -131,20 +131,30 @@ def load(name, deployment_file='', startup_file='', overrides=None):
     """
     merged = _package(name, ())
     for path in _overlay_paths(name, deployment_file, startup_file):
-        merged = merge(merged, _read(path, OVERLAY_KEYS))
+        merged = merge(merged, _known_parts(merged, _read(path, OVERLAY_KEYS), str(path), name))
     if isinstance(overrides, str):
         try:
             overrides = json.loads(overrides) if overrides.strip() else None
         except ValueError as error:
             raise ValueError(f'overrides: not JSON ({error})') from None
     if overrides:
-        merged = merge(merged, validate_layer(overrides, 'overrides', OVERLAY_KEYS))
+        merged = merge(merged, _known_parts(
+            merged, validate_layer(overrides, 'overrides', OVERLAY_KEYS), 'overrides', name))
     check(merged, name)
     return merged
 
 
+def _known_parts(merged, layer, where, name):
+    """Refuse a layer's settings for a part the profile lacks (a new part brings launch or run)."""
+    for part, spec in layer.get('parts', {}).items():
+        if part not in merged['parts'] and not {'launch', 'run'} & set(spec):
+            raise ValueError(f'{where}: no part {part!r} in {name} '
+                             f'(parts: {", ".join(merged["parts"])})')
+    return layer
+
+
 def check(profile, name):
-    """Each part runs one launch file or executable of this package (or the operator's rtk_base);
+    """Each part runs one launch file or executable of this package (the operator's rtk base too);
     drivers never.
 
     A part's ``with`` names other sensing parts of the profile that start beside it.

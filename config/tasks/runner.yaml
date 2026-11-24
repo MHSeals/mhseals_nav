@@ -5,4 +5,5 @@ goal_retries: 30          # sends of one route: Nav2 refuses a goal while anothe
 backup_wait_s: 15.0       # s of wall time at start to wait for Nav2's backup server (dock exit) once the navigators are up
 refusal_s: 1.0           # s; a goal aborted this soon after it was sent was refused, not driven
 stale_success_m: 1.0      # m; succeeded within refusal_s yet this far from the end: the preempted goal's result, resent
-pause_topic: /autonomy/pause  # latched pause requests (fence_watchdog's return): end the task, never fight it
+mux_state_topic: /command_mux/state  # latched; its input says who has the boat (tasks/mux.py)
+mux_state_max_age: 2.5    # s; the mux republishes >= 1 Hz, older ends the task

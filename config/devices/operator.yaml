@@ -1,6 +1,5 @@
-# The operator station: the USB RTK base and/or NTRIP, sending corrections to MAVROS (the rover side is in odometry).
+# The operator station: RTK corrections to MAVROS from the USB base receiver and/or NTRIP
+# (`rtk base`; the rover side is in localization).
 requires: []
 parts:
-  rtk_base: {run: [mhseals_nav, rtk_base], nodes: [rtk_base]}
-  # /operator/heartbeat: the boat can tell the station is linked.
-  operator_heartbeat: {run: [mhseals_nav, operator_heartbeat], nodes: [operator_heartbeat]}
+  rtk: {run: [mhseals_nav, rtk, base], nodes: [rtk_base]}

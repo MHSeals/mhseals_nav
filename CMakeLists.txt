@@ -22,7 +22,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
 # "spawn" children re-run the wrapper as __mp_main__, so main() must be guarded or
 # each child starts the program again and dies during bootstrap (lidar_relay). The wrapper runs the
 # environment's python3 (the workspace venv is first on PATH in the dev container), so pip-only
-# dependencies (pyserial, pyubx2 for rtk_base) import as they do in the tests.
+# dependencies (pyserial, pyubx2 for rtk base) import as they do in the tests.
 install(DIRECTORY ${PROJECT_NAME}/ DESTINATION ${PYTHON_INSTALL_DIR}/${PROJECT_NAME}
   PATTERN "__pycache__" EXCLUDE PATTERN "*.pyc" EXCLUDE)
 
@@ -36,19 +36,12 @@ set(ENTRY_POINTS
   mavros_odometry=mavros_odometry
   mavros_setup=mavros_setup
   run_task=tasks.interface
-  costmap_watchdog=costmap_watchdog
-  approach_guard=approach_guard
   nearest_obstacle=nearest_obstacle
   nearby=nearby
-  link_watchdog=link_watchdog
-  fence_watchdog=fence_watchdog
-  fcu_watchdog=fcu_watchdog
-  ekf_input_watchdog=ekf_input_watchdog
-  operator_heartbeat=operator_heartbeat
   host_diagnostic=host_diagnostic
-  rtk_base=rtk.cli:base_main
   rtk=rtk.cli
   trial=trial
+  device_parts=device_parts
 )
 foreach(entry ${ENTRY_POINTS})
   string(REPLACE "=" ";" entry "${entry}")

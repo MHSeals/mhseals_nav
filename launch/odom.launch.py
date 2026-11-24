@@ -96,7 +96,6 @@ def generate_launch_description():
         ('mavros_imu_rate', '', 'Requested MAVROS IMU rate'),
         ('mavros_gps_rate', '', 'Requested MAVROS GPS rate'),
         ('mavros_rc_rate', '', 'Requested MAVROS RC_CHANNELS rate'),
-        ('start_ekf', 'true', 'Start the EKFs and navsat_transform (false when ekf.launch.py runs on its own)'),
         ('ekf_overlay_file', '', 'Empty inherits optional standard overlay; explicit path must exist'),
         ('navsat_transform_config_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'navsat_transform.yaml']), 'Path to navsat_transform params'),
         ('ekf_local_config_file', PathJoinSubstitution([mhseals_nav_dir, 'config', 'ekf_local.yaml']), 'Path to local EKF config'),
@@ -133,7 +132,7 @@ def odometry_nodes(context):
     from mhseals_nav.layers import package_path   # tests exec this function alone
     mhseals_nav_dir = str(package_path())
     launch_configurations = {name: LaunchConfiguration(name) for name in (
-        'sim', 'fcu', 'start_ekf',
+        'sim', 'fcu',
         'navsat_transform_config_file', 'ekf_local_config_file', 'ekf_global_config_file',
         'ekf_overlay_file', *LAYER_ARGUMENTS, *ALIASES, 'ekf_startup_context')}
     mavros_node = OpaqueFunction(function=create_mavros_node)
@@ -169,12 +168,11 @@ def odometry_nodes(context):
 
     robot_state_publisher_node = OpaqueFunction(function=load_urdf)
 
-    # The EKFs and navsat live in ekf.launch.py so they can be restarted alone,
-    # with MAVROS left up. start_ekf:=false leaves them to a separate launch.
+    # The EKFs and navsat_transform live in ekf.launch.py, always included here: the localization
+    # part is this file, and ekf.launch.py alone restarts them with MAVROS left up.
     ekf = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             PathJoinSubstitution([mhseals_nav_dir, 'launch', 'ekf.launch.py'])),
-        condition=IfCondition(launch_configurations['start_ekf']),
         launch_arguments={
             **{name: launch_configurations[name] for name in (
                 'sim', 'navsat_transform_config_file', 'ekf_local_config_file',

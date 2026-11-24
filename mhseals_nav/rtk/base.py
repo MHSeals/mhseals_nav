@@ -644,14 +644,14 @@ class BaseSession:
                 if message.identity == 'ACK-NAK':
                     firmware = ' '.join(filter(None, (self.receiver.get('module'), self.receiver.get('firmware'))))
                     raise Refused(f'receiver refused config ({label or command.identity}, {command.identity}) on '
-                                  f"{firmware or self.state['model']}; not retried. Fix: rtk_base --resume "
+                                  f"{firmware or self.state['model']}; not retried. Fix: rtk base --resume "
                                   'uses the receiver as it is set up, or add this firmware to rtk/base.py base_commands')
                 return
         if not self.stopped.is_set():
             raise RuntimeError(f'no receiver acknowledgement for {command.identity}')
 
 
-# --- the status document rtk_base publishes on /rtk/status (no ROS imports) ---
+# --- the status document rtk base publishes on /rtk/status (no ROS imports) ---
 
 STATUS_SCHEMA = 'rtk_status/1'
 BASE_VIEW = dict(off='none', idle='none', error='error', connecting='identifying',

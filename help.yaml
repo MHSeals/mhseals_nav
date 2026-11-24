@@ -1,174 +1,80 @@
 # Commands this package provides: `astro <name> [args]` runs `run` (astro help lists them).
+# level: core (astro help) or setup (astro help --all); host: the role astro forwards it to off-robot;
+# choices_from: a command printing one choice per line (a TAB and a description may follow).
 package: mhseals_nav
-summary: Boat bringup - sensors, localization, objects, Nav2 and tasks.
+summary: Boat bringup - localization, perception, Nav2, tasks and RTK.
 commands:
-  - name: device.launch
+  - name: device
     run: ros2 launch mhseals_nav device.launch.py
-    summary: How any computer starts its share of the stack - the parts of its profile in config/devices/.
+    level: setup
+    host: boat_computer
+    summary: Start a computer's parts of the stack (config/devices/<device>.yaml); astro up starts them as stacks.
     notes: >-
-      Start it by hand in the computer's dev container (`astro on HOST`). The drive stack is separate:
-      ros2 launch mhseals_hardware drive.launch.py. Layers: $ROS_WS/config/devices/<device>.yaml, then
-      ~/.config/mhseals/devices/.
+      Parts: odroid localization (MAVROS, TF and the EKFs), mapping, navigation, mission; jetson camera,
+      objects, lidar, host_diagnostic; operator rtk; sim adds sim_bridge (the Unity endpoint) to the odroid
+      and jetson parts. The drive stack is mhseals_hardware's drive. Layers: $ROS_WS/config/devices/<device>.yaml,
+      then ~/.config/mhseals/devices/, then overrides.
     params:
       - {name: device, required: true, choices: [odroid, jetson, operator, sim], description: Device profile in config/devices/.}
-      - {name: only, description: 'Comma-separated parts to start, e.g. camera,objects; empty starts all.'}
+      - {name: only, choices_from: ros2 run mhseals_nav device_parts,
+         description: 'Comma-separated parts to start; empty starts all. ros2 run mhseals_nav device_parts DEVICE lists them.'}
       - {name: overrides, description: 'Session layer: JSON in the device profile schema.'}
     examples:
+      - ros2 launch mhseals_nav device.launch.py device:=odroid only:=localization
       - ros2 launch mhseals_nav device.launch.py device:=sim
-
-  - name: sensors.launch
-    run: ros2 launch mhseals_nav sensors.launch.py
-    summary: Velodyne driver and lidar relay (sim:=false), or the Unity ROS TCP endpoint (sim:=true).
-    params:
-      - {name: sim, type: bool, default: false, description: Run in simulation mode.}
-      - {name: sensors_ignore, description: 'Comma-separated sensors to ignore, e.g. lidar.'}
-      - {name: velodyne_ip, description: 'Device IP override; empty inherits YAML, then the vessel profile.'}
-
-  - name: camera.launch
-    run: ros2 launch mhseals_nav camera.launch.py
-    summary: ZED camera with object detection and a lazy preview (the jetson device profile's camera part).
-    notes: Start it in the container so ASTRO_DDS_ADDRESS pins its DDS profile.
-    params:
-      - {name: camera_name, default: front, description: 'ZED namespace; topics are /<camera_name>/zed_node/*.'}
-      - {name: camera_model, default: zed2i, description: ZED model.}
-      - {name: slam, type: bool, default: false, description: Also relay raw RGB and depth for RTAB-Map.}
-      - {name: preview_rate, type: float, description: 'Preview throttle rate (Hz); empty inherits config/camera.yaml tune.preview_rate.'}
-
-  - name: odom.launch
-    run: ros2 launch mhseals_nav odom.launch.py
-    summary: MAVROS and its relays, robot TF and the EKFs (ekf.launch).
-    params:
-      - {name: sim, type: bool, default: false, description: Use simulation time.}
-      - {name: fcu, type: bool, default: true, description: Start MAVROS; false when the simulator publishes the FCU topics.}
-      - {name: fcu_url, description: 'FCU connection URL; empty inherits the endpoint YAML.'}
-      - {name: start_ekf, type: bool, default: true, description: Start the EKFs; false leaves them to ekf.launch.}
-
-  - name: ekf.launch
-    run: ros2 launch mhseals_nav ekf.launch.py
-    summary: The local and global EKFs and Navsat alone; ~/.config/mhseals/ekf.yaml overrides per node.
-    params:
-      - {name: sim, type: bool, default: false, description: Use simulation time.}
-      - {name: ekf_overlay_file, type: path, description: Overlay YAML; empty inherits ~/.config/mhseals/ekf.yaml.}
-
-  - name: objects.launch
-    run: ros2 launch mhseals_nav objects.launch.py
-    summary: One camera backend, the object tracker and the perception costmap.
-    params:
-      - {name: backend, default: sim, choices: [sim, zed], description: Camera backend.}
-      - {name: sim, type: bool, default: false, description: Use simulation time.}
-
-  - name: watchdogs.launch
-    run: ros2 launch mhseals_nav watchdogs.launch.py
-    summary: 'The link, fence, FCU and EKF-input watchdogs; inert: command_mux no longer takes ~/request holds, and no device profile starts them.'
-    notes: Each asks command_mux to hold while autonomy commands flow (an auto command the mux can forward, so not while rc, manual or a hold has it); link and fence release their own hold once clear for release_after with the FCU disarmed; settings in config/<name>.yaml.
-    params:
-      - {name: sim, type: bool, default: false, description: Use simulation time.}
-      - {name: require_operator, type: bool, description: link_watchdog holds before the first heartbeat; empty keeps YAML.}
-      - {name: fence_file, description: 'The fence file (relative: in config/); empty keeps YAML.'}
-      - {name: fcu_watchdog, type: bool, default: true, description: Hold on a stale or disconnected MAVROS.}
-
-  - name: fence
-    run: ros2 topic echo /fence/status
-    summary: The geofence is fence_watchdog's fence_file alone, read again on every change; /fence/status reports it.
-    notes: >-
-      A writer replaces it whole (course: {corners, on_exit}); a missing or invalid file holds. Restart keys in config/watchdogs.yaml (tune.fence_watchdog): margin (m),
-      return_inset (m inside the nearest edge), return_speed (m/s, Nav2's speed limit while returning),
-      return_timeout (s back inside, else it holds); a return holds once over until released.
-    params:
-      - {name: frame, choices: [latlon, map], description: 'The points frame (course: corners are latlon).'}
-      - {name: points, description: 'Flat [a, b, ...], >= 3 corners of a simple polygon.'}
-      - {name: on_exit, choices: [alert, return], description: 'Outside under autonomy: alert holds; return drives one slow goal back inside first.'}
-
-  - name: navigation.launch
-    run: ros2 launch mhseals_nav navigation.launch.py
-    summary: Nav2 alone; its limits are the hardware state file's characterization.nav2_limits (else nav2_params.yaml).
-    params:
-      - {name: sim, type: bool, default: false, description: Use simulation time.}
-      - {name: hardware_config, type: path, description: 'State YAML with nav2_limits; empty = $MHSEALS_HARDWARE_CONFIG, else ~/.config/mhseals/hardware.yaml.'}
-      - {name: command_mux, type: bool, default: false, description: 'A command_mux arbitrates /cmd_vel; adds the costmap watchdog and approach guard.'}
-      - {name: perception, type: bool, default: true, description: 'false skips the costmap watchdog (Nav2 without a perception costmap).'}
-      - {name: approach_enforce, description: 'approach_guard holds on approaches; empty keeps watchdogs.yaml (log-only); the sim profile sets true.'}
-
-  - name: slam.launch
-    run: ros2 launch mhseals_nav slam.launch.py
-    summary: RTAB-Map mapping from the lidar cloud and camera.
-    params:
-      - {name: sim, type: bool, default: false, description: Use simulation time.}
-
-  - name: task.launch
-    run: ros2 launch mhseals_nav task.launch.py
-    summary: Run one task tree (mhseals_nav/tasks/trees) with its config/tasks/ YAML.
-    notes: Exits 0 success, 1 failure, 2 timeout, 3 human override, 4 refused (human has control).
-    params:
-      - {name: task, choices: [nav_channel, follow_path, docking, speed_challenge, return_home,
-                                                supply_drop, harbor_alert, pair_test, circle_test, mission],
-         description: Task tree name; empty runs none (a whole-profile bring-up).}
-      - {name: sim, type: bool, default: false, description: Use simulation time.}
-      - {name: params_file, type: path, description: 'Task YAML; default config/tasks/<task>.yaml.'}
-    examples:
-      - ros2 launch mhseals_nav task.launch.py task:=nav_channel
-      - ros2 launch mhseals_nav task.launch.py task:=mission params_file:=config/tasks/mission_crane.yaml sim:=true
-
-  - name: run_task
-    run: ros2 run mhseals_nav run_task
-    summary: task.launch's runner directly, with a mission profile overlay.
-    params:
-      - {name: --task, required: true, choices: [nav_channel, follow_path, docking, speed_challenge, return_home,
-                                                  supply_drop, harbor_alert, pair_test, circle_test, mission],
-         description: Task tree name.}
-      - {name: --params, type: path, description: 'Task YAML; default config/tasks/<task>.yaml.'}
-      - {name: --profile, choices: [qualifying, finals], description: "Mission overlay config/tasks/profiles/<name>.yaml; default the mission YAML's."}
-    examples:
-      - ros2 run mhseals_nav run_task --task mission --params config/tasks/mission_crane.yaml --ros-args -p use_sim_time:=true
-
-  - name: rtk_base
-    run: ros2 run mhseals_nav rtk_base
-    summary: RTK corrections to MAVROS from the station's USB base receiver and/or public NTRIP; status on /rtk/status.
-    notes: >-
-      Settings: ~/.config/mhseals/rtk.yaml (device, saved sites, ntrip overrides); casters in config/ntrip.yaml,
-      credentials in ~/.config/astro/secrets.env. The NTRIP mountpoint is the nearest to the rough fix (any region).
-    params:
-      - {name: port, description: 'Serial device of the base receiver; empty uses the settings device.'}
-      - {name: --source, choices: [auto, local, ntrip], default: auto, description: 'auto: both, the nearer/fixed one feeds the FCU; local: USB base only; ntrip: NTRIP only.'}
-      - {name: --pin, description: 'NTRIP: stream only this mountpoint (MOUNT or CASTER/MOUNT).'}
-      - {name: --survey, type: bool, description: Start a new survey-in.}
-      - {name: --known, description: Fix the base at a named saved site.}
-      - {name: --resume, type: bool, description: Adopt the receiver as it is.}
-    examples:
-      - ros2 run mhseals_nav rtk_base --source ntrip
-      - ros2 run mhseals_nav rtk_base /dev/ttyACM0 --source local --survey
 
   - name: rtk
     run: ros2 run mhseals_nav rtk
-    summary: 'rtk status: the rover fix (none/float/fixed), satellites, correction source, mount and age.'
+    level: core
+    host: operator
+    summary: 'rtk base: RTK corrections to MAVROS from the USB base receiver and/or NTRIP; rtk status: the rover fix and its corrections.'
+    notes: >-
+      Settings: ~/.config/mhseals/rtk.yaml (device, saved sites, ntrip overrides); casters in config/ntrip.yaml,
+      credentials in ~/.config/astro/secrets.env. The NTRIP mountpoint is the nearest to the rough fix (any region).
+      rtk status exits 1 unless corrections reach a subscriber.
     params:
-      - {name: command, required: true, choices: [status, base], description: 'status, or base (= rtk_base).'}
-      - {name: --watch, type: bool, description: Print a line every 2 s.}
+      - {name: command, required: true, choices: [base, status], description: 'base runs the corrections source; status prints the rover fix (none/float/fixed), satellites, source, mount and age.'}
+      - {name: port, description: 'base: serial device of the base receiver; empty uses the settings device, else the first u-blox.'}
+      - {name: --source, choices: [auto, local, ntrip], default: auto, description: 'base: auto uses both (the nearer/fixed one feeds the FCU); local the USB base only; ntrip NTRIP only.'}
+      - {name: --pin, description: 'base: stream only this NTRIP mountpoint (MOUNT or CASTER/MOUNT).'}
+      - {name: --survey, type: bool, description: 'base: start a new survey-in.'}
+      - {name: --known, description: 'base: fix the base at a named saved site.'}
+      - {name: --resume, type: bool, description: 'base: adopt the receiver as it is.'}
+      - {name: --watch, type: bool, description: 'status: print a line every 2 s.'}
     examples:
-      - ros2 run mhseals_nav rtk status
+      - ros2 run mhseals_nav rtk base --source ntrip
+      - ros2 run mhseals_nav rtk base /dev/ttyACM0 --source local --survey
       - ros2 run mhseals_nav rtk status --watch
+
+  - name: task
+    run: ros2 run mhseals_nav run_task
+    level: core
+    host: boat_computer
+    summary: Run one task tree (mhseals_nav/tasks/trees) with its config/tasks/ YAML.
+    notes: >-
+      Exits 0 success, 1 failure, 2 timeout, 3 human override (the mux input rc, manual or hold), 4 refused
+      (a human had control). Events on /task/events, status on /task/status.
+    params:
+      - {name: --task, required: true, choices_from: ros2 run mhseals_nav run_task --list, description: Task tree name.}
+      - {name: --params, type: path, description: 'Task YAML; default config/tasks/<task>.yaml.'}
+      - {name: --profile, choices: [qualifying, finals], description: "Mission overlay config/tasks/profiles/<name>.yaml; default the mission YAML's."}
+    examples:
+      - ros2 run mhseals_nav run_task --task nav_channel
+      - ros2 run mhseals_nav run_task --task mission --params config/tasks/mission_crane.yaml --ros-args -p use_sim_time:=true
 
   - name: trial
     run: ros2 run mhseals_nav trial
+    level: core
+    host: boat_computer
     summary: Drive a course from config/trials/ (relative to the start pose) through Nav2, then print, log and publish its metrics.
     notes: >-
       Metrics: time, mean/max cross-track error, final position error, yaw-rate sign changes, max speed, and a
       hash of controller_server's parameters. One line goes to $ASTRO_DATA/<date>/log.txt and /events.
     params:
-      - {name: course, required: true, choices: [line, square, zigzag], description: 'config/trials/<course>.yaml.'}
+      - {name: course, required: true, choices_from: ros2 run mhseals_nav trial --list, description: 'config/trials/<course>.yaml.'}
       - {name: --scale, type: float, default: 1.0, description: Multiply the course size (0.5 for a small area).}
       - {name: --odom, default: /odom/global, description: Odometry topic; the goals use its frame.}
       - {name: --tolerance, type: float, default: 0.5, description: 'm from a leg pose that counts as reached; done only when every leg is.'}
       - {name: --cmd, default: /cmd_vel, description: "Nav2's smoothed command, compared with odometry for track=."}
     examples:
       - ros2 run mhseals_nav trial square --scale 0.5
-
-  - name: monitor
-    run: ros2 topic hz /odom/local
-    summary: Quick health looks - topic rates, MAVROS state, TF tree, RViz.
-    examples:
-      - ros2 topic echo /mavros/state
-      - ros2 topic hz /points
-      - ros2 topic echo /perception/nearby
-      - ros2 run rqt_tf_tree rqt_tf_tree
-      - ros2 launch rosbridge_server rosbridge_websocket_launch.xml

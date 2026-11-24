@@ -1,5 +1,5 @@
-# The hull rectangle about base_link, stated once (yaml_params.hull). nearby, nearest_obstacle
-# and approach_guard take it as their defaults; startup_projection writes it into both Nav2
+# The hull rectangle about base_link, stated once (yaml_params.hull). nearby and nearest_obstacle
+# take it as their defaults; startup_projection writes it into both Nav2
 # costmaps' footprint and objects.launch.py into the perception costmap's, each with padding.
 half_length: 0.5315
 half_width: 0.4475

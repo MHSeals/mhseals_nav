@@ -345,7 +345,8 @@ def run(args):
 def main(argv=None):
     ap = argparse.ArgumentParser(prog='trial', description='Drive a course (config/trials/COURSE.yaml, relative '
                                  'to the start pose) through Nav2 and print and log its metrics.')
-    ap.add_argument('course', help='course name: ' + ', '.join(courses()))
+    ap.add_argument('course', nargs='?', help='course name: ' + ', '.join(courses()))
+    ap.add_argument('--list', action='store_true', help='print the courses, one per line')
     ap.add_argument('--scale', type=float, default=1.0, help='multiply the course size (e.g. 0.5 for a small area)')
     ap.add_argument('--odom', default='/odom/global', help='odometry topic; goals use its frame (default /odom/global)')
     ap.add_argument('--action', default='/navigate_through_poses', help='NavigateThroughPoses action')
@@ -355,6 +356,11 @@ def main(argv=None):
     ap.add_argument('--events', default='/events', help='topic the log line is published on')
     ap.add_argument('--no-hash', action='store_true', help="skip reading controller_server's parameters")
     args = ap.parse_args(sys.argv[1:] if argv is None else argv)
+    if args.list:
+        print('\n'.join(courses()))
+        return 0
+    if not args.course:
+        ap.error('a course is required (--list prints them)')
     try:
         return run(args)
     except ValueError as error:

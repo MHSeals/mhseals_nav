@@ -9,16 +9,21 @@ never touched. A missing source (a container without /var/lib/nvpmodel) is left 
 
 import glob
 from pathlib import Path
+import os
 import shutil
+import socket
 import sys
-
-from mhseals_nav.link_watchdog import host_name
 
 PERIOD_S = 2.0
 HOST_PREFIX = 'host:'
 THERMAL_ZONES = '/sys/class/thermal/thermal_zone*/temp'
 NVPMODEL_STATUS = '/var/lib/nvpmodel/status'
 NVPMODEL_CONF = '/etc/nvpmodel.conf'
+
+
+def host_name():
+    """This machine's short name: ``ASTRO_HOSTNAME`` (a container's machine), else the host name."""
+    return str(os.environ.get('ASTRO_HOSTNAME') or socket.gethostname()).strip().lower().split('.')[0]
 
 
 def host_values(zones=THERMAL_ZONES, status=NVPMODEL_STATUS, conf=NVPMODEL_CONF, data='/'):

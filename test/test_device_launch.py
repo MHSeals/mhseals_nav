@@ -53,59 +53,57 @@ def test_jetson_runs_camera_zed_perception_and_the_lidar():
     assert expand(device='jetson') == {
         'camera.launch.py': (None, {'sim': 'false', 'camera_model': 'zed2i'}),
         'objects.launch.py': (None, {'sim': 'false', 'backend': 'zed'}),
-        'sensors.launch.py': (None, {'sim': 'false'}),
+        'sensors.launch.py': (None, {'sim': 'false'}),   # the lidar part
         'host_diagnostic': (['ros2', 'run', 'mhseals_nav', 'host_diagnostic'], {}),
     }
 
 
-def test_only_starts_the_named_parts():
-    assert list(expand(device='odroid', only='ekf')) == ['ekf.launch.py']
-    assert expand(device='odroid', only='ekf')['ekf.launch.py'][1] == {
-        'sim': 'false', 'ekf_startup_context': 'included'}
-
-
-def test_odometry_starts_alone_on_the_boat_and_in_the_sim():
-    """No device profile starts the watchdogs: the drive stack is started by hand."""
-    assert list(expand(device='odroid', only='odometry')) == ['odom.launch.py']
-    assert list(expand(device='sim', only='odometry')) == ['odom.launch.py']
-    for device in ('odroid', 'sim'):
-        assert 'watchdogs' not in device_profile.load(device)['parts']
+def test_localization_is_one_part_with_the_ekfs_on_the_boat_and_in_the_sim():
+    assert expand(device='odroid', only='localization') == {
+        'odom.launch.py': (None, {'sim': 'false', 'fcu': 'true'})}
+    assert expand(device='sim', only='localization') == {'odom.launch.py': (None, {
+        'sim': 'true', 'fcu': 'false', 'ekf_startup_context': 'standalone'})}
 
 
 def test_a_run_part_is_one_ros2_run():
     assert expand(device='operator') == {
-        'rtk_base': (['ros2', 'run', 'mhseals_nav', 'rtk_base'], {}),
-        'operator_heartbeat': (['ros2', 'run', 'mhseals_nav', 'operator_heartbeat'], {})}
+        'rtk': (['ros2', 'run', 'mhseals_nav', 'rtk', 'base'], {})}
 
 
-def test_sim_extends_both_computers_without_the_camera():
+def test_sim_extends_both_computers_with_its_bridge_for_the_camera_and_lidar():
     profile = device_profile.load('sim')
     assert profile['requires'] == []
     assert [name for name, _ in device_profile.select(profile)] == [
-        'odometry', 'ekf', 'mapping', 'navigation', 'mission', 'objects', 'sensors']
-    assert device_profile.launch_arguments(profile, profile['parts']['odometry']) == {
-        'sim': 'true', 'fcu': 'false', 'start_ekf': 'false'}
+        'localization', 'mapping', 'navigation', 'mission', 'objects', 'sim_bridge']
     assert profile['parts']['objects']['args'] == {'backend': 'sim'}
+    # crane_ml passes the endpoint's port as this part's ros_port.
+    bridge = expand(device='sim', only='sim_bridge',
+                    overrides='{"parts": {"sim_bridge": {"args": {"ros_port": "10001"}}}}')
+    assert bridge == {'sensors.launch.py': (None, {'sim': 'true', 'ros_port': '10001'})}
 
 
-def test_approach_guard_enforces_in_sim_and_only_logs_on_the_boat():
-    """The sim profile is the one place enforce is set; the boat keeps watchdogs.yaml's false."""
-    from mhseals_nav.yaml_params import config_path
-    import yaml
-    sim, boat = (device_profile.load(name) for name in ('sim', 'odroid'))
-    assert device_profile.launch_arguments(sim, sim['parts']['navigation']) == {
-        'sim': 'true', 'command_mux': 'true', 'approach_enforce': 'true'}
-    assert 'approach_enforce' not in device_profile.launch_arguments(
-        boat, boat['parts']['navigation'])
-    tune = yaml.safe_load(config_path('watchdogs.yaml').read_text())['tune']
-    assert tune['approach_guard']['enforce'] is False
+def test_device_parts_lists_what_only_takes():
+    from mhseals_nav.device_parts import lines
+    assert [line.split('\t')[0] for line in lines('odroid')] == [
+        'localization', 'mapping', 'navigation', 'mission']
+    assert lines('operator') == ['rtk\tros2 run mhseals_nav rtk base: rtk_base']
+    assert {line.split('\t')[0] for line in lines()} == {
+        'localization', 'mapping', 'navigation', 'mission', 'camera', 'objects', 'lidar',
+        'host_diagnostic', 'rtk', 'sim_bridge'}
 
 
 def test_overrides_are_the_session_layer():
     overrides = '{"parts": {"navigation": {"args": {"hardware_config": "/x/hardware.yaml"}}}}'
     parts = expand(device='odroid', only='navigation', overrides=overrides)
     assert parts['navigation.launch.py'][1] == {
-        'sim': 'false', 'command_mux': 'true', 'hardware_config': '/x/hardware.yaml'}
+        'sim': 'false', 'hardware_config': '/x/hardware.yaml'}
+
+
+@pytest.mark.parametrize('layer', ['{"parts": {"sensors": {"args": {"ros_port": "1"}}}}',
+                                   '{"parts": {"sensors": {"enabled": false}}}'])
+def test_overrides_for_a_part_the_profile_lacks_name_it(layer):
+    with pytest.raises(ValueError, match=r"^overrides: no part 'sensors' in sim \(parts: "):
+        device_profile.load('sim', overrides=layer)
 
 
 def test_deployment_and_operator_layers_apply_in_order(source_tree):
@@ -145,27 +143,28 @@ def test_no_launch_file_here_starts_the_thruster_driver_or_the_mux():
 
 @pytest.mark.parametrize('overrides, message', [
     ({'parts': {'navigation': {'kind': 'sensing'}}}, 'can command motion; set kind: commander'),
-    ({'parts': {'ekf': {'launch': 'nowhere.launch.py'}}}, 'no nowhere.launch.py'),
+    ({'parts': {'localization': {'launch': 'nowhere.launch.py'}}}, 'no nowhere.launch.py'),
     # A path to a commander launch must not pass as sensing.
-    ({'parts': {'ekf': {'launch': './navigation.launch.py'}}}, r'<name>\.launch\.py'),
-    ({'parts': {'ekf': {'launch': '../config/../launch/navigation.launch.py'}}},
+    ({'parts': {'localization': {'launch': './navigation.launch.py'}}}, r'<name>\.launch\.py'),
+    ({'parts': {'localization': {'launch': '../config/../launch/navigation.launch.py'}}},
      r'<name>\.launch\.py'),
-    ({'parts': {'ekf': {'launch': '/opt/x/task.launch.py'}}}, r'<name>\.launch\.py'),
-    ({'parts': {'ekf': {'launch': 'navigation.launch.xml'}}}, r'<name>\.launch\.py'),
+    ({'parts': {'localization': {'launch': '/opt/x/task.launch.py'}}}, r'<name>\.launch\.py'),
+    ({'parts': {'localization': {'launch': 'navigation.launch.xml'}}}, r'<name>\.launch\.py'),
     ({'parts': {'pwm': {'run': ['mhseals_hardware', 'thruster_pwm_node']}}}, 'drive.launch.py'),
     ({'parts': {'mux': {'run': ['mhseals_hardware', 'command_mux']}}}, 'drive.launch.py'),
-    ({'parts': {'odd': {'nodes': ['x']}}}, 'exactly one of launch or run'),
-    ({'parts': {'beat': {'run': ['other_pkg', 'operator_heartbeat']}}}, "another package's"),
-    ({'parts': {'gps': {'run': ['some_driver', 'rtk_base']}}}, "another package's"),
-    ({'parts': {'ekf': {'enabled': 'no'}}}, 'true or false'),
-    ({'parts': {'ekf': {'colour': 'red'}}}, 'keys from'),
+    ({'parts': {'odd': {'launch': 'odom.launch.py', 'run': ['mhseals_nav', 'x']}}},
+     'exactly one of launch or run'),
+    ({'parts': {'gps': {'run': ['some_driver', 'rtk']}}}, "another package's"),
+    ({'parts': {'localization': {'enabled': 'no'}}}, 'true or false'),
+    ({'parts': {'localization': {'colour': 'red'}}}, 'keys from'),
     ({'extends': ['jetson']}, 'keys from'),
     ({'args': {'sim': ['x']}}, 'string, number or boolean'),
-    ({'parts': {'odometry': {'with': 'watchdogs'}}}, 'with: list of names'),
-    ({'parts': {'odometry': {'with': ['ghost']}}}, "'ghost' is not another part"),
-    ({'parts': {'odometry': {'with': ['odometry']}}}, "'odometry' is not another part"),
-    ({'parts': {'odometry': {'with': ['navigation']}}}, 'can command motion'),
-    ({'parts': {'odometry': {'with': ['mapping']}, 'ekf': {'with': ['odometry']}}}, 'brings parts of its own'),
+    ({'parts': {'localization': {'with': 'mapping'}}}, 'with: list of names'),
+    ({'parts': {'localization': {'with': ['ghost']}}}, "'ghost' is not another part"),
+    ({'parts': {'localization': {'with': ['localization']}}}, "'localization' is not another part"),
+    ({'parts': {'localization': {'with': ['navigation']}}}, 'can command motion'),
+    ({'parts': {'localization': {'with': ['mapping']}, 'mapping': {'with': ['localization']}}},
+     'brings parts of its own'),
 ])
 def test_bad_profiles_are_refused(overrides, message):
     with pytest.raises(ValueError, match=message):
@@ -203,33 +202,6 @@ def test_an_extends_cycle_is_refused(source_tree, monkeypatch):
         device_profile.load('a')
 
 
-def watchdog_nodes(**arguments):
-    """{node name: parameters} that watchdogs.launch.py starts with ``arguments``."""
-    path = ROOT / 'launch/watchdogs.launch.py'
-    spec = importlib.util.spec_from_file_location('watchdogs_launch', path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    context = LaunchContext()
-    defaults = {'sim': 'false', 'require_operator': '', 'fence_file': '', 'fcu_watchdog': 'true'}
-    context.launch_configurations.update({**defaults, **arguments})
-    assert len(module.watchdogs(context)) in (3, 4)          # the launch builds the nodes
-    return dict(module.watchdog_parameters(lambda name: {**defaults, **arguments}[name]))
-
-
-def test_the_watchdogs_launch_runs_all_four_on_their_yaml():
-    nodes = watchdog_nodes(sim='false')
-    assert list(nodes) == ['link_watchdog', 'fence_watchdog', 'fcu_watchdog',
-                           'ekf_input_watchdog']
-    assert all(parameters == {'use_sim_time': False} for parameters in nodes.values())
-
-
 def test_the_sim_has_no_host_diagnostic():
     assert 'host_diagnostic' not in dict(device_profile.select(device_profile.load('sim')))
 
-
-@pytest.mark.parametrize('arguments, message', [
-    ({'require_operator': 'maybe'}, 'require_operator: invalid launch boolean: maybe'),
-])
-def test_bad_watchdog_arguments_are_refused(arguments, message):
-    with pytest.raises(ValueError, match=message):
-        watchdog_nodes(**arguments)

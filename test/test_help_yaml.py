@@ -1,61 +1,50 @@
-"""help.yaml (astro_dock's help browser) lists every launch file and only real arguments."""
+"""help.yaml (astro's help browser): device.launch.py is the one launch entry, and every choice is real."""
 from pathlib import Path
 import re
 
+import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-COMMANDS = yaml.safe_load((ROOT / 'help.yaml').read_text())['commands']
+COMMANDS = {c['name']: c for c in yaml.safe_load((ROOT / 'help.yaml').read_text())['commands']}
 
 
-def launches():
-    """{launch file: its help.yaml command} of every 'ros2 launch mhseals_nav' entry."""
-    found = {}
-    for command in COMMANDS:
-        words = command.get('run', '').split()
-        if words[:3] == ['ros2', 'launch', 'mhseals_nav']:
-            found[words[3]] = command
-    return found
+def params(name):
+    return {p['name']: p for p in COMMANDS[name].get('params', [])}
 
 
-def choices(name):
-    return next(set(p['choices']) for c in COMMANDS for p in c.get('params', [])
-                if c['name'] == name and 'choices' in p)
+def test_device_is_the_only_launch_and_its_arguments_are_declared():
+    launches = [c for c in COMMANDS.values() if c['run'].startswith('ros2 launch')]
+    assert [c['run'] for c in launches] == ['ros2 launch mhseals_nav device.launch.py']
+    source = (ROOT / 'launch/device.launch.py').read_text()
+    for name in params('device'):
+        assert re.search(r"""['"]%s['"]""" % name, source), name
+    assert set(params('device')['device']['choices']) == {
+        p.stem for p in (ROOT / 'config/devices').glob('*.yaml')}
 
 
-def test_every_launch_file_is_listed():
-    files = {path.name for path in (ROOT / 'launch').glob('*.launch.py')}
-    assert set(launches()) == files
+def test_every_entry_has_a_level_and_a_host():
+    for name, command in COMMANDS.items():
+        assert command['level'] in ('core', 'setup'), name
+        assert command['host'] in ('boat_computer', 'operator'), name
 
 
-def test_listed_arguments_are_declared_by_their_launch():
-    for launch, command in launches().items():
-        source = (ROOT / 'launch' / launch).read_text()
-        for param in command.get('params', []):
-            assert re.search(r"""['"]%s['"]""" % param['name'], source), (launch, param['name'])
+def test_task_profiles_match_the_files():
+    assert set(params('task')['--profile']['choices']) == {
+        p.stem for p in (ROOT / 'config/tasks/profiles').glob('*.yaml')}
 
 
-def test_choices_match_the_code():
-    trees = (ROOT / 'mhseals_nav/tasks/trees/__init__.py').read_text()
-    names = set(re.findall(r"^\s+'(\w+)': \w+\.build", trees, re.M)) | {'mission'}
-    assert choices('task.launch') == names
-    assert choices('run_task') == names
-    assert choices('device.launch') == {p.stem for p in (ROOT / 'config/devices').glob('*.yaml')}
-    profiles = ROOT / 'config/tasks/profiles'
-    assert {p['name']: set(p.get('choices', [])) for c in COMMANDS if c['name'] == 'run_task'
-            for p in c['params']}['--profile'] == {p.stem for p in profiles.glob('*.yaml')}
-
-
-def test_fence_lists_its_file_keys():
-    from mhseals_nav.fence import ON_EXIT
-    fence = next(c for c in COMMANDS if c['name'] == 'fence')
-    params = {p['name']: p for p in fence['params']}
-    assert set(params['on_exit']['choices']) == set(ON_EXIT)
-    assert set(params['frame']['choices']) == {'latlon', 'map'}
-    source = (ROOT / 'mhseals_nav/fence.py').read_text()
-    for name in params:
-        assert f"'{name}'" in source, name
-
-
-def test_trial_lists_every_course():
-    assert choices('trial') == {p.stem for p in (ROOT / 'config/trials').glob('*.yaml')}
+@pytest.mark.parametrize('name, param, expected', [
+    ('task', '--task', lambda: __import__('mhseals_nav.tasks.trees', fromlist=['TREES']).TREES),
+    ('trial', 'course', lambda: [p.stem for p in (ROOT / 'config/trials').glob('*.yaml')]),
+])
+def test_choices_from_prints_the_real_choices(name, param, expected, capsys):
+    command = params(name)[param]['choices_from'].split()
+    assert command[:3] == ['ros2', 'run', 'mhseals_nav'] and command[-1] == '--list'
+    if command[3] == 'run_task':
+        from mhseals_nav.tasks.interface import main
+        main(['run_task', '--list'])
+    else:
+        from mhseals_nav.trial import main
+        assert main(['--list']) == 0
+    assert capsys.readouterr().out.split() == sorted(expected())

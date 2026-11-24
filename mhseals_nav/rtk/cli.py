@@ -1,10 +1,9 @@
-"""rtk_base (run the corrections source) and `rtk status` (what the rover and the source are doing).
+"""`rtk base` (run the corrections source) and `rtk status` (what the rover and the source are doing).
 
-  ros2 run mhseals_nav rtk_base [PORT] [--source auto|local|ntrip] [--pin MOUNT] [--survey | --known NAME | --resume]
+  ros2 run mhseals_nav rtk base [PORT] [--source auto|local|ntrip] [--pin MOUNT] [--survey | --known NAME | --resume]
   ros2 run mhseals_nav rtk status [--watch]  # exit 0 only while corrections reach a subscriber
-  ros2 run mhseals_nav rtk base ...          # same as rtk_base
 
-rtk_base prints a status line (base_line) when it changes, at most every few seconds; `rtk status`
+rtk base prints a status line (base_line) when it changes, at most every few seconds; `rtk status`
 prints the same with the rover's fix and the survey's progress.
 """
 
@@ -40,7 +39,7 @@ def base_line(status, percent=False):
     ``percent`` adds the survey's progress (rtk status).
     """
     if not status:
-        return 'rtk_base not running (no /rtk/status)'
+        return 'rtk base not running (no /rtk/status)'
     source = status.get('source') or {}
     net = source.get('ntrip') or {}
     kind, phase, detail = source.get('kind', 'base'), status.get('phase'), status.get('detail') or ''
@@ -88,7 +87,7 @@ def base_line(status, percent=False):
 
 
 class Printer:
-    """Decides when rtk_base prints its line: on a change of what it says (numbers aside) at most
+    """Decides when rtk base prints its line: on a change of what it says (numbers aside) at most
     every ``gap`` s, and a changed number at most every ``every`` s."""
 
     def __init__(self, gap=3.0, every=15.0):
@@ -134,7 +133,7 @@ def status_line(status, rover):
 def parse(argv):
     """argv -> (config, survey, position, source, pin); ValueError on a bad config or an unknown position."""
     from mhseals_nav.rtk import base, ntrip
-    ap = argparse.ArgumentParser(prog='rtk_base', description='RTK corrections to MAVROS from a USB base receiver '
+    ap = argparse.ArgumentParser(prog='rtk base', description='RTK corrections to MAVROS from a USB base receiver '
                                  'and/or public NTRIP (mountpoint picked by distance from the rough fix).')
     ap.add_argument('port', nargs='?', help='serial device of the base receiver (default: config device)')
     ap.add_argument('--config', help='settings YAML (default: $MHSEALS_RTK_CONFIG or ~/.config/mhseals/rtk.yaml)')
@@ -158,7 +157,7 @@ def parse(argv):
     elif not config['device'] and args.source != 'ntrip':
         device, how = base.find_receiver()
         config['device'] = device or ''
-        print(f'rtk_base: base receiver {device} ({how})' if device else f'rtk_base: {how}', flush=True)
+        print(f'rtk base: base receiver {device} ({how})' if device else f'rtk base: {how}', flush=True)
     if args.resume:
         config['auto_site'] = False
     position = None
@@ -182,7 +181,7 @@ def base_main(argv=None):
     try:
         config, survey, position, source, pin = parse(sys.argv[1:] if argv is None else argv)
     except ValueError as error:
-        raise SystemExit(f'rtk_base: {error}')
+        raise SystemExit(f'rtk base: {error}')
     from mhseals_nav.rtk.node import serve
     serve(config, survey, position, source, pin)
 
@@ -192,7 +191,7 @@ def main(argv=None):
     if argv and argv[0] == 'base':
         return base_main(argv[1:])
     ap = argparse.ArgumentParser(prog='rtk', description='RTK: `rtk status` (rover fix and corrections), '
-                                 '`rtk base ...` (= rtk_base).')
+                                 '`rtk base ...` (the corrections source).')
     ap.add_argument('command', choices=['status', 'base'])
     ap.add_argument('--watch', action='store_true', help='print a line every 2 s until Ctrl-C')
     # exit 0 only when healthy(): a lake checklist's `rtk status` fails while nothing reaches the FCU
