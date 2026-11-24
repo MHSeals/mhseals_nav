@@ -1,10 +1,11 @@
 """Device profiles: what one computer runs, as parts built from this package's launch files.
 
 ``config/devices/<name>.yaml`` is the only place a responsibility is assigned to a computer
-(device-topology.md); mhseals_testing derives the part -> host map from these files. Layers,
+(``ros2 launch mhseals_nav device.launch.py device:=NAME``). Layers,
 lowest first: the package profile (and its ``extends``), ``$ROS_WS/config/devices/<name>.yaml``
 (deployment), ``~/.config/mhseals/devices/<name>.yaml`` (operator), then the session's
-``overrides``. The thruster driver and command_mux are never parts: they start with arming.
+``overrides``. The thruster driver and command_mux are never parts: they start by hand with
+``ros2 launch mhseals_hardware drive.launch.py``.
 """
 from copy import deepcopy
 import json
@@ -19,7 +20,6 @@ PART_KEYS = {'launch', 'run', 'args', 'nodes', 'enabled', 'kind', 'with'}
 KINDS = ('sensing', 'commander')
 COMMANDER_LAUNCHES = {'navigation.launch.py', 'task.launch.py'}
 DRIVERS = {'thruster_pwm_node', 'command_mux'}
-OTHER_PACKAGE_RUNS = {('mhseals_testing', 'rtk_base')}   # operator tooling with no home here
 
 
 def share():
@@ -164,10 +164,10 @@ def check(profile, name):
         if 'run' in spec:
             if DRIVERS & set(spec['run']):
                 raise ValueError(f'{here}: the thruster driver and command_mux start with '
-                                 'arming in the TUI, never as a device part')
+                                 'mhseals_hardware drive.launch.py, never as a device part')
             if spec.get('args'):
                 raise ValueError(f'{here}.args: give a run part its arguments in run')
-            if spec['run'][0] != 'mhseals_nav' and tuple(spec['run'][:2]) not in OTHER_PACKAGE_RUNS:
+            if spec['run'][0] != 'mhseals_nav':
                 raise ValueError(f'{here}.run: {" ".join(spec["run"][:2])} is another package\'s; '
                                  'a device part runs mhseals_nav executables')
             continue
@@ -180,7 +180,7 @@ def check(profile, name):
 def select(profile, only=''):
     """[(part, spec)] to start: every enabled part, or the named ones (each must be enabled).
 
-    A named part brings its enabled ``with`` parts (the boat's watchdogs come up with odometry).
+    A named part brings its enabled ``with`` parts.
     """
     names = [item.strip() for item in only.split(',') if item.strip()]
     if not names:

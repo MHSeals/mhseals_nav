@@ -163,9 +163,8 @@ def test_a_relative_fence_file_is_in_the_package_config():
 
 
 def test_the_crane_search_area_lies_inside_the_sim_fence_minus_its_margin():
-    """The sim fences the crane world with fences/crane.yaml; its mission searches inside."""
-    sim = yaml.safe_load(config_path('devices/sim.yaml').read_text())
-    fence, why = load_fence(sim['parts']['watchdogs']['args']['fence_file'])
+    """fences/crane.yaml fences the crane world (watchdogs.launch fence_file:=fences/crane.yaml); its mission searches inside."""
+    fence, why = load_fence('fences/crane.yaml')
     assert not why and fence['frame'] == 'map'
     poly = polygon('map', fence['points'])
     (x0, y0), (x1, y1) = yaml.safe_load(

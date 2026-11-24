@@ -4,15 +4,11 @@ extends: [odroid, jetson]
 requires: []
 args: {sim: 'true'}
 parts:
-  odometry: {args: {fcu: 'false'}, with: []}    # the sim starts its watchdogs part on its own
+  odometry: {args: {fcu: 'false'}}
   ekf: {args: {ekf_startup_context: standalone}}
   camera: {enabled: false}
   objects: {args: {backend: sim}, nodes: [object_tracker]}
   sensors: {nodes: []}
-  # No operator laptop and no FCU here. The fence is the crane world's map box (config/fences).
-  watchdogs: {args: {require_operator: 'false', fcu_watchdog: 'false',
-                     fence_file: fences/crane.yaml},
-              nodes: [link_watchdog, fence_watchdog, ekf_input_watchdog]}
   host_diagnostic: {enabled: false}       # it reports the Orin's temperature and power mode
   # The boat only logs approaches (watchdogs.yaml tune.approach_guard.enforce); sim holds on them.
   navigation: {args: {approach_enforce: 'true'}}

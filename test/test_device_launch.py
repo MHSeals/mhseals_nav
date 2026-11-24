@@ -64,27 +64,17 @@ def test_only_starts_the_named_parts():
         'sim': 'false', 'ekf_startup_context': 'included'}
 
 
-def test_the_boat_watchdogs_start_with_odometry_on_the_boat():
-    parts = expand(device='odroid', only='odometry')
-    assert list(parts) == ['odom.launch.py', 'watchdogs.launch.py']
-    assert parts['watchdogs.launch.py'][1] == {'sim': 'false'}     # no operator or lease asked
-    profile = device_profile.load('odroid')
-    names = [name for name, _ in device_profile.select(profile, 'odometry,watchdogs')]
-    assert names == ['odometry', 'watchdogs']                      # once, never a second copy
-    assert [name for name, _ in device_profile.select(profile, 'ekf')] == ['ekf']
-    off = device_profile.load('odroid', overrides={'parts': {'watchdogs': {'enabled': False}}})
-    assert [name for name, _ in device_profile.select(off, 'odometry')] == ['odometry']
-
-
-def test_the_sim_starts_odometry_without_its_watchdogs():
-    profile = device_profile.load('sim')
-    assert [name for name, _ in device_profile.select(profile, 'odometry')] == ['odometry']
+def test_odometry_starts_alone_on_the_boat_and_in_the_sim():
+    """No device profile starts the watchdogs: the drive stack is started by hand."""
+    assert list(expand(device='odroid', only='odometry')) == ['odom.launch.py']
     assert list(expand(device='sim', only='odometry')) == ['odom.launch.py']
+    for device in ('odroid', 'sim'):
+        assert 'watchdogs' not in device_profile.load(device)['parts']
 
 
 def test_a_run_part_is_one_ros2_run():
     assert expand(device='operator') == {
-        'rtk_base': (['ros2', 'run', 'mhseals_testing', 'rtk_base'], {}),
+        'rtk_base': (['ros2', 'run', 'mhseals_nav', 'rtk_base'], {}),
         'operator_heartbeat': (['ros2', 'run', 'mhseals_nav', 'operator_heartbeat'], {})}
 
 
@@ -92,7 +82,7 @@ def test_sim_extends_both_computers_without_the_camera():
     profile = device_profile.load('sim')
     assert profile['requires'] == []
     assert [name for name, _ in device_profile.select(profile)] == [
-        'odometry', 'ekf', 'mapping', 'navigation', 'mission', 'watchdogs', 'objects', 'sensors']
+        'odometry', 'ekf', 'mapping', 'navigation', 'mission', 'objects', 'sensors']
     assert device_profile.launch_arguments(profile, profile['parts']['odometry']) == {
         'sim': 'true', 'fcu': 'false', 'start_ekf': 'false'}
     assert profile['parts']['objects']['args'] == {'backend': 'sim'}
@@ -112,10 +102,10 @@ def test_approach_guard_enforces_in_sim_and_only_logs_on_the_boat():
 
 
 def test_overrides_are_the_session_layer():
-    overrides = '{"parts": {"navigation": {"args": {"limits_file": "/x/nav2.yaml"}}}}'
+    overrides = '{"parts": {"navigation": {"args": {"hardware_config": "/x/hardware.yaml"}}}}'
     parts = expand(device='odroid', only='navigation', overrides=overrides)
     assert parts['navigation.launch.py'][1] == {
-        'sim': 'false', 'command_mux': 'true', 'limits_file': '/x/nav2.yaml'}
+        'sim': 'false', 'command_mux': 'true', 'hardware_config': '/x/hardware.yaml'}
 
 
 def test_deployment_and_operator_layers_apply_in_order(source_tree):
@@ -162,10 +152,10 @@ def test_no_launch_file_here_starts_the_thruster_driver_or_the_mux():
      r'<name>\.launch\.py'),
     ({'parts': {'ekf': {'launch': '/opt/x/task.launch.py'}}}, r'<name>\.launch\.py'),
     ({'parts': {'ekf': {'launch': 'navigation.launch.xml'}}}, r'<name>\.launch\.py'),
-    ({'parts': {'pwm': {'run': ['mhseals_hardware', 'thruster_pwm_node']}}}, 'with arming'),
-    ({'parts': {'mux': {'run': ['mhseals_hardware', 'command_mux']}}}, 'start with arming'),
+    ({'parts': {'pwm': {'run': ['mhseals_hardware', 'thruster_pwm_node']}}}, 'drive.launch.py'),
+    ({'parts': {'mux': {'run': ['mhseals_hardware', 'command_mux']}}}, 'drive.launch.py'),
     ({'parts': {'odd': {'nodes': ['x']}}}, 'exactly one of launch or run'),
-    ({'parts': {'beat': {'run': ['mhseals_testing', 'operator_heartbeat']}}}, "another package's"),
+    ({'parts': {'beat': {'run': ['other_pkg', 'operator_heartbeat']}}}, "another package's"),
     ({'parts': {'gps': {'run': ['some_driver', 'rtk_base']}}}, "another package's"),
     ({'parts': {'ekf': {'enabled': 'no'}}}, 'true or false'),
     ({'parts': {'ekf': {'colour': 'red'}}}, 'keys from'),
@@ -175,7 +165,7 @@ def test_no_launch_file_here_starts_the_thruster_driver_or_the_mux():
     ({'parts': {'odometry': {'with': ['ghost']}}}, "'ghost' is not another part"),
     ({'parts': {'odometry': {'with': ['odometry']}}}, "'odometry' is not another part"),
     ({'parts': {'odometry': {'with': ['navigation']}}}, 'can command motion'),
-    ({'parts': {'ekf': {'with': ['odometry']}}}, 'brings parts of its own'),
+    ({'parts': {'odometry': {'with': ['mapping']}, 'ekf': {'with': ['odometry']}}}, 'brings parts of its own'),
 ])
 def test_bad_profiles_are_refused(overrides, message):
     with pytest.raises(ValueError, match=message):
@@ -226,28 +216,14 @@ def watchdog_nodes(**arguments):
     return dict(module.watchdog_parameters(lambda name: {**defaults, **arguments}[name]))
 
 
-def test_the_boat_runs_all_four_watchdogs_on_their_yaml():
-    arguments = expand(device='odroid', only='watchdogs')['watchdogs.launch.py'][1]
-    assert arguments == {'sim': 'false'}
-    nodes = watchdog_nodes(**arguments)
+def test_the_watchdogs_launch_runs_all_four_on_their_yaml():
+    nodes = watchdog_nodes(sim='false')
     assert list(nodes) == ['link_watchdog', 'fence_watchdog', 'fcu_watchdog',
                            'ekf_input_watchdog']
     assert all(parameters == {'use_sim_time': False} for parameters in nodes.values())
 
 
-def test_the_sim_watchdogs_need_no_operator_or_fcu_and_fence_a_map_box():
-    arguments = expand(device='sim', only='watchdogs')['watchdogs.launch.py'][1]
-    nodes = watchdog_nodes(**arguments)
-    assert list(nodes) == ['link_watchdog', 'fence_watchdog', 'ekf_input_watchdog']
-    assert nodes['ekf_input_watchdog'] == {'use_sim_time': True}
-    assert nodes['link_watchdog'] == {'use_sim_time': True, 'require_operator': False}
-    fence = nodes['fence_watchdog']
-    # The package's crane box, never the operator's file.
-    assert fence == {'use_sim_time': True, 'fence_file': 'fences/crane.yaml'}
-    from mhseals_nav.fence import inside, load_fence, polygon
-    box = polygon('map', load_fence(fence['fence_file'])[0]['points'])
-    assert inside((0.0, 0.0), box) and inside((12.0, -14.0), box)
-    assert not inside((-77.0, -76.0), box)
+def test_the_sim_has_no_host_diagnostic():
     assert 'host_diagnostic' not in dict(device_profile.select(device_profile.load('sim')))
 
 

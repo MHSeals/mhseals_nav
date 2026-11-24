@@ -1,5 +1,5 @@
 # The camera computer (Orin + ZED 2i + VLP16): camera, perception and the lidar, no motion.
-# Started on demand (the TUI, through a unit), never on container start.
+# Started by hand (ros2 launch mhseals_nav device.launch.py device:=jetson), never on container start.
 requires: [zed, gpu]
 args: {sim: 'false'}
 parts:
@@ -11,5 +11,5 @@ parts:
   # velodyne_driver runs on the large-data transport, which no other computer discovers; the
   # relay that carries /points onto the default transport is the proof the part is up.
   sensors: {launch: sensors.launch.py, nodes: [lidar_relay_publish]}
-  # Temperature, power mode and free disk on /diagnostics for the TUI's preflight.
+  # Temperature, power mode and free disk on /diagnostics.
   host_diagnostic: {run: [mhseals_nav, host_diagnostic], nodes: [host_diagnostic]}
