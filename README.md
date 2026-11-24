@@ -1,8 +1,19 @@
 # mhseals_nav
 
-### Overview
+The boat's bringup: sensors, localization (EKFs), perception (camera and lidar objects), Nav2 and the
+RoboBoat task trees. It runs the same against the real boat and the [crane_ml](https://github.com/1unarzDev/crane_ml)
+simulator; the thrusters are [mhseals_hardware](https://github.com/MHSeals/mhseals_hardware).
 
-This package serves as the core navigation system for the ASV, interacting with the simulation and hardware interfaces established in [`crane_sim`](https://github.com/1unarzDev/crane_sim) and [`mhseals_hardware`](https://github.com/mhseals/mhseals_hardware). It encompasses sensor data fusion, localization, object detection and tracking, task detection, path generation, path following, and velocity outputs.
+```bash
+astro up                      # sensors (MAVROS, EKFs), perception (ZED, lidar) and drive, each on its host
+astro up nav                  # Nav2 on the boat computer (reads the applied nav2 limits)
+astro trial line --scale 0.5  # drive a 10 m out-and-back through Nav2 and print its metrics
+astro rtk status              # RTK fix, satellites and correction source
+```
+
+Sections: [Launch files](#usage) · [Trials](#trials) · [Tuning Nav2](#tuning-nav2) ·
+[RTK corrections](#rtk-corrections) · [Tasks](#tasks) · [Architecture](#architecture) ·
+[FCU parameters](#fcu-parameters) · [Development](#development)
 
 ### Usage
 
@@ -12,8 +23,8 @@ Launch files separate the main responsibilities:
 - `device.launch.py device:=<profile>` is how any computer starts its share of the stack, by hand in its dev container (`astro on HOST`). A device profile in `config/devices/` lists its parts, each an include of a launch file here with arguments, or one `ros2 run`: `odroid` (the boat computer: MAVROS, EKFs, SLAM, Nav2, missions), `jetson` (camera, `objects.launch.py backend:=zed`, the lidar and `host_diagnostic`), `operator` (the RTK base and the operator heartbeat) and `sim` (both boat computers on one machine against the crane_ml simulator). `only:=a,b` starts a subset, and `overrides:='<json>'` is the session layer over `$ROS_WS/config/devices/<profile>.yaml` and `~/.config/mhseals/devices/<profile>.yaml`. The drive stack (thruster driver, `command_mux`) is never a part: start it with `ros2 launch mhseals_hardware drive.launch.py`.
 - `camera.launch.py` starts the ZED wrapper with `config/zed_boat.yaml` and `config/custom_object_detection.yaml`, plus lazy `/front_camera/camera_info` and a 2 Hz preview; `slam:=true` adds raw RGB and depth.
 - `odom.launch.py` starts MAVROS and measurement relays (`fcu:=true`), robot TF, and `ekf.launch.py` (dual EKFs and Navsat; `start_ekf:=false` leaves them to a separate launch, and `~/.config/mhseals/ekf.yaml` overrides parameters per node).
-- `navigation.launch.py` starts Nav2 servers and lifecycle management. Its motion limits are the hardware state file's `characterization.nav2_limits` (`hardware_config:=`, else `$MHSEALS_HARDWARE_CONFIG`, else `~/.config/mhseals/hardware.yaml`; `astro apply` writes it), clipped to `config/nav2_ceilings.yaml` with a warning; without them `nav2_params.yaml`'s own stay. SLAM is optional. With `command_mux:=true` it adds the stale-costmap watchdog (unless `perception:=false`, for Nav2 without a perception costmap) and the approach guard.
-- `watchdogs.launch.py` starts the link, fence, FCU and EKF-input watchdogs. They no longer act: command_mux has no `~/request` (hold/release), so their holds reach nobody, and no device profile starts them.
+- `navigation.launch.py` starts Nav2 servers and lifecycle management. Its motion limits are the hardware state file's `characterization.nav2_limits` (`hardware_config:=`, else `$MHSEALS_HARDWARE_CONFIG`, else `~/.config/mhseals/hardware.yaml`; `astro apply` writes it), clipped to `config/nav2_ceilings.yaml` with a warning; without them `nav2_params.yaml`'s own stay. SLAM is optional. `command_mux:=true` adds the stale-costmap watchdog and the approach guard, which are inert in the same way as the watchdogs below.
+- `watchdogs.launch.py` starts the link, fence, FCU and EKF-input watchdogs. They are inert: their hold requests reach nothing (command_mux takes none) and no device profile starts them ([issue #9](https://github.com/MHSeals/mhseals_field/issues/9)).
 - `slam.launch.py` starts RTABMap mapping, leaving localization TF with the EKFs.
 - `objects.launch.py` starts one camera backend (`backend:=zed|sim`), the tracker and the perception costmap. On the boat the Orin runs them.
 
@@ -22,11 +33,11 @@ ros2 launch mhseals_nav <launch_name>.launch.py param1:=value1 param2:=value2
 ros2 launch mhseals_nav device.launch.py device:=sim
 ```
 
-Start each component once. `sim` defaults to `false` in every launch file; the `sim` profile sets it, and `sim:=true` requires the simulator's `/clock`.
+Start each component once; on the boat `astro up` does it (the vessel profile's `astro.stacks`). `sim` defaults to `false` in every launch file; the `sim` profile sets it, and `sim:=true` requires the simulator's `/clock`.
 
 `/cmd_vel` is the final smoothed navigation output. Nav2 commands are velocity targets; the hardware PWM driver interprets Twist as effort, so autonomous propulsion requires a calibrated velocity controller.
 
-While a task runs, the runner sends zero velocity to `/cmd_vel_nav` whenever Nav2 has been silent for 0.3 s (between goals, after an abort, during the recovery Wait), so the boat keeps station. These zeros keep `/cmd_vel` flowing, so the costmap watchdog treats the task as autonomous from its start: a perception fault holds the boat during those gaps. The zeros stop at an override, a refusal or the end of the run.
+While a task runs, the runner sends zero velocity to `/cmd_vel_nav` whenever Nav2 has been silent for 0.3 s (between goals, after an abort, during the recovery Wait), so the boat keeps station. The zeros stop at an override, a refusal or the end of the run.
 
 ### Parameters
 
@@ -131,33 +142,35 @@ The NTRIP mountpoint is ranked by distance from the rough fix (rover, else base,
 
 ### Trials
 
-`trial` drives a course from `config/trials/` (`line` 20 m out and back, `square` 10 m, `zigzag`) through Nav2's NavigateThroughPoses, placed relative to the boat's start pose:
+`astro trial COURSE` (`ros2 run mhseals_nav trial`) drives a course from `config/trials/` (`line` 20 m out and back, `square` 10 m, `zigzag`) through Nav2's NavigateThroughPoses, placed relative to the boat's start pose. Start Nav2 first (`astro up nav`).
 
 ```bash
-ros2 run mhseals_nav trial square --scale 0.5
+astro trial square --scale 0.5
 ```
 
 It drives one leg per pose (a closed course ends at its start, and Nav2's goal checker only looks at a path's last pose) and reports `done` only when every leg ends within `--tolerance` (0.5 m) of its pose, else `incomplete k/n`. It prints a progress line every second, then time, mean/max cross-track error (`xte`), final position error, yaw-rate sign changes, max speed and `track=vx vy wz` (mean/max of Nav2's `/cmd_vel` minus the odometry body velocity).
 
-A large track error means the boat isn't doing what Nav2 asked: fix the control layers first. A small track error with a bad `xte` means: tune Nav2. The line is appended to the day log (`$ASTRO_DATA/<date>/log.txt`) and published on `/events`, with a hash of `controller_server`'s live parameters so runs can be compared by tuning. Bag presets for `astro rec` are `config/bags.yaml`.
+**Read `track=` first.** A large track error means the boat isn't doing what Nav2 asked: fix the control layers first ([CONTROL.md](https://github.com/MHSeals/mhseals_hardware/blob/main/docs/CONTROL.md), L3–L6). A small track error with a bad `xte` means: tune Nav2. The line is appended to the day log (`$ASTRO_DATA/<date>/log.txt`) and published on `/events`, with a hash of `controller_server`'s live parameters so runs can be compared by tuning. Bag presets for `astro rec` are `config/bags.yaml`.
 
 ### Tuning Nav2
 
 Work in this order; each step assumes the ones before it.
 
-1. **Velocity loop**: `astro test steps-surge` (and `-sway`, `-yaw`) until `track` in a trial is small.
-2. **Limits**: `astro test nav2`, then `astro apply nav2`. Nav2 reads them at launch, so restart `navigation.launch.py` after applying.
+1. **Velocity loop**: `astro test steps` (surge, sway, yaw) until `track=` in a trial is small.
+2. **Limits**: `astro test nav2`, then `astro apply nav2`. Nav2 reads them at launch, so restart it (`astro down nav && astro up nav`).
 3. **Rotation shim**: `FollowPath.angular_dist_threshold` (rad of heading error before the boat turns in place).
 4. **MPPI's few knobs**: the horizon (`time_steps` × `model_dt`; `model_dt` follows `controller_frequency`), `temperature`, and the `cost_weight` of `PathFollowCritic`, `PathAlignCritic`, `GoalCritic` and `PreferForwardCritic`.
 5. Leave the planner alone.
 
-The manual loop, one change at a time:
+The manual loop, one change at a time (a live `ros2 param set` lasts until Nav2 restarts; put the keeper in `config/nav2_params.yaml`):
 
 ```bash
 ros2 param set /controller_server FollowPath.PathAlignCritic.cost_weight 14.0
-astro trial line
 astro mark "PathAlign 14"
+astro trial line
 ```
+
+The trial line carries a hash of `controller_server`'s parameters, so `astro log` groups runs by tuning.
 
 ### Development
 
