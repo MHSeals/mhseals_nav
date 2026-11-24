@@ -179,6 +179,8 @@ def test_the_receiver_port_is_found_and_another_vendor_is_never_picked():
     ports = [Port('/dev/ttyACM0', 0x2DAE), Port('/dev/ttyACM1', 0x1546)]
     assert base.find_receiver(paths(['/dev/ttyACM0', '/dev/ttyACM1']), ports)[0] == '/dev/ttyACM1'
     assert base.find_receiver(paths(['/dev/ttyACM0']), ports[:1])[0] is None     # an FCU, not a receiver
+    found = base.receivers(paths(['/dev/ttyACM0', '/dev/ttyACM1', '/dev/ttyACM2']), ports)   # rtk ports
+    assert [device for device, _ in found] == ['/dev/ttyACM1', '/dev/ttyACM2']
 
 
 def test_the_base_line_shows_the_survey_and_where_rtcm_goes_or_why_not():

@@ -23,28 +23,42 @@ commands:
       - ros2 launch mhseals_nav device.launch.py device:=odroid only:=localization
       - ros2 launch mhseals_nav device.launch.py device:=sim
 
-  - name: rtk
-    run: ros2 run mhseals_nav rtk
+  - name: rtk base
+    run: ros2 run mhseals_nav rtk base
     level: core
     host: operator
-    summary: 'rtk base: RTK corrections to MAVROS from the USB base receiver and/or NTRIP; rtk status: the rover fix and its corrections.'
+    summary: RTK corrections to MAVROS from the USB base receiver and/or NTRIP, until Ctrl-C.
     notes: >-
       Settings: ~/.config/mhseals/rtk.yaml (device, saved sites, ntrip overrides); casters in config/ntrip.yaml,
       credentials in ~/.config/astro/secrets.env. The NTRIP mountpoint is the nearest to the rough fix (any region).
-      rtk status exits 1 unless corrections reach a subscriber.
     params:
-      - {name: command, required: true, choices: [base, status], description: 'base runs the corrections source; status prints the rover fix (none/float/fixed), satellites, source, mount and age.'}
-      - {name: port, description: 'base: serial device of the base receiver; empty uses the settings device, else the first u-blox.'}
-      - {name: --source, choices: [auto, local, ntrip], default: auto, description: 'base: auto uses both (the nearer/fixed one feeds the FCU); local the USB base only; ntrip NTRIP only.'}
-      - {name: --pin, description: 'base: stream only this NTRIP mountpoint (MOUNT or CASTER/MOUNT).'}
-      - {name: --survey, type: bool, description: 'base: start a new survey-in.'}
-      - {name: --known, description: 'base: fix the base at a named saved site.'}
-      - {name: --resume, type: bool, description: 'base: adopt the receiver as it is.'}
-      - {name: --watch, type: bool, description: 'status: print a line every 2 s.'}
+      - {name: port, default: auto, choices_from: ros2 run mhseals_nav rtk ports,
+         description: 'Serial device of the base receiver; auto is the settings device, else the first u-blox found (rtk ports).'}
+      - {name: --source, choices: [auto, local, ntrip], default: auto, description: 'auto uses both (the nearer/fixed one feeds the FCU); local the USB base only; ntrip NTRIP only.'}
+      - {name: --pin, default: auto, description: 'Stream only this NTRIP mountpoint (MOUNT or CASTER/MOUNT); auto is the nearest.'}
+      - {name: --survey, type: bool, description: Start a new survey-in.}
+      - {name: --known, description: Fix the base at a named saved site.}
+      - {name: --resume, type: bool, description: Adopt the receiver as it is.}
     examples:
       - ros2 run mhseals_nav rtk base --source ntrip
       - ros2 run mhseals_nav rtk base /dev/ttyACM0 --source local --survey
+
+  - name: rtk status
+    run: ros2 run mhseals_nav rtk status
+    level: core
+    host: operator
+    summary: The rover fix (none/float/fixed), satellites, and the corrections' source, mount and age.
+    notes: Exits 1 unless corrections reach a subscriber.
+    params:
+      - {name: --watch, type: bool, description: Print a line every 2 s until Ctrl-C.}
+    examples:
       - ros2 run mhseals_nav rtk status --watch
+
+  - name: rtk ports
+    run: ros2 run mhseals_nav rtk ports
+    level: setup
+    host: operator
+    summary: The base receivers found (serial device and how), best first; rtk base uses the first.
 
   - name: task
     run: ros2 run mhseals_nav run_task
@@ -56,8 +70,8 @@ commands:
       (a human had control). Events on /task/events, status on /task/status.
     params:
       - {name: --task, required: true, choices_from: ros2 run mhseals_nav run_task --list, description: Task tree name.}
-      - {name: --params, type: path, description: 'Task YAML; default config/tasks/<task>.yaml.'}
-      - {name: --profile, choices: [qualifying, finals], description: "Mission overlay config/tasks/profiles/<name>.yaml; default the mission YAML's."}
+      - {name: --params, type: path, default: auto, description: 'Task YAML; auto is config/tasks/<task>.yaml.'}
+      - {name: --profile, choices: [qualifying, finals], default: auto, description: "Mission overlay config/tasks/profiles/<name>.yaml; auto is the mission YAML's."}
     examples:
       - ros2 run mhseals_nav run_task --task nav_channel
       - ros2 run mhseals_nav run_task --task mission --params config/tasks/mission_crane.yaml --ros-args -p use_sim_time:=true

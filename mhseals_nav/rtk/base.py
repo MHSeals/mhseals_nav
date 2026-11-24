@@ -32,29 +32,40 @@ MODELS = {'M8P': 'Here+', 'F9P': 'Here4'}
 UBLOX_VID = 0x1546
 
 
-def find_receiver(paths=glob.glob, ports=None):
-    """(device, how it was found) of the base receiver when none is configured, else (None, why not).
-
-    A u-blox device by id first, then any port with u-blox's USB vendor id, then a ttyACM whose
-    vendor is unknown (a port of another known vendor, e.g. an FCU, is never picked).
-    """
+def receivers(paths=glob.glob, ports=None):
+    """[(device, how it was found)] of every candidate base receiver, best first: u-blox devices by id,
+    then ports with u-blox's USB vendor id, then ttyACMs whose vendor is unknown (a port of another known
+    vendor, e.g. an FCU, is never listed)."""
     by_id = sorted(paths('/dev/serial/by-id/*u-blox*'))
     if by_id:
-        return by_id[0], 'u-blox by id' + (f', {len(by_id) - 1} more' if len(by_id) > 1 else '')
+        return [(d, 'u-blox by id') for d in by_id]
     if ports is None:
         try:
             from serial.tools import list_ports
             ports = list_ports.comports()
         except ImportError:
             ports = []
-    ublox = sorted(p.device for p in ports if getattr(p, 'vid', None) == UBLOX_VID)
-    if ublox:
-        return ublox[0], 'USB vendor 1546 (u-blox)'
+    out = [(d, 'USB vendor 1546 (u-blox)') for d in sorted(p.device for p in ports
+                                                            if getattr(p, 'vid', None) == UBLOX_VID)]
     other = {p.device for p in ports if getattr(p, 'vid', None) not in (None, UBLOX_VID)}
-    acm = sorted(d for d in paths('/dev/ttyACM*') if d not in other)
-    if acm:
-        return acm[0], 'first ttyACM, vendor unknown'
-    return None, 'no u-blox device (/dev/serial/by-id/*u-blox*, USB vendor 1546 or an unknown ttyACM)'
+    out += [(d, 'ttyACM, vendor unknown') for d in sorted(paths('/dev/ttyACM*'))
+            if d not in other and d not in {o for o, _ in out}]
+    return out
+
+
+def find_receiver(paths=glob.glob, ports=None):
+    """(device, how it was found) of the base receiver when none is configured, else (None, why not):
+    the first of receivers()."""
+    found = receivers(paths, ports)
+    if not found:
+        return None, 'no u-blox device (/dev/serial/by-id/*u-blox*, USB vendor 1546 or an unknown ttyACM)'
+    device, how = found[0]
+    if how == 'u-blox by id' and len(found) > 1:
+        how += f', {len(found) - 1} more'
+    elif how.startswith('ttyACM'):
+        how = 'first ttyACM, vendor unknown'
+    return device, how
+
 
 GCS_SYSTEM, GCS_COMPONENT = 255, 190
 

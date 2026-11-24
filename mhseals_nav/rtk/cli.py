@@ -135,7 +135,8 @@ def parse(argv):
     from mhseals_nav.rtk import base, ntrip
     ap = argparse.ArgumentParser(prog='rtk base', description='RTK corrections to MAVROS from a USB base receiver '
                                  'and/or public NTRIP (mountpoint picked by distance from the rough fix).')
-    ap.add_argument('port', nargs='?', help='serial device of the base receiver (default: config device)')
+    ap.add_argument('port', nargs='?', help='serial device of the base receiver (default: the config device, '
+                    'else found: rtk ports)')
     ap.add_argument('--config', help='settings YAML (default: $MHSEALS_RTK_CONFIG or ~/.config/mhseals/rtk.yaml)')
     ap.add_argument('--source', choices=SOURCES, default='auto',
                     help='auto: base and NTRIP, the nearer/fixed one feeds the FCU; local: the USB base only; '
@@ -190,9 +191,14 @@ def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     if argv and argv[0] == 'base':
         return base_main(argv[1:])
+    if argv[:1] == ['ports']:             # the base receivers found, best first: DEVICE<TAB>how (astro's picker)
+        from mhseals_nav.rtk.base import receivers
+        for device, how in receivers():
+            print(f'{device}\t{how}')
+        return 0
     ap = argparse.ArgumentParser(prog='rtk', description='RTK: `rtk status` (rover fix and corrections), '
-                                 '`rtk base ...` (the corrections source).')
-    ap.add_argument('command', choices=['status', 'base'])
+                                 '`rtk base ...` (the corrections source), `rtk ports` (the receivers found).')
+    ap.add_argument('command', choices=['status', 'base', 'ports'])
     ap.add_argument('--watch', action='store_true', help='print a line every 2 s until Ctrl-C')
     # exit 0 only when healthy(): a lake checklist's `rtk status` fails while nothing reaches the FCU
     ap.add_argument('--timeout', type=float, default=3.0, help='seconds to wait for the topics')
