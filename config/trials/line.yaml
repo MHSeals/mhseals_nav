@@ -1,0 +1,4 @@
+# Out and back: 20 m straight ahead along the start heading, then home.
+# points: [x, y] metres in the start pose's frame (x ahead, y left); --scale multiplies them.
+points: [[20, 0], [0, 0]]
+timeout_s: 180

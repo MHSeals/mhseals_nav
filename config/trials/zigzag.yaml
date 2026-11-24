@@ -1,0 +1,4 @@
+# Zigzag ahead: 4 m legs alternating 3 m left and right, 16 m out, then straight home.
+# points: [x, y] metres in the start pose's frame (x ahead, y left); --scale multiplies them.
+points: [[4, 3], [8, -3], [12, 3], [16, -3], [0, 0]]
+timeout_s: 240

@@ -46,6 +46,7 @@ set(ENTRY_POINTS
   host_diagnostic=host_diagnostic
   rtk_base=rtk.cli:base_main
   rtk=rtk.cli
+  trial=trial
 )
 foreach(entry ${ENTRY_POINTS})
   string(REPLACE "=" ";" entry "${entry}")

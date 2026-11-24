@@ -1,0 +1,4 @@
+# A 10 m square to the left of the start heading, ending at the start.
+# points: [x, y] metres in the start pose's frame (x ahead, y left); --scale multiplies them.
+points: [[10, 0], [10, 10], [0, 10], [0, 0]]
+timeout_s: 240
