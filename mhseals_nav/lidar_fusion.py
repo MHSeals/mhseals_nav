@@ -876,9 +876,6 @@ except ImportError:  # host pytest exercises only the pure functions
     Node = object
 
 
-load_yaml = params_file  # pinned: mhseals_testing's fusion calib reads nav configs through it
-
-
 class LidarFusion(Node):
     def __init__(self):
         from diagnostic_msgs.msg import DiagnosticArray

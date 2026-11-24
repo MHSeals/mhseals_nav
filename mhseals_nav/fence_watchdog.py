@@ -442,8 +442,8 @@ def node_class():
                 else:
                     node.get_logger().error(f'fence return failed: {arg}; holding (alert)')
 
-        # The fence is fence_file alone, read again on every change (the TUI's course popup and
-        # boat_agent fence write it whole): checked at fence_rate.
+        # The fence is fence_file alone, read again on every change (writers replace it whole):
+        # checked at fence_rate.
         watched = FenceFile(cfg['fence_file'])
 
         def reload():

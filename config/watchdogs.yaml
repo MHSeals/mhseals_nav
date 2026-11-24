@@ -16,7 +16,7 @@ tune:
     # inside the nearest edge at return_speed (Nav2's speed limit), sent again up to
     # return_tries times while Nav2 refuses it. However the return ends (back inside, not
     # within return_timeout, the mux leaving auto, the goal ending) it holds and stays paused
-    # until the operator (U) or an agent (boat_agent release) releases the hold.
+    # until the operator releases the hold.
     margin: 5.0                 # covers the coast after a neutral-thrust hold
     return_inset: 10.0
     return_speed: 0.5

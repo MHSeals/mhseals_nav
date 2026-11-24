@@ -2,7 +2,7 @@
 
 A kinematic boat, a one-goal Nav2 stand-in (a new goal aborts the running one, as Nav2 does), a
 command_mux stand-in (holds stop the boat) and a procedure that keeps station at a point outside
-the fence and honours /autonomy/pause the way mhseals_testing's runner does. Without the pause the
+the fence and honours /autonomy/pause the way a procedure runner must. Without the pause the
 procedure re-sends its goal whenever the fence's return replaced it, and the two fight.
 """
 

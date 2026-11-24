@@ -55,3 +55,7 @@ def test_fence_lists_its_file_keys():
     source = (ROOT / 'mhseals_nav/fence.py').read_text()
     for name in params:
         assert f"'{name}'" in source, name
+
+
+def test_trial_lists_every_course():
+    assert choices('trial') == {p.stem for p in (ROOT / 'config/trials').glob('*.yaml')}

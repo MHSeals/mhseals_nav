@@ -1,6 +1,5 @@
 """Keep ROS tests off the boat network: private DDS domain, no static peers, localhost only."""
-# Byte-identical copies: test/ros_isolation.py in mhseals_nav, mhseals_hardware and
-# mhseals_testing (no shared package between them). Change all three together.
+# Keep in step with any other package's copy of this file.
 
 import os
 

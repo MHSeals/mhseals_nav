@@ -9,10 +9,11 @@ This package serves as the core navigation system for the ASV, interacting with 
 Launch files separate the main responsibilities:
 
 - `sensors.launch.py` starts the Velodyne driver and lidar relay with `sim:=false`, or the ROS TCP endpoint with `sim:=true`. It never starts the camera.
-- `device.launch.py device:=<profile>` is how any computer starts its share of the stack. A device profile in `config/devices/` lists its parts, each an include of a launch file here with arguments, or one `ros2 run`. The profiles are `odroid` (the boat computer, with the hold-only link, fence and FCU watchdogs of `watchdogs.launch.py`, which a part's `with: [watchdogs]` starts beside odometry on the boat itself), `jetson` (camera, `objects.launch.py backend:=zed`, the lidar and `host_diagnostic`), `operator` (mhseals_testing's RTK base, the one part another package runs, and the operator heartbeat link_watchdog listens for) and `sim` (both computers on one machine against the simulator, the one-machine bring-up; the watchdogs need no operator or FCU and fence a map-frame box). `only:=a,b` starts a subset, and `overrides:='<json>'` is the session layer over `$ROS_WS/config/devices/<profile>.yaml` and `~/.config/mhseals/devices/<profile>.yaml`. The profiles are the only place a part is assigned to a computer; mhseals_testing derives which host runs what from them. Start it in the container (`docker exec roboboat_dev bash -c 'ros2 launch mhseals_nav device.launch.py device:=jetson'`) so `ASTRO_DDS_ADDRESS` pins the camera's DDS profile; the TUI does this on demand. The thruster driver and `command_mux` are never parts: they start with arming in the TUI.
+- `device.launch.py device:=<profile>` is how any computer starts its share of the stack, by hand in its dev container (`astro on HOST`). A device profile in `config/devices/` lists its parts, each an include of a launch file here with arguments, or one `ros2 run`: `odroid` (the boat computer: MAVROS, EKFs, SLAM, Nav2, missions), `jetson` (camera, `objects.launch.py backend:=zed`, the lidar and `host_diagnostic`), `operator` (the RTK base and the operator heartbeat) and `sim` (both boat computers on one machine against the crane_ml simulator). `only:=a,b` starts a subset, and `overrides:='<json>'` is the session layer over `$ROS_WS/config/devices/<profile>.yaml` and `~/.config/mhseals/devices/<profile>.yaml`. The drive stack (thruster driver, `command_mux`) is never a part: start it with `ros2 launch mhseals_hardware drive.launch.py`.
 - `camera.launch.py` starts the ZED wrapper with `config/zed_boat.yaml` and `config/custom_object_detection.yaml`, plus lazy `/front_camera/camera_info` and a 2 Hz preview; `slam:=true` adds raw RGB and depth.
 - `odom.launch.py` starts MAVROS and measurement relays (`fcu:=true`), robot TF, and `ekf.launch.py` (dual EKFs and Navsat; `start_ekf:=false` leaves them to a separate launch, and `~/.config/mhseals/ekf.yaml` overrides parameters per node).
-- `navigation.launch.py` starts Nav2 servers and lifecycle management. SLAM is optional. With `command_mux:=true` it adds the stale-costmap watchdog (unless `perception:=false`, for Nav2 without a perception costmap) and the approach guard.
+- `navigation.launch.py` starts Nav2 servers and lifecycle management. Its motion limits are the hardware state file's `characterization.nav2_limits` (`hardware_config:=`, else `$MHSEALS_HARDWARE_CONFIG`, else `~/.config/mhseals/hardware.yaml`; `astro apply` writes it), capped by `config/nav2_ceilings.yaml`; without them `nav2_params.yaml`'s own stay. SLAM is optional. With `command_mux:=true` it adds the stale-costmap watchdog (unless `perception:=false`, for Nav2 without a perception costmap) and the approach guard.
+- `watchdogs.launch.py` starts the hold-only link, fence, FCU and EKF-input watchdogs; no device profile starts it.
 - `slam.launch.py` starts RTABMap mapping, leaving localization TF with the EKFs.
 - `objects.launch.py` starts one camera backend (`backend:=zed|sim`), the tracker and the perception costmap. On the boat the Orin runs them.
 
@@ -25,7 +26,7 @@ Start each component once. `sim` defaults to `false` in every launch file; the `
 
 `/cmd_vel` is the final smoothed navigation output. Nav2 commands are velocity targets; the hardware PWM driver interprets Twist as effort, so autonomous propulsion requires a calibrated velocity controller.
 
-While a task runs, the runner sends zero velocity to `/cmd_vel_nav` whenever Nav2 has been silent for 0.3 s (between goals, after an abort, during the recovery Wait), so the boat keeps station. These zeros keep `/cmd_vel` flowing, so the link, fence, FCU and costmap watchdogs treat the task as autonomous from its start: a stale operator link or perception fault now holds the boat during those gaps, and the operator clears it with U. The zeros stop at an override, a refusal or the end of the run.
+While a task runs, the runner sends zero velocity to `/cmd_vel_nav` whenever Nav2 has been silent for 0.3 s (between goals, after an abort, during the recovery Wait), so the boat keeps station. These zeros keep `/cmd_vel` flowing, so the costmap watchdog treats the task as autonomous from its start: a perception fault holds the boat during those gaps. The zeros stop at an override, a refusal or the end of the run.
 
 ### Parameters
 
@@ -53,16 +54,6 @@ While a task runs, the runner sends zero velocity to `/cmd_vel_nav` whenever Nav
 | Object tracking | `/perception/observations` (`mhseals_nav/ObservationArray`, metres, acquisition timestamps) |
 | SLAM (optional) | `/points`, `odom → base_link` TF, synchronized clocks |
 | Simulation | `/clock` plus the inputs of the enabled components |
-
-#### Python interface
-
-`mhseals_testing` (harness, fastsim adapter, replay, fusion tools) imports these pure cores rather than copying them. `test/test_public_api.py` pins each name it uses, so a rename fails here first; everything else is internal.
-
-- `fence`: course-area geometry (`polygon`, `problem`, `project`, `inside`, `closest`)
-- `tasks`: `host.MissionHost`, `tracks.Track`/`from_track_array`, `params` (`load_params`, `overlay`, `config_path`, `timeslot`)
-- `track_filter.TrackFilter`, `robot_geometry.RobotGeometry`, `lidar_fusion` frame and calibration helpers
-- startup compilers: `navigation_config`, `startup_projection`, `localization_configuration`, `odometry_configuration`, `endpoint_configuration`, `lidar_configuration`, `mavros_configuration`, `device_profile.load`, `boat_network`
-- messages: `msg.ObservationArray`, `msg.TrackArray`
 
 #### TF ownership
 
@@ -121,13 +112,32 @@ Parameters (class labels, distances, routes, timeouts) are in `config/tasks/<tas
 - `/task/status`: latched JSON `mhseals.mission_status/1` with the stage, phase, goal and why, and per-stage attempts.
 - `/task/hypotheses`: latched JSON `mhseals.task_hypotheses/1` (fixtures in `test/fixtures/`).
 
-It exits 0 on success, 1 on failure, 2 on timeout and 3 when a human override (command_mux's state naming rc, manual or hold, or no fresh state) stopped it; a Nav2 goal cancelled by anyone but the task counts as an override. A task never resumes after an override, and one started while a human has control refuses to start (exit 4, "human has control"). On exit it waits up to `exit_settle_s` (`config/tasks/runner.yaml`) until Nav2 holds none of its goals. `mhseals_testing`'s mission rehearsal launches these and scores the events.
+It exits 0 on success, 1 on failure, 2 on timeout and 3 when a human override (command_mux's state naming rc, manual or hold, or no fresh state) stopped it; a Nav2 goal cancelled by anyone but the task counts as an override. A task never resumes after an override, and one started while a human has control refuses to start (exit 4, "human has control"). On exit it waits up to `exit_settle_s` (`config/tasks/runner.yaml`) until Nav2 holds none of its goals.
 
 Commissioning tasks `pair_test` (cross the nearest red/green pole pair and back) and `circle_test` (circle the nearest yellow buoy) use the same stack and `config/tasks/<task>.yaml`; start localization, tracking and Nav2 first and run one task at a time.
 
-### Boat tests and tuning
+### RTK corrections
 
-[`mhseals_testing`](https://github.com/mhseals/mhseals_testing) checks this stack's sensors and TF, runs thruster trials and characterization, and scores navigation and missions; its `measurement.launch.py` includes `odom.launch.py` (`fcu:=false` in simulation). Characterization writes a Nav2 limits overlay (`navigation.launch.py limits_file:=...`); the rules and evidence are in its `docs/tuning.tex`. Verify every change in simulation before the boat.
+`rtk_base` runs on the operator station: it reads a USB base receiver (Here+ M8P or Here4 F9P) and/or a public NTRIP caster and publishes RTCM to MAVROS (`/mavros/gps_rtk/send_rtcm`), with a latched JSON status on `/rtk/status`.
+
+```bash
+ros2 run mhseals_nav rtk_base --source ntrip          # NTRIP only; auto (default) uses both, local the USB base only
+ros2 run mhseals_nav rtk_base /dev/ttyACM0 --survey   # USB base: new survey-in (--known SITE, --resume)
+ros2 run mhseals_nav rtk_base --pin MOUNT             # stream one NTRIP mountpoint (MOUNT or CASTER/MOUNT)
+ros2 run mhseals_nav rtk status [--watch]             # rover fix none/float/fixed, satellites, source, mount, age
+```
+
+The NTRIP mountpoint is ranked by distance from the rough fix (rover, else base, else the last one saved), plus penalties for older message sets, single band and fewer constellations, so it works wherever a caster has stations. Casters and weights are `config/ntrip.yaml`; station settings and saved sites are `~/.config/mhseals/rtk.yaml`; credentials are in `~/.config/astro/secrets.env` (mode 600).
+
+### Trials
+
+`trial` drives a course from `config/trials/` (`line` 20 m out and back, `square` 10 m, `zigzag`) through Nav2's NavigateThroughPoses, placed relative to the boat's start pose:
+
+```bash
+ros2 run mhseals_nav trial square --scale 0.5
+```
+
+It prints a progress line every second, then time, mean/max cross-track error, final position error, yaw-rate sign changes and max speed. The line is appended to the day log (`$ASTRO_DATA/<date>/log.txt`) and published on `/events`, with a hash of `controller_server`'s live parameters so runs can be compared by tuning. Bag presets for `astro rec` are `config/bags.yaml`.
 
 ### Development
 

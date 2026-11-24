@@ -2,7 +2,7 @@
 
 Runs on the camera computer as the jetson device profile's ``host_diagnostic`` part
 (config/devices/jetson.yaml) and publishes one DiagnosticStatus with ``hardware_id: host:<host_name()>``
-every 2 s, so the boat reads it without SSH (mhseals_testing's preflight probe is the reader).
+every 2 s, so the boat reads it without SSH.
 Reads sysfs and the nvpmodel status only; ``nvpmodel``, ``jetson_clocks`` and the fan are
 never touched. A missing source (a container without /var/lib/nvpmodel) is left out.
 """
