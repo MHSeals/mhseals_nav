@@ -75,6 +75,24 @@ def mppi_controller(controller, *, legacy=False):
     return None
 
 
+RPP = 'nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController'
+
+
+def limits_controller(controller):
+    """The controller the limits (vx_max .. az_max) bind: the MPPI one, else a Regulated Pure Pursuit one
+    that states them (vx_max).
+
+    RPP ignores the limit keys themselves; the launch derives its rotate-to-heading rate, its angular
+    accel and its speed from them, as for the rotation shim. An RPP block without them is left alone."""
+    name = mppi_controller(controller, legacy=True)
+    if name is not None:
+        return name
+    matches = [name for name in controller.get('controller_plugins', [])
+               if isinstance(controller.get(name), dict) and controller[name].get('plugin') == RPP
+               and 'vx_max' in controller[name]]
+    return matches[0] if len(matches) == 1 else None
+
+
 def derived(config, original=None):
     """Return config with the values that follow from others recomputed.
 
@@ -85,13 +103,15 @@ def derived(config, original=None):
     """
     result = deepcopy(config)
     controller = result.get('controller_server', {}).get('ros__parameters', {})
-    name = mppi_controller(controller, legacy=True)
+    name = limits_controller(controller)
     if name is None:
         return result
     follow = controller[name]
-    original = (original or config)['controller_server']['ros__parameters'][name]
+    original = (original or config)['controller_server']['ros__parameters'].get(name, {})
     valid_numbers(controller, follow)
-    if 'controller_frequency' in controller:
+    if follow.get('plugin') == RPP:
+        follow['desired_linear_vel'] = min(follow.get('desired_linear_vel', follow['vx_max']), follow['vx_max'])
+    elif 'controller_frequency' in controller:
         follow['model_dt'] = round(1 / controller['controller_frequency'], 6)
     # Sampling noise above an axis limit would clip most samples.
     for axis in ('vx', 'vy', 'wz'):
@@ -103,7 +123,7 @@ def derived(config, original=None):
     # FollowPath is the one velocity source: the shim, the smoother and the behavior server
     # are held to the rates MPPI is held to, and the base YAML carries no copy of them.
     targets = []
-    if follow.get('plugin') == 'nav2_rotation_shim_controller::RotationShimController':
+    if follow.get('plugin') in ('nav2_rotation_shim_controller::RotationShimController', RPP):
         targets += [(follow, 'rotate_to_heading_angular_vel', 'wz_max'),
                     (follow, 'max_angular_accel', 'az_max')]
     smoother = result.get('velocity_smoother', {}).get('ros__parameters')
@@ -240,7 +260,7 @@ def merge_limits(base, limits, ceilings):
     limits = within_ceilings(ceilings, typed_like(base, limits))
     result = deep_merge(deepcopy(base), limits)
     controller = result.get('controller_server', {}).get('ros__parameters', {})
-    name = mppi_controller(controller, legacy=True)
+    name = limits_controller(controller)
     follow = controller.get(name)
     original = base.get('controller_server', {}).get('ros__parameters', {}).get(name)
     if isinstance(original, dict) and isinstance(follow, dict) and 'vx_min' in original and 'vx_min' in follow:
@@ -361,7 +381,7 @@ def lower_navigation(base, explicit):
     result = merge_limits(base, explicit, {})     # explicit is already within the ceilings
     controller = explicit.get('controller_server', {}).get('ros__parameters', {})
     output_controller = result.get('controller_server', {}).get('ros__parameters', {})
-    name = mppi_controller(output_controller, legacy=True)
+    name = limits_controller(output_controller)
     follow = controller.get(name, {})
     lowered = output_controller.get(name, {})
     bound = ('model_dt', 'vx_std', 'vy_std', 'wz_std', 'prune_distance')
@@ -413,8 +433,8 @@ def state_limits(base, path=None):
         follow.update(zip(names, (float(v) for v in values)))
     follow.update(ax_min=-follow['ax_max'], ay_min=-follow['ay_max'])
     controller = base['controller_server']['ros__parameters']
-    name = mppi_controller(controller, legacy=True)
+    name = limits_controller(controller)
     if name is None:
-        raise ValueError('nav2_limits: the base has no MPPI controller to limit')
+        raise ValueError('nav2_limits: the base has no MPPI or Regulated Pure Pursuit controller to limit')
     follow = {key: value for key, value in follow.items() if key in controller[name]}
     return {'controller_server': {'ros__parameters': {name: follow}}}

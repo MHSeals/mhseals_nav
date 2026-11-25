@@ -7,7 +7,7 @@ from xml.etree import ElementTree
 
 from . import layers
 from .layers import boolean, deep_merge, load_strict
-from .navigation_config import (clip_to_ceilings, hardware_state_path, load_ceilings, load_overlay, mppi_controller,
+from .navigation_config import (clip_to_ceilings, hardware_state_path, limits_controller, load_ceilings, load_overlay,
                                 state_limits, validate_navigation_base, validate_navigation_overlay,
                                 validated_merge_limits)
 from .yaml_params import camera_fov, footprint, HULL, hull
@@ -59,19 +59,51 @@ def presets(share=None):
 
 
 FOOTPRINT_KEYS = ('footprint_padding',)   # a preset may pad the hull; its shape is hull.yaml's alone
-CAP_KEYS = ('vx_max', 'vy_max', 'wz_max', 'ax_max', 'ay_max', 'az_max', 'vx_min', 'ax_min', 'ay_min')
+VELOCITY_KEYS = ('vx_max', 'vy_max', 'wz_max')
+ACCEL_KEYS = ('ax_max', 'ay_max', 'az_max', 'ax_min', 'ay_min')
+
+
+def without(tree, paths):
+    """tree without the blocks at the dotted paths (a preset's ``replace``)."""
+    result = deepcopy(tree)
+    for path in paths:
+        *parents, leaf = path.split('.')
+        node = result
+        for key in parents:
+            node = node.get(key, {}) if isinstance(node, dict) else {}
+        if isinstance(node, dict):
+            node.pop(leaf, None)
+    return result
+
+
+def blocks(tree, paths):
+    """Only the blocks of tree at the dotted paths, nested as in tree."""
+    result = {}
+    for path in paths:
+        *parents, leaf = path.split('.')
+        source, target = tree, result
+        for key in parents:
+            source = source.get(key, {}) if isinstance(source, dict) else {}
+            target = target.setdefault(key, {})
+        if isinstance(source, dict) and leaf in source:
+            target[leaf] = deepcopy(source[leaf])
+    return result
 
 
 def load_preset(name, base, share=None):
-    """(overlay, footprints, caps) of config/nav2_presets/<name>.yaml.
+    """(overlay, footprints, replace) of config/nav2_presets/<name>.yaml.
 
     overlay: the preset's node sections, validated as an overlay of the base; footprints:
     {costmap: {footprint_padding}} the preset states (the footprint is hull.yaml's; a preset's is refused);
-    caps: the preset's FollowPath limits by magnitude, which the measured nav2_limits may not exceed."""
+    replace: the dotted paths of the blocks the preset replaces whole instead of merging (its top-level
+    ``replace`` list, e.g. controller_server.ros__parameters.FollowPath for another controller plugin)."""
     path = config_file('nav2_presets', share) / f'{name}.yaml'
     if not path.is_file():
         raise FileNotFoundError(f'no Nav2 preset {name!r} ({path}); have: {", ".join(presets(share)) or "none"}')
     overlay = load_overlay(path, strict=True)
+    replace = overlay.pop('replace', [])
+    if not isinstance(replace, list) or not all(isinstance(item, str) for item in replace):
+        raise ValueError(f'{path}: replace: expected a list of dotted paths')
     footprints = {}
     for costmap in ('local_costmap', 'global_costmap'):
         params = overlay.get(costmap, {}).get(costmap, {}).get('ros__parameters', {})
@@ -80,37 +112,52 @@ def load_preset(name, base, share=None):
         found = {key: params.pop(key) for key in FOOTPRINT_KEYS if key in params}
         if found:
             footprints[costmap] = found
-    validate_navigation_overlay(base, overlay)
-    controller = overlay.get('controller_server', {}).get('ros__parameters', {})
-    follow = controller.get(mppi_controller(base['controller_server']['ros__parameters'], legacy=True)) or {}
-    caps = {key: abs(follow[key]) for key in CAP_KEYS if key in follow}
-    return overlay, footprints, caps
+    # A replaced block is its own template; every other key must exist in the base.
+    validate_navigation_overlay(deep_merge(without(base, replace), blocks(overlay, replace)), overlay)
+    return overlay, footprints, replace
+
+
+def bound_measured(measured, base, own):
+    """The measured limits as the launch applies them: a velocity only lowers the configured one (base,
+    preset merged); an acceleration the preset states itself (own) stays the preset's."""
+    out = deepcopy(measured)
+    controller = base['controller_server']['ros__parameters']
+    for name, section in out.get('controller_server', {}).get('ros__parameters', {}).items():
+        configured = controller.get(name, {})
+        for key in list(section):
+            if key in VELOCITY_KEYS and key in configured:
+                section[key] = min(section[key], configured[key])
+            elif key in own:
+                del section[key]
+    return out
 
 
 def compile_navigation(params_file, state_file='', *, sim, share=None, preset=''):
     """
     Strictly load the base, the preset and the measured limits, validate, bound and project them.
 
-    The preset (config/nav2_presets/<preset>.yaml, e.g. pool) is merged over the base. The limits are
-    the hardware state file's ``characterization.nav2_limits`` (``state_file``, else
-    $MHSEALS_HARDWARE_CONFIG, else ~/.config/mhseals/hardware.yaml); without them the base's (or the
-    preset's) own stay. A value above nav2_ceilings.yaml, or above the preset's own limit, is clipped to
-    it with one warning line.
+    The preset (config/nav2_presets/<preset>.yaml, e.g. pool) is merged over the base, its ``replace``
+    blocks replacing the base's. The measured limits are the hardware state file's
+    ``characterization.nav2_limits`` (``state_file``, else $MHSEALS_HARDWARE_CONFIG, else
+    ~/.config/mhseals/hardware.yaml), clipped to nav2_ceilings.yaml with one warning line. A measured
+    velocity only lowers the configured one; a measured acceleration replaces the configured one unless
+    the preset states that acceleration itself. Without them the base's (or the preset's) own stay.
     """
     if not Path(params_file).expanduser().is_file():
         raise FileNotFoundError(f'Navigation params file not found: {params_file}')
     base = load_overlay(params_file, strict=True)
     validate_navigation_base(base)
-    footprints = {}
+    footprints, own = {}, set()
     if preset:
-        overlay, footprints, caps = load_preset(preset, base, share)
-        base = deep_merge(base, overlay)
+        overlay, footprints, replace = load_preset(preset, base, share)
+        base = deep_merge(without(base, replace), overlay)
         validate_navigation_base(base)
+        controller = overlay.get('controller_server', {}).get('ros__parameters', {})
+        follow = controller.get(limits_controller(base['controller_server']['ros__parameters'])) or {}
+        own = {key for key in ACCEL_KEYS if key in follow}
     ceilings = load_ceilings(ceilings_path(share))
-    limits = clip_to_ceilings(state_limits(base, state_file or None), ceilings)   # never refuse: clip and warn
-    if preset:
-        limits = clip_to_ceilings(limits, caps, source=f'the {preset} preset')
-    result = project_launch(validated_merge_limits(base, limits, ceilings),
+    measured = clip_to_ceilings(state_limits(base, state_file or None), ceilings)   # never refuse: clip and warn
+    result = project_launch(validated_merge_limits(base, bound_measured(measured, base, own), ceilings),
                             {'sim': boolean(sim)}, bt_paths(share))
     rectangle = hull(hull_path(share))   # an overlay footprint is refused: base has none
     for name in ('local_costmap', 'global_costmap'):

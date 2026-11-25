@@ -59,7 +59,7 @@ def generate_launch_description():
         DeclareLaunchArgument('sim', default_value='false'),
         DeclareLaunchArgument('preset', default_value='',
                               description='config/nav2_presets/<preset>.yaml merged over params_file, e.g. '
-                                          'pool or lake; its FollowPath limits cap the measured ones; empty: none'),
+                                          'pool or lake; measured velocities only lower its own, its accelerations win; empty: none'),
         DeclareLaunchArgument('hardware_config', default_value='',
                               description='Hardware state YAML whose characterization.nav2_limits sets '
                                           'the Nav2 limits; empty = $MHSEALS_HARDWARE_CONFIG, else '

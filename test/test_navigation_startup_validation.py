@@ -212,13 +212,13 @@ def nav2_limits(velocity, acceleration=(0.3, 0.3, 0.5)):
 
 def test_factory_accepts_nav2_limits_within_the_ceilings(base, tmp_path):
     base_path = write(tmp_path, 'base.yaml', yaml.safe_dump(base))
-    state = write(tmp_path, 'hardware.yaml', nav2_limits((0.5, 0.2, 0.5)))
+    state = write(tmp_path, 'hardware.yaml', nav2_limits((0.3, 0.1, 0.2)))
     from mhseals_nav.startup_projection import compile_navigation
     ns = inert_navigation_factory()
     assert ns['navigation_nodes']({'params_file': str(base_path), 'hardware_config': str(state)})
     result = compile_navigation(base_path, state, sim='true', share=ns['share'])
     follow = result['controller_server']['ros__parameters']['FollowPath']
-    assert follow['wz_max'] == 0.5 and follow['vx_max'] == 0.5
+    assert follow['wz_max'] == 0.2 and follow['vx_max'] == 0.3
 
 
 @pytest.mark.parametrize('velocity, acceleration', [((5.0, 0.2, 0.3), (0.3, 0.3, 0.5)),

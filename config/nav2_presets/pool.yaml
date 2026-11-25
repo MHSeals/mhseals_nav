@@ -1,22 +1,55 @@
 # Pool: a small enclosed pool (about 10 x 4.5 m), slow and tight, merged over nav2_params.yaml
 # (`astro up nav --with pool` -> preset:=pool). Only the keys that differ from the lake tuning.
-# The FollowPath limits here are also caps: the state file's measured nav2_limits may lower them,
-# never raise them (the launch clips and warns). Starting values, to tune in the pool.
+# Regulated Pure Pursuit instead of the shim + MPPI (sim 11-24 navtune H4 h4-1: pool-line 2/2 final 0.10 m,
+# pool-square 4/4 final 0.25 m, both again under a 0.05 m/s cross current; every MPPI variant stalled or
+# oscillated near the goals). `replace` swaps the whole FollowPath block, so no MPPI key is left behind.
+# Limits: the measured nav2_limits only lower the velocities below; the accelerations here are the pool's
+# own and win over the measured ones (sim: 0.09/0.10/0.25 m/s^2 left MPPI too sluggish to finish).
+replace: [controller_server.ros__parameters.FollowPath]
+
 controller_server:
   ros__parameters:
     general_goal_checker:
       xy_goal_tolerance: 0.25
       yaw_goal_tolerance: 0.3
     FollowPath:
-      angular_dist_threshold: 0.8   # sim 11-24 validation (as the base)
-      time_steps: 20                # x model_dt 0.1 = a 2 s horizon: 0.6 m at vx_max, inside the 5 m costmap
+      plugin: nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController
+      desired_linear_vel: 0.3       # held to vx_max by the launch
+      lookahead_dist: 0.6
+      min_lookahead_dist: 0.4
+      max_lookahead_dist: 0.8
+      lookahead_time: 2.0
+      use_velocity_scaled_lookahead_dist: true
+      transform_tolerance: 0.2
+      min_approach_linear_velocity: 0.05
+      approach_velocity_scaling_dist: 1.0
+      use_collision_detection: true
+      max_allowed_time_to_collision_up_to_carrot: 1.5
+      use_regulated_linear_velocity_scaling: true
+      use_cost_regulated_linear_velocity_scaling: false
+      regulated_linear_scaling_min_radius: 0.9
+      regulated_linear_scaling_min_speed: 0.1
+      use_fixed_curvature_lookahead: false
+      curvature_lookahead_dist: 0.6
+      use_rotate_to_heading: true
+      rotate_to_heading_min_angle: 0.785
+      rotate_to_heading_angular_vel: 0.3   # = wz_max (derived by the launch)
+      max_angular_accel: 0.5               # = az_max (derived by the launch)
+      allow_reversing: false
+      max_robot_pose_search_dist: 2.5
+      interpolate_curvature_after_goal: false
+      stateful: true
+      # The one velocity source, as in nav2_params.yaml (RPP itself ignores these keys): the launch
+      # derives the smoother's vectors, the behavior server's rotation and RPP's rates above from them.
       vx_max: 0.3
+      vx_min: 0.0
       vy_max: 0.2
-      wz_max: 0.5
-      visualize: true               # RViz nav.rviz shows the optimal and a thinned sample of candidates
-      TrajectoryVisualizer:
-        trajectory_step: 10         # every 10th of the 600 candidates
-        time_step: 2
+      wz_max: 0.3
+      ax_max: 0.3
+      ax_min: -0.3
+      ay_max: 0.3
+      ay_min: -0.3
+      az_max: 0.5
 
 local_costmap:
   local_costmap:
@@ -25,7 +58,7 @@ local_costmap:
       height: 5
       # The footprint is hull.yaml's (startup_projection); only the padding differs here.
       footprint_padding: 0.05       # still water, no buoy range noise to cover
-      # Inflation reaches the circumscribed radius (~0.95 m padded) so MPPI checks the whole
+      # Inflation reaches the circumscribed radius (~0.95 m padded) so the controller checks the whole
       # footprint near a wall; past 1 m the cost is 0, leaving a ~2.5 m free corridor in 4.5 m.
       inflation_layer:
         inflation_radius: 1.0

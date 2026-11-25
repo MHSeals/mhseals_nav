@@ -56,7 +56,8 @@ restart them with MAVROS up; `~/.config/mhseals/ekf.yaml` overrides per node), `
 `sim:=true`), `navigation.launch.py` (Nav2; its limits are the hardware state file's
 `characterization.nav2_limits`, `hardware_config:=`, else `$MHSEALS_HARDWARE_CONFIG`, else
 `~/.config/mhseals/hardware.yaml`, clipped to `config/nav2_ceilings.yaml`; restart it after changing Nav2
-parameters), `slam.launch.py` and `task.launch.py`.
+parameters; `preset:=pool|lake` merges `config/nav2_presets/<name>.yaml` over the base, its `replace` blocks
+replacing the base's: the pool preset runs Regulated Pure Pursuit instead of MPPI), `slam.launch.py` and `task.launch.py`.
 
 `/cmd_vel` is the final smoothed navigation output. Nav2 commands are velocity targets; the hardware PWM driver interprets Twist as effort, so autonomous propulsion requires a calibrated velocity controller.
 
@@ -204,7 +205,7 @@ Evidence for `config/nav2_params.yaml` as of 2026-11-24. **Nav2 has never reache
 
 | Group | Value | Evidence |
 |---|---|---|
-| Limits (base) | vx 0.4, vy 0.15, wz 0.3; ax/ay 0.3, az 0.5 | Chosen 10-23 as "field" values, but no field run used them. The boat's own `characterization.nav2_limits` replaces them when present |
+| Limits (base) | vx 0.4, vy 0.15, wz 0.3; ax/ay 0.3, az 0.5 | Chosen 10-23 as "field" values, but no field run used them. **Limits rule:** the measured `characterization.nav2_limits` velocities only lower the configured ones (never raise them); its accelerations replace the configured ones unless the preset states its own, which win |
 | Accelerations | ax/ay 0.3, az 0.5 | Sim 11-24: with the sim's `nav2_limits` (0.09/0.10/0.25), line x0.5 never finished. Set live to 0.3/0.3/0.5, it is **done** in 128 s (xte 0.34/0.71 m, final 0.12 m, 6 flips) |
 | Rotation shim | `angular_dist_threshold` 0.8, once per approach, to the goal yaw | Sim 11-24: at 1.8 the boat crabbed and looped near goals (line x0.5 incomplete twice, 180 s timeouts) |
 | Heading critics | PathAngle weight 4.0, max angle 0.4 rad, thresholds 1.5 m (PathAngle, PathAlign, GoalAngle) | Sim 11-24: same runs as the shim row. Before the change, heading drifted 68 deg on a 10 m leg |

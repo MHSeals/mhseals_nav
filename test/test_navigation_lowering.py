@@ -127,17 +127,18 @@ def test_strict_loader_names_file_and_line(tmp_path, text, message):
 
 
 def test_nav2_limits_come_from_the_hardware_state_file(tmp_path):
-    """characterization.nav2_limits sets MPPI's limits (and what derives from them); absent, the base stays."""
+    """characterization.nav2_limits lowers MPPI's velocities (never raises them) and sets its accelerations
+    (and what derives from them); absent, the base stays."""
     root = Path(__file__).resolve().parents[1]
     params = root / 'config/nav2_params.yaml'
     state = tmp_path / 'hardware.yaml'
     state.write_text(yaml.safe_dump({'characterization': {'nav2_limits': {
-        'velocity': [0.5, 0.2, 0.4], 'acceleration': [0.4, 0.3, 0.6]}}}))
+        'velocity': [0.5, 0.1, 0.2], 'acceleration': [0.4, 0.3, 0.6]}}}))
     nav = compile_navigation(params, state, sim='true')
     follow = nav['controller_server']['ros__parameters']['FollowPath']
-    assert (follow['vx_max'], follow['vy_max'], follow['wz_max']) == (0.5, 0.2, 0.4)
+    assert (follow['vx_max'], follow['vy_max'], follow['wz_max']) == (0.4, 0.1, 0.2)
     assert (follow['ax_max'], follow['ay_max'], follow['az_max'], follow['ax_min']) == (0.4, 0.3, 0.6, -0.4)
-    assert nav['velocity_smoother']['ros__parameters']['max_velocity'] == [0.5, 0.2, 0.4]
+    assert nav['velocity_smoother']['ros__parameters']['max_velocity'] == [0.4, 0.1, 0.2]
     base = yaml.safe_load(params.read_text())['controller_server']['ros__parameters']['FollowPath']
     state.write_text('characterization: {}\n')
     unchanged = compile_navigation(params, state, sim='true')['controller_server']['ros__parameters']['FollowPath']
@@ -150,10 +151,11 @@ def test_nav2_limits_above_a_ceiling_are_clipped_and_malformed_refused(tmp_path,
     root = Path(__file__).resolve().parents[1]
     ceilings = yaml.safe_load((root / 'config/nav2_ceilings.yaml').read_text())
     state = tmp_path / 'hardware.yaml'
-    state.write_text('characterization: {nav2_limits: {velocity: [9.0, 0.2, 0.4], acceleration: [0.4, 0.3, 9.0]}}\n')
+    state.write_text('characterization: {nav2_limits: {velocity: [9.0, 0.1, 0.2], acceleration: [0.4, 0.3, 9.0]}}\n')
     nav = compile_navigation(root / 'config/nav2_params.yaml', state, sim='true')
     follow = nav['controller_server']['ros__parameters']['FollowPath']
-    assert (follow['vx_max'], follow['az_max'], follow['vy_max']) == (ceilings['vx_max'], ceilings['az_max'], 0.2)
+    # vx clipped to the ceiling, then held to the base's own (a measured velocity never raises it)
+    assert (follow['vx_max'], follow['az_max'], follow['vy_max']) == (0.4, ceilings['az_max'], 0.1)
     warning = capsys.readouterr().err.strip().splitlines()
     assert len(warning) == 1 and 'vx_max 9->' in warning[0] and 'az_max 9->' in warning[0]
     state.write_text('characterization: {nav2_limits: {velocity: [0.5, 0.2], acceleration: [0.4, 0.3, 0.6]}}\n')
@@ -188,7 +190,7 @@ def test_effective_limits_are_what_the_launch_resolves(tmp_path):
     params = root / 'config/nav2_params.yaml'
     limits = tmp_path / 'hardware.yaml'
     limits.write_text(yaml.safe_dump({'characterization': {'nav2_limits': {
-        'velocity': [0.5, 0.3, 0.4], 'acceleration': [0.3, 0.2, 0.5]}}}))
+        'velocity': [0.3, 0.1, 0.2], 'acceleration': [0.3, 0.2, 0.5]}}}))
     resolved = effective_limits(params, limits)
     launched = compile_navigation(params, limits, sim='true',
                                   share=None)
@@ -198,10 +200,10 @@ def test_effective_limits_are_what_the_launch_resolves(tmp_path):
                                     'min': smoother['min_velocity']}
     assert resolved['accel'] == {'max': smoother['max_accel'], 'decel': smoother['max_decel']}
     # The overlay and what derives from it; above a ceiling, both refuse alike.
-    assert resolved['controller']['vx_max'] == 0.5 and resolved['velocity']['max'][0] == 0.5
-    assert resolved['controller']['vy_max'] == 0.3 == resolved['velocity']['max'][1]
+    assert resolved['controller']['vx_max'] == 0.3 and resolved['velocity']['max'][0] == 0.3
+    assert resolved['controller']['vy_max'] == 0.1 == resolved['velocity']['max'][1]
     assert resolved['controller']['ay_max'] == 0.2
-    assert resolved['rotation_shim']['rotate_to_heading_angular_vel'] == follow['wz_max'] == 0.4
+    assert resolved['rotation_shim']['rotate_to_heading_angular_vel'] == follow['wz_max'] == 0.2
     assert resolved['goal_checkers'] == {'general_goal_checker': {'xy': 0.4, 'yaw': 0.5},
                                          'precise_goal_checker': {'xy': 0.3, 'yaw': 0.25}}
     assert resolved['progress'] == {'radius': 0.1, 'time': 20.0}
@@ -216,24 +218,36 @@ def test_effective_limits_are_what_the_launch_resolves(tmp_path):
         resolved['sources'])
     limits.write_text('characterization: {nav2_limits: {velocity: [0.5, 9.0, 0.4], acceleration: [0.3, 0.2, 0.5]}}\n')
     ceiling = yaml.safe_load((root / 'config/nav2_ceilings.yaml').read_text())['vy_max']
-    assert effective_limits(params, limits)['controller']['vy_max'] == ceiling     # clipped, not refused
+    base_vy = yaml.safe_load(params.read_text())['controller_server']['ros__parameters']['FollowPath']['vy_max']
+    # clipped, not refused; then held to the base's own
+    assert effective_limits(params, limits)['controller']['vy_max'] == min(ceiling, base_vy)
 
 
-def test_the_pool_preset_merges_over_the_base_and_caps_the_measured_limits(tmp_path, capsys):
-    """preset:=pool: its keys over nav2_params.yaml, its padding over hull.yaml's, and the measured
-    nav2_limits lowered to its own limits (never raised)."""
+def test_the_pool_preset_replaces_follow_path_with_rpp_and_bounds_the_measured_limits(tmp_path):
+    """preset:=pool: Regulated Pure Pursuit replaces the whole FollowPath block (no MPPI key left), its
+    other keys merge over nav2_params.yaml, its padding over hull.yaml's; a measured velocity only lowers
+    the preset's, and the preset's own accelerations win over the measured ones."""
     params = Path(__file__).resolve().parents[1] / 'config/nav2_params.yaml'
     state = tmp_path / 'hardware.yaml'
     state.write_text(yaml.safe_dump({'characterization': {'nav2_limits': {
-        'velocity': [0.5, 0.1, 0.4], 'acceleration': [0.4, 0.3, 0.6]}}}))
+        'velocity': [0.5, 0.1, 0.25], 'acceleration': [0.09, 0.1, 0.25]}}}))
     nav = compile_navigation(params, state, sim='true', preset='pool')
     follow = nav['controller_server']['ros__parameters']['FollowPath']
-    assert (follow['vx_max'], follow['vy_max'], follow['wz_max']) == (0.3, 0.1, 0.4)
-    assert 'the pool preset, clipped: vx_max 0.5->0.3' in capsys.readouterr().err
-    assert follow['visualize'] is True and follow['time_steps'] * follow['model_dt'] == pytest.approx(2.0)
+    assert follow['plugin'] == 'nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController'
+    assert not {'primary_controller', 'critics', 'time_steps', 'model_dt', 'vx_std', 'prune_distance'} & set(follow)
+    assert (follow['vx_max'], follow['vy_max'], follow['wz_max']) == (0.3, 0.1, 0.25)
+    assert (follow['desired_linear_vel'], follow['rotate_to_heading_angular_vel'], follow['max_angular_accel']) == (
+        0.3, 0.25, 0.5)
+    smoother = nav['velocity_smoother']['ros__parameters']
+    assert smoother['max_velocity'] == [0.3, 0.1, 0.25] and smoother['min_velocity'] == [0.0, -0.1, -0.25]
+    assert smoother['max_accel'] == [0.3, 0.3, 0.5] and smoother['max_decel'] == [-0.3, -0.3, -0.5]
     local = nav['local_costmap']['local_costmap']['ros__parameters']
     assert (local['width'], local['inflation_layer']['inflation_radius'], local['footprint_padding']) == (5, 1.0, 0.05)
     hull = yaml.safe_load((params.parent / 'hull.yaml').read_text())
     assert yaml.safe_load(local['footprint'])[2] == [-hull['stern'], -hull['half_width']]
+    # Without a preset the base stays MPPI; measured velocities never raise it, measured accelerations apply.
+    lake = compile_navigation(params, state, sim='true')['controller_server']['ros__parameters']['FollowPath']
+    assert lake['primary_controller'] == 'nav2_mppi_controller::MPPIController'
+    assert (lake['vx_max'], lake['vy_max'], lake['ax_max']) == (0.4, 0.1, 0.09)
     with pytest.raises(FileNotFoundError, match='have: lake, pool'):
         compile_navigation(params, state, sim='true', preset='river')
