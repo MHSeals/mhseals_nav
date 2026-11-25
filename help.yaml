@@ -90,17 +90,43 @@ commands:
     level: core
     host: boat_computer
     needs: [localization, drive+controller, nav]
-    summary: Have the boat drive a set shape (a square, a zigzag) on its own and score how well it followed it, to compare navigation settings.
-    notes: The course starts where the boat is now, so leave room. It prints the score and adds it to today's log.
+    summary: Have the boat drive a set shape (a square, a zigzag, a figure eight in the pool) on its own and score how well it followed it, to compare navigation settings.
+    notes: >-
+      The course starts where the boat is now, so leave room. It prints the score and adds it to today's log.
+      Pool courses stop the boat if it leaves a 9 x 4 m box around the course. home drives back to where
+      today's last trial started. In the pool, start the navigation with astro up nav --with pool.
     details: >-
-      Courses are config/trials/<course>.yaml, driven through Nav2. Metrics: time, mean/max cross-track error,
-      final position error, yaw-rate sign changes, max speed, and a hash of controller_server's parameters. One
-      line goes to $ASTRO_DATA/<date>/log.txt and /events.
+      Courses are config/trials/<course>.yaml, driven through Nav2; pool-* courses' points are fractions of
+      their length: key (set it to the pool's straightaway, or use --scale). Metrics: time, mean/max cross-track error, final position
+      error, yaw-rate sign changes, max speed, and a hash of controller_server's parameters. One line goes to
+      $ASTRO_DATA/<date>/log.txt and /events; the start pose to $ASTRO_DATA/<date>/trial_start.yaml (home's
+      goal). The course is published on /trial/course (MarkerArray) for astro rviz nav. Leaving the box
+      cancels the Nav2 goal (Nav2 then commands zero), no lock.
     params:
-      - {name: course, required: true, choices_from: ros2 run mhseals_nav trial --list, description: 'The shape to drive, e.g. square or zigzag.'}
+      - {name: course, required: true, choices_from: ros2 run mhseals_nav trial --list, description: 'The shape to drive, e.g. pool-square, or home to drive back to the start of the last one.'}
       - {name: --scale, type: float, default: 1.0, choices: [0.25, 0.5, 0.75, 1.0, 1.5, 2.0], description: 'Shrink or grow the course to fit the water, e.g. 0.5 for a small area.'}
       - {name: --odom, default: /odom/global, choices: [/odom/global, /odom/local], description: 'Which position to score against: global uses GPS, local drifts slowly but is smoother.'}
       - {name: --tolerance, type: float, default: 0.5, choices: [0.25, 0.5, 1.0, 2.0], description: 'How close, in metres, counts as reaching each corner, e.g. 1.0.'}
+      - {name: --box, default: auto, choices: [auto, 6x3, 9x4, 12x6, none], description: "Stop the trial if the boat leaves a box this size around the course, length along the start heading by width in metres; auto is the course's own (pool courses 9x4, others none), none never stops it."}
       - {name: --cmd, default: /cmd_vel, description: "The navigation command to compare with how the boat really moved, e.g. /cmd_vel.", free: a ROS topic name}
     examples:
       - ros2 run mhseals_nav trial square --scale 0.5
+      - ros2 run mhseals_nav trial pool-square --box 6x6
+      - ros2 run mhseals_nav trial home
+
+  - name: rviz
+    run: ros2 run mhseals_nav rviz
+    level: core
+    summary: Open the 3-D view on this computer - the boat, its plan and the costmaps - and click a spot to send the boat there.
+    notes: >-
+      Runs where you are (the operator laptop), never on the boat. In nav, pick 2D Goal Pose (G) and click,
+      then drag for the heading; the Navigation 2 panel cancels the goal.
+    details: >-
+      rviz2 -d rviz2/<config>.rviz with the workspace theme ($ROS_WS/config/dark.qss). nav shows the robot
+      model, footprint, odometry trail, /points, both costmaps, /plan, /local_plan, MPPI's /trajectories and
+      /optimal_trajectory (a preset with visualize on), /goal_pose and the trial course (/trial/course), top-down
+      10 m around base_link; the 2D Goal Pose tool publishes /goal_pose.
+    params:
+      - {name: config, default: nav, choices_from: ros2 run mhseals_nav rviz --list, description: 'Which view: nav (navigation, goals) or perception (cameras, lidar, objects).'}
+    examples:
+      - ros2 run mhseals_nav rviz nav

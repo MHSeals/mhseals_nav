@@ -1,0 +1,7 @@
+# Pool, a length x length square ahead, centred across the start heading: right half a side, ahead, left,
+# back, and to the start. Start mid-pool across, at one end facing down the pool.
+# points: [x, y] in the start pose's frame (x ahead, y left), fractions of length; --scale multiplies.
+length: 2.0
+points: [[0, -0.5], [1, -0.5], [1, 0.5], [0, 0.5], [0, 0]]
+box: 9x4        # LxW m centred on the course; leaving it cancels the goal (--box overrides)
+timeout_s: 150

@@ -1,0 +1,62 @@
+# Pool: a small enclosed pool (about 10 x 4.5 m), slow and tight, merged over nav2_params.yaml
+# (`astro up nav --with pool` -> preset:=pool). Only the keys that differ from the lake tuning.
+# The FollowPath limits here are also caps: the state file's measured nav2_limits may lower them,
+# never raise them (the launch clips and warns). Starting values, to tune in the pool.
+controller_server:
+  ros__parameters:
+    general_goal_checker:
+      xy_goal_tolerance: 0.25
+      yaw_goal_tolerance: 0.3
+    FollowPath:
+      angular_dist_threshold: 0.8   # sim 11-24 validation (as the base)
+      time_steps: 20                # x model_dt 0.1 = a 2 s horizon: 0.6 m at vx_max, inside the 5 m costmap
+      vx_max: 0.3
+      vy_max: 0.2
+      wz_max: 0.5
+      visualize: true               # RViz nav.rviz shows the optimal and a thinned sample of candidates
+      TrajectoryVisualizer:
+        trajectory_step: 10         # every 10th of the 600 candidates
+        time_step: 2
+      # Shorter legs (2 to 6 m): hand over from the path critics to the goal critics nearer the goal.
+      GoalCritic:
+        threshold_to_consider: 1.0
+      GoalAngleCritic:
+        threshold_to_consider: 0.6
+      PathAlignCritic:
+        threshold_to_consider: 0.6
+      PathFollowCritic:
+        threshold_to_consider: 0.6
+      PathAngleCritic:
+        threshold_to_consider: 0.6
+      CostCritic:
+        near_goal_distance: 0.5
+
+local_costmap:
+  local_costmap:
+    ros__parameters:
+      width: 5
+      height: 5
+      # The hull as the meshes draw it (description/blastoise: pontoons 1.29 m long, from 0.75 m behind
+      # base_link to 0.53 m ahead, 0.9 m beam); hull.yaml's rectangle is a symmetric 1.06 m.
+      footprint: '[[0.54, 0.45], [0.54, -0.45], [-0.76, -0.45], [-0.76, 0.45]]'
+      footprint_padding: 0.05       # still water, no buoy range noise to cover
+      inflation_layer:
+        inflation_radius: 0.3
+        cost_scaling_factor: 5.0
+
+global_costmap:
+  global_costmap:
+    ros__parameters:
+      width: 12
+      height: 12
+      resolution: 0.1
+      footprint: '[[0.54, 0.45], [0.54, -0.45], [-0.76, -0.45], [-0.76, 0.45]]'
+      footprint_padding: 0.05
+      inflation_layer:
+        inflation_radius: 0.3
+        cost_scaling_factor: 5.0
+
+planner_server:
+  ros__parameters:
+    GridBased:
+      tolerance: 0.25

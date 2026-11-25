@@ -18,7 +18,8 @@ def navigation_nodes(context):
     parameters = compile_navigation(
         LaunchConfiguration('params_file').perform(context),
         LaunchConfiguration('hardware_config').perform(context),
-        sim=LaunchConfiguration('sim').perform(context))
+        sim=LaunchConfiguration('sim').perform(context),
+        preset=LaunchConfiguration('preset').perform(context))
     handle = tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False)
     with handle:
         yaml.safe_dump(parameters, handle)
@@ -56,6 +57,9 @@ def generate_launch_description():
         DeclareLaunchArgument('params_file', default_value=PathJoinSubstitution(
             [share, 'config', 'nav2_params.yaml'])),
         DeclareLaunchArgument('sim', default_value='false'),
+        DeclareLaunchArgument('preset', default_value='',
+                              description='config/nav2_presets/<preset>.yaml merged over params_file, e.g. '
+                                          'pool or lake; its FollowPath limits cap the measured ones; empty: none'),
         DeclareLaunchArgument('hardware_config', default_value='',
                               description='Hardware state YAML whose characterization.nav2_limits sets '
                                           'the Nav2 limits; empty = $MHSEALS_HARDWARE_CONFIG, else '

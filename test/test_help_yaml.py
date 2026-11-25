@@ -26,7 +26,7 @@ def test_device_is_the_only_launch_and_its_arguments_are_declared():
 def test_every_entry_has_a_level_and_a_host():
     for name, command in COMMANDS.items():
         assert command['level'] in ('core', 'setup'), name
-        assert command['host'] in ('boat_computer', 'operator'), name
+        assert command.get('host', 'here') in ('boat_computer', 'operator', 'here'), name   # none: runs where you are
 
 
 def test_task_profiles_match_the_files():
@@ -36,7 +36,7 @@ def test_task_profiles_match_the_files():
 
 @pytest.mark.parametrize('name, param, expected', [
     ('task', '--task', lambda: __import__('mhseals_nav.tasks.trees', fromlist=['TREES']).TREES),
-    ('trial', 'course', lambda: [p.stem for p in (ROOT / 'config/trials').glob('*.yaml')]),
+    ('trial', 'course', lambda: [p.stem for p in (ROOT / 'config/trials').glob('*.yaml')] + ['home']),
 ])
 def test_choices_from_prints_the_real_choices(name, param, expected, capsys):
     command = params(name)[param]['choices_from'].split()

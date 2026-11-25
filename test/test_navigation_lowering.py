@@ -217,3 +217,22 @@ def test_effective_limits_are_what_the_launch_resolves(tmp_path):
     limits.write_text('characterization: {nav2_limits: {velocity: [0.5, 9.0, 0.4], acceleration: [0.3, 0.2, 0.5]}}\n')
     ceiling = yaml.safe_load((root / 'config/nav2_ceilings.yaml').read_text())['vy_max']
     assert effective_limits(params, limits)['controller']['vy_max'] == ceiling     # clipped, not refused
+
+
+def test_the_pool_preset_merges_over_the_base_and_caps_the_measured_limits(tmp_path, capsys):
+    """preset:=pool: its keys over nav2_params.yaml, its footprint over hull.yaml's, and the measured
+    nav2_limits lowered to its own limits (never raised)."""
+    params = Path(__file__).resolve().parents[1] / 'config/nav2_params.yaml'
+    state = tmp_path / 'hardware.yaml'
+    state.write_text(yaml.safe_dump({'characterization': {'nav2_limits': {
+        'velocity': [0.5, 0.1, 0.4], 'acceleration': [0.4, 0.3, 0.6]}}}))
+    nav = compile_navigation(params, state, sim='true', preset='pool')
+    follow = nav['controller_server']['ros__parameters']['FollowPath']
+    assert (follow['vx_max'], follow['vy_max'], follow['wz_max']) == (0.3, 0.1, 0.4)
+    assert 'the pool preset, clipped: vx_max 0.5->0.3' in capsys.readouterr().err
+    assert follow['visualize'] is True and follow['time_steps'] * follow['model_dt'] == pytest.approx(2.0)
+    local = nav['local_costmap']['local_costmap']['ros__parameters']
+    assert (local['width'], local['inflation_layer']['inflation_radius'], local['footprint_padding']) == (5, 0.3, 0.05)
+    assert yaml.safe_load(local['footprint'])[2] == [-0.76, -0.45]
+    with pytest.raises(FileNotFoundError, match='have: lake, pool'):
+        compile_navigation(params, state, sim='true', preset='river')

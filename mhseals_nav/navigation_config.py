@@ -376,7 +376,7 @@ def hardware_state_path():
     return Path(os.environ.get('MHSEALS_HARDWARE_CONFIG') or '~/.config/mhseals/hardware.yaml').expanduser()
 
 
-def clip_to_ceilings(limits, ceilings, where='nav2_limits'):
+def clip_to_ceilings(limits, ceilings, where='nav2_limits', source='nav2_ceilings.yaml'):
     """limits (a state_limits overlay) with each value above its ceiling clipped to it, by magnitude.
 
     One warning line names every clipped value: the boat keeps moving, at the ceiling.
@@ -388,7 +388,7 @@ def clip_to_ceilings(limits, ceilings, where='nav2_limits'):
                 section[key] = math.copysign(float(ceilings[key]), value)
                 clipped.append(f'{key} {value:g}->{section[key]:g}')
     if clipped:
-        print(f'WARNING {where} above nav2_ceilings.yaml, clipped: ' + ', '.join(clipped), file=sys.stderr, flush=True)
+        print(f'WARNING {where} above {source}, clipped: ' + ', '.join(clipped), file=sys.stderr, flush=True)
     return out
 
 

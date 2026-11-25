@@ -1,0 +1,7 @@
+# Pool, out and back along the start heading. Set length to the pool's usable straightaway (its
+# length less about 1.5 m at each end); start at one end facing down the pool.
+# points: [x, y] in the start pose's frame (x ahead, y left), fractions of length; --scale multiplies.
+length: 6.0
+points: [[1, 0], [0, 0]]
+box: 9x4        # LxW m centred on the course; leaving it cancels the goal (--box overrides)
+timeout_s: 90

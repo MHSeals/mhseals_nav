@@ -87,7 +87,10 @@ controller_server:
       transform_tolerance: 0.2
       retry_attempt_limit: 2
       enforce_path_inversion: false
-      visualize: false
+      visualize: false          # a preset turns it on: /trajectories (candidates, optimal) for RViz
+      TrajectoryVisualizer:     # what visualize publishes: every Nth candidate, every Nth point along each
+        trajectory_step: 5
+        time_step: 3
       critics: [ConstraintCritic, CostCritic, GoalCritic, GoalAngleCritic, PathAlignCritic,
                 PathFollowCritic, PathAngleCritic, PreferForwardCritic, TwirlingCritic]
       ConstraintCritic:

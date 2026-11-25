@@ -6,9 +6,10 @@ from pathlib import Path
 from xml.etree import ElementTree
 
 from . import layers
-from .layers import boolean, load_strict
-from .navigation_config import (clip_to_ceilings, hardware_state_path, load_ceilings, load_overlay, state_limits,
-                                validate_navigation_base, validated_merge_limits)
+from .layers import boolean, deep_merge, load_strict
+from .navigation_config import (clip_to_ceilings, hardware_state_path, load_ceilings, load_overlay, mppi_controller,
+                                state_limits, validate_navigation_base, validate_navigation_overlay,
+                                validated_merge_limits)
 from .yaml_params import camera_fov, footprint, HULL, hull
 
 SERVERS = (
@@ -52,26 +53,67 @@ def camera_path(share=None):
     return config_file('camera.yaml', share)
 
 
-def compile_navigation(params_file, state_file='', *, sim, share=None):
-    """
-    Strictly load the base and the measured limits, validate, bound and project them.
+def presets(share=None):
+    """The Nav2 presets: config/nav2_presets/<name>.yaml stems."""
+    return sorted(path.stem for path in config_file('nav2_presets', share).glob('*.yaml'))
 
-    The limits are the hardware state file's ``characterization.nav2_limits`` (``state_file``, else
-    $MHSEALS_HARDWARE_CONFIG, else ~/.config/mhseals/hardware.yaml); without them the base's own
-    stay. A value above nav2_ceilings.yaml is clipped to it with one warning line.
+
+FOOTPRINT_KEYS = ('footprint', 'footprint_padding')
+CAP_KEYS = ('vx_max', 'vy_max', 'wz_max', 'ax_max', 'ay_max', 'az_max', 'vx_min', 'ax_min', 'ay_min')
+
+
+def load_preset(name, base, share=None):
+    """(overlay, footprints, caps) of config/nav2_presets/<name>.yaml.
+
+    overlay: the preset's node sections, validated as an overlay of the base; footprints:
+    {costmap: {footprint, footprint_padding}} the preset states (the base has none: hull.yaml);
+    caps: the preset's FollowPath limits by magnitude, which the measured nav2_limits may not exceed."""
+    path = config_file('nav2_presets', share) / f'{name}.yaml'
+    if not path.is_file():
+        raise FileNotFoundError(f'no Nav2 preset {name!r} ({path}); have: {", ".join(presets(share)) or "none"}')
+    overlay = load_overlay(path, strict=True)
+    footprints = {}
+    for costmap in ('local_costmap', 'global_costmap'):
+        params = overlay.get(costmap, {}).get(costmap, {}).get('ros__parameters', {})
+        found = {key: params.pop(key) for key in FOOTPRINT_KEYS if key in params}
+        if found:
+            footprints[costmap] = found
+    validate_navigation_overlay(base, overlay)
+    controller = overlay.get('controller_server', {}).get('ros__parameters', {})
+    follow = controller.get(mppi_controller(base['controller_server']['ros__parameters'], legacy=True)) or {}
+    caps = {key: abs(follow[key]) for key in CAP_KEYS if key in follow}
+    return overlay, footprints, caps
+
+
+def compile_navigation(params_file, state_file='', *, sim, share=None, preset=''):
+    """
+    Strictly load the base, the preset and the measured limits, validate, bound and project them.
+
+    The preset (config/nav2_presets/<preset>.yaml, e.g. pool) is merged over the base. The limits are
+    the hardware state file's ``characterization.nav2_limits`` (``state_file``, else
+    $MHSEALS_HARDWARE_CONFIG, else ~/.config/mhseals/hardware.yaml); without them the base's (or the
+    preset's) own stay. A value above nav2_ceilings.yaml, or above the preset's own limit, is clipped to
+    it with one warning line.
     """
     if not Path(params_file).expanduser().is_file():
         raise FileNotFoundError(f'Navigation params file not found: {params_file}')
     base = load_overlay(params_file, strict=True)
     validate_navigation_base(base)
+    footprints = {}
+    if preset:
+        overlay, footprints, caps = load_preset(preset, base, share)
+        base = deep_merge(base, overlay)
+        validate_navigation_base(base)
     ceilings = load_ceilings(ceilings_path(share))
     limits = clip_to_ceilings(state_limits(base, state_file or None), ceilings)   # never refuse: clip and warn
+    if preset:
+        limits = clip_to_ceilings(limits, caps, source=f'the {preset} preset')
     result = project_launch(validated_merge_limits(base, limits, ceilings),
                             {'sim': boolean(sim)}, bt_paths(share))
     rectangle = hull(hull_path(share))   # an overlay footprint is refused: base has none
     for name in ('local_costmap', 'global_costmap'):
         result[name][name]['ros__parameters'].update(
-            footprint=footprint(rectangle), footprint_padding=rectangle['padding'])
+            {'footprint': footprint(rectangle), 'footprint_padding': rectangle['padding'], **footprints.get(name, {})})
     return result
 
 

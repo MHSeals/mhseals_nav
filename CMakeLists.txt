@@ -41,6 +41,7 @@ set(ENTRY_POINTS
   host_diagnostic=host_diagnostic
   rtk=rtk.cli
   trial=trial
+  rviz=rviz
   device_parts=device_parts
 )
 foreach(entry ${ENTRY_POINTS})

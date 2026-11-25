@@ -1,0 +1,7 @@
+# Pool, a figure eight along the start heading, length long and 0.42 x length wide (6 x 2.5 m), crossing
+# at its middle and ending at the start: start at one end, centred across the pool.
+# points: [x, y] in the start pose's frame (x ahead, y left), fractions of length; --scale multiplies.
+length: 6.0
+points: [[0.147, 0.208], [0.5, 0], [0.853, -0.208], [1, 0], [0.853, 0.208], [0.5, 0], [0.147, -0.208], [0, 0]]
+box: 9x4        # LxW m centred on the course; leaving it cancels the goal (--box overrides)
+timeout_s: 240

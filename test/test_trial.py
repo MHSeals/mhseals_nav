@@ -7,9 +7,11 @@ from mhseals_nav import trial
 
 
 def test_every_course_loads_and_scales():
-    assert set(trial.courses()) >= {'line', 'square', 'zigzag'}
-    points, _ = trial.load_course('square', 0.5)
-    assert points == [(5.0, 0.0), (5.0, 5.0), (0.0, 5.0), (0.0, 0.0)]
+    assert set(trial.courses()) >= {'line', 'square', 'zigzag', 'pool-line', 'pool-square', 'pool-figure8', 'home'}
+    points, _, box = trial.load_course('square', 0.5)
+    assert points == [(5.0, 0.0), (5.0, 5.0), (0.0, 5.0), (0.0, 0.0)] and box is None
+    points, _, box = trial.load_course('pool-line', 0.5)       # fractions of the file's 6 m length
+    assert points == [(3.0, 0.0), (0.0, 0.0)] and box == '9x4'
     with pytest.raises(ValueError, match='no course'):
         trial.load_course('circle')
 
@@ -65,3 +67,22 @@ def test_a_stop_signal_raises_once_then_handlers_restore():
     finally:
         trial.restore_handlers(previous)
     assert signal.getsignal(signal.SIGTERM) is before
+
+
+def test_the_box_is_centred_on_the_course_and_turns_with_the_start():
+    points, _, box = trial.load_course('pool-line')
+    box, centre = trial.parse_box(box), trial.box_centre(points)
+    start = (10.0, 20.0, math.pi / 2)                          # facing +y; the line runs 6 m up y
+    assert trial.outside_box((10.0, 26.0), start, box, centre) is None
+    assert trial.outside_box((10.0, 28.0), start, box, centre) == 'left the 9x4 m box 0.50 m ahead'
+    assert trial.outside_box((7.5, 23.0), start, box, centre) == 'left the 9x4 m box 0.50 m left'
+    assert trial.box_margin([(10.0, 26.0), (9.0, 23.0)], start, box, centre) == pytest.approx(1.0)
+    with pytest.raises(ValueError, match='LENGTHxWIDTH'):
+        trial.parse_box('9 by 4')
+
+
+def test_home_reads_the_start_of_todays_last_trial(tmp_path):
+    with pytest.raises(ValueError, match='run a course first'):
+        trial.load_start(str(tmp_path))
+    trial.save_start('map', (1.0, 2.0, 0.5), 'pool-square', str(tmp_path))
+    assert trial.load_start(str(tmp_path)) == ('map', (1.0, 2.0, 0.5))
