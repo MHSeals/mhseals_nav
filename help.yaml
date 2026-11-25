@@ -30,6 +30,7 @@ commands:
     run: ros2 run mhseals_nav rtk base
     level: core
     host: operator
+    needs: [localization]          # MAVROS on the boat is what takes the corrections; without it nothing listens
     summary: Make the boat's GPS accurate to a few centimetres by sending it corrections from a base receiver or an internet service. Leave it running.
     notes: Check it works with astro rtk status (it should say fixed). Ctrl-C stops the corrections.
     details: >-
