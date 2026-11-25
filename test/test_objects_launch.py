@@ -74,9 +74,9 @@ def test_backend_tracker_and_perception_costmap(sim, backend, executable):
     assert nearest['parameters'] == [CONFIG + '/nearest_obstacle.yaml', clock]
     assert (costmap['namespace'], costmap['name']) == ('perception', 'costmap')
     hull = yaml.safe_load((Path(__file__).parents[1] / 'config/hull.yaml').read_text())
-    x, y = hull['half_length'], hull['half_width']
+    bow, stern, y = hull['bow'], -hull['stern'], hull['half_width']
     assert costmap['parameters'] == [CONFIG + '/perception_costmap.yaml', {
-        'footprint': str([[x, y], [x, -y], [-x, -y], [-x, y]]),
+        'footprint': str([[bow, y], [bow, -y], [stern, -y], [stern, y]]),
         'footprint_padding': hull['padding']}, clock]
     assert (manager['namespace'], manager['name']) == ('perception',
                                                        'lifecycle_manager_perception')

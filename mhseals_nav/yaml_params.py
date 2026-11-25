@@ -60,15 +60,16 @@ def hull(path=None):
 
 
 def rectangle(path=None):
-    """The hull rectangle of config/hull.yaml ({half_length, half_width}), the nodes' default."""
+    """The symmetric box about base_link that holds config/hull.yaml's hull ({half_length, half_width}):
+    the nodes' default, half_length the longer of bow and stern."""
     h = hull(path)
-    return {'half_length': h['half_length'], 'half_width': h['half_width']}
+    return {'half_length': max(h['bow'], h['stern']), 'half_width': h['half_width']}
 
 
-def footprint(rectangle):
-    """Nav2's footprint string of a hull rectangle (unpadded)."""
-    x, y = rectangle['half_length'], rectangle['half_width']
-    return str([[x, y], [x, -y], [-x, -y], [-x, y]])
+def footprint(hull):
+    """Nav2's footprint string of config/hull.yaml's hull (bow, stern, half_width; unpadded)."""
+    bow, stern, y = hull['bow'], -hull['stern'], hull['half_width']
+    return str([[bow, y], [bow, -y], [stern, -y], [stern, y]])
 
 
 def camera_fov(path=None):

@@ -1,7 +1,9 @@
-# The hull rectangle about base_link, stated once (yaml_params.hull). nearby and nearest_obstacle
-# take it as their defaults; startup_projection writes it into both Nav2
-# costmaps' footprint and objects.launch.py into the perception costmap's, each with padding.
-half_length: 0.5315
+# The hull rectangle about base_link, stated once (yaml_params.hull), as the meshes draw it
+# (description/blastoise: pontoons 1.29 m long, 0.9 m beam). startup_projection writes it into both
+# Nav2 costmaps' footprint and objects.launch.py into the perception costmap's, each with padding;
+# nearby, nearest_obstacle and gate_exit take a symmetric box of the longer end (yaml_params.rectangle).
+bow: 0.535        # base_link to the bow
+stern: 0.755      # base_link to the stern
 half_width: 0.4475
 # Nav2 footprint_padding: buoy range noise the tracker discs (max_extra_m 0.1) do not
 # cover; ZED depth error is about 0.25 m at 5 m, so 0.05 would leave ~1 sigma.

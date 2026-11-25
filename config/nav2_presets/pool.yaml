@@ -23,12 +23,12 @@ local_costmap:
     ros__parameters:
       width: 5
       height: 5
-      # The hull as the meshes draw it (description/blastoise: pontoons 1.29 m long, from 0.75 m behind
-      # base_link to 0.53 m ahead, 0.9 m beam); hull.yaml's rectangle is a symmetric 1.06 m.
-      footprint: '[[0.54, 0.45], [0.54, -0.45], [-0.76, -0.45], [-0.76, 0.45]]'
+      # The footprint is hull.yaml's (startup_projection); only the padding differs here.
       footprint_padding: 0.05       # still water, no buoy range noise to cover
+      # Inflation reaches the circumscribed radius (~0.95 m padded) so MPPI checks the whole
+      # footprint near a wall; past 1 m the cost is 0, leaving a ~2.5 m free corridor in 4.5 m.
       inflation_layer:
-        inflation_radius: 0.3
+        inflation_radius: 1.0
         cost_scaling_factor: 5.0
 
 global_costmap:
@@ -37,10 +37,9 @@ global_costmap:
       width: 12
       height: 12
       resolution: 0.1
-      footprint: '[[0.54, 0.45], [0.54, -0.45], [-0.76, -0.45], [-0.76, 0.45]]'
       footprint_padding: 0.05
       inflation_layer:
-        inflation_radius: 0.3
+        inflation_radius: 1.0
         cost_scaling_factor: 5.0
 
 planner_server:

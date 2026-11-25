@@ -171,11 +171,11 @@ def test_both_costmaps_get_the_hull_footprint_with_its_padding():
     """config/hull.yaml is the one hull: the compile writes it into both Nav2 costmaps."""
     root = Path(__file__).resolve().parents[1]
     hull = yaml.safe_load((root / 'config/hull.yaml').read_text())
-    x, y = hull['half_length'], hull['half_width']
+    bow, stern, y = hull['bow'], -hull['stern'], hull['half_width']
     nav = compile_navigation(root / 'config/nav2_params.yaml', '', sim='true')
     for name in ('local_costmap', 'global_costmap'):
         params = nav[name][name]['ros__parameters']
-        assert yaml.safe_load(params['footprint']) == [[x, y], [x, -y], [-x, -y], [-x, y]]
+        assert yaml.safe_load(params['footprint']) == [[bow, y], [bow, -y], [stern, -y], [stern, y]]
         assert params['footprint_padding'] == hull['padding']
     raw = yaml.safe_load((root / 'config/nav2_params.yaml').read_text())
     assert 'footprint' not in raw['local_costmap']['local_costmap']['ros__parameters']
@@ -207,8 +207,8 @@ def test_effective_limits_are_what_the_launch_resolves(tmp_path):
     assert resolved['progress'] == {'radius': 0.1, 'time': 20.0}
     assert resolved['passed_goal_radius'] == 1.0
     hull = yaml.safe_load((root / 'config/hull.yaml').read_text())
-    assert {(abs(x), abs(y)) for x, y in resolved['footprint']} == {
-        (hull['half_length'], hull['half_width'])}
+    assert {(x, abs(y)) for x, y in resolved['footprint']} == {
+        (hull['bow'], hull['half_width']), (-hull['stern'], hull['half_width'])}
     camera = yaml.safe_load((root / 'config/camera.yaml').read_text())['backend']['fov']
     assert resolved['camera'] == {'hfov_deg': pytest.approx(110.0), 'range_m': camera['range']}
     assert str(limits) in resolved['sources'] and str(params) in resolved['sources']
@@ -220,7 +220,7 @@ def test_effective_limits_are_what_the_launch_resolves(tmp_path):
 
 
 def test_the_pool_preset_merges_over_the_base_and_caps_the_measured_limits(tmp_path, capsys):
-    """preset:=pool: its keys over nav2_params.yaml, its footprint over hull.yaml's, and the measured
+    """preset:=pool: its keys over nav2_params.yaml, its padding over hull.yaml's, and the measured
     nav2_limits lowered to its own limits (never raised)."""
     params = Path(__file__).resolve().parents[1] / 'config/nav2_params.yaml'
     state = tmp_path / 'hardware.yaml'
@@ -232,7 +232,8 @@ def test_the_pool_preset_merges_over_the_base_and_caps_the_measured_limits(tmp_p
     assert 'the pool preset, clipped: vx_max 0.5->0.3' in capsys.readouterr().err
     assert follow['visualize'] is True and follow['time_steps'] * follow['model_dt'] == pytest.approx(2.0)
     local = nav['local_costmap']['local_costmap']['ros__parameters']
-    assert (local['width'], local['inflation_layer']['inflation_radius'], local['footprint_padding']) == (5, 0.3, 0.05)
-    assert yaml.safe_load(local['footprint'])[2] == [-0.76, -0.45]
+    assert (local['width'], local['inflation_layer']['inflation_radius'], local['footprint_padding']) == (5, 1.0, 0.05)
+    hull = yaml.safe_load((params.parent / 'hull.yaml').read_text())
+    assert yaml.safe_load(local['footprint'])[2] == [-hull['stern'], -hull['half_width']]
     with pytest.raises(FileNotFoundError, match='have: lake, pool'):
         compile_navigation(params, state, sim='true', preset='river')

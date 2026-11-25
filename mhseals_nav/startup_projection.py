@@ -58,7 +58,7 @@ def presets(share=None):
     return sorted(path.stem for path in config_file('nav2_presets', share).glob('*.yaml'))
 
 
-FOOTPRINT_KEYS = ('footprint', 'footprint_padding')
+FOOTPRINT_KEYS = ('footprint_padding',)   # a preset may pad the hull; its shape is hull.yaml's alone
 CAP_KEYS = ('vx_max', 'vy_max', 'wz_max', 'ax_max', 'ay_max', 'az_max', 'vx_min', 'ax_min', 'ay_min')
 
 
@@ -66,7 +66,7 @@ def load_preset(name, base, share=None):
     """(overlay, footprints, caps) of config/nav2_presets/<name>.yaml.
 
     overlay: the preset's node sections, validated as an overlay of the base; footprints:
-    {costmap: {footprint, footprint_padding}} the preset states (the base has none: hull.yaml);
+    {costmap: {footprint_padding}} the preset states (the footprint is hull.yaml's; a preset's is refused);
     caps: the preset's FollowPath limits by magnitude, which the measured nav2_limits may not exceed."""
     path = config_file('nav2_presets', share) / f'{name}.yaml'
     if not path.is_file():
@@ -75,6 +75,8 @@ def load_preset(name, base, share=None):
     footprints = {}
     for costmap in ('local_costmap', 'global_costmap'):
         params = overlay.get(costmap, {}).get(costmap, {}).get('ros__parameters', {})
+        if 'footprint' in params:
+            raise ValueError(f'{path}: {costmap}.footprint: the hull is config/hull.yaml alone')
         found = {key: params.pop(key) for key in FOOTPRINT_KEYS if key in params}
         if found:
             footprints[costmap] = found
