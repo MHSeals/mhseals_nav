@@ -140,6 +140,25 @@ def test_a_refusing_caster_rests_whole_and_says_why():
     assert log[-1] == '/HOUSTON'
 
 
+def test_a_socket_timeout_while_connecting_fails_over_instead_of_ending_the_thread():
+    class Silent(Caster):
+        """Answers the sourcetable, then times out on a mountpoint (RTK2go under load did)."""
+
+        def recv(self, size):
+            if self.log[-1] != '/':
+                raise TimeoutError('timed out')
+            return Caster.recv(self, size)
+    log = []
+    settings = ntrip.load_settings()
+    settings['casters'] = [dict(name='A', host='caster.invalid', port=2101, user_env='A_USER')]
+    source = ntrip.NtripSource(settings, position=lambda: (29.70, -95.40, 0.0), env={'A_USER': 'someone'},
+                               connect=lambda *args: Silent(log), clock=lambda: 100.0)
+    source.wanted.set()
+    source.step()                                       # raised TimeoutError out of the thread before
+    assert log[-1] == '/HOUSTON'
+    assert 'failover' in source.snapshot()['detail'] and 'TimeoutError' in source.snapshot()['detail']
+
+
 def test_why_not_names_the_missing_position_credentials_and_pin():
     settings = ntrip.load_settings()
     settings['casters'] = [dict(name='A', host='caster.invalid', port=2101, user_env='A_USER')]

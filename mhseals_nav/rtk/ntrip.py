@@ -694,7 +694,11 @@ class NtripSource:
 
     def run(self):
         while not self.stopped.is_set():
-            self.step()
+            try:
+                self.step()
+            except Exception as error:   # never let one bad cycle end the corrections for the session
+                self.update(phase='connecting', mount='', detail=f'error, retrying: {type(error).__name__}: {error}')
+                self.stopped.wait(2)
 
     def step(self):
         """One pick-connect-stream cycle; returns when the stream ends, fails or is re-picked."""
@@ -718,6 +722,10 @@ class NtripSource:
         except NtripError as error:
             self.rest(error, best)
             self.update(phase='connecting', detail='failover: ' + str(error))
+        except OSError as error:        # a socket timeout or reset while connecting: that mount's link failed
+            failed = NtripError('link', f'{best.stream.caster}/{best.stream.mount}: {type(error).__name__}: {error}')
+            self.rest(failed, best)
+            self.update(phase='connecting', detail='failover: ' + str(failed))
 
     def why_not(self):
         """Why no mountpoint can stream now, in one line: the best blocked one's cause and its fix."""
