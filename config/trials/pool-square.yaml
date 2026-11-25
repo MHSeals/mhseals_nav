@@ -1,7 +1,8 @@
-# Pool, a length x length square ahead, centred across the start heading: right half a side, ahead, left,
-# back, and to the start. Start mid-pool across, at one end facing down the pool.
+# Pool, a length x length square to the left of the start heading, ending at the start. Start at one end
+# facing down the pool. A 1.2 m side from the centre line keeps the hull 0.6 m off a 4.5 m pool's wall
+# (its costmap band is about 0.4 m); for a longer side start right of the centre line (2 m: 1 m right).
 # points: [x, y] in the start pose's frame (x ahead, y left), fractions of length; --scale multiplies.
-length: 2.0
-points: [[0, -0.5], [1, -0.5], [1, 0.5], [0, 0.5], [0, 0]]
+length: 1.2
+points: [[1, 0], [1, 1], [0, 1], [0, 0]]
 box: 9x4        # LxW m centred on the course; leaving it cancels the goal (--box overrides)
 timeout_s: 150

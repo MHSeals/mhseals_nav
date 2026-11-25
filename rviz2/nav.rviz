@@ -283,7 +283,7 @@ Visualization Manager:
       Name: Current View
       Target Frame: base_link
       Value: TopDownOrtho (rviz_default_plugins)
-      Scale: 90
+      Scale: 70
       X: 0
       Y: 0
       Angle: 0

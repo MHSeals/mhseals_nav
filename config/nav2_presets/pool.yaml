@@ -17,19 +17,6 @@ controller_server:
       TrajectoryVisualizer:
         trajectory_step: 10         # every 10th of the 600 candidates
         time_step: 2
-      # Shorter legs (2 to 6 m): hand over from the path critics to the goal critics nearer the goal.
-      GoalCritic:
-        threshold_to_consider: 1.0
-      GoalAngleCritic:
-        threshold_to_consider: 0.6
-      PathAlignCritic:
-        threshold_to_consider: 0.6
-      PathFollowCritic:
-        threshold_to_consider: 0.6
-      PathAngleCritic:
-        threshold_to_consider: 0.6
-      CostCritic:
-        near_goal_distance: 0.5
 
 local_costmap:
   local_costmap:

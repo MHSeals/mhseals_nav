@@ -57,9 +57,9 @@ def load_course(name, scale=1.0, path=None):
         raise ValueError(f'{path}: points must be a list of [x, y]')
     if not (scale > 0 and math.isfinite(scale)):
         raise ValueError('--scale must be a positive number')
+    timeout = float(data.get('timeout_s', 300)) * max(scale, 1.0)
     scale *= float(data.get('length', 1.0))
-    return ([(float(x) * scale, float(y) * scale) for x, y in points],
-            float(data.get('timeout_s', 300)) * max(scale, 1.0), data.get('box'))
+    return [(float(x) * scale, float(y) * scale) for x, y in points], timeout, data.get('box')
 
 
 def parse_box(text):
