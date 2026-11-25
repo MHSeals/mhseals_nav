@@ -33,7 +33,10 @@
 
     # === MAVROS IMU ===
     # /imu/raw is the legacy remap of MAVROS /imu/data: FCU-fused ENU
-    # orientation, NOT MAVROS /imu/data_raw. Preserve its absolute heading.
+    # orientation, NOT MAVROS /imu/data_raw. Yaw RATE only here: odom must stay
+    # continuous, and the FCU heading resets. In the 2026-11-24 pool bags (003544,
+    # 004437) it jumped 95-170 deg against the gyro 9 times in 9 min while the field
+    # magnitude swung 2-3x with the thrusters. Absolute heading lives in ekf_global (map).
     imu0: /imu/raw
     imu0_queue_size: 10
     imu0_differential: false
@@ -42,7 +45,7 @@
     
     imu0_config: [
       false, false, false,   # position
-      false, false, true,    # roll, pitch, yaw
+      false, false, false,   # roll, pitch, yaw: not fused (gyro-integrated in odom)
       false, false, false,   # vx, vy, vz (IMU does not measure velocity)
       false, false, true,    # angular velocity: yaw rate
       false, false, false    # acceleration off until bias/noise is calibrated

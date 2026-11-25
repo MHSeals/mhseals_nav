@@ -23,10 +23,12 @@ def test_gps_only_supplies_planar_position():
     assert [index for index, enabled in enumerate(mask) if enabled] == [0, 1]
 
 
-def test_fc_heading_not_magnetometer_free_reintegration():
-    local = params('ekf_local.yaml')
+def test_odom_integrates_yaw_rate_and_map_holds_absolute_heading():
+    """An FCU heading reset must not jump odom->base_link; map still gets the heading."""
+    local, global_ = params('ekf_local.yaml'), params('ekf_global.yaml')
     assert local['imu0'] == '/imu/raw'  # MAVROS /imu/data, despite legacy topic name
-    assert local['imu0_config'][5] and local['imu0_config'][11]
+    assert not local['imu0_config'][5] and local['imu0_config'][11]
+    assert global_['imu0_config'][5] and global_['imu0_config'][11]
 
 
 def test_fcu_is_the_only_yaw_and_yaw_rate_source():
