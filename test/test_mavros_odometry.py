@@ -179,3 +179,16 @@ def test_adapter_with_the_gate_on_fuses_a_poor_fix_as_the_no_fix_prior():
     assert out.twist.twist.linear.x == 0. and out.twist.covariance[0] == pytest.approx(1.)
     assert kept.twist.twist.linear.x == pytest.approx(3.)  # gate off: fused as measured
     assert kept.twist.covariance[0] == pytest.approx(.9 ** 2)
+
+
+def test_the_guarded_attitude_rotates_the_velocity_and_a_stalled_guard_gives_way_to_the_fcu():
+    adapter = Adapter(LIVE, 'fcu', 'gps_link')
+    fcu = message(math.pi / 2, (1., 0.))      # the FCU says north; the boat really points east
+    east = S(x=0., y=0., z=0., w=1.)
+    adapter.receive_attitude(east, 10.)
+    result = adapter.receive(fcu, 10.1)
+    linear = result.twist.twist.linear
+    assert (linear.x, linear.y) == pytest.approx((1., 0.))                # surge
+    assert result.pose.pose.orientation.z == 0. and fcu.pose.pose.orientation.z != 0.
+    stale = adapter.receive(fcu, 11.)          # the guard stopped: the FCU's attitude again
+    assert (stale.twist.twist.linear.x, stale.twist.twist.linear.y) == pytest.approx((0., -1.))

@@ -16,10 +16,16 @@ import math
 
 from mhseals_nav.utils.live_params import at_least, LiveParams, positive
 
+ATTITUDE_STALE = 0.5    # s: an older guarded attitude (the guard stopped) gives way to the FCU's
 
-def body_odometry(message, velocity_stddev):
-    """Preserve pose/time, rotate linear velocity and covariance into child frame."""
-    q = message.pose.pose.orientation
+
+def body_odometry(message, velocity_stddev, orientation=None):
+    """Preserve pose/time, rotate linear velocity and covariance into child frame.
+
+    ``orientation`` (the heading guard's attitude) replaces the FCU's, for the rotation and in the
+    published pose.
+    """
+    q = message.pose.pose.orientation if orientation is None else orientation
     values = [q.x, q.y, q.z, q.w]
     norm = math.sqrt(sum(v * v for v in values))
     if not math.isfinite(norm) or norm < 1e-6:
@@ -36,6 +42,9 @@ def body_odometry(message, velocity_stddev):
     if not all(math.isfinite(v) for v in velocity):
         raise ValueError('FCU velocity is non-finite')
     result = deepcopy(message)
+    if orientation is not None:
+        result.pose.pose.orientation.x, result.pose.pose.orientation.y = q.x, q.y
+        result.pose.pose.orientation.z, result.pose.pose.orientation.w = q.z, q.w
     out = result.twist.twist.linear
     out.x, out.y, out.z = (sum(r[j] * velocity[j] for j in range(3)) for r in rotation)
     cov = message.twist.covariance
@@ -120,6 +129,11 @@ class Adapter:
     def __init__(self, live, source, gps_frame):
         self.live, self.source, self.gps_frame = live, source, gps_frame
         self.gps = {}
+        self.attitude = None        # (quaternion, arrival): the heading guard's (attitude_topic)
+
+    def receive_attitude(self, orientation, now):
+        """Remember the latest guarded attitude; it rotates the velocity while fresh."""
+        self.attitude = (orientation, now)
 
     def receive_gps(self, raw, now):
         """Remember the latest receiver sample as velocity, sigma and stamp."""
@@ -146,7 +160,10 @@ class Adapter:
             message = with_velocity(message, velocity, stddev)
             if fresh and self.gps['stamp_ok']:
                 message.header.stamp = self.gps['stamp']
-        result = body_odometry(message, self.live['velocity_stddev'])
+        # The guard's attitude while fresh; a stalled guard falls back to the FCU's, never freezes.
+        fresh = self.attitude is not None and now - self.attitude[1] <= ATTITUDE_STALE
+        result = body_odometry(message, self.live['velocity_stddev'],
+                               self.attitude[0] if fresh else None)
         result.child_frame_id = self.gps_frame if self.source == 'gps' else 'base_link'
         return result
 
@@ -175,6 +192,7 @@ def main(args=None):
     node.declare_parameter('gps_velocity_max_acc', defaults['gps_velocity_max_acc'])
     # The twist is the GPS antenna's: robot_localization removes the lever arm.
     gps_frame = node.declare_parameter('gps_frame', 'gps_link').value
+    attitude_topic = node.declare_parameter('attitude_topic', defaults['attitude_topic']).value
     if source not in ('fcu', 'gps'):
         raise ValueError('velocity_source must be fcu or gps')
     # Tuning applies live; the source and frame decide subscriptions, so they do not.
@@ -199,6 +217,12 @@ def main(args=None):
 
     def receive_gps(raw):
         adapter.receive_gps(raw, now())
+
+    if attitude_topic:
+        from sensor_msgs.msg import Imu
+        node.create_subscription(Imu, attitude_topic,
+                                 lambda imu: adapter.receive_attitude(imu.orientation, now()),
+                                 qos_profile_sensor_data)
 
     if source == 'gps':
         node.create_subscription(GPSRAW, '/mavros/gpsstatus/gps1/raw',

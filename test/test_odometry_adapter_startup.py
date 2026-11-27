@@ -61,7 +61,7 @@ def test_main_declares_all_adapter_values_from_yaml_before_spin(monkeypatch, ins
     expected = odometry_configuration.resolve_odometry().adapter_parameters
     assert {key: declarations[key] for key in expected} == expected
     assert all(type(declarations[key]) is float for key in expected
-               if key not in ('velocity_source', 'gps_velocity_min_fix_type'))
+               if key not in ('velocity_source', 'gps_velocity_min_fix_type', 'attitude_topic'))
     assert type(declarations['gps_velocity_min_fix_type']) is int
     assert events == ['init', 'node', 'spin', 'destroy']
 
