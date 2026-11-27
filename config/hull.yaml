@@ -1,6 +1,6 @@
 # The hull rectangle about base_link, stated once (yaml_params.hull), as the meshes draw it
 # (description/blastoise: pontoons 1.29 m long, 0.9 m beam). startup_projection writes it into both
-# Nav2 costmaps' footprint and objects.launch.py into the perception costmap's, each with padding;
+# Nav2 costmaps' footprint and perception.launch.py into the perception costmap's, each with padding;
 # nearby, nearest_obstacle and gate_exit take a symmetric box of the longer end (yaml_params.rectangle).
 bow: 0.535        # base_link to the bow
 stern: 0.755      # base_link to the stern

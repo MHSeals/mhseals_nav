@@ -3,7 +3,7 @@
 The URDF (description/<robot>/<robot>.xacro) is the source of the sensor mounts, but for a lidar
 mount the vessel profile gives (``lidar_configuration.profile_mount``), which wins over the
 description's lidar_* properties (``vessel_properties``). TF reads it through
-robot_state_publisher (odom.launch.py expands it with ``description_xml``), and anything that
+robot_state_publisher (localization.launch.py expands it with ``description_xml``), and anything that
 runs without TF (the ROS-free tests, the sims' adapters) reads it here. Real xacro expands the file when it is installed;
 otherwise a minimal expander handles what the descriptions use for their joints: top-level
 ``xacro:property`` values and ``${expr}`` arithmetic over them.

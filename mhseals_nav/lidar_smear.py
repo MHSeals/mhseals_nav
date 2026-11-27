@@ -6,7 +6,7 @@ stamps the scan at its last packet, each point carrying its offset from the stam
 ``time`` field. This node gives each point the time the beam reaches its azimuth (sweep_times),
 moves it into the lidar frame of that moment with the ground-truth pose (/crane/odom) and the
 base_link -> lidar_link transform, and appends ``time``. A turning boat then smears /points as
-on the water, and lidar_relay's deskew can be judged in sim. sensors.launch.py starts it when
+on the water, and lidar_relay's deskew can be judged in sim. sim_bridge.launch.py starts it when
 config/lidar_smear.yaml enables it, with the endpoint's cloud moved to /points/instant.
 """
 

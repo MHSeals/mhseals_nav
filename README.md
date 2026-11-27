@@ -25,7 +25,7 @@ host and each one `device` part or a drive launch:
 | Stack | Host | Starts |
 | --- | --- | --- |
 | `localization` | boat computer | `device:=odroid only:=localization` |
-| `perception` | camera host | `device:=jetson` (camera, objects, lidar, host_diagnostic) |
+| `perception` | camera host | `device:=jetson` (perception, host_diagnostic) |
 | `drive` | boat computer | `ros2 launch mhseals_hardware drive.launch.py` |
 | `nav` (on request) | boat computer | `device:=odroid only:=navigation` |
 | `mapping`, `mission` (on request) | boat computer | `only:=mapping`; `run_task --task mission` |
@@ -33,31 +33,41 @@ host and each one `device` part or a drive launch:
 ### device
 
 `ros2 launch mhseals_nav device.launch.py device:=PROFILE [only:=a,b] [overrides:='<json>']` starts a
-computer's parts; it is the only launch file meant to be started by hand. A profile in `config/devices/`
-lists the parts, each an include of a launch file here (with arguments) or one `ros2 run`:
+computer's parts; it is the one launch file meant to be started by hand. A profile in `config/devices/`
+lists the parts, each one domain launch file with the arguments that pick that computer's hardware, or one
+`ros2 run`:
+
+| Domain | File | Choices |
+| --- | --- | --- |
+| Localization: where the boat is | `localization.launch.py` | `source:=fcu` (MAVROS, its relays and rates) or `none` (a simulator publishes the topics, or MAVROS is already up); always the robot TF and the two EKFs |
+| Perception: what is around it | `perception.launch.py` | `camera:=zed\|sim\|none`, `lidar:=velodyne\|sim\|none`; always the object tracker and the perception costmap; the object backend follows the camera |
+| Navigation: where to go | `navigation.launch.py` | Nav2 (`nav2:=false` leaves it out, `preset:=pool\|lake`), `mapping:=true` adds RTAB-Map |
+| Mission: what to do | `mission.launch.py` | `task:=NAME` (none: nothing starts) |
+| The simulator's link | `sim_bridge.launch.py` | the Unity ROS-TCP endpoint (`ros_port`), which stands in for every driver |
 
 | Profile | Parts |
 | --- | --- |
-| `odroid` (boat computer) | `localization` (odom.launch.py: MAVROS and relays, robot TF, and the EKFs and navsat_transform through ekf.launch.py), `mapping` (RTAB-Map), `navigation` (Nav2), `mission` (task.launch.py; no task unless given one) |
-| `jetson` (camera host) | `camera` (ZED), `objects` (camera backend, tracker, perception costmap), `lidar` (Velodyne and `lidar_relay`), `host_diagnostic` |
+| `odroid` (boat computer) | `localization` (source fcu), `mapping` (navigation without Nav2), `navigation`, `mission` |
+| `jetson` (camera host) | `perception` (camera zed, lidar velodyne), `host_diagnostic` |
 | `operator` | `rtk` (`rtk base`) |
-| `sim` | the odroid and jetson parts against crane_ml (`fcu:=false`, `backend:=sim`; no camera, lidar or host_diagnostic) plus `sim_bridge` (the Unity ROS-TCP endpoint; its port is `ros_port`) |
+| `sim` | extends odroid and jetson: localization with source none, perception with camera and lidar sim, plus `sim_bridge`; no host_diagnostic |
 
-`ros2 run mhseals_nav device_parts [PROFILE]` prints the parts `only:=` takes (`part<TAB>what it
-starts`). Layers, lowest first: the package profile and its `extends`, `$ROS_WS/config/devices/PROFILE.yaml`,
+A new vessel or computer is a new profile that names its own choices (or `extends` one and overrides them).
+`ros2 run mhseals_nav device_parts [PROFILE]` prints the parts `only:=` takes, each with what it does and
+how it starts; `--devices` prints the profiles; `astro help device` shows both. Layers, lowest first: the
+package profile and its `extends`, `$ROS_WS/config/devices/PROFILE.yaml`,
 `~/.config/mhseals/devices/PROFILE.yaml`, then `overrides`; a layer that sets a part the profile lacks
 (without its own launch or run) is refused with the part's name. The drive stack (thruster driver,
 `command_mux`) is never a part. `sim` defaults to `false`; the `sim` profile sets it, and `sim:=true` needs
 the simulator's `/clock`.
 
-The other launch files are the parts' internals: `odom.launch.py`, `ekf.launch.py` (the EKFs alone, to
-restart them with MAVROS up; `~/.config/mhseals/ekf.yaml` overrides per node), `camera.launch.py`,
-`objects.launch.py`, `sensors.launch.py` (the lidar with `sim:=false`, the Unity endpoint with
-`sim:=true`), `navigation.launch.py` (Nav2; its limits are the hardware state file's
-`characterization.nav2_limits`, `hardware_config:=`, else `$MHSEALS_HARDWARE_CONFIG`, else
-`~/.config/mhseals/hardware.yaml`, clipped to `config/nav2_ceilings.yaml`; restart it after changing Nav2
-parameters; `preset:=pool|lake` merges `config/nav2_presets/<name>.yaml` over the base, its `replace` blocks
-replacing the base's: the pool preset runs Regulated Pure Pursuit instead of MPPI), `slam.launch.py` and `task.launch.py`.
+Each domain file runs on its own too (`ros2 launch mhseals_nav <file> --show-args` lists its arguments). To
+restart the EKFs and TF with MAVROS left up: `ros2 launch mhseals_nav localization.launch.py source:=none`
+(`~/.config/mhseals/ekf.yaml` overrides the EKFs per node). Nav2's limits are the hardware state file's
+`characterization.nav2_limits` (`hardware_config:=`, else `$MHSEALS_HARDWARE_CONFIG`, else
+`~/.config/mhseals/hardware.yaml`), clipped to `config/nav2_ceilings.yaml`; restart navigation after
+changing Nav2 parameters. `preset:=pool|lake` merges `config/nav2_presets/<name>.yaml` over the base, its
+`replace` blocks replacing the base's: the pool preset runs Regulated Pure Pursuit instead of MPPI.
 
 `/cmd_vel` is the final smoothed navigation output. Nav2 commands are velocity targets; the hardware PWM driver interprets Twist as effort, so autonomous propulsion requires a calibrated velocity controller.
 
@@ -100,17 +110,17 @@ replacing the base's: the pool preset runs Regulated Pure Pursuit instead of MPP
 
 #### LiDAR relay and markers
 
-- The `lidar` part (`sensors.launch.py`) also starts `lidar_relay`, which downsamples the cloud and republishes `/points` with one reliable writer for Nav2 and RViz. Stop older viewer relays to avoid duplicates.
+- `perception.launch.py lidar:=velodyne` also starts `lidar_relay`, which downsamples the cloud and republishes `/points` with one reliable writer for Nav2 and RViz. Stop older viewer relays to avoid duplicates.
 - In sim, `tune.smear: true` in `config/lidar.yaml` smears crane's instantaneous scans over a 0.1 s VLP16 sweep with the true motion (`lidar_smear`), so the relay's deskew can be checked.
 - Use RViz's `MarkerArray` display for `/perception/detection_markers`; it shows outlines and confidence in `map`.
 
 ### Mapping and rates
 
-Rates are set in `config/mavros_setup.yaml` (FCU streams), `config/ekf_*.yaml` (EKFs) and `config/nav2_params.yaml` (costmaps, planner, controller); the VLP16 scan rate is the vessel profile's `lidar.rpm`. Rates are requested again whenever the FCU reconnects. Restart `navigation.launch.py` after changing Nav2 parameters.
+Rates are set in `config/mavros_setup.yaml` (FCU streams), `config/ekf_*.yaml` (EKFs) and `config/nav2_params.yaml` (costmaps, planner, controller); the VLP16 scan rate is the vessel profile's `lidar.rpm`. Rates are requested again whenever the FCU reconnects. Restart navigation after changing Nav2 parameters.
 
 **Heading:** ROS ENU yaw = 90° − compass heading (195° bow heading is −105°). Never hide a heading error with the URDF or `navsat_transform.yaw_offset`; fix the FCU.
 
-`slam.launch.py` (RTABMap) should report a live input rate and publish `/map` while the boat moves. It does not publish TF; Nav2 keeps using the EKF tree.
+The `mapping` part (RTAB-Map, `navigation.launch.py mapping:=true`) should report a live input rate and publish `/map` while the boat moves. It does not publish TF; Nav2 keeps using the EKF tree.
 
 ### FCU parameters
 

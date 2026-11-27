@@ -51,7 +51,7 @@ rtabmap:
     Mem/SaveDepth16Format: "true"
     Mem/DepthCompressionFormat: ".rvl"
 
-    # RTAB-Map's scan-cloud input is remapped to /points by slam.launch.py.
+    # RTAB-Map's scan-cloud input is remapped to /points by navigation.launch.py mapping:=true.
     # Keep this explicit so a future /scan LaserScan publisher cannot make
     # the mapper switch inputs accidentally.
     subscribe_sensor_data: false

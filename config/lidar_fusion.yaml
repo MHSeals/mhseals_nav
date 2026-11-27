@@ -1,5 +1,5 @@
 # lidar_fusion: lidar range adjustment of camera observations (lidar-fusion-design.md rev 2).
-# enabled: objects.launch.py starts the node, points the tracker at output_topic and sets the
+# enabled: perception.launch.py starts the node, points the tracker at output_topic and sets the
 # tracker's meas.depth_term false (the covariance here carries the stereo depth term).
 # Class radii and the stereo model (depth_k, min_sigma_m, range_frac) come from tracker.yaml.
 /**:

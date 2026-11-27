@@ -1,5 +1,5 @@
 # Boat overrides for the ZED wrapper (86171bc), passed as ros_params_override_path
-# by camera.launch.py after the wrapper's common_stereo.yaml, zed2i.yaml and
+# by perception.launch.py after the wrapper's common_stereo.yaml, zed2i.yaml and
 # custom_object_detection.yaml. Only values that differ from the wrapper are set.
 /**:
   ros__parameters:
@@ -13,7 +13,7 @@
       depth_mode: NEURAL_LIGHT
       min_depth: 0.3
       max_depth: 20.0
-    # OD tracking (stable ids) needs positional tracking. Its pose is never used: camera.launch.py
+    # OD tracking (stable ids) needs positional tracking. Its pose is never used: perception.launch.py
     # turns off every ZED TF, and the EKFs own odom and map. Budget: >= 12 Hz and <= +5 ms
     # proc_ms over tracking off; otherwise set pos_tracking_enabled and enable_tracking false.
     pos_tracking:

@@ -1,5 +1,5 @@
-# The front camera, a ZED 2i: its preview stream (camera.launch.py) and the ZED object backend
-# (objects.launch.py backend:=zed). The wrapper's own settings are its ROS parameter files,
+# The front camera, a ZED 2i: its preview stream (perception.launch.py camera:=zed) and the ZED object backend
+# (the same launch). The wrapper's own settings are its ROS parameter files,
 # zed_boat.yaml and custom_object_detection.yaml.
 tune:
   preview_rate: 2.0     # the TUI's compressed preview; ZED capture and publication are separate
