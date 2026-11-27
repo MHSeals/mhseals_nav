@@ -86,8 +86,11 @@ def fcu_nodes(context, settings, sim):
         # silent), rotates by the FCU attitude, fills the covariance and republishes the fix as /gps/fix.
         Node(package='mhseals_nav', executable='mavros_odometry', name='mavros_odom_adapter',
              output='screen', parameters=[settings.adapter_parameters]),
-        Node(package='topic_tools', executable='relay', name='mavros_imu_relay', output='screen',
-             arguments=['/mavros/imu/data', '/imu/raw']),
+        # /mavros/imu/data -> /imu/raw, the heading held on the gyro while thrust current bends
+        # the compass (heading_guard.py). Respawned: every EKF needs /imu/raw.
+        Node(package='mhseals_nav', executable='heading_guard', name='heading_guard',
+             output='screen', respawn=True, respawn_delay=1.0,
+             parameters=[settings.guard_parameters]),
         Node(package='mhseals_nav', executable='mavros_setup', name='mavros_setup', output='screen',
              parameters=[setup_file, rates]),
     ]

@@ -34,6 +34,7 @@ set(ENTRY_POINTS
   lidar_fusion=lidar_fusion
   lidar_smear=lidar_smear
   mavros_odometry=mavros_odometry
+  heading_guard=heading_guard
   mavros_setup=mavros_setup
   run_task=tasks.interface
   nearest_obstacle=nearest_obstacle

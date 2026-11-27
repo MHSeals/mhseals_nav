@@ -10,7 +10,7 @@ from test_mavros_configuration import selected
 import yaml
 
 ROOT = Path(__file__).parents[1]
-FCU = ['mavros_node', 'mavros_odometry', 'relay', 'mavros_setup']
+FCU = ['mavros_node', 'mavros_odometry', 'heading_guard', 'mavros_setup']
 CORE = ['robot_state_publisher', 'navsat_transform_node', 'ekf_node', 'ekf_node']
 
 
@@ -46,7 +46,7 @@ def test_source_fcu_adds_mavros_its_relays_and_setup_before_the_ekfs(run):
     # An FCU reboot drops the USB device and MAVROS exits; it must come back.
     assert mavros['respawn'] is True and mavros['respawn_delay'] == 2.0
     assert mavros['parameters'][0] == str(ROOT / 'config/mavros.yaml')
-    assert named(fcu, 'mavros_imu_relay')['arguments'] == ['/mavros/imu/data', '/imu/raw']
+    assert named(fcu, 'heading_guard')['respawn'] is True     # /imu/raw must come back if it dies
     assert named(fcu, 'mavros_odom_adapter')['executable'] == 'mavros_odometry'
     assert executables(run(source='none')) == CORE
 
