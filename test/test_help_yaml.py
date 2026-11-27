@@ -19,8 +19,15 @@ def test_device_is_the_only_launch_and_its_arguments_are_declared():
     source = (ROOT / 'launch/device.launch.py').read_text()
     for name in params('device'):
         assert re.search(r"""['"]%s['"]""" % name, source), name
-    assert set(params('device')['device']['choices']) == {
-        p.stem for p in (ROOT / 'config/devices').glob('*.yaml')}
+    from mhseals_nav import device_parts
+    for name in ('device', 'only'):   # the help page lists both, from the profiles
+        assert params('device')[name]['list'] is True
+        command = params('device')[name]['choices_from'].split()
+        assert command[:4] == ['ros2', 'run', 'mhseals_nav', 'device_parts']
+        found = [line.split('\t')[0] for line in device_parts.lines(*command[4:])]
+        assert found and all(found)
+    assert [line.split('\t')[0] for line in device_parts.lines('--devices')] == sorted(
+        p.stem for p in (ROOT / 'config/devices').glob('*.yaml'))
 
 
 def test_every_entry_has_a_level_and_a_host():

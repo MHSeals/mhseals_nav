@@ -1,14 +1,13 @@
-# One machine runs the boat and camera parts against the Unity simulator (crane_ml), which
-# publishes the sensors, images and detections; sim_bridge is the ROS-TCP endpoint to it.
+# One machine runs the boat and camera computers' parts against the Unity simulator (crane_ml). The simulator
+# publishes the sensors, images and detections through sim_bridge, so no driver starts.
 extends: [odroid, jetson]
 requires: []
 args: {sim: 'true'}
 parts:
-  localization: {args: {fcu: 'false', ekf_startup_context: standalone}}
-  camera: {enabled: false}
-  objects: {args: {backend: sim}, nodes: [object_tracker]}
-  lidar: {enabled: false}
-  # sensors.launch.py with sim:=true: the Unity endpoint (launch arg ros_port), the sim lidar smear
-  # and /perception/nearby.
-  sim_bridge: {launch: sensors.launch.py, nodes: [UnityEndpoint]}
+  localization: {args: {source: none}, nodes: [robot_state_publisher, ekf_local, ekf_global, navsat_transform]}
+  perception: {args: {camera: sim, lidar: sim}, nodes: [sim_backend, object_tracker, costmap]}
   host_diagnostic: {enabled: false}       # it reports the Orin's temperature and power mode
+  sim_bridge:
+    launch: sim_bridge.launch.py
+    about: The simulator's link (the Unity ROS-TCP endpoint, port ros_port); it stands in for the drivers.
+    nodes: [UnityEndpoint]

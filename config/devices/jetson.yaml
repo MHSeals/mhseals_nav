@@ -1,16 +1,14 @@
-# The camera computer (Orin + ZED 2i + VLP16): camera, objects and the lidar, no motion.
-# Started by `astro up` (the perception stack) or by hand:
-# ros2 launch mhseals_nav device.launch.py device:=jetson.
+# The camera computer (Orin + ZED 2i + VLP16): perception, no motion.
 requires: [zed, gpu]
 args: {sim: 'false'}
 parts:
-  # The vessel's ZED 2i: with its IMU and magnetometer it is a second IMU and a third heading source
-  # (/front/zed_node/imu/data, imu/mag) beside the FCU's.
-  camera: {launch: camera.launch.py, args: {camera_model: zed2i}, nodes: [zed_node]}
-  # Backend, tracker and the perception costmap (/perception/costmap).
-  objects: {launch: objects.launch.py, args: {backend: zed}, nodes: [zed_backend, object_tracker, costmap]}
-  # velodyne_driver runs on the large-data transport, which no other computer discovers; the
-  # relay that carries /points onto the default transport is the proof the part is up.
-  lidar: {launch: sensors.launch.py, nodes: [lidar_relay_publish]}
-  # Temperature, power mode and free disk on /diagnostics.
-  host_diagnostic: {run: [mhseals_nav, host_diagnostic], nodes: [host_diagnostic]}
+  perception:
+    launch: perception.launch.py
+    # The ZED 2i's IMU and magnetometer are a second IMU and a third heading source beside the FCU's.
+    args: {camera: zed, camera_model: zed2i, lidar: velodyne}
+    about: What is around the boat - the camera and lidar drivers, the object tracker and the costmap.
+    nodes: [zed_node, zed_backend, object_tracker, costmap, lidar_relay_publish]
+  host_diagnostic:
+    run: [mhseals_nav, host_diagnostic]
+    about: This computer's temperature, power mode and free disk on /diagnostics.
+    nodes: [host_diagnostic]

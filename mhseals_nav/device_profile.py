@@ -1,11 +1,12 @@
 """Device profiles: what one computer runs, as parts built from this package's launch files.
 
 ``config/devices/<name>.yaml`` is the only place a responsibility is assigned to a computer
-(``ros2 launch mhseals_nav device.launch.py device:=NAME``). Layers,
-lowest first: the package profile (and its ``extends``), ``$ROS_WS/config/devices/<name>.yaml``
-(deployment), ``~/.config/mhseals/devices/<name>.yaml`` (operator), then the session's
-``overrides``. The thruster driver and command_mux are never parts: they start by hand with
-``ros2 launch mhseals_hardware drive.launch.py``.
+(``ros2 launch mhseals_nav device.launch.py device:=NAME``). A part is one domain launch file with the
+arguments that pick this computer's hardware (``localization.launch.py`` with ``source: fcu``), or one
+``ros2 run``; ``about`` says in plain words what it does. Layers, lowest first: the package profile (and
+its ``extends``), ``$ROS_WS/config/devices/<name>.yaml`` (deployment),
+``~/.config/mhseals/devices/<name>.yaml`` (operator), then the session's ``overrides``. The thruster
+driver and command_mux are never parts: they start with ``ros2 launch mhseals_hardware drive.launch.py``.
 """
 from copy import deepcopy
 import json
@@ -16,9 +17,10 @@ from .layers import deep_merge, load_strict, package_path
 
 KEYS = {'extends', 'requires', 'args', 'parts'}
 OVERLAY_KEYS = KEYS - {'extends'}
-PART_KEYS = {'launch', 'run', 'args', 'nodes', 'enabled', 'kind', 'with'}
+PART_KEYS = {'launch', 'run', 'args', 'about', 'nodes', 'enabled', 'kind', 'with'}
 KINDS = ('sensing', 'commander')
-COMMANDER_LAUNCHES = {'navigation.launch.py', 'task.launch.py'}
+# Launch files that can command motion, and the argument that turns that off (None: nothing does).
+COMMANDER_LAUNCHES = {'navigation.launch.py': 'nav2', 'mission.launch.py': None}
 DRIVERS = {'thruster_pwm_node', 'command_mux'}
 
 
@@ -70,6 +72,8 @@ def validate_layer(layer, where, keys=KEYS):
             raise ValueError(f'{here}.run: [package, executable, arguments...]')
         _arguments(spec.get('args', {}), f'{here}.args')
         _names(spec.get('nodes', []), f'{here}.nodes')
+        if not isinstance(spec.get('about', ''), str):
+            raise ValueError(f'{here}.about: one line of plain text')
         _names(spec.get('with', []), f'{here}.with')
         if not isinstance(spec.get('enabled', True), bool):
             raise ValueError(f'{here}.enabled: true or false')
@@ -183,8 +187,16 @@ def check(profile, name):
             continue
         if not (launches / spec['launch']).is_file():
             raise ValueError(f'{here}.launch: no {spec["launch"]} in mhseals_nav/launch')
-        if spec['launch'] in COMMANDER_LAUNCHES and spec.get('kind', 'sensing') != 'commander':
+        if commands(spec) and spec.get('kind', 'sensing') != 'commander':
             raise ValueError(f'{here}: {spec["launch"]} can command motion; set kind: commander')
+
+
+def commands(spec):
+    """Whether a launch part can command motion (navigation.launch.py with nav2 off is mapping only)."""
+    if spec.get('launch') not in COMMANDER_LAUNCHES:
+        return False
+    switch = COMMANDER_LAUNCHES[spec['launch']]
+    return switch is None or str(spec.get('args', {}).get(switch, 'true')).lower() not in ('false', '0')
 
 
 def select(profile, only=''):

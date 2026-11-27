@@ -1,6 +1,6 @@
 """One launch file for any computer: the enabled parts of its device profile.
 
-ros2 launch mhseals_nav device.launch.py device:=jetson [only:=camera,objects] [overrides:='{...}']
+ros2 launch mhseals_nav device.launch.py device:=jetson [only:=perception] [overrides:='{...}']
 
 Profiles live in config/devices/<device>.yaml (see mhseals_nav/device_profile.py). Each part is
 an include of a launch file in this package, in its own scope, or one ``ros2 run`` process.

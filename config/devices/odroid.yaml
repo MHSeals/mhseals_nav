@@ -1,14 +1,25 @@
-# The boat computer: localization (MAVROS, TF and the EKFs), SLAM, Nav2 and the mission runner.
-# The drive stack (thruster driver, command_mux) is not a part: start it with
-# `ros2 launch mhseals_hardware drive.launch.py`.
+# The boat computer: localization, mapping, navigation and the mission runner.
+# The drive stack (thruster driver, command_mux) is not a part: ros2 launch mhseals_hardware drive.launch.py.
 requires: [mavros]
 args: {sim: 'false'}
 parts:
-  # MAVROS and its relays, the robot TF, and the EKFs and navsat_transform (odom.launch.py includes
-  # ekf.launch.py).
-  localization: {launch: odom.launch.py, args: {fcu: 'true'},
-                 nodes: [robot_state_publisher, ekf_local, ekf_global, navsat_transform]}
-  mapping: {launch: slam.launch.py, nodes: [rtabmap]}
-  navigation: {launch: navigation.launch.py, nodes: [bt_navigator], kind: commander}
-  # Runs no task unless one is given: overrides '{"parts": {"mission": {"args": {"task": "mission"}}}}'.
-  mission: {launch: task.launch.py, nodes: [run_task], kind: commander}
+  localization:
+    launch: localization.launch.py
+    args: {source: fcu}
+    about: Where the boat is - the robot TF and the two EKFs, fed by the source (fcu is MAVROS).
+    nodes: [mavros_node, robot_state_publisher, ekf_local, ekf_global, navsat_transform]
+  mapping:
+    launch: navigation.launch.py
+    args: {nav2: 'false', mapping: 'true'}
+    about: A map of the course from the lidar and camera (RTAB-Map), without navigating.
+    nodes: [rtabmap]
+  navigation:
+    launch: navigation.launch.py
+    kind: commander
+    about: Drives the boat to goals (Nav2).
+    nodes: [bt_navigator, controller_server, planner_server, velocity_smoother]
+  mission:   # no task unless one is given: overrides '{"parts": {"mission": {"args": {"task": "mission"}}}}'
+    launch: mission.launch.py
+    kind: commander
+    about: Runs a task tree or the whole mission (no task unless one is given).
+    nodes: [run_task]

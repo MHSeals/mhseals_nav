@@ -1,4 +1,7 @@
-"""Run a task: ros2 launch mhseals_nav task.launch.py task:=pair_test."""
+"""Mission: what to do. One task tree, or the whole mission, with the task runner.
+
+ros2 launch mhseals_nav mission.launch.py task:=nav_channel   (no task:= starts nothing)
+"""
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, LogInfo, OpaqueFunction
@@ -9,7 +12,7 @@ from launch_ros.actions import Node
 def task_node(context):
     task = LaunchConfiguration('task').perform(context)
     if not task:   # a whole-profile bring-up (device.launch.py device:=sim) runs no task
-        return [LogInfo(msg='task.launch: no task:=, run_task not started')]
+        return [LogInfo(msg='mission.launch: no task:=, run_task not started')]
     arguments = ['--task', task]
     params_file = LaunchConfiguration('params_file').perform(context)
     if params_file:

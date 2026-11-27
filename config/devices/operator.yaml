@@ -1,5 +1,7 @@
-# The operator station: RTK corrections to MAVROS from the USB base receiver and/or NTRIP
-# (`rtk base`; the rover side is in localization).
+# The operator station.
 requires: []
 parts:
-  rtk: {run: [mhseals_nav, rtk, base], nodes: [rtk_base]}
+  rtk:
+    run: [mhseals_nav, rtk, base]
+    about: RTK corrections to the boat's GPS from a base receiver and/or NTRIP (rtk base).
+    nodes: [rtk_base]

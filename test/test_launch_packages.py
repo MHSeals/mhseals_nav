@@ -6,6 +6,7 @@ import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+from launch_harness import harness, packages  # noqa: F401
 from mhseals_nav import device_profile
 import pytest
 
@@ -80,16 +81,28 @@ def test_every_imported_package_is_declared_or_gated():
 
 @pytest.mark.parametrize('capability,package', [
     (capability, package) for capability, packages in GATED.items() for package in packages])
-def test_gated_package_starts_only_where_its_host_has_it(capability, package):
+def test_gated_package_starts_only_where_its_host_has_it(
+        harness, monkeypatch, capability, package):  # noqa: F811
+    """A profile starts a gated package only where its host has it.
+
+    The profile's parts run in the launch harness, so it is the part's arguments that select the
+    package (perception camera:=zed, not camera:=sim).
+    """
     assert package not in declared()
     files = launched()[package]
     included = {name for path in (ROOT / 'launch').glob('*.launch.py')
                 for name in INCLUDES.findall(path.read_text())}
     assert not files & included, f'{package}: a launch file includes {files & included}'
+    for name in files:   # only these files name the package; a stub lidar (no calibration here)
+        if hasattr(harness.load(name), 'resolve_lidar'):
+            monkeypatch.setattr(harness.load(name), 'resolve_lidar',
+                                lambda *args, **kwargs: {'driver': {}, 'transform': {}})
     profiles = []
     for name in device_profile.available():
         profile = device_profile._package(name, ())
-        if any(spec.get('launch') in files for _, spec in device_profile.select(profile)):
+        if any(package in packages(harness.run(
+                spec['launch'], **device_profile.launch_arguments(profile, spec)))
+               for _, spec in device_profile.select(profile) if spec.get('launch') in files):
             profiles.append(name)
             assert capability in profile['requires'], f'{name} starts {package} without {capability}'
     assert profiles, f'no device profile starts {package}'

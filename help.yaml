@@ -11,15 +11,16 @@ commands:
     level: setup
     host: boat_computer
     summary: Start one computer's share of the boat software by hand; astro up normally does this for you.
-    notes: Useful to start a single part while debugging, e.g. only the position tracking on the boat computer.
+    notes: Useful to start or restart a single part while debugging, e.g. only localization on the boat computer.
     details: >-
-      Parts: odroid localization (MAVROS, TF and the EKFs), mapping, navigation, mission; jetson camera,
-      objects, lidar, host_diagnostic; operator rtk; sim adds sim_bridge (the Unity endpoint) to the odroid
-      and jetson parts. The drive stack is mhseals_hardware's drive. Layers: $ROS_WS/config/devices/<device>.yaml,
-      then ~/.config/mhseals/devices/, then overrides.
+      Each part is one domain launch file (localization, perception, navigation, mission; sim_bridge in the sim)
+      with the arguments that pick this computer's hardware, from config/devices/<device>.yaml (extends: inherits
+      another profile, e.g. sim extends odroid and jetson). Layers: $ROS_WS/config/devices/<device>.yaml, then
+      ~/.config/mhseals/devices/, then overrides. The drive stack is mhseals_hardware's drive.
     params:
-      - {name: device, required: true, choices: [odroid, jetson, operator, sim], description: 'Which computer: odroid is the boat computer, jetson the camera computer, operator the operator laptop.'}
-      - {name: only, choices_from: ros2 run mhseals_nav device_parts,
+      - {name: device, required: true, choices_from: ros2 run mhseals_nav device_parts --devices, list: true,
+         description: 'Which computer this is, by its profile, e.g. odroid for the boat computer.'}
+      - {name: only, choices_from: ros2 run mhseals_nav device_parts, list: true,
          description: 'Only these parts, comma-separated, e.g. localization; leave empty to start all of them.'}
       - {name: overrides, description: 'Settings for this run only, as JSON in the device file layout.'}
     examples:
