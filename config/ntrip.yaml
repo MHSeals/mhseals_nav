@@ -68,6 +68,19 @@ casters:
     user_env: EARTHSCOPE_USER
     password_env: EARTHSCOPE_PASSWORD
     bias_km: 2
+  # RTKdata (GEODNET stations), paid, 30-day free trial: https://docs.rtkdata.com/get-started/network
+  # North America host; eu. and aus. share the same stations. RTCM 3.2 MSM4, GPS+GLO+GAL+BDS. Its
+  # AUTO* mountpoints pick the station nearest the GGA and list no position, so `nearest` assumes a
+  # distance: farther than a free station in range (FPRN wins in Florida), under max_km elsewhere.
+  # AUTO_WGS84 matches the WGS84 course points (plain AUTO is the regional datum, NAD83 in the US).
+  - name: RTKdata
+    host: rtk.rtkdata.com
+    port: 2101
+    version: 2
+    user_env: RTKDATA_USER
+    password_env: RTKDATA_PASSWORD
+    nearest: {AUTO_WGS84: 20.0}
+    bias_km: 0
   # RTK2go community caster: http://rtk2go.com/how-to-connect/ . User name = a valid e-mail, the
   # password is ignored; no registration. Only the e-mail is needed: RTK2GO_USER=<your e-mail> in
   # the secrets file (never here). Failed connects in the hundreds ban the IP for hours

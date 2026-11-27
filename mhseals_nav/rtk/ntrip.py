@@ -10,7 +10,9 @@ MSM4), a single band, fewer constellations and the caster's own bias. The distan
 mountpoint's own lat/lon when the table gives one. A mountpoint is a network (VRS-style) one only
 when the table says so: solution 1 in its STR record and a NET record for its network (or a
 caster configured with a ``group``); only such a mountpoint without a position of its own takes
-its network's nearest station (half that distance for a virtual base). Names and descriptions
+its network's nearest station (half that distance for a virtual base). A caster that picks the
+station nearest the GGA itself lists its mountpoints without a position; its ``nearest`` names
+them with the distance to assume (the stream's own 1005 shows where the station is). Names and descriptions
 ("NET", "Is near: ...") never make a network. Mountpoints beyond ``max_km`` stay as last-resort
 fallbacks. A mountpoint that went stale or dropped rests for ``mount_cooldown`` (doubling to
 10 min); a caster that refused (HTTP 400/401/403, "not allowed", "banned") rests whole for
@@ -278,7 +280,7 @@ def pinned(stream, pin):
     return stream.mount.lower() == mount.lower() and (not caster or stream.caster.lower() == caster.lower())
 
 
-def rank(streams, here, settings, biases=None, resting=(), groups=None):
+def rank(streams, here, settings, biases=None, resting=(), groups=None, nearest=None):
     """Candidates for position ``here`` (lat, lon), best first; resting keys (caster, mount) are left out.
 
     ``groups`` maps a caster to the network it belongs to (its stations may be in another
@@ -286,9 +288,11 @@ def rank(streams, here, settings, biases=None, resting=(), groups=None):
     so its solution-1 mountpoints are network ones even without a NET record. Every mountpoint
     with a position is ranked by its own distance; a network mountpoint without one is as near as
     its group's nearest single station (half that for a virtual base, the full distance for NEAR).
+    ``nearest`` maps a caster to {mount: km}: mountpoints the caster serves from the station nearest
+    the GGA, ranked at that assumed distance when the table gives them no position.
     """
     weights, pin = settings['penalties'], settings.get('pin')
-    biases, groups = biases or {}, groups or {}
+    biases, groups, nearest = biases or {}, groups or {}, nearest or {}
 
     def network(s):
         return s.vrs or (s.solution == 1 and groups.get(s.caster, s.caster) != s.caster)
@@ -304,6 +308,8 @@ def rank(streams, here, settings, biases=None, resting=(), groups=None):
             continue
         if s.located:
             km = distance_km(here, (s.lat, s.lon))
+        elif s.mount in nearest.get(s.caster, {}):
+            km = float(nearest[s.caster][s.mount])
         elif network(s) and groups.get(s.caster, s.caster) in single:
             km = single[groups.get(s.caster, s.caster)] * (1.0 if 'NEAR' in s.mount.upper() else 0.5)
         else:
@@ -583,6 +589,7 @@ class NtripSource:
         self.casters = [c for c in self.settings['casters'] if c.get('enabled', True)]
         self.biases = {c['name']: float(c.get('bias_km', 0.0)) for c in self.casters}
         self.groups = {c['name']: c.get('group', c['name']) for c in self.casters}
+        self.nearest = {c['name']: dict(c.get('nearest') or {}) for c in self.casters}
         self.emit, self.position, self.connect, self.clock = emit, position, connect, clock
         self.env = env if env is not None else {**read_secrets(self.settings['secrets']), **os.environ}
         self.tables, self.fetched = {}, {}          # caster -> streams, caster -> clock stamp
@@ -627,7 +634,7 @@ class NtripSource:
             streams += self.tables.get(caster['name'], [])
             if caster['name'] in resting or (needs_login(caster) and not credentials(caster, self.env)[0]):
                 closed.add(caster['name'])      # its table still locates network stations
-        ranked = [c for c in rank(streams, here[:2], self.settings, self.biases, resting, self.groups)
+        ranked = [c for c in rank(streams, here[:2], self.settings, self.biases, resting, self.groups, self.nearest)
                   if c.stream.caster not in closed]
         if not peek:
             self.update(candidates=[c.summary() for c in ranked[:5]])
@@ -739,7 +746,7 @@ class NtripSource:
         pin = self.settings.get('pin')
         if pin and not any(pinned(s, pin) for s in streams):
             return f'pin {pin} not in any sourcetable'
-        every = rank(streams, here[:2], self.settings, self.biases, (), self.groups)
+        every = rank(streams, here[:2], self.settings, self.biases, (), self.groups, self.nearest)
         if not every:
             return f'pin {pin} is not a usable RTCM 3 mountpoint' if pin else 'no usable RTCM 3 mountpoint in the sourcetables'
         now, by_name = self.clock(), {c['name']: c for c in self.casters}
@@ -767,7 +774,7 @@ class NtripSource:
         caster = next(c for c in self.casters if c['name'] == s.caster)
         self.update(phase='connecting', detail=f'connecting {s.caster}/{s.mount}', mount=s.mount, caster=s.caster,
                     km=round(candidate.km, 1), vrs=s.vrs,
-                    station=None if s.vrs else dict(latitude=s.lat, longitude=s.lon))
+                    station=dict(latitude=s.lat, longitude=s.lon) if s.located and not s.vrs else None)
         line = self._gga() if s.nmea else None
         client = Client(caster, self.env, self.connect).open(s.mount, line, settings['timeout_s'])
         framer = Framer()

@@ -225,3 +225,23 @@ def test_rtk_status_is_healthy_only_while_corrections_reach_a_subscriber():
     assert not healthy({**live, 'phase': 'surveying'})
     net = {'phase': 'ready', 'age': 0.5, 'subscribers': 1, 'source': {'kind': 'ntrip', 'ntrip': {'phase': 'streaming'}}}
     assert healthy(net) and not healthy({**net, 'source': {'kind': 'ntrip', 'ntrip': {'phase': 'connecting'}}})
+
+
+def test_a_caster_that_picks_the_nearest_station_ranks_at_its_assumed_distance():
+    # RTKdata-style records: no position (0, 0), solution 0, GGA wanted; the caster picks the station.
+    auto = '\n'.join([
+        'STR;AUTO;AUTO;RTCM3.2;1005,1074,1084,1094,1124;2;G,R,E,C,J;GEODNET;;0.00;0.00;1;0;GEODNET;none;B;N;9600;none',
+        'STR;AUTO_WGS84;AUTO_WGS84;RTCM3.2;1005,1074,1084,1094,1124;2;G,R,E,C,J;GEODNET;;0.00;0.00;1;0;GEODNET;none;B;N;9600;none',
+        'ENDSOURCETABLE'])
+    florida = ntrip.parse_sourcetable(FLORIDA, 'B')
+    streams = ntrip.parse_sourcetable(auto, 'R') + florida
+    settings = ntrip.load_settings()
+    nearest = {'R': {'AUTO_WGS84': 20.0}}
+    dallas = ntrip.rank(streams, (32.78, -96.80), settings, nearest=nearest)
+    assert dallas[0].key == ('R', 'AUTO_WGS84') and dallas[0].in_range and dallas[0].km == 20.0
+    assert 'AUTO' not in {c.stream.mount for c in dallas}            # only the named mountpoint is ranked
+    melbourne = ntrip.rank(streams, (28.10, -80.65), settings, nearest=nearest)
+    assert melbourne[0].stream.mount == 'MELBOURNE'                   # a free station in range still wins
+    assert not ntrip.rank(ntrip.parse_sourcetable(auto, 'R'), (32.78, -96.80), settings)   # unnamed: unranked
+    rtkdata = next(c for c in settings['casters'] if c['name'] == 'RTKdata')
+    assert rtkdata['nearest'] == {'AUTO_WGS84': 20.0}
