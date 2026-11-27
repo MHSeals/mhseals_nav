@@ -11,7 +11,12 @@ ALIASES = ('robot_state_publish_frequency', 'mavros_velocity_source',
            'mavros_velocity_min_stddev', 'mavros_velocity_no_fix_stddev',
            'mavros_velocity_min_fix_type', 'mavros_velocity_max_acc', 'ekf_delay')
 LAYER_ARGUMENTS = ('odometry_deployment_file', 'odometry_startup_file')
-KEYS = frozenset(ALIASES[:-1]) | {'ekf_delay_standalone', 'ekf_delay_included'}
+GUARD_PARAMETERS = {name: 'heading_' + name for name in (
+    'field_low', 'field_high', 'jump', 'window', 'recover', 'accept', 'slew', 'drift', 'seed',
+    'field_time', 'hold')}
+ATTITUDE = 'mavros_attitude_topic'   # a topic, or empty for the FCU's own attitude
+KEYS = (frozenset(ALIASES[:-1]) | {'ekf_delay_standalone', 'ekf_delay_included', ATTITUDE}
+        | frozenset(GUARD_PARAMETERS.values()))
 ADAPTER_PARAMETERS = {
     'velocity_source': 'mavros_velocity_source',
     'velocity_stddev': 'mavros_velocity_stddev',
@@ -20,6 +25,7 @@ ADAPTER_PARAMETERS = {
     'velocity_stddev_nofix': 'mavros_velocity_no_fix_stddev',
     'gps_velocity_min_fix_type': 'mavros_velocity_min_fix_type',
     'gps_velocity_max_acc': 'mavros_velocity_max_acc',
+    'attitude_topic': ATTITUDE,
 }
 FIX_TYPE = 'mavros_velocity_min_fix_type'  # a receiver fix_type: an integer 0-6
 INCLUSIVE = frozenset({FIX_TYPE, 'mavros_velocity_max_acc'})
@@ -39,6 +45,10 @@ class OdometryConfiguration:
     def adapter_parameters(self):
         return {target: self.values[key] for target, key in ADAPTER_PARAMETERS.items()}
 
+    @property
+    def guard_parameters(self):
+        return {target: self.values[key] for target, key in GUARD_PARAMETERS.items()}
+
 
 def field_rule(key):
     """Return the owned schema rule."""
@@ -46,6 +56,8 @@ def field_rule(key):
         raise ValueError('unknown odometry startup field: ' + key)
     if key == FIX_TYPE:
         return Rule('integer', minimum=0, maximum=6)
+    if key == ATTITUDE:
+        return Rule('string')
     return (Rule('string', choices=('gps', 'fcu')) if key == 'mavros_velocity_source' else
             Rule('number', minimum=0,
                  exclusive=not (key.startswith('ekf_delay_') or key in INCLUSIVE)))
@@ -87,6 +99,6 @@ def resolve_odometry(package_file=None, deployment_file='', operator_file='',
         validate({target: value})
         values[target] = value
     validate(values)
-    values = {key: value if key in ('mavros_velocity_source', FIX_TYPE) else float(value)
+    values = {key: value if key in ('mavros_velocity_source', FIX_TYPE, ATTITUDE) else float(value)
               for key, value in values.items()}
     return OdometryConfiguration(MappingProxyType(values), tuple(inputs), context)

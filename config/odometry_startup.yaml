@@ -13,5 +13,22 @@ mavros_velocity_no_fix_stddev: 1.0
 mavros_velocity_min_fix_type: 3
 # Receiver vel_acc above this (m/s) counts as a poor fix. 0 = off; 0.5 is the suggested value.
 mavros_velocity_max_acc: 0.0
+# The adapter rotates velocity into the body with this topic's attitude: /imu/raw is the heading guard's.
+# Empty: the FCU's own attitude (the compass, unguarded).
+mavros_attitude_topic: /imu/raw
+# heading_guard (/mavros/imu/data -> /imu/raw): the compass is distrusted, and the heading held on the
+# gyro, while the field strength leaves [field_low, field_high] of usual or the FCU heading moves against
+# the gyro. Radians, seconds.
+heading_field_low: 0.8
+heading_field_high: 1.3       # heading alone moves |B| about 12 % while the compass is uncalibrated
+heading_jump: 0.14            # 8 deg of FCU heading against the gyro within heading_window
+heading_window: 1.0
+heading_recover: 2.0          # both checks holding this long before trusting again
+heading_accept: 10.0          # a new FCU heading held this long (trusted) is taken, at heading_slew
+heading_slew: 0.087           # 5 deg/s
+heading_drift: 0.0087         # 0.5 deg/s: yaw sigma growth while the heading is held on the gyro
+heading_seed: 5.0             # the usual field strength: the median over the first seconds
+heading_field_time: 60.0      # then it follows trusted samples this slowly
+heading_hold: 30.0            # a bent field holds the heading this long at most, then the FCU is followed slowly
 ekf_delay_standalone: 0.0
 ekf_delay_included: 6.0

@@ -17,7 +17,7 @@ class Rule:
     def check(self, value):
         """Validate and normalize the value."""
         if self.kind == 'string':
-            valid = type(value) is str and value in self.choices
+            valid = type(value) is str and (not self.choices or value in self.choices)   # no choices: any
         elif self.kind == 'boolean':
             valid = type(value) is bool
         elif self.kind == 'sequence':
@@ -42,6 +42,8 @@ class Rule:
         """Human-readable constraints generated from the validator's rule."""
         if self.choices:
             return 'string in ' + repr(self.choices)
+        if self.kind == 'string':
+            return 'string'
         if self.kind == 'sequence':
             return f'flat sequence of exactly {self.size} actual booleans; replaces whole vector'
         if self.kind == 'boolean':
