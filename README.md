@@ -39,7 +39,7 @@ lists the parts, each one domain launch file with the arguments that pick that c
 
 | Domain | File | Choices |
 | --- | --- | --- |
-| Localization: where the boat is | `localization.launch.py` | `source:=fcu` (MAVROS, its relays and rates) or `none` (a simulator publishes the topics, or MAVROS is already up); always the robot TF and the two EKFs |
+| Localization: where the boat is | `localization.launch.py` | `source:=fcu` (MAVROS, the heading guard, its rates) or `none` (a simulator publishes the topics, or MAVROS is already up); always the robot TF and the two EKFs |
 | Perception: what is around it | `perception.launch.py` | `camera:=zed\|sim\|none`, `lidar:=velodyne\|sim\|none`; always the object tracker and the perception costmap; the object backend follows the camera |
 | Navigation: where to go | `navigation.launch.py` | Nav2 (`nav2:=false` leaves it out, `preset:=pool\|lake`), `mapping:=true` adds RTAB-Map |
 | Mission: what to do | `mission.launch.py` | `task:=NAME` (none: nothing starts) |
@@ -92,7 +92,7 @@ changing Nav2 parameters. `preset:=pool|lake` merges `config/nav2_presets/<name>
 
 | Consumer | Required topics |
 | --- | --- |
-| Localization | `/odom/mavros` (`Odometry`, body velocity), `/imu/raw` (`Imu`, FCU-fused MAVROS `/imu/data`), `/gps/fix` |
+| Localization | `/odom/mavros` (`Odometry`, body velocity), `/imu/raw` (`Imu`, MAVROS `/imu/data` with the heading guard's yaw), `/localization/heading_guard` (`String`, JSON: trusted, reason, field ratio), `/gps/fix` |
 | Navigation | `/odom/local`, `/perception/costmap`, action goals in `map` |
 | Object tracking | `/perception/observations` (`mhseals_nav/ObservationArray`, metres, acquisition timestamps) |
 | SLAM (optional) | `/points`, `odom → base_link` TF, synchronized clocks |
@@ -119,6 +119,13 @@ changing Nav2 parameters. `preset:=pool|lake` merges `config/nav2_presets/<name>
 Rates are set in `config/mavros_setup.yaml` (FCU streams), `config/ekf_*.yaml` (EKFs) and `config/nav2_params.yaml` (costmaps, planner, controller); the VLP16 scan rate is the vessel profile's `lidar.rpm`. Rates are requested again whenever the FCU reconnects. Restart navigation after changing Nav2 parameters.
 
 **Heading:** ROS ENU yaw = 90° − compass heading (195° bow heading is −105°). Never hide a heading error with the URDF or `navsat_transform.yaw_offset`; fix the FCU.
+
+**Heading guard:** thruster current near the compass bends its field, and the FCU heading then jumps with no rotation (up to 170° on Blastoise). `heading_guard` sits between `/mavros/imu/data` and `/imu/raw`, so every heading consumer (ekf_global, navsat_transform, the adapter's velocity rotation, lidar fusion) gets its yaw:
+- It distrusts the compass while the field strength leaves its usual band, or while the FCU heading moves against the gyro, and holds the heading on the gyro meanwhile, with the yaw variance growing.
+- A healthy compass passes straight through. The output never steps: it moves with the gyro, or at most `heading_slew` toward the FCU.
+- A bent field alone holds the heading at most `heading_hold`; then the FCU is followed slowly again, and jumps are still refused.
+
+Settings are `heading_*` in `config/odometry_startup.yaml`, live with `ros2 param set /heading_guard NAME VALUE`, and its state is on `/localization/heading_guard`. It removes jumps, but it cannot make a compass that is wrong but steady right (a steel pool): fix that at the FCU (magcal, or the `no-compass` list).
 
 The `mapping` part (RTAB-Map, `navigation.launch.py mapping:=true`) should report a live input rate and publish `/map` while the boat moves. It does not publish TF; Nav2 keeps using the EKF tree.
 
