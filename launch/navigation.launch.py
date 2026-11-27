@@ -1,4 +1,13 @@
-"""Explicit boat server set: no implicit docking, route server or SLAM."""
+"""Navigation: where to go. Nav2 and, on request, RTAB-Map mapping.
+
+ros2 launch mhseals_nav navigation.launch.py [preset:=pool|lake] [mapping:=true] [nav2:=false]
+
+nav2     the explicit server set (no docking or route server): its limits are the hardware state's
+         characterization.nav2_limits, clipped to config/nav2_ceilings.yaml; preset merges
+         config/nav2_presets/<preset>.yaml over params_file. It commands motion (/cmd_vel).
+mapping  RTAB-Map on /points and the camera's relays (perception mapping:=true); it publishes /map,
+         never TF (the EKFs own it). nav2:=false mapping:=true maps without navigating.
+"""
 import os
 import tempfile
 
@@ -11,7 +20,29 @@ import yaml
 from mhseals_nav.layers import package_path
 
 
+def mapping_node(context, sim):
+    """RTAB-Map; localization TF stays the EKFs'."""
+    camera = f"/{LaunchConfiguration('camera_name').perform(context)}_camera"
+    return Node(package='rtabmap_slam', executable='rtabmap', name='rtabmap', output='screen',
+                parameters=[LaunchConfiguration('rtabmap_params_file').perform(context),
+                            {'use_sim_time': sim}],
+                remappings=[('/rgb/image', f'{camera}/rgb/image'),
+                            ('/depth/image', f'{camera}/depth/image'),
+                            ('/rgb/camera_info', f'{camera}/camera_info'),
+                            ('/scan_cloud', '/points')])
+
+
+def nodes(context):
+    from mhseals_nav.layers import boolean
+    sim = boolean(LaunchConfiguration('sim').perform(context))
+    found = navigation_nodes(context) if boolean(LaunchConfiguration('nav2').perform(context)) else []
+    if boolean(LaunchConfiguration('mapping').perform(context)):
+        found.append(mapping_node(context, sim))
+    return found
+
+
 def navigation_nodes(context):
+    """Nav2's servers and their lifecycle manager, from one compiled parameter file."""
     from mhseals_nav.startup_projection import compile_navigation, SERVERS
     from launch.actions import RegisterEventHandler
     from launch.event_handlers import OnShutdown
@@ -56,7 +87,13 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument('params_file', default_value=PathJoinSubstitution(
             [share, 'config', 'nav2_params.yaml'])),
-        DeclareLaunchArgument('sim', default_value='false'),
+        DeclareLaunchArgument('sim', default_value='false', description='Use the simulator clock'),
+        DeclareLaunchArgument('nav2', default_value='true', description='Start Nav2 (it commands motion)'),
+        DeclareLaunchArgument('mapping', default_value='false', description='Start RTAB-Map mapping'),
+        DeclareLaunchArgument('camera_name', default_value='front',
+                              description="Camera whose /<camera_name>_camera/* relays RTAB-Map reads"),
+        DeclareLaunchArgument('rtabmap_params_file', default_value=PathJoinSubstitution(
+            [share, 'config', 'rtabmap.yaml'])),
         DeclareLaunchArgument('preset', default_value='',
                               description='config/nav2_presets/<preset>.yaml merged over params_file, e.g. '
                                           'pool or lake; measured velocities only lower its own, its accelerations win; empty: none'),
@@ -64,6 +101,6 @@ def generate_launch_description():
                               description='Hardware state YAML whose characterization.nav2_limits sets '
                                           'the Nav2 limits; empty = $MHSEALS_HARDWARE_CONFIG, else '
                                           '~/.config/mhseals/hardware.yaml (absent: nav2_params.yaml)'),
-        OpaqueFunction(function=navigation_nodes),
+        OpaqueFunction(function=nodes),
     ])
 
