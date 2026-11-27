@@ -1,12 +1,12 @@
 """Project accepted policy numbers with the node's declared ROS scalar types."""
 from pathlib import Path
 
+from launch_harness import harness, named  # noqa: F401
 from mhseals_nav.mavros_configuration import installed_setup_defaults, POLICY_FIELDS, resolve_setup
 import pytest
 from rclpy.parameter import Parameter
 from test_mavros_inheritance import layer
 from test_mavros_policy import inert_main
-from test_mavros_startup import factory
 import yaml
 
 ROOT = Path(__file__).parents[1]
@@ -14,13 +14,16 @@ DOUBLES = [key for key, rule in POLICY_FIELDS.items() if rule in ('positive', 'n
 
 
 @pytest.mark.parametrize('key', DOUBLES)
-def test_integer_policy_launch_and_worker_project_as_double(tmp_path, monkeypatch, key):
+def test_integer_policy_launch_and_worker_project_as_double(
+        harness, tmp_path, monkeypatch, key):  # noqa: F811
     """Integer-spelled partial YAML and rate aliases retain DOUBLE compatibility."""
     selected = layer(tmp_path, {key: 1})
     projected = resolve_setup(selected, {'mavros_imu_rate': '12'})
-    node = factory()['create_mavros_setup_node']({
-        'mavros_setup_params_file': str(selected), 'mavros_odom_rate': '',
-        'mavros_imu_rate': '12', 'mavros_gps_rate': '', 'mavros_rc_rate': ''})[0]
+    urdf = tmp_path / 'robot.urdf'
+    urdf.write_text('<robot/>')
+    node = named(harness.run('localization.launch.py', urdf_file=str(urdf),
+                             mavros_setup_params_file=str(selected), mavros_imu_rate='12'),
+                 'mavros_setup')
     assert type(node.parameters[1][key]) is float
     assert Parameter(key, value=node.parameters[1][key]).type_ == Parameter.Type.DOUBLE
     assert Parameter(key, value=installed_setup_defaults()[key]).type_ == Parameter.Type.DOUBLE

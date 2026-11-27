@@ -1,8 +1,8 @@
 """boat-network.env: the one parser for the boat LAN's addresses, and the lidar's LIDAR_IP."""
+from launch_harness import harness  # noqa: F401
 from mhseals_nav import boat_network
 import pytest
 from test_lidar_configuration import share  # noqa: F401
-from test_sensor_startup import factory
 
 
 def test_values_read_like_the_shell(tmp_path):
@@ -58,21 +58,21 @@ def test_a_missing_vessel_network_env_warns_once_and_never_falls_back(
     assert err.count('ASTRO_NETWORK_ENV') == 1 and str(gone) in err
 
 
-def context(**values):
-    return {'sim': 'false', 'sensors_ignore': '', 'lidar_params_file': '',
-            'lidar_deployment_file': '',
-            'lidar_required_frame': '', 'velodyne_ip': '', 'velodyne_port': '', **values}
-
-
 def test_the_lidar_launch_takes_lidar_ip_and_refuses_without_one(
-        share, boat_network_env):  # noqa: F811
+        harness, share, boat_network_env, monkeypatch):  # noqa: F811
     from mhseals_nav.lidar_configuration import resolve_lidar
-    namespace = factory(lambda *args, **kwargs: resolve_lidar(*args, share=share, **kwargs))
+    perception = harness.load('perception.launch.py')
+    monkeypatch.setattr(perception, 'resolve_lidar',
+                        lambda *args, **kwargs: resolve_lidar(*args, share=share, **kwargs))
+
+    def driver(**arguments):
+        nodes = harness.run('perception.launch.py', camera='none', **arguments)
+        return nodes[0]['parameters'][0]['device_ip']
     boat_network_env.write_text('LIDAR_IP=10.9.8.7\n')
-    assert namespace['sensor_nodes'](context())[0]['parameters'][0]['device_ip'] == '10.9.8.7'
-    explicit = namespace['sensor_nodes'](context(velodyne_ip='10.1.1.1'))
-    assert explicit[0]['parameters'][0]['device_ip'] == '10.1.1.1'
+    assert driver() == '10.9.8.7'
+    assert driver(velodyne_ip='10.1.1.1') == '10.1.1.1'
     boat_network_env.write_text('')
-    namespace['Node'] = lambda **kwargs: pytest.fail('constructed a lidar node without an address')
+    harness.built.clear()
     with pytest.raises(ValueError, match='LIDAR_IP'):
-        namespace['sensor_nodes'](context())
+        driver()
+    assert harness.built == []

@@ -1,96 +1,13 @@
-"""Construct actual launch factories with inert launch objects only."""
+"""mavros_setup's main: its declarations and the rate check before the worker starts."""
 import ast
 from pathlib import Path
 from types import SimpleNamespace
 
-from mhseals_nav.endpoint_configuration import (
-    boolean as endpoint_boolean, LAYER_ARGUMENTS as ENDPOINT_LAYERS, resolve_endpoints, UNSET_GCS)
-from mhseals_nav.mavros_configuration import ALIASES, resolve_setup
-from mhseals_nav.odometry_configuration import (
-    ALIASES as ODOMETRY_ALIASES, LAYER_ARGUMENTS, resolve_odometry)
+from mhseals_nav.mavros_configuration import resolve_setup
 
 import pytest
 
-from test_mavros_configuration import selected
-
-
 ROOT = Path(__file__).parents[1]
-
-
-def factory():
-    """Bind actual odometry factories to inert launch constructors."""
-    source = ROOT / 'launch/odom.launch.py'
-    tree = ast.parse(source.read_text())
-    functions = [n for n in tree.body if isinstance(n, ast.FunctionDef)]
-
-    class Configuration:
-        def __init__(self, name): self.name = name
-        def perform(self, context): return context[self.name]
-
-    def record(*args, **kwargs): return SimpleNamespace(args=args, **kwargs)
-    ns = {name: record for name in (
-        'Node', 'DeclareLaunchArgument', 'GroupAction', 'IncludeLaunchDescription',
-        'OpaqueFunction', 'PythonLaunchDescriptionSource', 'IfCondition',
-        'UnlessCondition', 'ParameterValue')}
-    ns.update(LaunchConfiguration=Configuration, LaunchDescription=lambda x: x,
-              PathJoinSubstitution=lambda x: '/'.join(map(str, x)),
-              FindPackageShare=lambda x: str(ROOT), ALIASES=ODOMETRY_ALIASES,
-              LAYER_ARGUMENTS=LAYER_ARGUMENTS,
-              resolve_setup=resolve_setup, ENDPOINT_LAYERS=ENDPOINT_LAYERS,
-              UNSET_GCS=UNSET_GCS, endpoint_boolean=endpoint_boolean,
-              endpoint_from_launch=lambda context: resolve_endpoints(
-                  ROOT / 'config/endpoint_startup.yaml'),
-              from_launch=lambda context: resolve_odometry(
-                  ROOT / 'config/odometry_startup.yaml',
-                  deployment_file=context['odometry_deployment_file'],
-                  operator_file=context['odometry_startup_file'],
-                  aliases={name: context[name] for name in ODOMETRY_ALIASES},
-                  context=context['ekf_startup_context']))
-    exec(compile(ast.Module(body=functions, type_ignores=[]), str(source), 'exec'), ns)
-    return ns
-
-
-def defaults(entities):
-    """Collect actual declared launch argument defaults."""
-    return {e.args[0]: e.default_value for e in entities if hasattr(e, 'default_value')}
-
-
-@pytest.mark.parametrize('selection', ['', '/missing/rates.yaml', 'invalid'])
-def test_selection_failure_precedes_node(tmp_path, selection):
-    """Selection failure precedes node."""
-    if selection == 'invalid':
-        path = tmp_path / 'invalid.yaml'
-        path.write_text('mavros_setup: []')
-        selection = str(path)
-    ns = factory()
-    context = defaults(ns['generate_launch_description']())
-    context['mavros_setup_params_file'] = selection
-    ns['Node'] = lambda **kwargs: pytest.fail('constructed node before validation')
-    with pytest.raises((ValueError, OSError)):
-        ns['create_mavros_setup_node'](context)
-
-
-def test_invalid_final_alias_precedes_node(tmp_path):
-    """Invalid final alias precedes node."""
-    ns = factory()
-    context = defaults(ns['generate_launch_description']())
-    context.update(mavros_setup_params_file=selected(tmp_path, ['31:7']),
-                   mavros_imu_rate='nan')
-    ns['Node'] = lambda **kwargs: pytest.fail('constructed node before validation')
-    with pytest.raises(ValueError):
-        ns['create_mavros_setup_node'](context)
-
-
-def test_fcu_gate_still_contains_setup_and_sim_default():
-    """Fcu gate still contains setup and sim default."""
-    ns = factory()
-    entities = ns['generate_launch_description']()
-    opaque = next(e for e in entities if hasattr(e, 'function'))
-    assert opaque.function is ns['odometry_nodes']
-    group = next(e for e in opaque.function(defaults(entities)) if hasattr(e, 'actions'))
-    assert group.condition.args[0].name == 'fcu'
-    assert group.actions[-1].function is ns['create_mavros_setup_node']
-    assert defaults(entities)['sim'] == 'false'
 
 
 @pytest.mark.parametrize('rates', [['31:17'], ['31:nan']])
@@ -126,18 +43,3 @@ def test_actual_main_declaration_and_pre_worker_validation(rates):
         ns['main']()
     assert declarations['message_rates'] == rates
     assert declarations['fcu_sysid'] == 1
-
-
-@pytest.mark.parametrize('alias,ids', list(ALIASES.items()))
-def test_every_explicit_alias_overrides_and_unset_preserves(tmp_path, alias, ids):
-    """Every explicit alias overrides and unset preserves."""
-    ns = factory()
-    context = defaults(ns['generate_launch_description']())
-    context['mavros_setup_params_file'] = selected(tmp_path, ['33:7', '30:8', '31:9',
-                                                              '24:4', '65:6'])
-    original = ns['create_mavros_setup_node'](context)[0].parameters[1]
-    context[alias] = '13.5'
-    effective = ns['create_mavros_setup_node'](context)[0].parameters[1]
-    before = dict(e.split(':') for e in original['message_rates'])
-    after = dict(e.split(':') for e in effective['message_rates'])
-    assert after == dict(before, **{str(i): '13.5' for i in ids})

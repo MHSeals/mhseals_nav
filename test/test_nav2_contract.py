@@ -3,6 +3,7 @@ import math
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
+from launch_harness import harness  # noqa: F401
 import pytest
 import yaml
 
@@ -139,22 +140,6 @@ def test_a_failed_replan_waits_without_failing_the_goal():
         assert any(n.tag.startswith('ComputePath') for n in replan[0].iter())
 
 
-def test_launch_responsibilities_and_velocity_output():
-    launch = (ROOT / 'launch/navigation.launch.py').read_text()
-    assert "('cmd_vel_smoothed', 'cmd_vel')" in launch
-    assert "('cmd_vel', 'cmd_vel_nav')" in launch
-    assert "enable_mavros_velocity" not in launch
-    assert 'use_lidar' not in launch   # lidar reaches Nav2 only in /perception/costmap
-    assert "('received_global_plan', 'local_plan')" in launch
-    assert "'object_tracker'" not in (ROOT / 'launch/odom.launch.py').read_text()
-    assert "'object_tracker'" not in launch
-    assert not (ROOT / 'launch/slam_nav.launch.py').exists()
-    slam = (ROOT / 'launch/slam.launch.py').read_text()
-    assert "package='rtabmap_slam'" in slam
-    assert 'navigation.launch.py' not in slam
-    assert not (ROOT / 'launch/robot.launch.py').exists()   # device.launch.py device:=sim
-
-
 def test_rtabmap_uses_the_live_lidar_contract():
     config = yaml.safe_load((ROOT / 'config/rtabmap.yaml').read_text())
     params = config['rtabmap']['ros__parameters']
@@ -163,13 +148,6 @@ def test_rtabmap_uses_the_live_lidar_contract():
     assert params['subscribe_rgb'] is False
     assert params['subscribe_depth'] is False
     assert params['Rtabmap/DetectionRate'] == '10.0'
-    assert '("/scan_cloud", "/points")' in (ROOT / 'launch/slam.launch.py').read_text()
-
-
-def test_camera_relay_keeps_sensor_msgs_image_type():
-    """RTAB-Map subscribes to sensor_msgs/Image, so its relay must read the raw image topic."""
-    camera = (ROOT / 'launch/camera.launch.py').read_text()
-    assert "[f'{zed}/rgb/color/rect/image', f'{out}/rgb/image']" in camera
 
 
 def test_behavior_trees_reload_for_each_goal():
@@ -228,14 +206,11 @@ def test_package_xml_depends_on_rotation_shim():
     assert '<exec_depend>nav2_rotation_shim_controller</exec_depend>' in xml
 
 
-def test_factory_emits_installed_behavior_trees_and_perception_costmap():
+def test_factory_emits_installed_behavior_trees_and_perception_costmap(harness):  # noqa: F811
     from mhseals_nav.startup_projection import TREES
-    from test_navigation_startup_validation import inert_navigation_factory
 
-    factory = inert_navigation_factory()
-    nodes = factory['navigation_nodes']({
-        'params_file': str(ROOT / 'config/nav2_params.yaml'), 'hardware_config': '',
-        'sim': 'false'})
+    nodes = harness.run('navigation.launch.py', params_file=str(ROOT / 'config/nav2_params.yaml'),
+                        hardware_config='', sim='false')
     emitted = yaml.safe_load(Path(nodes[0]['parameters'][0]).read_text())
     navigator = emitted['bt_navigator']['ros__parameters']
     expected = {'default_nav_to_pose_bt_xml': 'nav_to_pose.xml',

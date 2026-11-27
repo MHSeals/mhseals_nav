@@ -90,15 +90,3 @@ def resolve_odometry(package_file=None, deployment_file='', operator_file='',
     values = {key: value if key in ('mavros_velocity_source', FIX_TYPE) else float(value)
               for key, value in values.items()}
     return OdometryConfiguration(MappingProxyType(values), tuple(inputs), context)
-
-
-def from_launch(context):
-    """Thin launch adapter; keep the resolver independent of ROS imports."""
-    from launch.substitutions import LaunchConfiguration
-
-    def get(name):
-        return LaunchConfiguration(name).perform(context)
-    return resolve_odometry(deployment_file=get('odometry_deployment_file'),
-                            operator_file=get('odometry_startup_file'),
-                            aliases={key: get(key) for key in ALIASES},
-                            context=get('ekf_startup_context'))

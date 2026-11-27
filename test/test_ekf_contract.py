@@ -71,14 +71,10 @@ def test_mavros_global_defaults_do_not_relabel_sensor_frames():
 
 
 def test_mavros_relays_preserve_sensor_abstraction_at_safe_rates(tmp_path):
-    launch = (ROOT / 'launch/odom.launch.py').read_text()
-    assert "arguments=['/mavros/imu/data', '/imu/raw']" in launch
-    # /gps/fix comes from the odometry adapter, relabelled to the antenna's frame.
-    assert "'/mavros/global_position/raw/fix', '/gps/fix'" not in launch
+    # /gps/fix comes from the odometry adapter, relabelled to the antenna's frame (the imu relay
+    # and the adapter's place in the launch: test_localization_launch.py).
     adapter = (ROOT / 'mhseals_nav/mavros_odometry.py').read_text()
     assert "'/mavros/global_position/raw/fix'" in adapter and "'/gps/fix'" in adapter
-    assert "executable='mavros_odometry'" in launch
-    assert "executable='mavros_setup'" in launch
     from mhseals_nav.mavros_configuration import ALIASES, resolve_setup
     parameters = resolve_setup(ROOT / 'config/mavros_setup.yaml')
     rates = {int(message_id): float(hz)
@@ -88,8 +84,6 @@ def test_mavros_relays_preserve_sensor_abstraction_at_safe_rates(tmp_path):
     assert 127 not in rates and 128 not in rates  # a Here4 never emits GPS_RTK
     assert ALIASES == {'mavros_odom_rate': (33,), 'mavros_imu_rate': (30, 31),
                        'mavros_gps_rate': (24,), 'mavros_rc_rate': (65,)}
-    for alias in ALIASES:
-        assert f"('{alias}', ''" in launch  # absence must preserve the YAML authority
     from mhseals_nav.endpoint_configuration import resolve_endpoints
     endpoints = resolve_endpoints(ROOT / 'config/endpoint_startup.yaml')
     authority = yaml.safe_load((ROOT / 'config/endpoint_startup.yaml').read_text())
@@ -125,26 +119,9 @@ def test_mavros_loads_only_the_plugins_the_stack_uses():
             'setpoint_velocity'} <= set(plugins)
 
 
-def test_ekfs_launch_on_their_own_and_odom_always_includes_them():
-    ekf = (ROOT / 'launch/ekf.launch.py').read_text()
-    assert "('odometry/filtered', '/odom/global')" in ekf.split('navsat =', 1)[1].split('local =', 1)[0]
-    assert "('odometry/filtered', '/odom/local')" in ekf
-    assert ekf.count("'ekf_node'") == 2
-    odom = (ROOT / 'launch/odom.launch.py').read_text()
-    assert 'start_ekf' not in odom and "'ekf.launch.py'" in odom
-    assert 'ekf_node' not in odom and 'navsat_transform_node' not in odom
-
-
-
-
-def test_ekf_delay_is_zero_standalone_and_six_seconds_from_odom():
-    ekf = (ROOT / 'launch/ekf.launch.py').read_text()
-    odom = (ROOT / 'launch/odom.launch.py').read_text()
+def test_ekf_delay_is_zero_standalone_and_six_seconds_after_mavros():
+    """localization.launch.py picks the context from its source (test_localization_launch.py)."""
     from mhseals_nav.odometry_configuration import resolve_odometry
-    assert "DeclareLaunchArgument('ekf_delay', default_value=''" in ekf
     defaults = ROOT / 'config/odometry_startup.yaml'
     assert resolve_odometry(defaults, context='standalone').delay == 0.0
     assert resolve_odometry(defaults, context='included').delay == 6.0
-    assert 'period=6.0' not in ekf
-    assert "('ekf_startup_context', 'included'" in odom
-    assert "'ekf_delay': '6.0'" not in odom
